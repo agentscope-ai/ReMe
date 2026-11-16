@@ -51,8 +51,19 @@ async def test_fork_sends_only_explicit_content_and_consumes_decisions(tmp_path,
             captured.update(options)
             assert not runtime.chat_lock.locked()
             bound = options["injected_job_kwargs"]
-            result = await ReadInboxStep(app_context=context)(priority="P1", **bound)
-            assert [item["id"] for item in result.answer["items"]] == arguments["msg_ids"]
+            result = await ReadInboxStep(app_context=context)(**bound)
+            turn = runtime.notifications.current_turn(bound["_inbox_turn"])
+            assert [item["id"] for item in turn.items] == arguments["msg_ids"]
+            assert result.answer == {
+                "items": [
+                    {
+                        "task": "monitor",
+                        "created_at": turn.items[0]["created_at"],
+                        "message": "Experiment finished",
+                        "paths": ["daily/experiment.md"],
+                    },
+                ],
+            }
             assert list(runtime.notifications.pending) == arguments["msg_ids"]
             send = SendChatMessageStep(app_context=context)
             first = await send(content=content, **bound)
@@ -80,7 +91,48 @@ async def test_fork_sends_only_explicit_content_and_consumes_decisions(tmp_path,
         else:
             wrapper.append_session.assert_not_awaited()
         with pytest.raises(ValueError, match="active reminder fork"):
-            await ReadInboxStep(app_context=context)(priority="P1", **captured["injected_job_kwargs"])
+            await ReadInboxStep(app_context=context)(**captured["injected_job_kwargs"])
+
+
+@pytest.mark.parametrize(
+    "supporting_paths,expected_paths",
+    [
+        ([], []),
+        (["daily/experiment.md", "daily/experiment.md"], ["daily/experiment.md"]),
+        (
+            ["daily/other.md", "daily/experiment.md", "daily/other.md"],
+            ["daily/other.md", "daily/experiment.md"],
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_read_inbox_exposes_unique_supporting_paths_without_changing_internal_snapshot(
+    tmp_path,
+    supporting_paths,
+    expected_paths,
+):
+    async with running_runtime(tmp_path) as (runtime, context, _):
+        await NewChatSessionStep(app_context=context)()
+        await create_agent(runtime)
+        result, session = completed_result(runtime)
+        reminder = result.notifications[0]
+        reminder.paths = [reminder.paths[0], *supporting_paths, reminder.paths[0]]
+        await runtime.run("monitor", AsyncMock(return_value=(result, session)))
+        await runtime.outbox.sync()
+        ids = list(runtime.notifications.pending)
+        session_id = (await runtime.sessions.current("chat")).session_id
+        async with runtime.notifications.turn(session_id, "P0", ids) as turn:
+            bound = {"_agent_id": "chat", "_inbox_turn": turn.id}
+            tool = ReadInboxStep(app_context=context)
+            response = await tool(**bound)
+            assert response.answer["items"][0]["paths"] == expected_paths
+            assert turn.items[0]["paths"] == reminder.paths
+            assert turn.items[0]["id"] == ids[0] and turn.items[0]["read_at"] is None
+            response.answer["items"][0]["paths"].append("local-only.md")
+            response.answer["items"][0]["message"] = "Local edit"
+            reread = (await tool(**bound)).answer["items"][0]
+            assert reread["paths"] == expected_paths and reread["message"] == reminder.message
+            assert list(runtime.notifications.pending) == ids
 
 
 @pytest.mark.parametrize("content", ["", "Old reminder"])
@@ -97,7 +149,7 @@ async def test_native_content_changes_leave_stale_reminder_decisions_pending(tmp
 
         async def reply(_hint, **options):
             bound = options["injected_job_kwargs"]
-            await ReadInboxStep(app_context=context)(priority="P1", **bound)
+            await ReadInboxStep(app_context=context)(**bound)
             snapshot.messages.append(SessionMessage(id="stop", role="user", content="Stop reminders"))
             await SendChatMessageStep(app_context=context)(content=content, **bound)
 
@@ -120,7 +172,7 @@ async def test_failed_or_missing_decisions_preserve_messages_for_retry(tmp_path,
             if stage == "before_read":
                 raise OSError("fork failed")
             bound = options["injected_job_kwargs"]
-            await ReadInboxStep(app_context=context)(priority="P1", **bound)
+            await ReadInboxStep(app_context=context)(**bound)
             if stage == "after_read":
                 raise OSError("fork failed after reading")
             if stage == "append_failure":
@@ -144,7 +196,7 @@ async def test_fork_allows_foreground_chat_and_rejects_a_rotated_session(tmp_pat
 
         async def reply(_hint, **options):
             bound = options["injected_job_kwargs"]
-            await ReadInboxStep(app_context=context)(priority="P1", **bound)
+            await ReadInboxStep(app_context=context)(**bound)
             async with asyncio.timeout(1):
                 response = await ChatAgentStep(app_context=context)(
                     RuntimeContext(stream_queue=asyncio.Queue()),
@@ -211,8 +263,10 @@ async def test_priority_wakeup_can_overtake_older_low_priority_reminders(tmp_pat
 
         async def reply(_hint, **options):
             bound = options["injected_job_kwargs"]
-            items = (await ReadInboxStep(app_context=context)(priority="P0", **bound)).answer["items"]
-            assert [item["id"] for item in items] == urgent
+            items = (await ReadInboxStep(app_context=context)(**bound)).answer["items"]
+            assert [item["task"] for item in items] == ["urgent"]
+            turn = runtime.notifications.current_turn(bound["_inbox_turn"])
+            assert [item["id"] for item in turn.items] == urgent
             await SendChatMessageStep(app_context=context)(content="", **bound)
             return {"status": "completed"}
 
@@ -232,7 +286,7 @@ async def test_cancelled_fork_releases_scope_and_preserves_uncommitted_messages(
 
         async def reply(_hint, **options):
             try:
-                await ReadInboxStep(app_context=context)(priority="P1", **options["injected_job_kwargs"])
+                await ReadInboxStep(app_context=context)(**options["injected_job_kwargs"])
                 reading.set()
                 await asyncio.Event().wait()
             finally:
@@ -243,7 +297,7 @@ async def test_cancelled_fork_releases_scope_and_preserves_uncommitted_messages(
         async def run_job(_name, **kwargs):
             return await InboxChatStep(app_context=context)(**kwargs)
 
-        await runtime.notifications.tick(run_job, "inbox_chat")
+        await runtime.notifications.tick(run_job)
         async with asyncio.timeout(1):
             await reading.wait()
             await runtime.notifications.close()
@@ -269,7 +323,7 @@ async def test_priority_idle_thresholds_and_busy_chat(tmp_path, priority, thresh
 
         async def reply(_hint, **options):
             bound = options["injected_job_kwargs"]
-            await ReadInboxStep(app_context=context)(priority=priority, **bound)
+            await ReadInboxStep(app_context=context)(**bound)
             await SendChatMessageStep(app_context=context)(content="Update", **bound)
             return {"status": "completed"}
 
@@ -289,9 +343,9 @@ async def test_tools_cannot_read_other_priorities_or_consume_later_arrivals(tmp_
             bound = options["injected_job_kwargs"]
             with pytest.raises(ValueError, match="read_inbox"):
                 await SendChatMessageStep(app_context=context)(content="Update", **bound)
-            with pytest.raises(ValueError, match="priority"):
+            with pytest.raises(ValueError, match="accepts no arguments"):
                 await ReadInboxStep(app_context=context)(priority="P2", **bound)
-            await ReadInboxStep(app_context=context)(priority="P1", **bound)
+            await ReadInboxStep(app_context=context)(**bound)
             await runtime.create({"name": "other", "trigger_type": "event", "description": "Other observations"})
             await runtime.append(
                 "other",
@@ -320,7 +374,7 @@ async def test_delivery_rechecks_sender_settings_after_the_fork_starts(tmp_path,
 
         async def reply(_hint, **options):
             bound = options["injected_job_kwargs"]
-            await ReadInboxStep(app_context=context)(priority="P1", **bound)
+            await ReadInboxStep(app_context=context)(**bound)
             if change == "disabled":
                 await runtime.update("monitor", {"enabled": False})
             else:
@@ -352,7 +406,7 @@ async def test_cancelling_delivery_waiting_for_foreground_chat_does_not_hang(tmp
 
         async def reply(_hint, **options):
             bound = options["injected_job_kwargs"]
-            await ReadInboxStep(app_context=context)(priority="P1", **bound)
+            await ReadInboxStep(app_context=context)(**bound)
             await lock_held.wait()
             sending.set()
             await SendChatMessageStep(app_context=context)(content="Update", **bound)
@@ -397,7 +451,7 @@ async def test_fork_rechecks_original_reminders_before_sending_or_consuming(tmp_
 
         async def reply(_hint, **options):
             bound = options["injected_job_kwargs"]
-            await ReadInboxStep(app_context=context)(priority="P1", **bound)
+            await ReadInboxStep(app_context=context)(**bound)
             ref = next(iter(runtime.notifications.pending.values()))
             path = runtime.files.path(ref.file)
             runtime.files.write(path, runtime.files.read(path).replace("Experiment finished", "Experiment cancelled"))

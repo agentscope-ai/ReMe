@@ -67,7 +67,7 @@ jobs:
     steps:
       - &chat_step
         backend: chat_agent_step
-        job_tools: [manage_proactive_agent, web_extract, agent_memory]
+        job_tools: [manage_proactive_agent, web_extract]
 
   inbox_chat:
     backend: base
@@ -149,53 +149,47 @@ jobs:
   manage_proactive_agent:
     backend: base
     description: >-
-      Manage named proactive agents: list/create/status/update/delete/query.
-      Before create, call list and inspect relevant tasks with status; reuse or update a matching task.
-      Choose a short, meaningful English name, unique regardless of letter case, such as experiment_monitor or market_digest.
-      Create config requires name (the immutable agent_id), description and trigger_type (cron or event).
-      description initializes MEMORY.md at creation; use agent_memory to read and revision-check updates to task requirements and background.
-      chat and tmp are reserved. Same-name creation restores a deleted Agent and retains its existing memory and history.
-      list/update return execution settings, status and memory_path without memory bodies.
-      create/status also return memory_content and memory_truncated.
-      If memory_truncated is true, read the complete file before editing. Configuration file paths are not returned.
-      Before modifying or deleting a task, use status to inspect its current requirements and progress.
-      update accepts execution settings only; it does not accept description or change task memory.
-      cron requires a cron expression; event accepts min_trigger_interval_seconds.
-      Optional config: temporary, enabled, notify_window {start,end} in HH:MM.
+      Manage tasks by name: list/create/status/update/delete/query. All parameters are top-level.
+      Before creating or changing a task, use list/status to inspect relevant tasks and reuse a matching one.
+      Create requires name, instructions and trigger_type; cron tasks also require cron.
+      Status/update/delete/query require name; query also requires question and a previously completed run.
+      Instructions initialize MEMORY.md. Read and edit the returned memory_path using native file tools.
+      Names may be Chinese or English and must be unique regardless of case; chat and tmp are reserved.
+      Recreating a deleted name restores its existing memory and history; read memory_path to verify the requirements.
+      Update accepts only changed execution settings, not instructions, name changes or temporary changes.
+      Optional settings: enabled, cron, min_trigger_interval_seconds for event tasks, notify_window {start,end} in HH:MM.
       Cron tasks have web access; event tasks use incoming observations and local files.
-      Temporary is independent of trigger_type; idle agents are collected after seven days without new inputs.
-      query forks the agent session for a temporary read-only answer.
+      Temporary is create-only and independent of trigger_type; idle temporary tasks are collected after seven days without new inputs.
+      Query returns an answer from a temporary read-only fork. Delete retains history; external collectors must be stopped separately.
     parameters:
       type: object
       additionalProperties: false
       properties:
         action: {type: string, enum: [list, create, status, update, delete, query]}
-        agent_id: &agent_id
+        name: &agent_id
           type: string
           minLength: 1
           maxLength: 80
           pattern: '^[\w-]+$'
-          description: "Immutable Agent creation name."
-        config:
-          type: object
-          additionalProperties: false
+          description: "Task name, unique regardless of case; Chinese or English. chat and tmp are reserved."
+        instructions:
+          type: string
+          minLength: 1
+          maxLength: 100000
+          description: "Create only: task requirements and background written to MEMORY.md."
+        trigger_type: {type: string, enum: [cron, event]}
+        enabled: {type: boolean}
+        temporary: {type: boolean, description: "Create only: collect the task after seven days without new inputs."}
+        cron: {type: [string, "null"], description: "Cron expression in the application timezone."}
+        min_trigger_interval_seconds: {type: number, minimum: 0, description: "Event processing interval, not collection frequency."}
+        notify_window:
+          type: [object, "null"]
           properties:
-            name: {<<: *agent_id, description: "Short, meaningful English name, unique regardless of case; immutable agent_id. chat and tmp are reserved."}
-            description: {type: string, minLength: 1, maxLength: 100000, description: "Create only: initial task requirements and background for MEMORY.md."}
-            trigger_type: {type: string, enum: [cron, event]}
-            enabled: {type: boolean}
-            temporary: {type: boolean, default: false}
-            cron: {type: [string, "null"]}
-            min_trigger_interval_seconds: {type: number, minimum: 0}
-            max_batch_events: {type: integer, minimum: 1, default: 20}
-            notify_window:
-              type: [object, "null"]
-              properties:
-                start: {type: string}
-                end: {type: string}
-              required: [start, end]
-              additionalProperties: false
-        query: {type: string}
+            start: {type: string, pattern: '^(?:[01][0-9]|2[0-3]):[0-5][0-9]$'}
+            end: {type: string, pattern: '^(?:[01][0-9]|2[0-3]):[0-5][0-9]$'}
+          required: [start, end]
+          additionalProperties: false
+        question: {type: string, minLength: 1, maxLength: 100000, description: "Query only: question about the task's completed work."}
       required: [action]
     steps:
       - backend: manage_proactive_agent_step
@@ -247,36 +241,16 @@ jobs:
     steps:
       - backend: append_event_step
 
-  agent_memory:
-    backend: base
-    enable_serve: false
-    description: >-
-      Read or safely update Agent memory. Read returns complete content and a revision.
-      Write requires content and that expected_revision; on conflict, reread and merge current user edits.
-      Chat may specify another agent_id to update its task requirements; task Agents access only their own memory.
-      Read the complete file when tool output is truncated. Never replace MEMORY.md through command or patch tools.
-    parameters:
-      type: object
-      additionalProperties: false
-      properties:
-        action: {type: string, enum: [read, write]}
-        agent_id: *agent_id
-        content: {type: string, maxLength: 100000}
-        expected_revision: {type: string, pattern: '^[0-9a-f]{64}$'}
-      required: [action]
-    steps:
-      - backend: agent_memory_step
-
   read_inbox:
     backend: base
     enable_serve: false
-    description: Read this reminder fork's selected inbox batch. Successful send_chat_msg decisions consume it automatically.
+    description: >-
+      Read the selected reminders as task, created_at, message and supporting paths, excluding the reminder Markdown.
+      Successful send_chat_msg decisions consume the batch automatically.
     parameters:
       type: object
       additionalProperties: false
-      properties:
-        priority: {type: string, enum: [P0, P1, P2]}
-      required: [priority]
+      properties: {}
     steps:
       - backend: read_inbox_step
 
@@ -299,7 +273,6 @@ jobs:
     track_execution: true
     steps:
       - backend: proactive_agent_step
-        reminder_history_limit: 10
         timeout_seconds: 1200
 
   proactive_query:
@@ -308,32 +281,37 @@ jobs:
     steps:
       - backend: proactive_query_step
 
-  proactive_loop:
+  agent_loop:
     backend: background
     steps:
-      - backend: proactive_loop_step
+      - backend: agent_loop_step
 
-  inbox_loop:
-    backend: background
+  agent_outbox:
+    backend: base
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        agent_id: *agent_id
+        offset: &page_offset {type: integer, minimum: 0, default: 0}
+        limit: &page_limit {type: integer, minimum: 1, maximum: 100, default: 20}
+        state: {type: string, enum: [all, pending, processed], default: all}
+      required: [agent_id]
     steps:
-      - backend: inbox_loop_step
-
-  agent_mailbox:
+    - backend: agent_outbox_step
+  agent_reminder:
     backend: base
     parameters:
       type: object
       additionalProperties: false
       properties:
         agent_id: &view_agent_id {<<: *agent_id, default: chat}
-        offset: &page_offset {type: integer, minimum: 0, default: 0}
-        limit: &page_limit {type: integer, minimum: 1, maximum: 100, default: 20}
-        action: {type: string, enum: [list, read], default: list}
-        state: {type: string, enum: [all, pending, processed], default: all}
-        message_id: {type: [string, "null"], minLength: 1, maxLength: 128, default: null}
+        message_id: {type: string, minLength: 1, maxLength: 128}
         mark_read: {type: boolean, default: false}
+      required: [message_id]
     steps:
-    - backend: agent_mailbox_step
-  agent_event_list:
+    - backend: agent_reminder_step
+  agent_inbox:
     backend: base
     parameters:
       type: object
@@ -344,7 +322,7 @@ jobs:
         limit: *page_limit
         state: {type: string, enum: [all, pending, processing, processed], default: all}
     steps:
-    - backend: agent_event_list_step
+    - backend: agent_inbox_step
   agent_list:
     backend: base
     parameters:
@@ -654,10 +632,6 @@ components:
           description: |
             关注主人现在正在做哪些项目，逐个跟踪项目的进度、新进展和难点，梳理需要进一步讨论的问题。
             根据收到的资料持续更新项目情况，区分已确认的信息和待确认的问题。
-      notifications:
-        p0_delay_seconds: 0
-        p1_idle_seconds: 10
-        p2_idle_seconds: 1800
 
   codex_app_server:
     default:

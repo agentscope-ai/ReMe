@@ -1,7 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1780" height="1020" viewBox="0 0 1780 1020" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1780" height="1120" viewBox="0 0 1780 1120" role="img" aria-labelledby="title desc">
   <title id="title">Personal Runtime</title>
-  <desc id="desc">The foreground Chat Agent owns the conversation, a temporary read-only forked context and the proactive-task management skill. The conversation forks context; the fork reads Chat Inbox and sends a selected reminder back or stays quiet. A dashed reminder path also connects Chat Inbox to Conversation. Eight action labels with concise descriptions cover List, Create, Status, Edit MEMORY.md, Pause / Start, Query, Update and Delete. The management tool has six native actions; memory edits use agent_memory and pause/start updates enabled. Chat Inbox shows the priority legend and P0, P1, P2 and Quiet examples. Quiet is a decision example and creates no Inbox item. Independent proactive tasks are represented by stacked cards; only the foreground card shows Event Inbox → Proactive run → Outbox. Deliver connects the two container boundaries. Four straight file links terminate at personal memory, session references, Chat Inbox and task files; their labels share one baseline. File cards contain only names and full example paths. All messages and values are illustrative.</desc>
-  <metadata>Source: skills/manage-proactive-agent/SKILL.md; reme/schema/proactive_agent.py; reme/config/proactive.yaml; reme/components/agent_inbox/; reme/components/agent_runtime/local_agent_runtime.py; reme/components/agent_runtime/_internal/outbox.py; reme/components/agent_runtime/_internal/notifications.py; reme/steps/proactive/agent/. Drawn from the current working tree. Example paths use workspace/ as the configured workspace root.</metadata>
+  <desc id="desc">The foreground Chat Agent manages independent named proactive tasks through six management actions. Task instructions initialize MEMORY.md; later edits use native file tools. Pause and resume update enabled. Query requires a completed run and uses a read-only fork of that completed task session; its temporary reference is retained without selecting it as the main task session. Background Outboxes deliver events pointing to canonical reminder files into Chat Inbox. A separate ephemeral read-only offline fork of the current Chat calls read_inbox with no arguments to obtain the selected reminders and supporting paths, reads the original evidence, then calls send_chat_msg with text or an empty quiet decision. Both decisions consume the selected batch. Only chosen text is appended to the conversation. Quiet is a decision example, not an Inbox item. File cards show personal memory, Chat and task session references, unread and read Inbox logs, task configuration and memory, dated reminders and daily outputs. Temporary task directories use reme_agents/tmp/{agent_id}/. All messages and values are illustrative.</desc>
+  <metadata>Source: reme/schema/proactive_agent.py; reme/config/proactive.yaml; reme/components/agent_inbox/; reme/components/agent_runtime/_internal/registry.py; reme/components/agent_runtime/_internal/sessions.py; reme/components/agent_runtime/_internal/outbox.py; reme/components/agent_runtime/_internal/notifications.py; reme/steps/proactive/agent/proactive.py; reme/steps/proactive/agent/inbox.py; reme/steps/proactive/agent/inbox.yaml; reme/steps/proactive/tools/manage_proactive_agent.py; reme/steps/proactive/tools/inbox.py. Drawn from the current working tree. .reme/ represents the configured workspace root; {date} is an application-local calendar date. Permanent task paths shown.</metadata>
   <defs>
     <style>
       text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; fill: #22383F; }
@@ -33,7 +33,7 @@
       <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#173A42" flood-opacity=".08" />
     </filter>
   </defs>
-  <rect x="0" y="0" width="1780" height="1020" rx="0" fill="#F8FAFA" />
+  <rect x="0" y="0" width="1780" height="1120" rx="0" fill="#F8FAFA" />
   <text x="64" y="43" class="section teal">REME / 02</text>
   <text x="64" y="91" class="title">Personal Runtime</text>
   <path d="M64 118H1716" class="line" stroke="#DFE8E8" stroke-width="1" />
@@ -55,24 +55,26 @@
     </g>
     <g data-role="forked-chat-context" data-box="508,268,172,100">
       <rect x="508" y="268" width="172" height="100" rx="12" fill="#F6F2FA" stroke="#E2DBEC" />
-      <text x="594" y="318" font-size="20" class="purple" font-weight="600" text-anchor="middle" dominant-baseline="middle">Forked context</text>
+      <text x="594" y="309" font-size="19" class="purple" font-weight="600" text-anchor="middle" dominant-baseline="middle">Reminder fork</text>
+      <text x="594" y="340" font-size="12" class="muted" text-anchor="middle">Read-only · offline</text>
     </g>
     <path d="M352 300H506" class="line" stroke="#45999A" stroke-width="1.5" marker-end="url(#teal)" />
     <text x="429" y="287" font-size="13" text-anchor="middle" class="teal">fork</text>
     <path d="M506 340H352" class="line" stroke="#BE9859" stroke-width="1.5" marker-end="url(#gold)" />
-    <text x="429" y="362" font-size="13" text-anchor="middle" style="fill:#A07A3D">send / skip</text>
+    <text x="429" y="362" font-size="13" text-anchor="middle" style="fill:#A07A3D">send_chat_msg / quiet</text>
+    <text x="594" y="388" font-size="12" class="purple" text-anchor="middle">Read evidence in paths</text>
     <path d="M88 404H680" class="line" stroke="#DFE8E8" />
     <g data-role="chat-task-management">
       <text x="92" y="435" font-size="20" font-weight="600">Skill · manage-proactive-agent</text>
       <g data-role="skill-list" data-box="92,450,268,46">
         <rect x="92" y="450" width="48" height="24" rx="6" fill="#E8F2F1" />
         <text x="104" y="462" font-size="15" font-weight="650" style="fill:#147D80" dominant-baseline="middle">List</text>
-        <text x="104" y="492" font-size="15" class="muted">Show existing tasks and their state.</text>
+        <text x="104" y="492" font-size="15" class="muted">List names, schedules and state.</text>
       </g>
       <g data-role="skill-create" data-box="396,450,268,46">
         <rect x="396" y="450" width="72" height="24" rx="6" fill="#E8F2F1" />
         <text x="408" y="462" font-size="15" font-weight="650" style="fill:#147D80" dominant-baseline="middle">Create</text>
-        <text x="408" y="492" font-size="15" class="muted">Track runs; flag failure or success.</text>
+        <text x="408" y="492" font-size="15" class="muted">Create a named task and memory.</text>
       </g>
       <g data-role="skill-status" data-box="92,510,268,46">
         <rect x="92" y="510" width="64" height="24" rx="6" fill="#E8F2F1" />
@@ -82,17 +84,17 @@
       <g data-role="skill-edit-memory" data-box="396,510,268,46">
         <rect x="396" y="510" width="140" height="24" rx="6" fill="#EEE9F5" />
         <text x="408" y="522" font-size="15" font-weight="650" style="fill:#775AA6" dominant-baseline="middle">Edit MEMORY.md</text>
-        <text x="408" y="552" font-size="15" class="muted">Update goals and reminder rules.</text>
+        <text x="408" y="552" font-size="15" class="muted">Edit with native file tools.</text>
       </g>
       <g data-role="skill-pause-start" data-box="92,570,268,46">
         <rect x="92" y="570" width="116" height="24" rx="6" fill="#F6EFE3" />
         <text x="104" y="582" font-size="15" font-weight="650" style="fill:#A07A3D" dominant-baseline="middle">Pause / Start</text>
-        <text x="104" y="612" font-size="15" class="muted">Pause or resume task processing.</text>
+        <text x="104" y="612" font-size="15" class="muted">Update enabled to pause or resume.</text>
       </g>
       <g data-role="skill-query" data-box="396,570,268,46">
         <rect x="396" y="570" width="68" height="24" rx="6" fill="#EEE9F5" />
         <text x="408" y="582" font-size="15" font-weight="650" style="fill:#775AA6" dominant-baseline="middle">Query</text>
-        <text x="408" y="612" font-size="15" class="muted">Ask about the task’s latest findings.</text>
+        <text x="408" y="612" font-size="15" class="muted">Ask a read-only task-session fork.</text>
       </g>
       <g data-role="skill-update" data-box="92,630,268,46">
         <rect x="92" y="630" width="80" height="24" rx="6" fill="#E8F2F1" />
@@ -109,7 +111,7 @@
   <g data-role="chat-inbox" data-box="808,196,408,356">
     <rect x="808" y="196" width="408" height="356" rx="16" fill="#FFFFFF" stroke="#E2DBEC" />
     <text x="832" y="238" class="heading purple">Chat Inbox</text>
-    <text x="832" y="266" class="small muted">Reminder references</text>
+    <text x="832" y="266" class="small muted">Events linking to saved reminder files</text>
     <g data-role="reminder-types">
       <rect x="832" y="290" width="36" height="22" rx="6" fill="#EEE9F5" />
       <text x="850.0" y="306" font-size="12" class="purple" font-weight="600" text-anchor="middle">P0</text>
@@ -133,17 +135,17 @@
     <g data-role="inbox-reminder">
       <rect x="832" y="430" width="52" height="24" rx="6" fill="#EEE9F5" />
       <text x="858" y="447" font-size="12" class="purple" font-weight="600" text-anchor="middle">P1</text>
-      <text x="898" y="447" font-size="15">Possible edge case. Check now.</text>
+      <text x="898" y="447" font-size="15">Project A has new results.</text>
     </g>
     <g data-role="inbox-reminder">
       <rect x="832" y="468" width="52" height="24" rx="6" fill="#EEE9F5" />
       <text x="858" y="485" font-size="12" class="purple" font-weight="600" text-anchor="middle">P2</text>
-      <text x="898" y="485" font-size="15">Today&#x27;s report is still pending.</text>
+      <text x="898" y="485" font-size="15">A relevant paper is available.</text>
     </g>
     <g data-role="quiet-decision-example">
       <rect x="832" y="506" width="52" height="24" rx="6" fill="#EAF0F1" />
       <text x="858" y="523" font-size="12" class="muted" font-weight="600" text-anchor="middle">Quiet</text>
-      <text x="898" y="523" font-size="15">No need to interrupt.</text>
+      <text x="898" y="523" font-size="15">No Inbox item is created.</text>
     </g>
   </g>
   <g data-role="proactive-runtimes" data-box="1304,196,412,356">
@@ -160,11 +162,7 @@
   </g>
   <g data-role="read-inbox">
     <path d="M682 300H806" class="line" stroke="#9A83BA" stroke-width="1.7" marker-end="url(#purple)" />
-    <text x="744" y="287" font-size="14" class="purple" font-weight="600" text-anchor="middle">read_inbox</text>
-  </g>
-  <g data-role="inbox-to-conversation">
-    <path d="M806 388H219V370" class="line" stroke="#9A83BA" stroke-width="1.7" marker-end="url(#purple)" stroke-dasharray="4 5" />
-    <text x="744" y="376" font-size="14" class="purple" font-weight="600" text-anchor="middle">remind</text>
+    <text x="744" y="287" font-size="14" class="purple" font-weight="600" text-anchor="middle">read_inbox()</text>
   </g>
   <g data-role="runtime-to-inbox">
     <path d="M1302 410H1218" class="line" stroke="#9A83BA" stroke-width="1.7" marker-end="url(#purple)" stroke-dasharray="4 5" />
@@ -187,26 +185,32 @@
   </g>
   <text x="64" y="776" font-size="21" font-weight="650">Workspace files</text>
   <g data-role="workspace-files">
-    <g data-role="personal-memory" data-box="64,816,398,160" data-path="workspace/reme_agents/chat/MEMORY.md">
-      <rect x="64" y="816" width="398" height="160" rx="14" fill="#FFFFFF" stroke="#DDE7E7" />
+    <g data-role="personal-memory" data-box="64,816,398,208" data-path=".reme/reme_agents/chat/MEMORY.md">
+      <rect x="64" y="816" width="398" height="208" rx="14" fill="#FFFFFF" stroke="#DDE7E7" />
       <text x="84" y="860" font-size="22" font-weight="650">Personal memory</text>
-      <text x="84" y="904" class="file"><tspan x="84">workspace/reme_agents/chat/</tspan><tspan x="84" dy="22">MEMORY.md</tspan></text>
+      <text x="84" y="904" class="file"><tspan x="84">.reme/reme_agents/chat/</tspan><tspan x="84" dy="22">MEMORY.md</tspan></text>
+      <text x="84" y="988" font-size="13" class="muted">Native file edits · user-confirmed facts</text>
     </g>
-    <g data-role="session-references" data-box="482,816,398,160" data-path="workspace/reme_agents/chat/sessions.jsonl">
-      <rect x="482" y="816" width="398" height="160" rx="14" fill="#FFFFFF" stroke="#DDE7E7" />
+    <g data-role="session-references" data-box="482,816,398,208" data-path=".reme/reme_agents/chat/sessions.jsonl" data-task-path=".reme/reme_agents/{agent_id}/sessions.jsonl">
+      <rect x="482" y="816" width="398" height="208" rx="14" fill="#FFFFFF" stroke="#DDE7E7" />
       <text x="502" y="860" font-size="22" font-weight="650">Session references</text>
-      <text x="502" y="904" class="file"><tspan x="502">workspace/reme_agents/chat/</tspan><tspan x="502" dy="22">sessions.jsonl</tspan></text>
+      <text x="502" y="904" class="file"><tspan x="502">.reme/reme_agents/chat/</tspan><tspan x="502" dy="22">sessions.jsonl</tspan></text>
+      <text x="502" y="966" class="file"><tspan x="502">.reme/reme_agents/{agent_id}/</tspan><tspan x="502" dy="22">sessions.jsonl</tspan></text>
     </g>
-    <g data-role="inbox-files" data-box="900,816,398,160" data-path="workspace/reme_agents/chat/inbox/">
-      <rect x="900" y="816" width="398" height="160" rx="14" fill="#FFFFFF" stroke="#E2DBEC" />
+    <g data-role="inbox-files" data-box="900,816,398,208" data-path=".reme/reme_agents/chat/inbox/">
+      <rect x="900" y="816" width="398" height="208" rx="14" fill="#FFFFFF" stroke="#E2DBEC" />
       <text x="920" y="860" font-size="22" font-weight="650">Chat Inbox</text>
-      <text x="920" y="904" class="file"><tspan x="920">workspace/reme_agents/chat/</tspan><tspan x="920" dy="22">inbox/</tspan></text>
+      <text x="920" y="904" class="file"><tspan x="920">.reme/reme_agents/chat/</tspan><tspan x="920" dy="22">inbox/inbox_unread.jsonl</tspan><tspan x="920" dy="22">inbox/inbox_read.jsonl</tspan></text>
+      <text x="920" y="988" font-size="13" class="muted">Reminder content stays in task files</text>
     </g>
-    <g data-role="task-files" data-box="1318,816,398,160" data-path="workspace/reme_agents/{agent}/">
-      <rect x="1318" y="816" width="398" height="160" rx="14" fill="#FFFFFF" stroke="#DDE7E7" />
+    <g data-role="task-files" data-box="1318,816,398,208" data-path=".reme/reme_agents/{agent_id}/" data-daily-path=".reme/daily/{date}/{agent_id}.md">
+      <rect x="1318" y="816" width="398" height="208" rx="14" fill="#FFFFFF" stroke="#DDE7E7" />
       <text x="1338" y="860" font-size="22" font-weight="650">Task files</text>
-      <text x="1338" y="904" class="file"><tspan x="1338">workspace/reme_agents/</tspan><tspan x="1338" dy="22">{agent}/</tspan></text>
+      <text x="1338" y="896" class="file"><tspan x="1338">.reme/reme_agents/{agent_id}/</tspan><tspan x="1338" dy="20">config.json · MEMORY.md</tspan><tspan x="1338" dy="20">reminder/{date}/HHMMSS.md</tspan></text>
+      <text x="1338" y="960" class="file"><tspan x="1338">.reme/daily/{date}/</tspan><tspan x="1338" dy="20">{agent_id}.md</tspan><tspan x="1338" dy="20">{agent_id}_HHMMSS.md</tspan></text>
     </g>
   </g>
-  <text x="1716" y="1003" font-size="12" class="muted" text-anchor="end">REME / PERSONAL RUNTIME</text>
+  <text x="64" y="1050" font-size="12" class="muted">Default paths: workspace_dir=.reme · resource_dir=resource · daily_dir=daily · reme_agent_dir=reme_agents. Directory settings may be overridden.</text>
+  <text x="64" y="1072" font-size="12" class="muted">Permanent task paths shown; temporary task files use .reme/reme_agents/tmp/{agent_id}/. Daily records remain under .reme/daily/.</text>
+  <text x="1716" y="1103" font-size="12" class="muted" text-anchor="end">REME / PERSONAL RUNTIME</text>
 </svg>

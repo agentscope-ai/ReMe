@@ -19,12 +19,13 @@ from reme.enumeration import ChunkEnum, ComponentEnum
 from reme.schema import SessionSnapshot, SessionStatus, StreamChunk
 from reme.schema.proactive_agent import (
     CreateProactiveAgentConfig,
+    ManageProactiveAgentRequest,
     ProactiveAgentConfig,
     ProactiveRunResult,
 )
 from reme.steps.proactive.agent import (
     AgentChatStep,
-    AgentMailboxStep,
+    AgentReminderStep,
     AgentSessionStep,
     ChatAgentStep,
     InboxChatStep,
@@ -188,9 +189,15 @@ def test_configuration_registers_runtime_and_agent_steps_without_legacy_aliases(
             assert R.get(ComponentEnum.STEP, step["backend"]) is not None
     assert not config["jobs"]["proactive_run"]["enable_serve"]
     assert not config["jobs"]["inbox_chat"]["enable_serve"]
+    assert config["jobs"]["agent_loop"]["steps"] == [{"backend": "agent_loop_step"}]
+    for name in ("proactive_loop", "inbox_loop", "agent_event_list", "agent_mailbox"):
+        assert name not in config["jobs"]
+        assert R.get(ComponentEnum.STEP, f"{name}_step") is None
+    assert config["jobs"]["read_inbox"]["parameters"]["properties"] == {}
     schema = CreateProactiveAgentConfig.model_json_schema()
-    properties = config["jobs"]["manage_proactive_agent"]["parameters"]["properties"]["config"]["properties"]
-    assert properties.keys() == schema["properties"].keys()
+    properties = config["jobs"]["manage_proactive_agent"]["parameters"]["properties"]
+    assert properties.keys() == ManageProactiveAgentRequest.model_json_schema()["properties"].keys()
+    assert not {"agent_id", "config", "query", "max_batch_events"} & properties.keys()
     assert "trigger_type" in schema["required"]
     assert "type" not in schema["properties"]
     assert "description" not in ProactiveAgentConfig.model_json_schema()["properties"]
@@ -216,7 +223,8 @@ async def test_trigger_controls_tools_and_network(tmp_path, trigger_type):
         agent = await runtime.definition("monitor")
         options = ProactiveAgentStep(app_context=context)._options(agent)
         online = trigger_type == "cron"
-        assert options["job_tools"] == ["agent_memory", *(["web_extract"] if online else [])]
+        assert options["job_tools"] == (["web_extract"] if online else [])
+        assert "read_only_paths" not in ProactiveAgentStep(app_context=context).session_options(agent)
         assert options["config"]["web_search"] == ("live" if online else "disabled")
         assert options["config"]["sandbox_workspace_write"]["network_access"] is online
 
@@ -228,8 +236,10 @@ def test_network_policy_has_no_per_agent_override():
             ProactiveAgentConfig(**values, **{field: True})
     config = resolve_app_config(config="proactive", log_config=False)
     jobs = config["jobs"]
-    assert jobs["chat"]["steps"][0]["job_tools"] == ["manage_proactive_agent", "web_extract", "agent_memory"]
-    assert "enable_web" not in jobs["manage_proactive_agent"]["parameters"]["properties"]["config"]["properties"]
+    assert jobs["chat"]["steps"][0]["job_tools"] == ["manage_proactive_agent", "web_extract"]
+    assert "enable_web" not in jobs["manage_proactive_agent"]["parameters"]["properties"]
+    assert "agent_memory" not in jobs
+    assert R.get(ComponentEnum.STEP, "agent_memory_step") is None
 
 
 @pytest.mark.asyncio
@@ -276,8 +286,9 @@ async def test_trigger_updates_fork_sessions_with_the_new_tool_policy(tmp_path):
         for trigger_type in ("event", "cron", "event"):
             await tool(
                 action="update",
-                agent_id="monitor",
-                config={"trigger_type": trigger_type, "cron": "0 * * * *" if trigger_type == "cron" else None},
+                name="monitor",
+                trigger_type=trigger_type,
+                **({"cron": "0 * * * *"} if trigger_type == "cron" else {}),
             )
             agent = await runtime.definition("monitor")
             assert agent.trigger_type == trigger_type
@@ -289,10 +300,7 @@ async def test_trigger_updates_fork_sessions_with_the_new_tool_policy(tmp_path):
             )
             if previous is not None:
                 assert current != previous and wrapper.created[-1]["resume"] == previous
-            assert wrapper.created[-1]["job_tools"] == [
-                "agent_memory",
-                *(["web_extract"] if trigger_type == "cron" else []),
-            ]
+            assert wrapper.created[-1]["job_tools"] == (["web_extract"] if trigger_type == "cron" else [])
             previous = current
         saved = json.loads((runtime.agents.path("monitor") / "config.json").read_text())
         assert saved["trigger_type"] == "event" and saved["cron"] is None
@@ -304,9 +312,11 @@ async def test_named_runtime_reference_and_durable_definition_layout(tmp_path):
         step = ManageProactiveAgentStep(app_context=context, agent_runtime="selected")
         response = await step(
             action="create",
-            config={"name": "monitor", "description": "Monitor", "trigger_type": "event"},
+            name="monitor",
+            instructions="Monitor",
+            trigger_type="event",
         )
-        assert response.success and response.answer["agent_id"] == "monitor"
+        assert response.success and response.answer["name"] == "monitor"
         assert runtime.agents.path("monitor") == tmp_path / "reme_agents/monitor"
         assert runtime.agent_wrapper is wrapper
         assert runtime.inbox is context.components["agent_inbox"]["default"]
@@ -324,47 +334,47 @@ async def test_named_runtime_reference_and_durable_definition_layout(tmp_path):
 @pytest.mark.parametrize("temporary", [False, True])
 @pytest.mark.parametrize("language", ["en", "zh"])
 @pytest.mark.asyncio
-async def test_management_exposes_memory_and_settings_without_config_paths(tmp_path, temporary, language):
+async def test_management_exposes_memory_path_and_action_specific_settings(tmp_path, temporary, language):
     async with running_runtime(tmp_path, language=language) as (_, context, _):
         tool = ManageProactiveAgentStep(app_context=context)
         response = await tool(
             action="create",
-            config={
-                "name": "monitor",
-                "description": "Only report failures",
-                "trigger_type": "event",
-                "temporary": temporary,
-            },
+            name="monitor",
+            instructions="Only report failures",
+            trigger_type="event",
+            temporary=temporary,
         )
         created = response.answer
         path = tmp_path / created["memory_path"]
         assert path == tmp_path / "reme_agents" / ("tmp/monitor" if temporary else "monitor") / "MEMORY.md"
-        assert created["config"]["trigger_type"] == "event"
-        assert "description" not in created["config"] and "config_path" not in created
-        assert created["memory_content"] == path.read_text()
-        assert created["memory_content"] == "Only report failures"
-        assert not created["memory_truncated"]
+        assert created == {"name": "monitor", "memory_path": path.relative_to(tmp_path).as_posix()}
+        assert path.read_text() == "Only report failures"
         path.write_text("Only report completion\n")
-        status = (await tool(action="status", agent_id="monitor")).answer
-        assert status["memory_content"] == path.read_text()
+        status = (await tool(action="status", name="monitor")).answer
+        assert status["memory_path"] == created["memory_path"]
+        assert status["trigger_type"] == "event" and status["temporary"] is temporary
+        assert "memory_content" not in status and "memory_truncated" not in status
         listing = (await tool(action="list")).answer
-        assert listing["total"] == 1
-        assert listing["items"][0]["memory_path"] == created["memory_path"]
-        assert "memory_content" not in listing["items"][0]
-        assert "config_path" not in listing["items"][0]
+        assert listing == {"items": [{"name": "monitor", "trigger_type": "event", "enabled": True}]}
 
 
 @pytest.mark.asyncio
-async def test_status_marks_long_memory_previews_without_changing_the_file(tmp_path):
+async def test_status_returns_memory_path_without_loading_or_changing_contents(tmp_path, monkeypatch):
     async with running_runtime(tmp_path) as (runtime, _, _):
         await create_agent(runtime)
         path = runtime.agents.path("monitor") / "MEMORY.md"
         content = "实验记录\n" * 1000
         runtime.files.write(path, content)
+        read = runtime.files.read
+
+        def reject_memory_read(candidate):
+            assert candidate != path
+            return read(candidate)
+
+        monkeypatch.setattr(runtime.files, "read", reject_memory_read)
         status = await runtime.status("monitor")
-        assert status["memory_truncated"]
-        assert content.startswith(status["memory_content"])
-        assert 0 < len(status["memory_content"]) < len(content)
+        assert status["memory_path"] == path.relative_to(tmp_path).as_posix()
+        assert "memory_content" not in status and "memory_truncated" not in status
         assert path.read_text() == content
 
 
@@ -429,7 +439,7 @@ async def test_restoring_a_deleted_agent_retains_edited_memory(tmp_path):
         runtime.files.write(path, content)
         await runtime.delete("monitor")
         restored = await runtime.create({"name": "monitor", "description": "Initial text", "trigger_type": "event"})
-        assert restored["memory_content"] == content
+        assert restored["restored"]
         assert path.read_text() == content
 
 
@@ -448,7 +458,7 @@ async def test_initial_agents_use_creation_once_and_preserve_updates_and_deletio
         await runtime.delete("timer")
     async with running_runtime(tmp_path, agents=initial) as (runtime, _, _):
         status = await runtime.status("monitor")
-        assert status["memory_content"] == "Updated by the user\n"
+        assert (tmp_path / status["memory_path"]).read_text() == "Updated by the user\n"
         assert status["config"]["min_trigger_interval_seconds"] == 60
         assert not status["config"]["enabled"]
         assert (await runtime.list_agents())["total"] == 1
@@ -499,14 +509,14 @@ async def test_status_refuses_memory_symlinks_and_respects_tool_permissions(tmp_
         await create_agent(runtime)
         tool = ManageProactiveAgentStep(app_context=context)
         with pytest.raises(PermissionError, match="agent runtime files"):
-            await tool(RuntimeContext(_allowed_paths=["daily"]), action="status", agent_id="monitor")
+            await tool(RuntimeContext(_allowed_paths=["daily"]), action="status", name="monitor")
         memory = runtime.agents.path("monitor") / "MEMORY.md"
         memory.unlink()
         outside = tmp_path.parent / f"{tmp_path.name}-memory.md"
         outside.write_text("Private content")
         memory.symlink_to(outside)
         with pytest.raises(ValueError, match="without symlinks"):
-            await tool(action="status", agent_id="monitor")
+            await tool(action="status", name="monitor")
 
 
 @pytest.mark.parametrize(
@@ -579,33 +589,9 @@ async def test_proactive_agent_step_saves_artifacts_and_publishes_through_runtim
         assert item["paths"] == [
             paths[key].relative_to(tmp_path).as_posix() for key in ("reminder_path", "detail_path")
         ]
-        assert paths["detail_path"].name == paths["reminder_path"].name == f"monitor_{now:%H%M%S}.md"
+        assert paths["detail_path"].name == f"monitor_{now:%H%M%S}.md"
+        assert paths["reminder_path"].name == f"{now:%H%M%S}.md"
         assert wrapper.created[0]["sandbox"] == "workspace-write"
-
-
-@pytest.mark.asyncio
-async def test_round_paths_select_history_and_keep_paired_filenames(tmp_path):
-    async with running_runtime(tmp_path) as (runtime, context, _):
-        await create_agent(runtime)
-        agent = await runtime.definition("monitor")
-        step = ProactiveAgentStep(app_context=context)
-        now = runtime.now()
-        paths = step._paths(agent, now)
-        assert paths["history_summary_path"] is None
-        for delta in (-5, -2, 1):
-            path = tmp_path / "daily" / f"{now + timedelta(days=delta):%Y-%m-%d}" / "monitor.md"
-            runtime.files.write(path, "# Summary\n")
-        runtime.files.write(tmp_path / "daily/not-a-date/monitor.md", "# Invalid date\n")
-        paths = step._paths(agent, now)
-        assert paths["history_summary_path"].parent.name == f"{now - timedelta(days=2):%Y-%m-%d}"
-        runtime.files.write(paths["summary_path"], "# Today\n")
-        runtime.files.write(paths["detail_path"], "# Existing details\n")
-        paths = step._paths(agent, now)
-        assert paths["history_summary_path"] == paths["summary_path"]
-        assert paths["detail_path"].name == paths["reminder_path"].name == f"monitor_{now:%H%M%S}_1.md"
-        runtime.files.write(paths["reminder_path"], "---\npriority: P1\n---\nExisting reminder\n")
-        paths = step._paths(agent, now)
-        assert paths["detail_path"].name == paths["reminder_path"].name == f"monitor_{now:%H%M%S}_2.md"
 
 
 @pytest.mark.parametrize(
@@ -657,16 +643,26 @@ async def test_incomplete_round_keeps_events_pending_without_publishing(tmp_path
         assert not runtime.notifications.pending
 
 
+@pytest.mark.parametrize("existing_summary", [False, True])
 @pytest.mark.asyncio
-async def test_round_without_reminder_uses_saved_files_instead_of_response_json(tmp_path, monkeypatch):
+async def test_round_without_reminder_uses_saved_files_instead_of_response_json(
+    tmp_path,
+    monkeypatch,
+    existing_summary,
+):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)
         paths = ProactiveAgentStep(app_context=context)._paths(await runtime.definition("monitor"), now)
+        summary_mtime = None
+        if existing_summary:
+            runtime.files.write(paths["summary_path"], "# No material change\n")
+            summary_mtime = paths["summary_path"].stat().st_mtime_ns
 
         async def model_reply(_query, **kwargs):
-            runtime.files.write(paths["summary_path"], "# No material change\n")
+            if not existing_summary:
+                runtime.files.write(paths["summary_path"], "# No material change\n")
             return {
                 "status": "completed",
                 "session_id": kwargs["resume"],
@@ -695,6 +691,8 @@ async def test_round_without_reminder_uses_saved_files_instead_of_response_json(
         response = await ProactiveAgentStep(app_context=context)(agent_id="monitor")
         assert response.success and response.answer["notifications"] == []
         assert (await runtime.status("monitor"))["pending_events"] == 0
+        if existing_summary:
+            assert paths["summary_path"].stat().st_mtime_ns == summary_mtime
         await runtime.outbox.sync()
         assert not runtime.notifications.pending
 
@@ -835,17 +833,17 @@ async def test_chat_rotation_preserves_inbox_and_wakeup_uses_current_session(tmp
 
         async def decide(_hint, **options):
             bound = options["injected_job_kwargs"]
-            await ReadInboxStep(app_context=context)(priority="P0", **bound)
+            await ReadInboxStep(app_context=context)(**bound)
             await SendChatMessageStep(app_context=context)(content="", **bound)
             assert options["resume"] == current and options["ephemeral"]
             return {"status": "completed", "result": "Internal final reply"}
 
         wrapper.reply = AsyncMock(side_effect=decide)
-        await runtime.notifications.tick(run_job, "inbox_chat")
+        await runtime.notifications.tick(run_job)
         await runtime.notifications.worker
         assert identifier not in runtime.notifications.pending
         assert runtime.notifications.retry_at is None
-        await runtime.notifications.tick(run_job, "inbox_chat")
+        await runtime.notifications.tick(run_job)
         assert runtime.notifications.worker is None
         wrapper.reply.assert_awaited_once()
         assert len(wrapper.turns) == 1
@@ -856,11 +854,11 @@ async def test_agent_tools_preserve_receiver_identity_and_workspace_permissions(
     async with running_runtime(tmp_path) as (_, context, _):
         tool = ReadInboxStep(app_context=context)
         with pytest.raises(ValueError, match="calling Chat Agent"):
-            await tool(priority="P1", _agent_id="other")
+            await tool(_agent_id="other")
         with pytest.raises(PermissionError, match="agent runtime files"):
-            await tool(RuntimeContext(_allowed_paths=["daily"]), priority="P1", _agent_id="chat")
+            await tool(RuntimeContext(_allowed_paths=["daily"]), _agent_id="chat")
         with pytest.raises(ValueError, match="active reminder fork"):
-            await tool(priority="P1", _agent_id="chat")
+            await tool(_agent_id="chat")
 
 
 @pytest.mark.asyncio
@@ -880,10 +878,11 @@ async def test_agent_directories_memory_and_reference_only_inbox(tmp_path):
         await runtime.run("monitor", AsyncMock(return_value=completed_result(runtime)))
         await runtime.outbox.sync()
         refs = list(runtime.files.iter_jsonl(inbox_path(runtime)))
-        assert len(refs) == 1 and set(refs[0]) == {"file", "id"}
-        assert refs[0]["file"].startswith("reme_agents/monitor/reminder/")
+        assert len(refs) == 1 and set(refs[0]) == {"id", "event_ts", "source", "description", "paths", "metadata"}
+        assert refs[0]["paths"][0].startswith("reme_agents/monitor/reminder/")
+        assert refs[0]["source"] == "monitor" and "message" not in refs[0]
         receipt = (await runtime.inbox.snapshot("monitor"))["receipt"]
-        assert receipt.metadata["reminders"] == refs
+        assert receipt.metadata["reminders"] == [{"id": refs[0]["id"], "file": refs[0]["paths"][0]}]
         await ChatAgentStep(app_context=context)(RuntimeContext(stream_queue=asyncio.Queue()), query="Hello")
         assert (tmp_path / "reme_agents/chat/MEMORY.md").is_file()
         assert (tmp_path / "reme_agents/chat/sessions.jsonl").is_file()
@@ -904,7 +903,7 @@ async def test_temporary_collection_uses_new_input_reception_and_preserves_refer
         await runtime.append("experiment", event)
         monkeypatch.setattr(runtime, "now", lambda: start + timedelta(days=8))
         await runtime.append("experiment", event)  # Duplicate delivery must not extend lifetime.
-        assert (await runtime.list_events("experiment"))["items"][0]["event"]["metadata"][
+        assert (await runtime.list_inputs("experiment"))["items"][0]["event"]["metadata"][
             "_received_at"
         ] == future.isoformat()
         await runtime.run("experiment", AsyncMock(return_value=(ProactiveRunResult(notifications=[]), "session-1")))
@@ -1219,7 +1218,7 @@ async def test_query_registration_protects_temporary_agent_during_checkpoint_sel
         try:
             await asyncio.wait_for(checkpoint_entered.wait(), 2)
             assert runtime.agent_tasks.get(querying) == "experiment"
-            collecting = asyncio.create_task(runtime.tick(AsyncMock(), "proactive_run"))
+            collecting = asyncio.create_task(runtime.tick(AsyncMock()))
             checkpoint_release.set()
             await asyncio.wait_for(model_entered.wait(), 2)
             await asyncio.wait_for(collecting, 2)
@@ -1240,7 +1239,7 @@ async def test_query_registration_protects_temporary_agent_during_checkpoint_sel
 async def test_query_without_a_completed_checkpoint_releases_ownership(tmp_path):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
-        with pytest.raises(ValueError, match="no completed session"):
+        with pytest.raises(ValueError, match="not completed a run"):
             await ProactiveQueryStep(app_context=context)(agent_id="monitor", query="Status?")
         assert not runtime.agent_tasks and not wrapper.created
 
@@ -1284,7 +1283,7 @@ async def test_custom_root_and_unicode_identity_share_the_same_layout(tmp_path):
         path = tmp_path / "runtime/agents/屏幕观察"
         assert (path / "config.json").is_file()
         assert created["memory_path"] == "runtime/agents/屏幕观察/MEMORY.md"
-        assert created["memory_content"] == (path / "MEMORY.md").read_text()
+        assert (path / "MEMORY.md").read_text() == "Observe screens"
         assert list((path / "inbox").glob("inbox_unread.jsonl"))
 
 
@@ -1302,7 +1301,7 @@ async def test_desktop_views_are_cold_and_include_main_and_task_files(tmp_path):
         assert views[0]["name"] == "Remy"
         assert all(view["session_id"] is None for view in views)
         assert "files" not in views[1] and "config" not in views[1]
-        assert (await runtime.list_events("monitor"))["items"][0]["event"]["paths"] == ["resource/input.json"]
+        assert (await runtime.list_inputs("monitor"))["items"][0]["event"]["paths"] == ["resource/input.json"]
         assert views[1]["pending_events"] == 2
         assert not wrapper.created
         value = await runtime.read_agent("monitor")
@@ -1350,7 +1349,7 @@ async def test_interactive_turn_blocks_background_and_busy_chats_and_is_cancelle
                 async with runtime.agent_turn("monitor"):
                     raise AssertionError("busy turn entered")
             run_job = AsyncMock()
-            await runtime.tick(run_job, "proactive_run")
+            await runtime.tick(run_job)
             assert not runtime.workers
             run_job.assert_not_awaited()
             await runtime.delete("monitor")
@@ -1402,13 +1401,14 @@ async def test_desktop_reminder_read_does_not_consume_agent_inbox(tmp_path):
         await create_agent(runtime)
         await runtime.run("monitor", AsyncMock(return_value=completed_result(runtime)))
         await runtime.outbox.sync()
-        tool = AgentMailboxStep(app_context=context)
-        page = (await tool(action="list", state="pending")).answer
+        tool = AgentReminderStep(app_context=context)
+        page = await runtime.list_inputs("chat", state="pending")
         assert len(page["items"]) == 1
-        item = page["items"][0]
-        response = await tool(action="read", message_id=item["id"], mark_read=True)
+        item = page["items"][0]["event"]
+        response = await tool(message_id=item["id"], mark_read=True)
         assert response.answer["user_read_at"]
-        assert (await tool(state="pending")).answer["items"][0]["user_read_at"]
+        assert (await tool(message_id=item["id"])).answer["user_read_at"]
+        assert (await runtime.list_inputs("chat", state="pending"))["total"] == 1
         ref = next(iter(runtime.outbox.committed))
         assert runtime.outbox.records[ref].read_at is None
         assert ref.id in runtime.notifications.pending

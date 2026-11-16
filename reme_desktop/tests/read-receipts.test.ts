@@ -51,12 +51,13 @@ test("explicit chat reading retries durable acknowledgements; historical suppres
               "agent_chat",
               "agent_session",
               "agent_new_session",
-              "agent_mailbox",
-              "agent_event_list",
+              "agent_outbox",
+              "agent_reminder",
+              "agent_inbox",
             ].map((name) => [name, {}]),
           ),
         };
-      assert.equal(job, "agent_mailbox");
+      assert.equal(job, "agent_reminder");
       calls.push(body);
       if (offline) throw new Error("temporary offline");
       return { id: reminder.id, items: [] };
@@ -110,7 +111,6 @@ test("explicit chat reading retries durable acknowledgements; historical suppres
   await controller.markAllRead();
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0], {
-    action: "read",
     agent_id: "chat",
     message_id: reminder.id,
     mark_read: true,

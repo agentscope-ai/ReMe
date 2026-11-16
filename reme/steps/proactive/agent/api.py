@@ -8,7 +8,13 @@ from .proactive import ProactiveAgentStep
 from ....components import R
 from ....enumeration import ChunkEnum
 from ....schema import StreamChunk
-from ....schema.agent_view import AgentChatRequest, AgentRequest, AgentMailboxRequest, AgentEventListRequest
+from ....schema.agent_view import (
+    AgentChatRequest,
+    AgentRequest,
+    AgentInboxRequest,
+    AgentOutboxRequest,
+    AgentReminderRequest,
+)
 
 
 class _AgentViewStep(BaseAgentStep):
@@ -112,30 +118,31 @@ class AgentNewSessionStep(_AgentViewStep):
         return self.context.response
 
 
-@R.register("agent_mailbox_step")
-class AgentMailboxStep(_AgentViewStep):
-    """Expose one canonical inbox/outbox view and independent user receipts."""
+@R.register("agent_outbox_step")
+class AgentOutboxStep(_AgentViewStep):
+    """Page a task Agent's committed reminders."""
 
     async def execute(self):
-        request = self.request(AgentMailboxRequest)
-        if request.action == "read":
-            answer = await self.agent_runtime.mail(request.agent_id, request.message_id, mark_read=request.mark_read)
-        else:
-            answer = await self.agent_runtime.mailbox(
-                request.agent_id,
-                state=request.state,
-                offset=request.offset,
-                limit=request.limit,
-            )
-        self.context.response.answer = answer
+        request = self.request(AgentOutboxRequest)
+        self.context.response.answer = await self.agent_runtime.outbox.list(**request.model_dump())
         return self.context.response
 
 
-@R.register("agent_event_list_step")
-class AgentEventListStep(_AgentViewStep):
-    """Read input observations; session subscriptions remain a separate API."""
+@R.register("agent_reminder_step")
+class AgentReminderStep(_AgentViewStep):
+    """Keep user reading separate from Inbox processing."""
 
     async def execute(self):
-        request = self.request(AgentEventListRequest)
-        self.context.response.answer = await self.agent_runtime.list_events(**request.model_dump())
+        request = self.request(AgentReminderRequest)
+        self.context.response.answer = await self.agent_runtime.outbox.read(**request.model_dump())
+        return self.context.response
+
+
+@R.register("agent_inbox_step")
+class AgentInboxStep(_AgentViewStep):
+    """Read any Agent's inputs without claiming or acknowledging them."""
+
+    async def execute(self):
+        request = self.request(AgentInboxRequest)
+        self.context.response.answer = await self.agent_runtime.list_inputs(**request.model_dump())
         return self.context.response

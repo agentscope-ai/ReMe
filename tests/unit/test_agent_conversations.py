@@ -93,7 +93,7 @@ async def test_subscription_reports_portable_tool_activity_and_cancellation(tmp_
                 chunk_type=ChunkEnum.TOOL_CALL,
                 chunk="read memory",
                 tool_call_id="call",
-                tool_call_name="agent_memory",
+                tool_call_name="read_file",
                 turn_id="turn",
             )
             entered.set()
@@ -119,7 +119,7 @@ async def test_subscription_reports_portable_tool_activity_and_cancellation(tmp_
             try:
                 value = await anext(events)
                 activity = value["activities"]["chat"]
-                assert activity["phase"] == "remembering" and activity["tool"] == "agent_memory"
+                assert activity["phase"] == "working" and activity["tool"] == "read_file"
                 assert activity["turn_id"] == "turn" and value["status"] == "active"
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)

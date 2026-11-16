@@ -53,18 +53,18 @@ async def test_chat_read_updates_all_sources_idempotently_and_survives_restart(t
         refs = list(runtime.outbox.committed)
         for ref in refs:
             await runtime.outbox.update(ref, chat_message_ids=[message_id])
-        result = await runtime.mail("chat", message_id, mark_read=True)
+        result = await runtime.outbox.read("chat", message_id, mark_read=True)
         assert len(result["items"]) == 2
         first = {item["id"]: item["user_read_at"] for item in result["items"]}
         assert all(first.values())
         assert all(item["read_at"] is None for item in result["items"])
         assert len(runtime.notifications.pending) == 2
-        again = await runtime.mail("chat", message_id, mark_read=True)
+        again = await runtime.outbox.read("chat", message_id, mark_read=True)
         assert {item["id"]: item["user_read_at"] for item in again["items"]} == first
         with pytest.raises(ValueError):
-            await runtime.mail("monitor", message_id, mark_read=True)
+            await runtime.outbox.read("monitor", message_id, mark_read=True)
     async with running_runtime(tmp_path) as (runtime, _, _):
-        result = await runtime.mail("chat", message_id)
+        result = await runtime.outbox.read("chat", message_id)
         assert {item["id"]: item["user_read_at"] for item in result["items"]} == first
         assert all(
             frontmatter.loads(runtime.files.read(runtime.files.path(ref.file)))["chat_message_ids"] == [message_id]
@@ -76,9 +76,9 @@ async def test_chat_read_updates_all_sources_idempotently_and_survives_restart(t
 async def test_read_acknowledgements_do_not_require_retained_reminder_sources(tmp_path):
     async with running_runtime(tmp_path) as (runtime, _, _):
         message_id = "reme-proactive-expired"
-        assert await runtime.mail("chat", message_id, mark_read=True) == {"id": message_id, "items": []}
+        assert await runtime.outbox.read("chat", message_id, mark_read=True) == {"id": message_id, "items": []}
         with pytest.raises(ValueError, match="no retained source"):
-            await runtime.mail("chat", message_id)
+            await runtime.outbox.read("chat", message_id)
 
 
 @pytest.mark.parametrize("trigger_type", ["event", "cron"])
@@ -107,11 +107,11 @@ async def test_sent_chat_message_keeps_source_links_before_consumption(tmp_path)
         session_id = await runtime.sessions.ensure("chat", wrapper, {}, runtime.now())
         ids = list(runtime.notifications.pending)
         async with runtime.notifications.turn(session_id, "P0", ids) as turn:
-            await runtime.notifications.read_turn(turn, "P0")
+            await runtime.notifications.read_turn(turn)
             message_id = f"reme-proactive-{turn.message_id}"
 
             async def append(*_args, **_kwargs):
-                acknowledged = await runtime.mail("chat", message_id, mark_read=True)
+                acknowledged = await runtime.outbox.read("chat", message_id, mark_read=True)
                 assert acknowledged["items"] and all(item["user_read_at"] for item in acknowledged["items"])
                 return SessionMessage(
                     id=message_id,
@@ -123,7 +123,7 @@ async def test_sent_chat_message_keeps_source_links_before_consumption(tmp_path)
             wrapper.append_session = AsyncMock(side_effect=append)
             await runtime.notifications.send(turn, "Combined result")
         assert not runtime.notifications.pending
-        result = await runtime.mail("chat", message_id, mark_read=True)
+        result = await runtime.outbox.read("chat", message_id, mark_read=True)
         assert result["items"][0]["user_read_at"]
         assert result["items"][0]["chat_message_ids"] == [message_id]
 

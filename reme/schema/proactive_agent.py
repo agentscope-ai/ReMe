@@ -1,7 +1,7 @@
 """Proactive task definitions and structured model results."""
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StrictBool, field_validator, model_validator
 
@@ -108,33 +108,47 @@ class ProactiveRunResult(BaseModel):
 
 
 class ManageProactiveAgentRequest(BaseModel):
-    """The six management actions have explicit, disjoint argument sets."""
+    """Named task operations expose only the fields relevant to each action."""
 
     model_config = ConfigDict(extra="forbid")
 
     action: Literal["list", "create", "status", "update", "delete", "query"]
-    agent_id: AgentId | None = None
-    config: dict[str, Any] | None = None
-    query: str | None = Field(default=None, min_length=1, max_length=100000)
+    name: AgentId | None = None
+    instructions: str | None = Field(default=None, min_length=1, max_length=100000)
+    trigger_type: Literal["event", "cron"] | None = None
+    enabled: StrictBool = True
+    temporary: StrictBool = False
+    cron: str | None = None
+    min_trigger_interval_seconds: float = Field(default=0, ge=0, strict=True)
+    notify_window: NotificationWindow | None = None
+    question: str | None = Field(default=None, min_length=1, max_length=100000)
+
+    @field_validator("instructions", "question")
+    @classmethod
+    def nonblank_text(cls, value):
+        """Keep task text verbatim while rejecting whitespace-only requests."""
+        if value is not None and not value.strip():
+            raise ValueError("must not be blank")
+        return value
 
     @model_validator(mode="after")
     def action_arguments(self):
         """Reject unused fields instead of silently ignoring misspecified calls."""
-        allowed = {
-            "list": set(),
-            "create": {"config"},
-            "status": {"agent_id"},
-            "update": {"agent_id", "config"},
-            "delete": {"agent_id"},
-            "query": {"agent_id", "query"},
+        settings = {"trigger_type", "enabled", "cron", "min_trigger_interval_seconds", "notify_window"}
+        required, allowed = {
+            "list": (set(), set()),
+            "create": ({"name", "instructions", "trigger_type"}, settings | {"name", "instructions", "temporary"}),
+            "status": ({"name"}, {"name"}),
+            "update": ({"name"}, settings | {"name"}),
+            "delete": ({"name"}, {"name"}),
+            "query": ({"name", "question"}, {"name", "question"}),
         }[self.action]
-        supplied = {key for key in ("agent_id", "config", "query") if getattr(self, key) is not None}
+        supplied = self.model_fields_set - {"action"}
         if supplied - allowed:
             raise ValueError(f"{self.action} does not accept: {', '.join(sorted(supplied - allowed))}")
-        if self.action not in {"list", "create"} and self.agent_id is None:
-            raise ValueError(f"{self.action} requires agent_id")
-        if self.action in {"create", "update"} and self.config is None:
-            raise ValueError(f"{self.action} requires config")
-        if self.action == "query" and (self.query is None or not self.query.strip()):
-            raise ValueError("query requires a non-empty question")
+        missing = {key for key in required if getattr(self, key) is None}
+        if missing:
+            raise ValueError(f"{self.action} requires: {', '.join(sorted(missing))}")
+        if self.action == "update" and not supplied & settings:
+            raise ValueError("update requires at least one setting")
         return self

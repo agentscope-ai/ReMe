@@ -7,12 +7,11 @@ from hashlib import sha256
 import os
 from pathlib import Path
 import shutil
-from tempfile import TemporaryDirectory
 from threading import Event as ThreadEvent
-from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from ._codex_dialogue import CodexDialogueIndex
+from .base_connector import resource_package_id
 from .screen_capture import ScreenCaptureStep
 from ..agent import BaseAgentStep
 from ...file_io import get_path_lock
@@ -46,17 +45,16 @@ class _WorkObservationBase(BaseAgentStep):
 
     def _index(self):
         files = AgentFiles(self.workspace_path)
-        directory = files.path(self.config_value("metadata_dir")) / "work_observations" / self.agent_id
+        directory = files.path(self.config_value("resource_dir")) / "codex_dialogue"
         return CodexDialogueIndex(files, directory, self.codex_home, self._check_stopped)
 
     def _authorize(self):
         files = AgentFiles(self.workspace_path)
-        directory = files.path(self.config_value("metadata_dir")) / "work_observations" / self.agent_id
-        if files.path(self.config_value("resource_dir")) == files.workspace:
+        directory = files.path(self.config_value("resource_dir"))
+        if directory == files.workspace:
             raise ValueError("resource_dir must be a workspace subdirectory")
         self.require_paths(
             directory,
-            files.path(self.config_value("resource_dir")),
             files.path(self.config_value("reme_agent_dir")),
         )
         return directory
@@ -90,11 +88,22 @@ class WorkObservationInitStep(_WorkObservationBase):
 
 @R.register("work_observation_step")
 class WorkObservationStep(_WorkObservationBase):
-    """Stage source payloads and their next cursors atomically before exposing any event."""
+    """Keep payloads, collection progress and unfinished deliveries under their own sources."""
 
-    def _package(self, stage, source, description, entries, now, package_id):
+    def _pending_paths(self, files):
+        root = files.path(self.config_value("resource_dir"))
+        return {source: root / source / "pending.json" for source in ("screenshot", "codex_dialogue")}
+
+    def _resource_directory(self, source, now, package_id):
+        files = self._index().files
+        directory = files.path(self.config_value("resource_dir")) / source / now.date().isoformat() / package_id
+        self.require_paths(directory)
+        files.checked(directory.parent).mkdir(parents=True, exist_ok=True)
+        files.checked(directory).mkdir()
+        return directory
+
+    def _package(self, folder, source, description, entries, now):
         index = self._index()
-        folder = stage / source
         metadata = ResourceMetadata(
             dataclass=type(self).__name__,
             source=source,
@@ -109,12 +118,9 @@ class WorkObservationStep(_WorkObservationBase):
                 raise ValueError("Work resource payload is missing, empty, or symlinked")
             with path.open("rb") as handle:
                 sync_file(handle.fileno())
-        index.files.write(folder / "metadata.json", metadata.model_dump_json(indent=2) + "\n")
         sync_directory(folder)
-        target = index.files.path(self.config_value("resource_dir")) / source / now.date().isoformat() / package_id
-        index.files.checked(target)
-        self.require_paths(target)
-        relative = target.relative_to(index.files.workspace).as_posix()
+        sync_directory(folder.parent)
+        relative = folder.relative_to(index.files.workspace).as_posix()
         event = Event(
             id=f"resource-{sha256(relative.encode()).hexdigest()}",
             event_ts=now,
@@ -128,110 +134,103 @@ class WorkObservationStep(_WorkObservationBase):
         index = self._index()
         now = self._now()
         state = index.load(now)
-        pending = index.directory / "pending"
-        transaction = index.files.read_json(pending / "batch.json", None)
-        if transaction is not None:
-            return transaction
-        if pending.exists():
-            if any(pending.iterdir()):
-                raise ValueError("Work observation pending directory is incomplete")
-            pending.rmdir()
+        pending = self._pending_paths(index.files)
+        sources = {
+            source: batch
+            for source, path in pending.items()
+            if (batch := index.files.read_json(path, None)) is not None
+        }
+        if sources:
+            return sources
         scan = index.scan(state, self.max_scan_bytes, self.max_file_bytes())
-        package_id = f"{now:%H%M%S}_{uuid4().hex[:6]}"
-        index.directory.mkdir(parents=True, exist_ok=True)
-        index.files.checked(index.directory)
-        with TemporaryDirectory(prefix=".collect-", dir=index.directory) as temporary:
-            stage = Path(temporary)
-            resources, events = [], []
-            errors = dict(scan["errors"])
-            screenshot = stage / "screenshot"
-            screenshot.mkdir()
+        package_id = resource_package_id(now)
+        directories = {}
+        try:
+            sources = {
+                source: {"id": package_id, "agent_id": self.agent_id, "resources": [], "events": [], "errors": {}}
+                for source in pending
+            }
+            dialogue_batch = sources["codex_dialogue"]
+            dialogue_batch.update({key: scan[key] for key in ("updates", "message_ids", "next_path", "scanned_bytes")})
+            dialogue_batch["errors"] = dict(scan["errors"])
+            screenshot = self._resource_directory("screenshot", now, package_id)
+            directories["screenshot"] = screenshot
             try:
                 capture = ScreenCaptureStep(app_context=self.app_context)
                 entries = capture.collect(screenshot)
                 resource, event = self._package(
-                    stage,
+                    screenshot,
                     "screenshot",
                     capture.description,
                     entries,
                     now,
-                    package_id,
                 )
-                resources.append(resource)
-                events.append(event.model_dump(mode="json"))
+                sources["screenshot"]["resources"].append(resource)
+                sources["screenshot"]["events"].append(event.model_dump(mode="json"))
             except Exception as exc:
-                errors["screenshot"] = str(exc)
+                sources["screenshot"]["errors"]["screenshot"] = str(exc)
                 shutil.rmtree(screenshot)
             self._check_stopped()
             if scan["messages"]:
-                dialogue = stage / "codex_dialogue"
-                dialogue.mkdir()
+                dialogue = self._resource_directory("codex_dialogue", now, package_id)
+                directories["codex_dialogue"] = dialogue
                 index.files.write_jsonl(dialogue / "dialogue.jsonl", scan["messages"])
                 resource, event = self._package(
-                    stage,
+                    dialogue,
                     "codex_dialogue",
                     "New Codex user inputs and final answers, grouped by project and turn. "
                     "Read dialogue.jsonl for original message times and text; unfinished turns are not completed work.",
                     [{"path": "dialogue.jsonl"}],
                     now,
-                    package_id,
                 )
-                resources.append(resource)
-                events.append(event.model_dump(mode="json"))
-            transaction = {
-                "id": package_id,
-                "agent_id": self.agent_id,
-                **{key: scan[key] for key in ("updates", "message_ids", "next_path", "scanned_bytes")},
-                "resources": resources,
-                "events": events,
-                "errors": errors,
-            }
-            index.files.write_json(stage / "batch.json", transaction)
+                dialogue_batch["resources"].append(resource)
+                dialogue_batch["events"].append(event.model_dump(mode="json"))
             self._check_stopped()
-            stage.rename(pending)
-            sync_directory(index.directory)
-        return transaction
+            for source, batch in sources.items():
+                index.files.write_json(pending[source], batch)
+            return sources
+        finally:
+            for source, directory in directories.items():
+                if not pending[source].exists() and directory.exists():
+                    shutil.rmtree(index.files.checked(directory))
 
-    def _publish(self, transaction):
-        """An interrupted multi-resource rename resumes from the same staged batch."""
+    def _publish(self, sources):
+        """Finish source-owned manifests before submitting their events."""
         index = self._index()
-        if transaction["agent_id"] != self.agent_id:
-            raise ValueError("Work observation batch belongs to a different Agent")
-        events = [Event.model_validate(value) for value in transaction["events"]]
+        events = [Event.model_validate(value) for batch in sources.values() for value in batch["events"]]
         for event in events:
             self.require_paths(*(index.files.path(path) for path in event.paths))
-        for resource in transaction["resources"]:
-            self._check_stopped()
-            source = resource["source"]
-            if source not in {"screenshot", "codex_dialogue"}:
-                raise ValueError("Invalid work observation source")
-            staged = index.files.checked(index.directory / "pending" / source)
-            target = index.files.path(resource["path"])
-            self.require_paths(target)
-            if not target.exists():
-                index.files.checked(target.parent)
-                target.parent.mkdir(parents=True, exist_ok=True)
-                index.files.checked(target.parent)
-                staged.rename(target)
-                sync_directory(target.parent)
-                sync_directory(staged.parent)
-            metadata = ResourceMetadata.model_validate_json(index.files.read(target / "metadata.json"))
-            if metadata.model_dump(mode="json") != resource["metadata"]:
-                raise ValueError("Work resource conflicts with its staged manifest")
-            for entry in metadata.files:
-                path = index.files.checked(target / entry.path)
-                if not path.is_file() or not path.stat().st_size:
-                    raise ValueError("Work resource payload is missing or empty")
+        for source, batch in sources.items():
+            if batch["agent_id"] != self.agent_id:
+                raise ValueError("Pending resources do not match their Agent")
+            for resource in batch["resources"]:
+                self._check_stopped()
+                if resource["source"] != source:
+                    raise ValueError("Pending resources do not match their source")
+                target = index.files.path(resource["path"])
+                self.require_paths(target)
+                metadata = ResourceMetadata.model_validate(resource["metadata"])
+                for entry in metadata.files:
+                    path = index.files.checked(target / entry.path)
+                    if not path.is_file() or not path.stat().st_size:
+                        raise ValueError("Work resource payload is missing or empty")
+                manifest = target / "metadata.json"
+                saved = index.files.read_json(manifest, None)
+                if saved is not None and saved != resource["metadata"]:
+                    raise ValueError("Work resource conflicts with its saved manifest")
+                if saved is None:
+                    index.files.write_json(manifest, resource["metadata"])
         return [event.model_dump(mode="json") for event in events]
 
-    def _commit(self, transaction):
+    def _commit(self, sources):
         index = self._index()
-        state = index.load(self._now())
-        index.commit(state, transaction)
-        pending = index.directory / "pending"
-        index.files.checked(pending / "batch.json").unlink()
-        pending.rmdir()
-        sync_directory(index.directory)
+        pending = self._pending_paths(index.files)
+        if "codex_dialogue" in sources:
+            index.commit(index.load(self._now()), sources["codex_dialogue"])
+        for source in ("codex_dialogue", "screenshot"):
+            if source in sources:
+                index.files.checked(pending[source]).unlink()
+                sync_directory(pending[source].parent)
 
     async def execute(self):
         directory = self._authorize()
@@ -240,8 +239,8 @@ class WorkObservationStep(_WorkObservationBase):
         if (await self.agent_runtime.definition(self.agent_id)).trigger_type != "event":
             raise ValueError("Work observations require an event Agent")
         async with await get_path_lock(directory):
-            transaction = await self._offload(self._prepare)
-            events = await self._offload(self._publish, transaction)
+            sources = await self._offload(self._prepare)
+            events = await self._offload(self._publish, sources)
             if events:
                 response = await self.run_job(
                     "append_event",
@@ -251,12 +250,14 @@ class WorkObservationStep(_WorkObservationBase):
                 )
                 if not response.success:
                     raise RuntimeError(f"Work event delivery failed: {response.answer}")
-            await self._offload(self._commit, transaction)
-        self.context.response.success = not transaction["errors"]
+            await self._offload(self._commit, sources)
+        dialogue = sources.get("codex_dialogue", {})
+        errors = {key: value for batch in sources.values() for key, value in batch["errors"].items()}
+        self.context.response.success = not errors
         self.context.response.answer = {
             "event_ids": [event["id"] for event in events],
-            "dialogue_messages": len(transaction["message_ids"]),
-            "scanned_bytes": transaction["scanned_bytes"],
-            "errors": transaction["errors"],
+            "dialogue_messages": len(dialogue.get("message_ids", [])),
+            "scanned_bytes": dialogue.get("scanned_bytes", 0),
+            "errors": errors,
         }
         return self.context.response

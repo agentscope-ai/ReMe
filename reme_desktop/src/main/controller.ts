@@ -281,8 +281,9 @@ export class DesktopController {
           "agent_chat",
           "agent_session",
           "agent_new_session",
-          "agent_mailbox",
-          "agent_event_list",
+          "agent_outbox",
+          "agent_reminder",
+          "agent_inbox",
         ]) {
           if (
             !config.jobs?.[job] ||
@@ -1179,9 +1180,8 @@ export class DesktopController {
       for (const [id, receipt] of receipts) {
         try {
           await client.call(
-            "agent_mailbox",
+            "agent_reminder",
             {
-              action: "read",
               agent_id: "chat",
               message_id: id,
               mark_read: true,
@@ -1219,7 +1219,7 @@ export class DesktopController {
       this.lifecycle.signal,
     );
     if (
-      request.type === "mail" &&
+      request.type === "reminder" &&
       request.markRead &&
       generation === this.generation
     ) {
@@ -1259,7 +1259,7 @@ export class DesktopController {
     }
     const generation = this.generation;
     const response = await this.workspace({
-      type: "mail",
+      type: "reminder",
       agentId: target.agentId,
       id: target.id,
     });

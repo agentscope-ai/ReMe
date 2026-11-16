@@ -7,6 +7,7 @@ import frontmatter
 import yaml
 
 from ....schema.agent_runtime import AgentReminder, ReminderRef
+from ....schema.event import Event
 from ....utils.async_utils import complete_in_thread, finish_cleanup
 
 
@@ -114,11 +115,21 @@ class AgentOutbox:
         pending, processed = [], []
         for ref in sorted(self.committed, key=lambda ref: ref.id):
             item = self.records[ref]
+            event = self._event(ref)
             if item.read_at is not None:
-                processed.append({"item": ref.model_dump(), "consume_ts": item.read_at.isoformat()})
+                processed.append({"item": event, "consume_ts": item.read_at.isoformat()})
             elif item.delivered_at is not None:
-                pending.append(ref.model_dump())
+                pending.append(event)
         await self.runtime.inbox.reconcile("chat", pending, processed)
+
+    def _event(self, ref):
+        return Event(
+            id=ref.id,
+            event_ts=self.records[ref].created_at,
+            source=self.owners[ref],
+            description=f"Reminder from {self.owners[ref]}",
+            paths=[ref.file],
+        ).model_dump(mode="json")
 
     async def save(self, agent, run_id, result, now):
         """Save validated model output before its event consumption receipt is committed."""
@@ -170,7 +181,7 @@ class AgentOutbox:
             item = self.records[ref]
             agent = agents.get(self.owners[ref])
             if item.delivered_at is None and agent is not None and agent.enabled:
-                await self.runtime.inbox.append("chat", ref)
+                await self.runtime.inbox.append("chat", self._event(ref))
                 await self.update(ref, delivered_at=self.runtime.now())
                 self.runtime.changed.set()
 
@@ -178,22 +189,16 @@ class AgentOutbox:
         """Find retained records owned by an identity without storing duplicate sender fields."""
         return {ref for ref, owner in self.owners.items() if owner == agent_id}
 
-    async def mailbox(self, agent_id, *, state="all", offset=0, limit=20):
-        """Return received Chat mail or a task's committed outgoing mail."""
+    async def list(self, agent_id, *, state="all", offset=0, limit=20):
+        """Page one task's committed outgoing reminders."""
         if state not in {"all", "pending", "processed"}:
             raise ValueError("invalid mailbox state")
         if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 100:
             raise ValueError("offset must be nonnegative and limit must be between 1 and 100")
-        if agent_id != "chat":
-            await self.runtime.definition(agent_id)
+        await self.runtime.definition(agent_id)
         await self.refresh()
         async with self.lock:
-            refs = [
-                ref
-                for ref in self.committed
-                if (agent_id == "chat" and (self.records[ref].delivered_at or self.records[ref].read_at))
-                or (agent_id != "chat" and self.owners[ref] == agent_id)
-            ]
+            refs = [ref for ref in self.committed if self.owners[ref] == agent_id]
             refs = [
                 ref
                 for ref in refs
@@ -201,16 +206,17 @@ class AgentOutbox:
             ]
             refs.sort(key=lambda ref: (self.records[ref].created_at, ref.id), reverse=True)
             return {
-                "items": [self._mail(ref) for ref in refs[offset : offset + limit]],
+                "items": [self.message(ref) for ref in refs[offset : offset + limit]],
                 "total": len(refs),
                 "offset": offset,
                 "limit": limit,
             }
 
-    def _mail(self, ref):
+    def message(self, ref):
+        """Render canonical content for Inbox, Outbox and single-reminder views."""
         return {**self.records[ref].model_dump(mode="json"), "from_agent_id": self.owners[ref]}
 
-    async def mail(self, agent_id, message_id, *, mark_read=False):
+    async def read(self, agent_id, message_id, *, mark_read=False):
         """Authorize the mailbox before updating only the user's read receipt."""
         if agent_id != "chat":
             await self.runtime.definition(agent_id)
@@ -228,7 +234,7 @@ class AgentOutbox:
             if mark_read:
                 await finish_cleanup(acknowledge())
             async with self.lock:
-                return {"id": message_id, "items": [self._mail(ref) for ref in refs]}
+                return {"id": message_id, "items": [self.message(ref) for ref in refs]}
         async with self.lock:
             ref = next((ref for ref in self.committed if ref.id == message_id), None)
             if (
@@ -240,4 +246,4 @@ class AgentOutbox:
         if mark_read:
             await self.update(ref, user_read_at=self.runtime.now())
         async with self.lock:
-            return self._mail(ref)
+            return self.message(ref)

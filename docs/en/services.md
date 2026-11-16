@@ -62,7 +62,7 @@ The `agent_runtime` Component coordinates sessions, the shared Agent Inbox, outp
 `ProactiveAgentStep` define the two Agent behaviors under `reme/steps/proactive/agent/`.
 Configure the Component through `components.agent_runtime.default` and the workspace-relative `reme_agent_dir`
 (default `reme_agents`). Each Agent owns `config.json`, `MEMORY.md`, `sessions.jsonl` and `inbox/`. Event and cron Agents also own
-`reminder/YYYY-MM-DD/<agent_id>_HHMMSS.md`; temporary Agents use `reme_agents/tmp/<agent_id>/`.
+`reminder/YYYY-MM-DD/HHMMSS.md`; temporary Agents use `reme_agents/tmp/<agent_id>/`.
 There is no global definition index or checkpoint file: startup rebuilds runtime state from source files.
 Session registries preserve complete records across an interrupted append; an incomplete tail is ignored on read
 and removed by the next append. Corrupt complete records fail explicitly.
@@ -86,26 +86,22 @@ From another terminal:
 
 ```bash
 reme manage_proactive_agent action=list
-reme manage_proactive_agent action=create \
-  'config={"name":"experiment","trigger_type":"event","description":"Monitor experiment logs and report failures or completion."}'
-reme agent_mailbox
+reme manage_proactive_agent action=create name=experiment trigger_type=event \
+  'instructions=Monitor experiment logs and report failures or completion.'
+reme agent_inbox
 ```
 
-`manage_proactive_agent` supports `list/create/status/update/delete/query`. The creation name is the immutable
-`agent_id`; `chat` and `tmp` are reserved. Deletion stops owned work and retains files, events and native session history.
-Creating the same name restores that Agent. `query` asks a temporary read-only fork without selecting it for future work.
+`manage_proactive_agent` supports `list/create/status/update/delete/query` with top-level parameters and a task `name`.
+Names may be Chinese or English; `chat` and `tmp` are reserved. Creation requires `instructions` and `trigger_type`,
+plus `cron` for a scheduled task. Update accepts only changed execution settings; query takes a `question` and answers
+from a temporary read-only fork of a completed run. See `skills/manage-proactive-agent/SKILL.md` for all six actions.
 
-`config.description` is creation-only: it is written verbatim to the Agent's `MEMORY.md` without preset headings.
-Task text is not stored in `config.json` or injected separately each round.
-`list/update` return settings, status and workspace-relative `memory_path`; `create/status` also return `memory_content`
-(up to 2,000 characters) and `memory_truncated`. Read the complete file when truncated. Configuration file paths are
-not returned. Before changing or deleting a task, inspect `status`. Users may edit the original `memory_path`; Agents
-use the private `agent_memory` tool to read complete content and a `revision`, then write `content` with
-`expected_revision`, rereading and merging on conflict. Codex command tools have read-only access to their own
-MEMORY.md so they cannot bypass revision checks. Replace superseded requirements and read back the result. Use `update` for execution settings and `delete` to stop
-owned work. Changes apply to subsequent rounds; an already-running round may have read the previous task.
-Same-name restoration preserves existing memory. To migrate an older Agent, move its stored `description` into
-`MEMORY.md`, retain its accumulated knowledge, then remove `description` from `config.json`.
+Creation writes `instructions` verbatim to `MEMORY.md`. Create and status return its workspace-relative `memory_path`,
+without repeating the memory contents. Use native file tools to read the latest file, replace superseded requirements,
+retain valid background and verify the saved result. Update does not edit task memory; time changes also need to be
+reflected in the memory's instructions. Changes apply to subsequent rounds; an already-running round may have read
+the previous task. Deletion stops owned work and retains history; stop external collectors separately. Recreating a
+deleted name returns `restored=true` and preserves the existing memory, which must be checked against the new request.
 `reme_agent_dir` now defaults to `reme_agents`; set it explicitly to `agents` to keep using an existing directory.
 Changing `reme_agent_dir` itself does not move workspace files or rewrite embedded references.
 
@@ -153,14 +149,16 @@ Successful input receipts retain the greatest accepted reception time, preservin
 and restarts. On restart cron schedules the next future trigger; queued events still run, but missed offline triggers are not backfilled.
 Chat idle and retry timers restart in memory. Daily handoffs use `daily/YYYY-MM-DD/<agent_id>.md`; round details use
 `<agent_id>_HHMMSS.md`, with numeric suffixes for same-second collisions. The framework keeps each reminder body in Markdown and
-updates delivery and read timestamps in its frontmatter under the Agent's `reminder/YYYY-MM-DD/<agent_id>_HHMMSS.md`.
+updates delivery and read timestamps in its frontmatter under the Agent's `reminder/YYYY-MM-DD/HHMMSS.md`.
+Round details and reminders share the same time and collision suffix. Existing reminder files keep their original paths.
 
 `components.agent_inbox.default` uses the `event` backend (`AgentEventInbox`), inheriting the generic local
 inbox implementation. `components.agent_runtime.default.inbox` selects that component. Each Agent stores pending
 inputs in `inbox/inbox_unread.jsonl` and processed batches in `inbox/inbox_read.jsonl`; each batch contains `items`,
 `consume_ts` and `metadata`. Claims reserve selected IDs without consuming them; successful execution commits a receipt.
-Event Agents receive observations and cron triggers. Chat receives only `{file,id}` reminder references, with at most
-1,000 processed references retained by default. Reminder Markdown remains the source for content and acknowledgement
+All Agents receive `Event` records. Observations and cron triggers target task Agents; Chat events use the sender as
+`source` and reference the reminder Markdown in `paths`, without copying its body. At most 1,000 processed inputs are
+retained by default. Reminder Markdown remains the source for content and acknowledgement
 timestamps; Chat reference views are rebuildable. Change reminder frontmatter to acknowledge messages externally.
 One lifecycle-owned watcher and periodic rescans reconcile those source edits and interrupted handoffs.
 
@@ -174,7 +172,8 @@ P0 forks Chat as soon as its session is available, after `components.agent_runti
 The temporary fork inherits the current conversation, runs read-only and offline, and is disposed of after execution,
 including failure or cancellation. Its hint and tool traces never enter the main conversation.
 
-Only the reminder fork receives `read_inbox(priority=...)` and `send_chat_msg(content=...)`.
+Only the reminder fork receives `read_inbox()` and `send_chat_msg(content=...)`.
+The framework selects the priority and batch; `read_inbox` accepts no arguments.
 Reminder evaluation has a 120-second timeout and proactive execution a 1200-second timeout, configured with each
 Step's `timeout_seconds`. Transient inbox failures retry with exponential backoff capped at 300 seconds; SDK type
 or import errors stop retries until the environment is repaired and restarted. Chat status exposes inbox failures,
@@ -184,7 +183,11 @@ Reading is limited to the selected batch. Nonempty content is appended as an ass
 `source="proactive"`; empty content commits a silent decision without inserting a message. Successful decisions
 automatically consume the messages read, independently of user-read state. Failures remain retryable, and a switched
 Chat session or a new foreground turn rejects the old fork's decision. The ordinary fork reply is never sent to the user.
-Desktop derives its reminder list from these marked messages; `agent_mailbox` browses the Chat inbox or a task outbox (`agent_id=<name>`); user-read receipts do not consume messages. `agent_event_list agent_id=<name>` pages retained input events without claiming them.
+Desktop derives its reminder list from these marked messages. `agent_inbox agent_id=<name>` pages any Agent's pending,
+processing and processed events without claiming them; omitted `agent_id` selects Chat. `agent_outbox agent_id=<name>`
+pages a task's committed reminders. `agent_reminder message_id=<id>` reads a canonical reminder; `mark_read=true`
+acknowledges user reading without consuming its Inbox event.
+Chat Inbox entries include a resolved `reminder` view from the canonical Markdown for display.
 
 `agent_session` and `agent_events` expose full Chat history, but only the latest native turn for event/cron Agents,
 including its input and all partial/final assistant messages. Task subscriptions replace the whole view with each
@@ -192,7 +195,11 @@ including its input and all partial/final assistant messages. Task subscriptions
 
 Event tasks accept `max_batch_events` (default 20); retries within the same process keep the original batch and leave new inputs for later rounds. `proactive_agent_step` defaults to a 1200-second total timeout; native automatic compaction inherits the global Codex App Server settings. Daily summaries carry current state; per-round details retain chronology and evidence.
 
-`agent_mailbox action=read agent_id=chat` also accepts a combined Chat message ID and returns `{id,items}`. `mark_read=true` acknowledges all retained source reminders, linked through their `chat_message_ids` frontmatter. Acknowledgement remains successful with an empty list after the sources have been removed. Only explicit user reading is synchronized; historical initialization, suppression and bubble presentation do not imply reading.
+`agent_reminder agent_id=chat` also accepts a combined Chat message ID and returns `{id,items}`. `mark_read=true` acknowledges all retained source reminders, linked through their `chat_message_ids` frontmatter. Acknowledgement remains successful with an empty list after the sources have been removed. Only explicit user reading is synchronized; historical initialization, suppression and bubble presentation do not imply reading.
+
+One background `agent_loop` schedules task execution and Chat reminder decisions with independent workers and retries.
+It replaces `proactive_loop` and `inbox_loop`; the old query Jobs `agent_mailbox` and `agent_event_list` are removed.
+Existing Chat Inbox logs are rebuilt from reminder Markdown on startup; task input logs retain their Event format.
 
 `proactive_run`, `proactive_query` and `inbox_chat` are service-private Jobs. Collectors remain opt-in; configure `jobs.screen_capture_cron.agent_id` and enable the job to publish
 complete resource packages as observations. No resource watcher or automatic TTL deletion participates in this flow.

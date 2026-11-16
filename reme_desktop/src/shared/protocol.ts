@@ -448,15 +448,15 @@ export interface WorkspaceConfig {
 export type WorkspaceRequest =
   | { type: "config" }
   | {
-      type: "mailbox";
+      type: "outbox";
       agentId: string;
       state?: MailState;
       offset?: number;
       limit?: number;
     }
-  | { type: "mail"; agentId: string; id: string; markRead?: boolean }
+  | { type: "reminder"; agentId: string; id: string; markRead?: boolean }
   | {
-      type: "events";
+      type: "inbox";
       agentId: string;
       state?: EventState;
       offset?: number;
@@ -493,6 +493,7 @@ export interface AgentMail {
 }
 
 export interface InputEvent {
+  reminder?: AgentMail;
   event: {
     id: string;
     event_ts: string;

@@ -68,7 +68,7 @@ curl -N http://127.0.0.1:2333/chat \
 `agent_runtime` 组件协调会话、统一 Inbox、输出和调度；`reme/steps/proactive/agent/` 下的 `ChatAgentStep` 与
 `ProactiveAgentStep` 分别定义两种 Agent 行为。组件配置使用 `components.agent_runtime.default`，
 工作区相对配置 `reme_agent_dir` 默认是 `reme_agents`。每个 Agent 拥有 `config.json`、`MEMORY.md` 和
-`sessions.jsonl` 和 `inbox/`；事件与定时 Agent 另有 `reminder/YYYY-MM-DD/<agent_id>_HHMMSS.md`，临时 Agent 位于
+`sessions.jsonl` 和 `inbox/`；事件与定时 Agent 另有 `reminder/YYYY-MM-DD/HHMMSS.md`，临时 Agent 位于
 `reme_agents/tmp/<agent_id>/`。不再维护全局定义索引或检查点文件，启动时从源文件恢复内存。
 会话登记保留追加中断前的完整记录；读取时忽略不完整尾行，下次追加时清理尾行，完整记录损坏时明确报错。
 先保存校验通过的提醒，再提交事件消费回执，Outbox 独立重试投递；未提交就中断的轮次允许重新执行。
@@ -90,24 +90,21 @@ reme start config=proactive
 
 ```bash
 reme manage_proactive_agent action=list
-reme manage_proactive_agent action=create \
-  'config={"name":"experiment_monitor","trigger_type":"event","description":"分析实验日志，失败或结束时提醒我。"}'
-reme agent_mailbox
+reme manage_proactive_agent action=create name=实验监控 trigger_type=event \
+  'instructions=分析实验日志，失败或结束时提醒我。'
+reme agent_inbox
 ```
 
-`manage_proactive_agent` 支持 `list/create/status/update/delete/query`。创建名称即不可变的 `agent_id`，
-`chat` 和 `tmp` 是保留名。删除停止调度和执行，保留文件、事件和原生会话历史；再次创建同名 Agent 会恢复它。
-`query` 使用临时只读 fork 回答问题，不改变后续执行的主会话。
+`manage_proactive_agent` 支持 `list/create/status/update/delete/query`，参数直接放在顶层，以 `name` 指定任务。
+名称可用中文或英文，`chat`、`tmp` 是保留名。创建时传入 `instructions`、`trigger_type`，定时任务另传 `cron`；
+更新只传需要修改的运行配置；询问进展时传入 `question`，通过已完成执行的临时只读会话回答。
+六个 action 的完整请求与返回示例见 `skills/manage-proactive-agent/SKILL.md`。
 
-`config.description` 只用于创建时原样写入 Agent 的 `MEMORY.md`，不添加预设标题；
-任务文本不再保存在 `config.json` 中，也不再每轮单独注入。`list/update` 返回配置、状态和工作区相对 `memory_path`；
-`create/status` 还返回 `memory_content`（最多 2000 字符）和 `memory_truncated`，截断时继续读取完整文件，
-不返回配置文件路径。修改或删除前先查看 `status`；用户可编辑原始 `memory_path`，Agent 使用私有
-`agent_memory` 工具读取完整内容和 `revision`，保存时提交 `content` 与 `expected_revision`，冲突后重新读取合并。
-Codex 对自身 MEMORY.md 的原生命令写入设为只读，避免绕过版本检查。替换失效要求并读回确认，
-运行配置使用 `update`，停止并删除任务使用 `delete`。修改对后续轮次生效，正在执行的一轮可能已读取旧要求。
-同名恢复保留已有记忆。旧 Agent 迁移时，将配置中的 `description` 移入 `MEMORY.md`，保留积累的知识，
-再从 `config.json` 删除 `description`。
+创建时将 `instructions` 原样写入 `MEMORY.md`，创建和状态查询返回工作区相对的 `memory_path`，不重复附带记忆正文。
+使用原生文件工具阅读最新文件，修改失效要求、保留有效背景，保存后核对结果。`update` 不修改任务记忆；
+调整执行时间时，也要同步记忆中的约定时间。修改对后续执行生效，正在执行的一轮可能已读取旧要求。
+删除停止框架内的调度和执行，保留历史文件；外部采集器需单独停止。恢复同名旧任务时返回 `restored=true`，
+沿用原记忆，应阅读实际文件核对是否符合新的要求。
 `reme_agent_dir` 默认值已改为 `reme_agents`；已有目录可显式设置 `reme_agent_dir=agents` 继续使用，
 更改该目录配置本身不会移动工作区文件或改写其中的路径引用。
 
@@ -147,14 +144,15 @@ cron 触发也算输入，重复事件和重试不续期。有执行、待处理
 重启后从下一次未来时间恢复 cron，已入队事件继续处理，不补跑停机期间未入队的触发；
 Chat 空闲计时和失败重试计时在内存中重新开始。
 日记 `daily/YYYY-MM-DD/<agent_id>.md` 保存累计交接，`<agent_id>_HHMMSS.md` 保存本轮明细，
-Agent 自己的 `reminder/YYYY-MM-DD/<agent_id>_HHMMSS.md` 以 Markdown 正文保存唯一的提醒内容，以 frontmatter 保存投递和已读时间，
-由框架维护；同秒日记明细重名增加数字后缀。
+Agent 自己的 `reminder/YYYY-MM-DD/HHMMSS.md` 以 Markdown 正文保存唯一的提醒内容，以 frontmatter 保存投递和已读时间，
+由框架维护；同秒重名增加数字后缀，日记明细与提醒使用相同的时间和冲突后缀。已有提醒文件保留原路径。
 
 `components.agent_inbox.default` 使用 `event` 后端（`AgentEventInbox`），继承通用的本地 Inbox 实现；
 `components.agent_runtime.default.inbox` 引用该组件。每个 Agent 的待处理输入保存在
 `inbox/inbox_unread.jsonl`，已处理批次保存在 `inbox/inbox_read.jsonl`，批次字段为 `items`、`consume_ts`、`metadata`。
-领取可以指定消息 ID，领取本身不消费输入，执行成功后才提交消费回执。事件 Agent 接收观察与定时触发；
-Chat 仅接收 `{file,id}` 提醒引用，已处理引用默认保留最近 1000 条。提醒 Markdown 仍是正文和确认状态的来源，
+领取可以指定消息 ID，领取本身不消费输入，执行成功后才提交消费回执。所有 Agent 都接收 `Event`：
+任务接收观察与定时触发，Chat 事件以发送方为 `source`，通过 `paths` 引用提醒 Markdown，不复制正文。
+已处理输入默认保留最近 1000 条。提醒 Markdown 仍是正文和确认状态的来源，
 Chat 引用视图可重建；外部确认消息应修改提醒的 frontmatter。共用文件监听器与定期补扫协调源文件修改和中断交接。
 
 单个提醒缺失或损坏时保留原文件和事件回执、
@@ -165,13 +163,25 @@ P1 等待连续空闲 10 秒，P2 等待 1800 秒，分别由 `notifications.p1_
 继续遵守提醒时间窗口。只有前台 Chat 轮次重置空闲计时。
 临时 fork 继承当前对话，只读、离线运行，执行结束、失败或取消后清理；hint 和工具过程留在 fork 中。
 
-只有提醒 fork 绑定 `read_inbox(priority=...)` 和 `send_chat_msg(content=...)`，读取范围限定为本轮选中的消息。
+只有提醒 fork 绑定 `read_inbox()` 和 `send_chat_msg(content=...)`。框架已经选定优先级和批次，
+`read_inbox` 不接受参数，读取范围限定为本轮选中的消息。
 非空内容作为标记 `source="proactive"` 的 assistant 消息注入主会话；空内容表示静默，不追加消息。
 决定成功提交后，框架自动消费本轮读取的消息，独立于主人已读状态；失败保留重试，主会话切换或收到新用户轮次后拒绝旧 fork 的结果。
 提醒判断默认限时 120 秒，主动执行默认限时 1200 秒，可在对应 Step 设置 `timeout_seconds`。
 收件箱临时故障按指数退避重试（最长 300 秒），SDK 类型或导入错误停止重试，修复环境并重启后恢复。
 `agent_list` 的 Chat 状态会显示收件箱故障，cron 返回的部分采集失败也会写入日志。
-fork 的普通回复不会发送给主人。桌面端从这些已标记的消息生成提醒列表，`agent_mailbox` 按 `agent_id` 查询 Remy 收件箱或任务发件箱；用户已读不会消费消息。`agent_mailbox action=read agent_id=chat` 也接受合并后的 Chat 消息 ID，返回 `{id,items}` 并在 `mark_read=true` 时确认其全部保留的原始提醒；原始提醒已清理时返回空列表，重复确认仍然成功。对应关系保存在提醒 frontmatter 的 `chat_message_ids` 中；桌面仅将用户明确阅读产生的回执写回，历史消息初始化、静默抑制和仅显示弹窗不算用户已读。`agent_event_list agent_id=<name>` 分页浏览保留的输入事件，不获取消费租约。
+fork 的普通回复不会发送给主人。桌面端从这些已标记的消息生成提醒列表。
+`agent_inbox agent_id=<name>` 统一分页查询所有 Agent 待处理、处理中和已处理的事件，省略 `agent_id` 时查询 Chat，
+不会领取或消费事件。`agent_outbox agent_id=<name>` 查询任务产出的提醒；
+`agent_reminder message_id=<id>` 读取原始提醒，`mark_read=true` 仅确认用户已读。
+Chat 收件条目附带从原始 Markdown 解析的 `reminder` 展示视图。
+`agent_reminder agent_id=chat` 也接受合并后的 Chat 消息 ID，返回 `{id,items}` 并确认其全部保留的原始提醒；
+原始提醒已清理时返回空列表，重复确认仍然成功。对应关系保存在 frontmatter 的 `chat_message_ids` 中。
+桌面仅将用户明确阅读产生的回执写回，历史消息初始化、静默抑制和仅显示弹窗不算用户已读。
+
+单个后台 `agent_loop` 调度任务执行和 Chat 提醒判断，各自保留独立 worker 与重试。
+它替代 `proactive_loop` 和 `inbox_loop`；旧查询 Job `agent_mailbox`、`agent_event_list` 已删除。
+Chat 的旧 Inbox 日志在启动时从提醒 Markdown 重建；任务输入日志继续使用 Event 格式。
 
 `agent_session` 和 `agent_events` 对 Chat 返回完整对话，对事件与定时 Agent 仅返回最近一个原生轮次，
 包含该轮输入及全部助手进度和最终消息。任务订阅每次通过 `snapshot` 整体替换视图，`heartbeat` 不含消息。

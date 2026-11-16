@@ -12,7 +12,6 @@ from .agent_runtime import (
     NotificationConfig,
     AgentReminder,
     ReminderRef,
-    ReadInboxRequest,
     SendChatMessageRequest,
 )
 from .agent_activity import AgentActivity
@@ -97,7 +96,6 @@ __all__ = [
     "AgentNotification",
     "AgentId",
     "NotificationConfig",
-    "ReadInboxRequest",
     "SendChatMessageRequest",
     "ProactiveRunResult",
     "FileChunk",

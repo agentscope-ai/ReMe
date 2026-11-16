@@ -20,10 +20,10 @@ import { watchReadReceipt } from "./read-receipt.ts";
 
 export default function AgentResources({
   state,
-  events,
+  inbox,
 }: {
   state: DesktopState;
-  events: boolean;
+  inbox: boolean;
 }) {
   const t = translator(state.settings.language);
   const agentId = state.selectedAgentId ?? "chat";
@@ -32,10 +32,10 @@ export default function AgentResources({
   const [selected, setSelected] = useState("");
   const [focusedMail, setFocusedMail] = useState<AgentMail>();
   const [readError, setReadError] = useState<unknown>(null);
-  const request: WorkspaceRequest = events
-    ? { type: "events", agentId, offset, state: filter }
+  const request: WorkspaceRequest = inbox
+    ? { type: "inbox", agentId, offset, state: filter }
     : {
-        type: "mailbox",
+        type: "outbox",
         agentId,
         offset,
         state: filter === "processing" ? "pending" : filter,
@@ -50,12 +50,11 @@ export default function AgentResources({
   );
   useEffect(() => {
     if (
-      !events &&
       state.focusTarget?.kind === "mail" &&
       state.focusTarget.agentId === agentId
     )
       setSelected(state.focusTarget.id);
-  }, [state.focusTarget, state.focusRequest, agentId, events]);
+  }, [state.focusTarget, state.focusRequest, agentId, inbox]);
   useEffect(() => {
     if (page && offset && offset >= page.total)
       setOffset(Math.max(0, Math.ceil(page.total / 20) - 1) * 20);
@@ -66,10 +65,16 @@ export default function AgentResources({
   useEffect(() => {
     setFocusedMail(undefined);
     setReadError(null);
-    if (events || !selected || listed || !page || state.activePage !== "remy")
+    if (
+      !selected ||
+      !page ||
+      state.activePage !== "remy" ||
+      (inbox && agentId !== "chat") ||
+      Boolean(listed)
+    )
       return;
     let live = true;
-    void requestResource<AgentMail>({ type: "mail", agentId, id: selected })
+    void requestResource<AgentMail>({ type: "reminder", agentId, id: selected })
       .then((value) => {
         if (live) setFocusedMail(value);
       })
@@ -80,14 +85,17 @@ export default function AgentResources({
       live = false;
     };
   }, [
-    events,
+    inbox,
     selected,
     agentId,
     Boolean(listed),
     Boolean(page),
     state.activePage,
   ]);
-  const item = listed ?? focusedMail;
+  const item =
+    listed && "event" in listed
+      ? (listed.reminder ?? listed)
+      : (listed ?? (focusedMail?.id === selected ? focusedMail : undefined));
   const mail = item && !("event" in item) ? item : undefined;
   useEffect(() => {
     if (
@@ -100,7 +108,7 @@ export default function AgentResources({
       return;
     const receipt = watchReadReceipt(async () => {
       await requestResource({
-        type: "mail",
+        type: "reminder",
         agentId,
         id: mail.id,
         markRead: true,
@@ -159,7 +167,7 @@ export default function AgentResources({
                   [
                     "all",
                     "pending",
-                    ...(events ? ["processing"] : []),
+                    ...(inbox ? ["processing"] : []),
                     "processed",
                   ] as EventState[]
                 ).map((value) => (
@@ -193,27 +201,34 @@ export default function AgentResources({
               }
             : undefined
         }
-        rows={(page?.items ?? []).map((value) =>
-          "event" in value
-            ? {
-                id: value.event.id,
-                title: value.event.source,
-                preview: value.event.description,
-                time: value.event.event_ts,
-                badge: stateLabel(value.state),
-                state: value.state,
-              }
-            : {
-                id: value.id,
-                title: value.from_agent_id,
-                preview: plainText(value.message),
-                time: value.created_at,
-                badge: `${value.priority} · ${stateLabel(value.read_at ? "processed" : "pending")}`,
-                unread: !value.user_read_at,
-                state: value.read_at ? "processed" : "pending",
-                target: { kind: "mail", agentId, id: value.id },
-              },
-        )}
+        rows={(page?.items ?? []).map((value) => {
+          if ("event" in value && !value.reminder)
+            return {
+              id: value.event.id,
+              title: value.event.source,
+              preview: value.event.description,
+              time: value.event.event_ts,
+              badge: stateLabel(value.state),
+              state: value.state,
+            };
+          const mail = "event" in value ? value.reminder! : value;
+          const status =
+            "event" in value
+              ? value.state
+              : mail.read_at
+                ? "processed"
+                : "pending";
+          return {
+            id: mail.id,
+            title: mail.from_agent_id,
+            preview: plainText(mail.message),
+            time: mail.created_at,
+            badge: `${mail.priority} · ${stateLabel(status)}`,
+            unread: !mail.user_read_at,
+            state: status,
+            target: { kind: "mail" as const, agentId, id: mail.id },
+          };
+        })}
       >
         {item &&
           ("event" in item ? (

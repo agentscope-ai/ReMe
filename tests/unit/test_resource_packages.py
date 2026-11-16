@@ -3,6 +3,7 @@
 # pylint: disable=missing-function-docstring,protected-access
 
 from datetime import datetime
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -39,7 +40,7 @@ async def test_empty_collection_skips_publication_and_the_following_event_step(t
     assert invocation["resource"] is None
     response = await ResourceEventStep(app_context=context)(invocation)
     assert response.success and response.answer == {"skipped": "no_new_data"}
-    assert not (tmp_path / "resource").exists()
+    assert not list(tmp_path.glob("resource/*/*/*"))
     assert not list(tmp_path.glob(".reme-resource-*"))
 
 
@@ -49,7 +50,48 @@ async def test_invalid_collection_result_is_not_treated_as_an_empty_batch(tmp_pa
     step.collect = Mock(return_value=None)
     with pytest.raises(ValidationError):
         await step()
-    assert not (tmp_path / "resource").exists()
+    assert not list(tmp_path.glob("resource/*/*/*"))
+
+
+@pytest.mark.asyncio
+async def test_resources_are_written_in_place_before_the_manifest_is_atomically_published(tmp_path, monkeypatch):
+    step = PackageConnector(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
+    collect, replace = step.collect, os.replace
+    directories, manifests = [], []
+
+    def collect_in_place(directory):
+        assert directory.is_relative_to(tmp_path / "resource/screenshot")
+        assert not (directory / "metadata.json").exists()
+        directories.append(directory)
+        return collect(directory)
+
+    def publish_manifest(source, target):
+        assert target == directories[0] / "metadata.json"
+        assert not target.exists()
+        metadata = ResourceMetadata.model_validate_json(source.read_text())
+        assert (target.parent / metadata.files[0].path).read_bytes() == b"image"
+        manifests.append(target)
+        return replace(source, target)
+
+    monkeypatch.setattr(step, "collect", collect_in_place)
+    monkeypatch.setattr("reme.components.agent_runtime._internal.files.os.replace", publish_manifest)
+    response = await step()
+    assert manifests == [tmp_path / response.answer["path"]]
+    assert not list(tmp_path.rglob(".agent-*.tmp"))
+
+
+@pytest.mark.asyncio
+async def test_failed_manifest_publication_removes_the_incomplete_resource_package(tmp_path, monkeypatch):
+    step = PackageConnector(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
+    monkeypatch.setattr(
+        "reme.components.agent_runtime._internal.files.os.replace",
+        Mock(side_effect=OSError("manifest publication failed")),
+    )
+    with pytest.raises(OSError, match="manifest publication failed"):
+        await step()
+    assert not list(tmp_path.glob("resource/*/*/*"))
+    assert not list(tmp_path.rglob("metadata.json"))
+    assert not list(tmp_path.rglob(".agent-*.tmp"))
 
 
 @pytest.mark.asyncio

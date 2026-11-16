@@ -15,16 +15,15 @@ _WINDOW = 4096
 
 
 class CodexDialogueIndex:
-    """Keep restart cursors rebuildable from an initial baseline and committed batches."""
+    """Keep Codex collection progress and unfinished delivery under its resource source."""
 
     def __init__(self, files: AgentFiles, directory: Path, home: Path, check_stopped: Callable):
         self.files = files
         self.directory = files.checked(directory)
         self.root = (home.expanduser().absolute() / "sessions").resolve()
         self.check_stopped = check_stopped
-        self.state_path = directory / "state.json"
-        self.baseline_path = directory / "baseline.json"
-        self.history_path = directory / "history.jsonl"
+        self.progress_path = directory / "progress.jsonl"
+        self.pending_path = directory / "pending.json"
 
     def paths(self):
         """Restrict discovery to native rollout files, including old date directories."""
@@ -80,32 +79,43 @@ class CodexDialogueIndex:
 
     def load(self, now):
         """Only first activation skips history; restarts retain their original cursors."""
-        state = self.files.read_json(self.state_path, None)
+        records = self.files.iter_jsonl(self.progress_path, incomplete_ok=True)
+        state = next(records, None)
         if state is None:
-            state = self.files.read_json(self.baseline_path, None)
-            if state is None:
-                if self.history_path.exists():
-                    raise ValueError("Codex baseline is missing; retain baseline.json when rebuilding state")
-                state = {"version": 1, "root": str(self.root), "started_at": now.isoformat(), "files": {}}
-                for path in self.paths():
-                    try:
-                        with self._open(path) as handle:
-                            stat = os.fstat(handle.fileno())
-                            offset = self._complete_end(handle, stat.st_size)
-                            state["files"][path.relative_to(self.root).as_posix()] = self._cursor(handle, stat, offset)
-                    except FileNotFoundError:
-                        continue
-                self.check_stopped()
-                self.files.write_json(self.baseline_path, state)
-            for transaction in self.files.iter_jsonl(self.history_path, incomplete_ok=True):
-                self.check_stopped()
-                state["files"].update(transaction["updates"])
-                state["last_batch"] = transaction["id"]
-                state["next_path"] = transaction["next_path"]
+            if self.progress_path.exists() or self.pending_path.exists():
+                raise ValueError("Codex progress journal is missing a complete baseline")
+            state = {"version": 1, "root": str(self.root), "started_at": now.isoformat(), "files": {}}
+            for path in self.paths():
+                try:
+                    with self._open(path) as handle:
+                        stat = os.fstat(handle.fileno())
+                        offset = self._complete_end(handle, stat.st_size)
+                        state["files"][path.relative_to(self.root).as_posix()] = self._cursor(handle, stat, offset)
+                except FileNotFoundError:
+                    continue
             self._validate(state)
-            self.files.write_json(self.state_path, state)
-        self._validate(state)
+            self.files.write_jsonl(self.progress_path, [{"type": "baseline", **state}])
+        else:
+            if not isinstance(state, dict) or state.pop("type", None) != "baseline":
+                raise ValueError("Codex progress journal must begin with a baseline")
+            self._validate(state)
+            for record in records:
+                self.check_stopped()
+                self._apply(state, record)
         return state
+
+    def _apply(self, state, record):
+        if not isinstance(record, dict) or record.get("type") != "commit":
+            raise ValueError("Invalid Codex progress record")
+        fields = {"id": str, "updates": dict, "next_path": str, "message_ids": list}
+        if any(not isinstance(record.get(key), kind) for key, kind in fields.items()):
+            raise ValueError("Invalid Codex progress record")
+        if any(not isinstance(value, str) for value in record["message_ids"]):
+            raise ValueError("Invalid Codex progress record")
+        self._validate({**state, "files": record["updates"]})
+        state["files"].update(record["updates"])
+        state["last_batch"] = record["id"]
+        state["next_path"] = record["next_path"]
 
     def _validate(self, state):
         """Reject corrupt offsets before they can become unbounded reads or skipped data."""
@@ -125,20 +135,23 @@ class CodexDialogueIndex:
                 raise ValueError("Invalid Codex file cursor boundary")
 
     def commit(self, state, transaction):
-        """Retain recovery evidence before replacing the small cursor snapshot."""
+        """Append confirmed progress once before clearing the unfinished batch."""
         if state.get("last_batch") != transaction["id"]:
-            self.files.append_jsonl(self.history_path, transaction)
-            state["files"].update(transaction["updates"])
-            state["last_batch"] = transaction["id"]
-            state["next_path"] = transaction["next_path"]
-            self._validate(state)
-            self.files.write_json(self.state_path, state)
+            record = {
+                "type": "commit",
+                **{key: transaction[key] for key in ("id", "updates", "message_ids", "next_path")},
+            }
+            updated = {**state, "files": dict(state["files"])}
+            self._apply(updated, record)
+            self.files.append_jsonl(self.progress_path, record)
+            state.update(updated)
 
     def _known_ids(self):
         known = set()
-        for transaction in self.files.iter_jsonl(self.history_path, incomplete_ok=True):
+        for record in self.files.iter_jsonl(self.progress_path, incomplete_ok=True):
             self.check_stopped()
-            known.update(transaction["message_ids"])
+            if record["type"] == "commit":
+                known.update(record["message_ids"])
         return known
 
     @staticmethod

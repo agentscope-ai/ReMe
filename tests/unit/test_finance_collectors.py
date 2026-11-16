@@ -162,7 +162,7 @@ async def test_no_new_news_creates_no_package_or_event(tmp_path, clock, mock_htt
         assert (await FinanceNewsStep(app_context=context)()).answer == {"skipped": "no_new_data"}
         append.assert_not_awaited()
         assert (await inbox.snapshot("finance"))["pending_count"] == 0
-    assert not (tmp_path / "resource").exists()
+    assert not list(tmp_path.glob("resource/*/*/*"))
     assert not list(tmp_path.glob(".reme-resource-*"))
 
 
@@ -372,7 +372,7 @@ async def test_closed_markets_do_not_request_quotes(tmp_path, clock, mock_http):
     async with collector_runtime(tmp_path) as (context, _, append):
         assert (await StockQuotesStep(app_context=context)()).answer == {"skipped": "no_new_data"}
         append.assert_not_awaited()
-    assert not requests and not (tmp_path / "resource").exists()
+    assert not requests and not list(tmp_path.glob("resource/*/*/*"))
 
 
 @pytest.mark.parametrize("kind", ["missing", "wrong_symbol", "zero_close", "nan_price", "future"])

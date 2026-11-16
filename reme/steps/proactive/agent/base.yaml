@@ -1,17 +1,17 @@
 reminder_policy: |
   # Reminder policy
-  - Follow the current task's explicit reminder conditions, timing and interruption preferences. Use defaults only where unspecified; current requirements take precedence over old instructions.
-  - P0: A requested reminder is due or its condition is met, or a time-sensitive matter requires an immediate decision or action. State what happened, the required action and any deadline.
-  - P1: A matter the user follows, is discussing or asked to monitor has materially changed, without an immediate notification commitment or need. Explain the change and its impact.
-  - P2: New information within the task's scope clearly relates to the user's known interests or goals, although the user did not request that specific item. Explain its relevance.
-  - Skip reminders with no material change, repeated content, insufficient value or relevance, or an explicit request to record only.
-  - Choose priority from user intent, content and timeliness. Do not infer urgency from trigger type or source channel. Apply cancellations and changes according to the latest requirements.
+  - Follow the user's latest instructions about when to remind them, what conditions to watch for and when not to interrupt. If they change or cancel a reminder, follow the update. Use the rules below for anything they have not specified.
+  - P0: The reminder time the user requested has arrived, the condition they asked you to watch for has been met, or something needs their immediate decision or action. Explain what happened, what they need to do and any deadline.
+  - P1: Something the user cares about, is discussing or asked you to follow has an important update, but they have not asked to be told immediately and it does not need immediate attention. Explain what changed and how it affects them.
+  - P2: Within the task's scope, you find new information directly related to what you know about the user's interests or goals, even though they did not ask about this specific item. Explain why it is useful to them.
+  - Skip reminders when nothing meaningful has changed, the content repeats earlier information, it is not useful or relevant enough, or the user asked you to record it without a reminder.
+  - Judge urgency by what the user asked for, what happened and how soon it needs attention. A scheduled task or event trigger, or the channel the information came from, does not by itself make a reminder urgent.
 
 reminder_policy_zh: |
   # 提醒规则
-  - 优先遵循当前任务明确的提醒条件、时间和打扰偏好；未说明的部分使用默认规则，当前要求优先于旧指令。
-  - P0：用户约定的提醒时间已到、条件已满足，或发生需要用户立即决策、处理的时效性事项。说明发生了什么、需要采取的行动及期限。
-  - P1：用户关注、正在讨论或委托监控的事项出现实质变化，但没有立即告知的约定或必要。说明变化及其影响。
-  - P2：在任务范围内，发现与用户已知兴趣或目标有明确关联的新信息，但用户没有交代这件具体事项。说明它为何相关。
-  - 没有实质变化、内容重复、价值或相关性不足，或用户明确要求只记录时，不生成提醒。
-  - 根据用户意图、内容和时效选择级别，不根据触发类型或来源渠道推断紧迫性；取消或变更的提醒按最新要求处理。
+  - 按用户最新的要求决定什么时候提醒、满足什么条件才提醒、什么时候不要打扰。用户改了要求或取消提醒，就按新的来；没说明的部分，再参考下面的规则。
+  - P0：用户交代的提醒到时间了、条件满足了，或者事情需要用户马上决定或处理。说清发生了什么、需要做什么，有截止时间也要说明。
+  - P1：用户关心、正在讨论或让你跟进的事情有了重要的新进展，但用户没要求马上提醒，这件事也不着急。说清哪里变了、对用户有什么影响。
+  - P2：用户没专门问过这件事，但你在任务范围内发现了新信息，和你了解的用户兴趣或目标直接相关。说清这条信息为什么对用户有用。
+  - 没什么新变化、信息重复、对用户用处不大或关系不大，或者用户说只记录不用提醒，就不要生成提醒。
+  - 判断紧不紧急，要看用户的要求、发生了什么、是否需要马上处理，不能只看它是定时任务还是事件触发、信息从哪个渠道来。

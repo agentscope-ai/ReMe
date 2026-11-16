@@ -1,7 +1,7 @@
 """Consume one event batch through a resumed agent and durable completion receipt."""
 
 import asyncio
-from datetime import date
+from datetime import timedelta
 import math
 
 import frontmatter
@@ -17,11 +17,8 @@ from ....utils.async_utils import finish_cleanup
 class ProactiveAgentStep(BaseAgentStep):
     """Restore context, process inputs and publish validated reminder documents."""
 
-    def __init__(self, reminder_history_limit: int = 10, timeout_seconds=1200, **kwargs):
+    def __init__(self, timeout_seconds=1200, **kwargs):
         super().__init__(**kwargs)
-        if type(reminder_history_limit) is not int or reminder_history_limit < 1:
-            raise ValueError("reminder_history_limit must be a positive integer")
-        self.reminder_history_limit = reminder_history_limit
         if type(timeout_seconds) not in (int, float) or not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be a finite positive number")
         self.timeout_seconds = timeout_seconds
@@ -33,22 +30,13 @@ class ProactiveAgentStep(BaseAgentStep):
         reminder_dir = agent_dir / "reminder"
         day = now.strftime("%Y-%m-%d")
         summary = runtime.files.checked(daily / day / f"{agent.agent_id}.md")
-        history = summary if summary.exists() else None
-        if history is None:
-            for candidate in sorted(daily.glob(f"*/{agent.agent_id}.md"), reverse=True):
-                name = candidate.parent.name
-                try:
-                    valid_date = date.fromisoformat(name).isoformat() == name
-                except ValueError:
-                    continue
-                if valid_date and name < day:
-                    history = runtime.files.checked(candidate)
-                    break
-        stem = f"{agent.agent_id}_{now:%H%M%S}"
+        yesterday = (now.date() - timedelta(days=1)).isoformat()
+        yesterday_summary = runtime.files.checked(daily / yesterday / f"{agent.agent_id}.md")
+        stem = f"{now:%H%M%S}"
         collision = 0
         while True:
             filename = f"{stem}{'_' + str(collision) if collision else ''}.md"
-            detail = runtime.files.checked(daily / day / filename)
+            detail = runtime.files.checked(daily / day / f"{agent.agent_id}_{filename}")
             reminder = runtime.files.checked(reminder_dir / day / filename)
             if not detail.exists() and not reminder.exists():
                 break
@@ -58,20 +46,15 @@ class ProactiveAgentStep(BaseAgentStep):
             "reminder_dir": reminder_dir,
             "memory_path": agent_dir / "MEMORY.md",
             "summary_path": summary,
-            "history_summary_path": history,
+            "yesterday_summary_path": yesterday_summary,
             "detail_path": detail,
             "reminder_path": reminder,
-            "reminder_pattern": reminder_dir / "*" / "*.md",
         }
 
     def _options(self, agent):
         """Scheduled tasks have web access; event monitoring stays offline."""
         return {
             **self.web_options(agent.trigger_type == "cron"),
-            "job_tools": [
-                "agent_memory",
-                *(["web_extract"] if agent.trigger_type == "cron" else []),
-            ],
             "injected_job_kwargs": {"_agent_id": agent.agent_id},
             "sandbox": "workspace-write",
             "approval_mode": "deny_all",
@@ -84,13 +67,12 @@ class ProactiveAgentStep(BaseAgentStep):
             "system_prompt",
             workspace_dir=self.workspace_path,
             agent_id=agent.agent_id,
-            memory_path=self.agent_runtime.agents.directory_for(agent) / "MEMORY.md",
             app_timezone=self.app_context.app_config.timezone or str(now.tzinfo),
             reminder_policy=self.get_prompt("reminder_policy"),
             event=agent.trigger_type == "event",
             cron=agent.trigger_type == "cron",
         )
-        return {"system_prompt": system, **self.memory_options(agent.agent_id), **self._options(agent)}
+        return {"system_prompt": system, **self._options(agent)}
 
     def _query(self, agent, events, paths, now):
         cron = agent.trigger_type == "cron"
@@ -114,9 +96,6 @@ class ProactiveAgentStep(BaseAgentStep):
             **{key: str(value) for key, value in paths.items()},
             now=now.isoformat(),
             input_content="\n\n".join(inputs),
-            reminder_history_limit=self.reminder_history_limit,
-            first_run=paths["history_summary_path"] is None,
-            has_history=paths["history_summary_path"] is not None,
             event=not cron,
             cron=cron,
         )
@@ -126,10 +105,12 @@ class ProactiveAgentStep(BaseAgentStep):
         if reply["status"] != "completed":
             raise RuntimeError(reply.get("error") or f"Proactive agent {reply['status']}")
         files = self.agent_runtime.files
-        if not files.read(paths["summary_path"]).strip() or paths["summary_path"].stat().st_mtime_ns == summary_mtime:
-            raise ValueError("proactive round must update its daily summary")
+        if not files.read(paths["summary_path"]).strip():
+            raise ValueError("proactive round must have a nonempty daily summary")
         if not paths["reminder_path"].exists():
             return ProactiveRunResult(notifications=[])
+        if paths["summary_path"].stat().st_mtime_ns == summary_mtime:
+            raise ValueError("a reminder round must update its daily summary")
         document = frontmatter.loads(files.read(paths["reminder_path"]))
         if not files.read(paths["detail_path"]).strip():
             raise ValueError("reminder must have a nonempty detail file")

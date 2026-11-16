@@ -13,7 +13,6 @@ class BaseChatAgentStep(BaseAgentStep):
         memory = runtime.agents.path("chat") / "MEMORY.md"
         return {
             **self.web_options(True),
-            **self.memory_options(),
             "system_prompt": self.prompt_format(
                 "system_prompt",
                 workspace_dir=self.workspace_path,

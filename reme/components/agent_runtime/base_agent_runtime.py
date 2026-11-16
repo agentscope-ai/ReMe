@@ -78,7 +78,7 @@ class BaseAgentRuntime(BaseComponent):
 
     @abstractmethod
     async def status(self, agent_id: str) -> dict:
-        """Return execution settings, status, and a memory preview with its path."""
+        """Return execution settings, status, and the original memory path."""
 
     @abstractmethod
     async def list_agents(self) -> dict:
@@ -116,15 +116,7 @@ class BaseAgentRuntime(BaseComponent):
         yield {}
 
     @abstractmethod
-    async def mailbox(self, agent_id: str, **kwargs) -> dict:
-        """Page received or outgoing canonical mail."""
-
-    @abstractmethod
-    async def mail(self, agent_id: str, message_id: str, *, mark_read: bool = False) -> dict:
-        """Read one scoped message, independently of Agent acknowledgement."""
-
-    @abstractmethod
-    async def list_events(self, agent_id: str, **kwargs) -> dict:
+    async def list_inputs(self, agent_id: str, **kwargs) -> dict:
         """Page retained inputs without acquiring a consumption lease."""
 
     @abstractmethod
@@ -136,8 +128,8 @@ class BaseAgentRuntime(BaseComponent):
         """Execute and commit one serial input batch."""
 
     @abstractmethod
-    async def tick(self, run_job: Callable, job_name: str) -> None:
-        """Schedule eligible work and collect idle temporary Agents."""
+    async def tick(self, run_job: Callable) -> None:
+        """Schedule task and Chat work and collect idle temporary Agents."""
 
     @abstractmethod
     async def wait(self, stop: asyncio.Event, seconds=1) -> None:

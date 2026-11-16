@@ -162,10 +162,8 @@ class ChatNotifications:
             raise ValueError("inbox tools require an active reminder fork")
         return self.active_turn
 
-    async def read_turn(self, turn, priority):
+    async def read_turn(self, turn):
         """Expose only this wakeup's batch; later arrivals wait for another fork."""
-        if priority != turn.priority:
-            raise ValueError("priority does not match the active reminder fork")
         async with turn.lock:
             self.current_turn(turn.id)
             if turn.items is None:
@@ -241,7 +239,7 @@ class ChatNotifications:
         agent = agents.get(self.runtime.outbox.owners.get(ref))
         return agent is not None and agent.enabled and (agent.notify_window is None or agent.notify_window.allows(now))
 
-    async def tick(self, run_job, job_name):
+    async def tick(self, run_job):
         """Coalesce eligible messages into one lifecycle-owned Chat wakeup."""
         if self.worker is not None or self.runtime.closed:
             return
@@ -275,15 +273,15 @@ class ChatNotifications:
                     :20
                 ]
                 self.worker = asyncio.create_task(
-                    self._wake(run_job, job_name, priority, identifiers),
+                    self._wake(run_job, priority, identifiers),
                     name="inbox:chat",
                 )
 
-    async def _wake(self, run_job, job_name, priority, identifiers):
+    async def _wake(self, run_job, priority, identifiers):
         permanent = False
         self.last_started_at = self.runtime.now()
         try:
-            response = await run_job(job_name, priority=priority, msg_ids=identifiers)
+            response = await run_job("inbox_chat", priority=priority, msg_ids=identifiers)
             if not response.success:
                 failure = response.metadata.get("reme.job_error", {})
                 permanent = failure.get("type") in {"TypeError", "ImportError", "ModuleNotFoundError"}

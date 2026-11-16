@@ -39,7 +39,9 @@ export default function Remy({
       ...value,
       [selected]:
         state.focusTarget?.kind === "mail"
-          ? "mailbox"
+          ? selected === "chat"
+            ? "inbox"
+            : "outbox"
           : state.focusTarget?.kind === "message"
             ? "reminders"
             : "chat",
@@ -60,11 +62,9 @@ export default function Remy({
             ? "memoryTab"
             : section === "reminders"
               ? "reminders"
-              : section === "events"
-                ? "eventsTab"
-                : selected === "chat"
-                  ? "inbox"
-                  : "outbox",
+              : section === "inbox"
+                ? "inbox"
+                : "outbox",
         );
   const status = t(
     agent?.error
@@ -131,8 +131,8 @@ export default function Remy({
           {section === "reminders" && selected === "chat" && (
             <Reminders state={state} />
           )}
-          {(section === "mailbox" || section === "events") && (
-            <AgentResources state={state} events={section === "events"} />
+          {(section === "outbox" || section === "inbox") && (
+            <AgentResources state={state} inbox={section === "inbox"} />
           )}
         </div>
       </section>

@@ -82,7 +82,6 @@ export const messages = {
   agents: ["Agents", "Agents"],
   conversationTab: ["对话", "Chat"],
   memoryTab: ["记忆", "Memory"],
-  eventsTab: ["事件流", "Events"],
   agentRunning: ["运行中", "Running"],
   agentIdle: ["空闲", "Idle"],
   agentDisabled: ["已停用", "Disabled"],

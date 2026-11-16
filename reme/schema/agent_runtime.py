@@ -10,7 +10,6 @@ from pydantic import (
     ConfigDict,
     Field,
     field_validator,
-    model_validator,
 )
 
 from .event import Event
@@ -142,37 +141,9 @@ class InboxWakeRequest(BaseModel):
     msg_ids: list[InboxMessageId] = Field(min_length=1, max_length=100)
 
 
-class ReadInboxRequest(BaseModel):
-    """Read the active fork's batch at its assigned priority."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    priority: InboxPriority
-
-
 class SendChatMessageRequest(BaseModel):
     """Submit user-facing text, or an empty decision to stay quiet."""
 
     model_config = ConfigDict(extra="forbid")
 
     content: str = Field(max_length=100000)
-
-
-class AgentMemoryRequest(BaseModel):
-    """A write must refer to the exact complete memory previously read."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    action: Literal["read", "write"]
-    agent_id: AgentId | None = None
-    content: str | None = Field(default=None, max_length=100000)
-    expected_revision: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
-
-    @model_validator(mode="after")
-    def arguments(self):
-        """Reject ambiguous read and unconditional replacement requests."""
-        if self.action == "write" and (self.content is None or self.expected_revision is None):
-            raise ValueError("write requires content and expected_revision from a complete read")
-        if self.action == "read" and self.model_fields_set - {"action", "agent_id"}:
-            raise ValueError("read accepts only action and agent_id")
-        return self

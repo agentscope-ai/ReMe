@@ -75,12 +75,12 @@ export async function requestWorkspace(
   let job: string;
   let body: object;
   switch (request.type) {
-    case "mailbox":
-    case "events": {
+    case "outbox":
+    case "inbox": {
       const offset = request.offset ?? 0;
       const limit = request.limit ?? 20;
       const states =
-        request.type === "events"
+        request.type === "inbox"
           ? ["all", "pending", "processing", "processed"]
           : ["all", "pending", "processed"];
       if (
@@ -94,7 +94,7 @@ export async function requestWorkspace(
         limit > 100
       )
         throw new UiError("invalidWorkspaceRequest");
-      job = request.type === "events" ? "agent_event_list" : "agent_mailbox";
+      job = request.type === "inbox" ? "agent_inbox" : "agent_outbox";
       body = {
         agent_id: request.agentId,
         state: request.state ?? "all",
@@ -103,7 +103,7 @@ export async function requestWorkspace(
       };
       break;
     }
-    case "mail":
+    case "reminder":
       if (
         typeof request.agentId !== "string" ||
         !request.agentId ||
@@ -114,9 +114,8 @@ export async function requestWorkspace(
           typeof request.markRead !== "boolean")
       )
         throw new UiError("invalidWorkspaceRequest");
-      job = "agent_mailbox";
+      job = "agent_reminder";
       body = {
-        action: "read",
         agent_id: request.agentId,
         message_id: request.id,
         mark_read: request.markRead ?? false,

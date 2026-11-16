@@ -6,15 +6,22 @@ from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
 import re
-from tempfile import TemporaryDirectory
+import shutil
 from threading import Event
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from ...base_step import BaseStep
 from ...file_io import check_path_permission, resolve_path
+from ....components.agent_runtime._internal.files import AgentFiles
 from ....schema import ApplicationConfig, ResourceMetadata
 from ....utils.async_utils import finish_cleanup
+from ....utils.file_sync import sync_directory, sync_file
+
+
+def resource_package_id(now: datetime) -> str:
+    """Name a collection batch with local time and six UUID4 hex characters."""
+    return f"{now:%H%M%S}_{uuid4().hex[:6]}"
 
 
 class BaseConnectorStep(BaseStep):
@@ -26,7 +33,7 @@ class BaseConnectorStep(BaseStep):
 
     @abstractmethod
     def collect(self, directory: Path) -> list[dict]:
-        """Write payloads into the private directory; raise if any collection fails."""
+        """Write payloads into their final directory; raise if any collection fails."""
 
     def resource_target(self) -> tuple[Path, datetime]:
         """Validate the destination before collection or any external I/O."""
@@ -38,7 +45,7 @@ class BaseConnectorStep(BaseStep):
         if not re.fullmatch(r"[a-z][a-z0-9_-]*", self.source):
             raise ValueError("resource source must be a lowercase directory name")
         now = datetime.now(ZoneInfo(config.timezone)) if config.timezone else datetime.now().astimezone()
-        target = root / self.source / now.date().isoformat() / f"{now:%H%M%S}_{uuid4().hex[:6]}"
+        target = root / self.source / now.date().isoformat() / resource_package_id(now)
         if not check_path_permission(workspace, target, self.context.get("_allowed_paths")):
             raise PermissionError("no permission to write this resource package")
         return target, now
@@ -69,10 +76,14 @@ class BaseConnectorStep(BaseStep):
         return self.context.response
 
     def _collect_and_publish(self, target: Path, created_at: datetime, cancelled: Event) -> dict | None:
-        """Stage outside resource/, then atomically rename on the same filesystem."""
-        with TemporaryDirectory(prefix=".reme-resource-", dir=self.workspace_path.resolve()) as temporary:
-            directory = Path(temporary)
-            files = self.collect(directory)
+        """Write resources in place, then atomically publish their manifest before event delivery."""
+        store = AgentFiles(self.workspace_path)
+        store.checked(target.parent).mkdir(parents=True, exist_ok=True)
+        store.checked(target).mkdir()
+        published = False
+        try:
+            sync_directory(target.parent)
+            files = self.collect(target)
             if cancelled.is_set() or (self.context.stop_event is not None and self.context.stop_event.is_set()):
                 raise RuntimeError("Resource collection stopped before publication")
             if files == []:
@@ -86,23 +97,17 @@ class BaseConnectorStep(BaseStep):
                 files=files,
             )
             for item in metadata.files:
-                payload = directory / item.path
-                if payload.resolve() != payload or not payload.is_file() or payload.stat().st_size == 0:
+                payload = store.checked(target / item.path)
+                if not payload.is_file() or payload.stat().st_size == 0:
                     raise ValueError(f"Missing, empty, or symlinked resource payload: {item.path}")
-            (directory / "metadata.json").write_text(
-                metadata.model_dump_json(indent=2, exclude_none=True) + "\n",
-                encoding="utf-8",
-            )
+                with payload.open("rb") as handle:
+                    sync_file(handle.fileno())
             if cancelled.is_set() or (self.context.stop_event is not None and self.context.stop_event.is_set()):
                 raise RuntimeError("Resource collection stopped before publication")
-            if target.parent.resolve() != target.parent:
-                raise ValueError("Resource package parent must not contain symlinks")
-            target.parent.mkdir(parents=True, exist_ok=True)
-            if target.parent.resolve() != target.parent:
-                raise ValueError("Resource package parent must not contain symlinks")
-            if target.exists():
-                raise FileExistsError(f"Resource package already exists: {target}")
-            if cancelled.is_set() or (self.context.stop_event is not None and self.context.stop_event.is_set()):
-                raise RuntimeError("Resource collection stopped before publication")
-            directory.rename(target)
-            return metadata.model_dump(mode="json", exclude_none=True)
+            result = metadata.model_dump(mode="json", exclude_none=True)
+            store.write_json(target / "metadata.json", result)
+            published = True
+            return result
+        finally:
+            if not published:
+                shutil.rmtree(store.checked(target))

@@ -1,13 +1,13 @@
 """Per-Agent inbox directories backed by the local unread/read logs."""
 
-from datetime import datetime, timezone
+from datetime import datetime
 import json
 
 from pydantic import BaseModel
 
 from .local_agent_inbox import LocalAgentInbox
 from ..component_registry import R
-from ...schema.agent_runtime import ReminderRef, validate_agent_id
+from ...schema.agent_runtime import validate_agent_id
 from ...schema.application_config import ApplicationConfig
 from ...schema.event import Event
 from ...utils.async_utils import finish_cleanup
@@ -67,8 +67,7 @@ class AgentEventInbox(LocalAgentInbox):
     def _validate(value):
         if isinstance(value, BaseModel):
             value = value.model_dump(mode="json")
-        model = ReminderRef if isinstance(value, dict) and "file" in value else Event
-        return model.model_validate(value).model_dump(mode="json")
+        return Event.model_validate(value).model_dump(mode="json")
 
     def _item(self, raw):
         value = json.loads(raw)
@@ -79,9 +78,4 @@ class AgentEventInbox(LocalAgentInbox):
 
     @staticmethod
     def _sort_key(item):
-        timestamp = (
-            datetime.fromisoformat(item["event_ts"])
-            if "event_ts" in item
-            else datetime.min.replace(tzinfo=timezone.utc)
-        )
-        return timestamp, item["id"]
+        return datetime.fromisoformat(item["event_ts"]), item["id"]

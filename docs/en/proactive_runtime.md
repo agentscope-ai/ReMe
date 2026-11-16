@@ -33,4 +33,4 @@ User feedback can update the relevant task memory or configuration for later run
 
 The current collector captures screenshots and new Codex user messages and final answers. Claude Code and fuller tool execution trajectories require additional connectors. Collected observations must distinguish requested work, attempted actions, and verified results.
 
-See [Services and Deployment](./services.md#agent-runtime) for configuration and interfaces, and [Work Observations](./work_observations.md) for collector details.
+See [Services and Deployment](./services.md#agent-runtime) for configuration and interfaces.

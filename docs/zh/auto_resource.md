@@ -63,11 +63,11 @@ workspace/
 
 `config=proactive` 包含默认关闭的 `screen_capture_cron`。先创建事件 Agent，再配置
 `jobs.screen_capture_cron.agent_id` 和 `jobs.screen_capture_cron.enabled=true` 后重启。
-采集按应用时区每 15 分钟触发，启动时不立即采集。
+采集按应用时区每 5 分钟触发，启动时不立即采集。
 
-`BaseConnectorStep` 暂存并原子发布完整资源包，`ScreenCaptureStep` 为每个显示器保留一张原尺寸 PNG。
+`BaseConnectorStep` 将资料直接写入资源目录，最后原子写入 `metadata.json`；`ScreenCaptureStep` 为每个显示器保留一张原尺寸 PNG。
 随后 `ResourceEventStep` 向指定 Agent 投递带稳定 ID 的观察事件，包含资源描述、manifest 与全部文件的
-工作区相对路径。重复投递同一包不会重复入队。
+工作区相对路径。采集器在写入完成后决定投递事件，重复投递同一包不会重复入队。
 
 ```text
 resource/screenshot/YYYY-MM-DD/hhmmss_<uuid4前六位>/
@@ -81,7 +81,7 @@ resource/screenshot/YYYY-MM-DD/hhmmss_<uuid4前六位>/
 旧资源包不移动，已保存的路径引用仍有效。
 
 manifest 使用 `ResourceMetadata`：带时区的创建/更新时间、source、description、采集 Step 类名和包内文件列表。
-任一屏幕失败都会丢弃暂存包；取消时等待同步采集退出并清理。macOS 需要实际宿主进程的屏幕录制权限，
+任一屏幕失败都会清理未完成的资源包，不投递事件；取消时等待同步采集退出并清理。macOS 需要实际宿主进程的屏幕录制权限，
 无图形会话或显示器不可用时该轮失败。采集不调用 LLM，由接收事件的 Proactive Agent 独立解读。
 
 ## 定时财经采集
@@ -105,8 +105,8 @@ BTC 使用滚动 24 小时涨跌幅，保存统计窗口和采集时间；USDT �
 若仍为 cron 类型，在另一个终端执行：
 
 ```bash
-reme manage_proactive_agent action=update agent_id=finance 'config={"trigger_type":"event","cron":null}'
-reme manage_proactive_agent action=status agent_id=finance
+reme manage_proactive_agent action=update name=finance trigger_type=event
+reme manage_proactive_agent action=status name=finance
 ```
 
 按返回的 `memory_path` 更新已有任务和 AI 新闻偏好，重启不会覆盖记忆。

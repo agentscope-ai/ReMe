@@ -119,24 +119,6 @@ class CodexAgentWrapper(BaseAgentWrapper):
         from openai_codex.types import Personality, ThreadSource, ThreadStartSource
 
         config = dict(kwargs.get("config") or {})
-        protected = kwargs.get("read_only_paths") or []
-        if protected:
-            mode = kwargs.get("sandbox", "full-access")
-            filesystem = {":root": "write" if mode == "full-access" else "read"}
-            if mode == "workspace-write":
-                filesystem.update({str(self.cwd): "write", ":tmpdir": "write", ":slash_tmp": "write"})
-            for path in protected:
-                if not isinstance(path, str) or not Path(path).is_absolute():
-                    raise ValueError("native permission paths must be absolute")
-                filesystem[path] = "read"
-            network = config.get("sandbox_workspace_write", {}).get("network_access", mode == "full-access")
-            config.update(
-                default_permissions="reme_agent",
-                permissions={
-                    **config.get("permissions", {}),
-                    "reme_agent": {"filesystem": filesystem, "network": {"enabled": network}},
-                },
-            )
         if proxy_environment := self.command_proxy_environment:
             policy = dict(config.get("shell_environment_policy") or {})
             policy["set"] = {**policy.get("set", {}), **proxy_environment}
@@ -149,7 +131,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
             "developer_instructions": kwargs.get("system_prompt"),
             "model": kwargs.get("model"),
             "model_provider": kwargs.get("model_provider"),
-            "sandbox": None if protected else self._enum(Sandbox, kwargs.get("sandbox"), Sandbox.full_access),
+            "sandbox": self._enum(Sandbox, kwargs.get("sandbox"), Sandbox.full_access),
             "service_tier": kwargs.get("service_tier"),
         }
         if kwargs.get("fork_session"):
@@ -438,9 +420,6 @@ class CodexAgentWrapper(BaseAgentWrapper):
         }
         if kwargs.get("fork_session"):
             options.pop("cwd")
-        if kwargs.get("read_only_paths"):
-            # A legacy turn override would replace the file-specific profile.
-            options.pop("sandbox", None)
         return {key: value for key, value in options.items() if key in kwargs or key == "cwd"}
 
     @classmethod

@@ -33,8 +33,6 @@ from ...schema.event import Event
 from ...schema.proactive_agent import CreateProactiveAgentConfig
 from ...utils.async_utils import complete_in_thread, finish_cleanup
 
-_MEMORY_PREVIEW_CHARS = 2000
-
 
 @dataclass
 class _Execution:
@@ -187,14 +185,14 @@ class LocalAgentRuntime(BaseAgentRuntime):
     async def create(self, config):
         """Persist a task and its inbox directory before returning success."""
         async with self.management_lock:
-            agent = await complete_in_thread(
+            agent, restored = await complete_in_thread(
                 self.agents.create,
                 config,
                 self.now(),
             )
             await self.prepare(agent)
             self.changed.set()
-            return await self._status(agent, include_memory=True)
+            return {**await self._status(agent), "restored": restored}
 
     async def update(self, agent_id, config):
         """Apply execution settings to future rounds and invalidate the in-memory timer."""
@@ -243,16 +241,23 @@ class LocalAgentRuntime(BaseAgentRuntime):
 
     async def status(self, agent_id):
         """Inspect without acquiring a model-generation lock."""
-        return await self._status(await self.definition(agent_id), include_memory=True)
+        return await self._status(await self.definition(agent_id))
 
-    async def _status(self, agent, *, include_memory=False):
+    async def _status(self, agent):
         agent_id = agent.agent_id
         await self.prepare(agent)
         snapshot = await self.inbox.snapshot(agent_id)
         receipt = snapshot["receipt"]
         execution = self.executions[agent_id]
-        memory = self.agents.directory_for(agent) / "MEMORY.md"
-        result = {
+        memory = self.files.checked(self.agents.directory_for(agent) / "MEMORY.md")
+        next_trigger = None
+        if agent.enabled and agent.trigger_type == "cron":
+            schedule = self.cron.get(agent_id)
+            signature = f"{agent.cron}|{self.app_context.app_config.timezone}"
+            next_trigger = (
+                schedule[1] if schedule and schedule[0] == signature else self._next_cron_time(agent, self.now())
+            )
+        return {
             "agent_id": agent_id,
             "config": agent.model_dump(mode="json", exclude={"created_at", "deleted_at"}),
             "created_at": agent.created_at.isoformat(),
@@ -262,16 +267,9 @@ class LocalAgentRuntime(BaseAgentRuntime):
             "in_flight_events": snapshot["in_flight_count"],
             "last_started_at": (execution.started_at.isoformat() if execution.started_at else None),
             "last_completed_at": receipt.consume_ts.isoformat() if receipt else None,
-            "next_trigger_at": (self.cron[agent_id][1].isoformat() if agent_id in self.cron else None),
+            "next_trigger_at": next_trigger.isoformat() if next_trigger is not None else None,
             "error": execution.error,
         }
-        if include_memory:
-            content = await asyncio.to_thread(self.files.read, memory)
-            result.update(
-                memory_content=content[:_MEMORY_PREVIEW_CHARS],
-                memory_truncated=len(content) > _MEMORY_PREVIEW_CHARS,
-            )
-        return result
 
     async def list_agents(self):
         """List task identities independently of chat and native session counts."""
@@ -339,19 +337,18 @@ class LocalAgentRuntime(BaseAgentRuntime):
             async for event in events:
                 yield event
 
-    async def mailbox(self, agent_id, **kwargs):
-        """Read canonical mail without publishing or consuming it."""
-        return await self.outbox.mailbox(agent_id, **kwargs)
-
-    async def mail(self, agent_id, message_id, *, mark_read=False):
-        """Keep user reading separate from internal acknowledgement."""
-        return await self.outbox.mail(agent_id, message_id, mark_read=mark_read)
-
-    async def list_events(self, agent_id, **kwargs):
-        """Read the mounted input inbox for a named task."""
-        await self.definition(agent_id)
+    async def list_inputs(self, agent_id, **kwargs):
+        """Page the same event Inbox for Chat and task Agents."""
+        if agent_id != "chat":
+            await self.definition(agent_id)
         page = await self.inbox.read(agent_id, **kwargs)
         page["items"] = [{"event": item.pop("item"), **item} for item in page["items"]]
+        if agent_id == "chat":
+            await self.outbox.refresh()
+            refs = {ref.id: ref for ref in self.outbox.committed}
+            for item in page["items"]:
+                if ref := refs.get(item["event"]["id"]):
+                    item["reminder"] = self.outbox.message(ref)
         return page
 
     async def list_chat_sessions(self, offset=0, limit=10):
@@ -380,7 +377,7 @@ class LocalAgentRuntime(BaseAgentRuntime):
                 receipt = (await self.inbox.snapshot(agent_id))["receipt"]
                 session_id = receipt.metadata.get("session_id") if receipt else None
                 if session_id is None:
-                    raise ValueError("proactive agent has no completed session to query")
+                    raise ValueError("Task has not completed a run yet")
             yield session_id
 
     async def run(self, agent_id, execute):
@@ -464,15 +461,20 @@ class LocalAgentRuntime(BaseAgentRuntime):
                 if owns_worker:
                     self.workers.pop(agent_id, None)
 
-    async def _schedule_cron(self, agent):
+    def _next_cron_time(self, agent, now):
+        """Compute a calendar trigger without mutating the scheduler or enqueuing work."""
         from croniter import croniter
 
-        now = self.now()
-        signature = f"{agent.cron}|{self.app_context.app_config.timezone}"
         anchor = now if self.app_context.app_config.timezone else now.replace(tzinfo=None)
         next_fire = croniter(agent.cron, anchor).get_next(datetime)
         if next_fire.tzinfo is None:
             next_fire = next_fire.astimezone()
+        return next_fire
+
+    async def _schedule_cron(self, agent):
+        now = self.now()
+        signature = f"{agent.cron}|{self.app_context.app_config.timezone}"
+        next_fire = self._next_cron_time(agent, now)
         if agent.agent_id not in self.cron or self.cron[agent.agent_id][0] != signature:
             self.cron[agent.agent_id] = (signature, next_fire)
         scheduled = self.cron[agent.agent_id][1]
@@ -490,7 +492,18 @@ class LocalAgentRuntime(BaseAgentRuntime):
         )
         self.cron[agent.agent_id] = (signature, next_fire)
 
-    async def tick(self, run_job, job_name):
+    async def tick(self, run_job):
+        """Check both consumers even when one scheduler fails."""
+        results = await asyncio.gather(
+            self._tick_tasks(run_job),
+            self.notifications.tick(run_job),
+            return_exceptions=True,
+        )
+        for result in results:
+            if isinstance(result, BaseException):
+                raise result
+
+    async def _tick_tasks(self, run_job):
         """Schedule independent serial agents; idle cleanup runs under the same management lock."""
         async with self.management_lock:
             agents = await asyncio.to_thread(self.agents.load)
@@ -510,7 +523,7 @@ class LocalAgentRuntime(BaseAgentRuntime):
                         continue
                 if snapshot["pending_count"]:
                     self.workers[agent.agent_id] = asyncio.create_task(
-                        self._work(agent.agent_id, run_job, job_name),
+                        self._work(agent.agent_id, run_job),
                         name=f"agent:{agent.agent_id}",
                     )
             for agent in (await asyncio.to_thread(self.agents.load, include_deleted=True)).values():
@@ -554,10 +567,10 @@ class LocalAgentRuntime(BaseAgentRuntime):
         self.sessions.locks.pop(agent.agent_id, None)
         self.cron.pop(agent.agent_id, None)
 
-    async def _work(self, agent_id, run_job, job_name):
+    async def _work(self, agent_id, run_job):
         execution = self.executions[agent_id]
         try:
-            response = await run_job(job_name, agent_id=agent_id)
+            response = await run_job("proactive_run", agent_id=agent_id)
             if not response.success:
                 raise RuntimeError(str(response.answer))
             execution.error = execution.retry_at = None

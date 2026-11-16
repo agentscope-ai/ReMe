@@ -76,11 +76,6 @@ class BaseAgentStep(BaseStep):
         ):
             raise PermissionError("no permission to access agent runtime files")
 
-    def memory_options(self, agent_id="chat"):
-        """Protect the caller's memory without restricting collectors or reminders."""
-        registry = self.agent_runtime.agents
-        return {"read_only_paths": [str(registry.path(agent_id) / "MEMORY.md")]}
-
     def parameters(self):
         """Separate server-injected context from public request arguments."""
         return {

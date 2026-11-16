@@ -74,8 +74,9 @@ test("authoritative subscriptions reconcile replies and endpoint changes respect
           "agent_chat",
           "agent_session",
           "agent_new_session",
-          "agent_mailbox",
-          "agent_event_list",
+          "agent_outbox",
+          "agent_reminder",
+          "agent_inbox",
         ].map((name) => [name, { backend: "base" }]),
       ),
     };

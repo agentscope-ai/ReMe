@@ -70,11 +70,12 @@ Permanent material should remain in user-controlled workspace paths.
 
 `config=proactive` includes an opt-in `screen_capture_cron` job. Create an event agent first, configure
 `jobs.screen_capture_cron.agent_id` with its ID, and set `jobs.screen_capture_cron.enabled=true` before restarting.
-It captures every 15 minutes in the application timezone, without a startup capture.
+It captures every five minutes in the application timezone, without a startup capture.
 
-`BaseConnectorStep` stages and atomically publishes a complete package; `ScreenCaptureStep` saves one original-size PNG
-per display. `ResourceEventStep` then appends a stable-ID observation to the configured agent. The event contains the
-package description and workspace-relative paths to its manifest and all payloads. Retrying publication is idempotent.
+`BaseConnectorStep` writes payloads directly to their resource directory and atomically writes `metadata.json` last;
+`ScreenCaptureStep` saves one original-size PNG per display. `ResourceEventStep` then appends a stable-ID observation
+to the configured agent. The event contains the package description and workspace-relative paths to its manifest and
+all payloads. Retrying publication is idempotent. The collector decides when to send the event after writing completes.
 
 ```text
 resource/screenshot/YYYY-MM-DD/hhmmss_<uuid4-first-6>/
@@ -88,9 +89,10 @@ and `web_extract` for web extraction. `metadata.json` lists the collected files 
 are derived from the workspace-relative package path. Existing packages stay in place and retain their saved references.
 
 The manifest uses `ResourceMetadata`: timezone-aware creation/update timestamps, source, description, connector class
-and package-relative file entries. Any failed display discards the staged package. Cancellation waits for synchronous
-capture cleanup. macOS requires Screen Recording permission for the host process; headless or unavailable displays
-fail the round. Collection does not call an LLM; the receiving Proactive Agent interprets the event separately.
+and package-relative file entries. Any failed display removes the incomplete package without sending an event.
+Cancellation waits for synchronous capture cleanup. macOS requires Screen Recording permission for the host process;
+headless or unavailable displays fail the round. Collection does not call an LLM; the receiving Proactive Agent interprets
+the event separately.
 
 ## Scheduled Finance Collection
 
@@ -115,8 +117,8 @@ Start the service in one terminal with `reme start config=proactive`. Initial Ag
 only once. For a workspace whose finance Agent still uses cron, run this in another terminal:
 
 ```bash
-reme manage_proactive_agent action=update agent_id=finance 'config={"trigger_type":"event","cron":null}'
-reme manage_proactive_agent action=status agent_id=finance
+reme manage_proactive_agent action=update name=finance trigger_type=event
+reme manage_proactive_agent action=status name=finance
 ```
 
 Use the returned `memory_path` to update its existing task and AI-news preferences; restarting does not overwrite memory.

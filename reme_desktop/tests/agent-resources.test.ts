@@ -68,32 +68,31 @@ test("desktop resource requests use the new scoped contracts and reject retired 
   const signal = new AbortController().signal;
   await requestWorkspace(
     client,
-    { type: "mailbox", agentId: "chat", state: "pending" },
+    { type: "outbox", agentId: "finance", state: "pending" },
     signal,
   );
   await requestWorkspace(
     client,
-    { type: "events", agentId: "任务", state: "processing", offset: 20 },
+    { type: "inbox", agentId: "任务", state: "processing", offset: 20 },
     signal,
   );
   await requestWorkspace(
     client,
-    { type: "mail", agentId: "finance", id: "message-1", markRead: true },
+    { type: "reminder", agentId: "finance", id: "message-1", markRead: true },
     signal,
   );
   assert.deepEqual(calls, [
     [
-      "agent_mailbox",
-      { agent_id: "chat", state: "pending", offset: 0, limit: 20 },
+      "agent_outbox",
+      { agent_id: "finance", state: "pending", offset: 0, limit: 20 },
     ],
     [
-      "agent_event_list",
+      "agent_inbox",
       { agent_id: "任务", state: "processing", offset: 20, limit: 20 },
     ],
     [
-      "agent_mailbox",
+      "agent_reminder",
       {
-        action: "read",
         agent_id: "finance",
         message_id: "message-1",
         mark_read: true,
@@ -102,9 +101,9 @@ test("desktop resource requests use the new scoped contracts and reject retired 
   ]);
   for (const request of [
     { type: "proactiveInbox" },
-    { type: "mailbox", agentId: "chat", offset: -1 },
-    { type: "events", agentId: "finance", limit: 101 },
-    { type: "mail", agentId: "chat", id: "", markRead: true },
+    { type: "outbox", agentId: "chat", offset: -1 },
+    { type: "inbox", agentId: "finance", limit: 101 },
+    { type: "reminder", agentId: "chat", id: "", markRead: true },
   ]) {
     await assert.rejects(
       requestWorkspace(

@@ -3,34 +3,35 @@
 from .api import (
     AgentChatStep,
     AgentEventsStep,
-    AgentEventListStep,
+    AgentInboxStep,
     AgentListStep,
     AgentNewSessionStep,
-    AgentMailboxStep,
+    AgentOutboxStep,
+    AgentReminderStep,
     AgentSessionStep,
 )
 from .base import BaseAgentStep
 from .chat import BaseChatAgentStep, ChatAgentStep, ListChatSessionsStep, NewChatSessionStep
 from .inbox import InboxChatStep
-from .loop import InboxLoopStep, ProactiveLoopStep
+from .loop import AgentLoopStep
 from .proactive import ProactiveAgentStep, ProactiveQueryStep
 
 __all__ = [
     "AgentChatStep",
     "AgentEventsStep",
-    "AgentEventListStep",
+    "AgentInboxStep",
     "AgentListStep",
     "AgentNewSessionStep",
-    "AgentMailboxStep",
+    "AgentOutboxStep",
+    "AgentReminderStep",
     "AgentSessionStep",
     "BaseAgentStep",
     "BaseChatAgentStep",
     "ChatAgentStep",
     "InboxChatStep",
-    "InboxLoopStep",
+    "AgentLoopStep",
     "ListChatSessionsStep",
     "NewChatSessionStep",
     "ProactiveAgentStep",
-    "ProactiveLoopStep",
     "ProactiveQueryStep",
 ]

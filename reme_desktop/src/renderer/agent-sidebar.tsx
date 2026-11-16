@@ -14,8 +14,7 @@ import type { AgentView, DesktopState } from "../shared/protocol.ts";
 import { translator } from "../shared/i18n.ts";
 import { Disclosure } from "./ui.tsx";
 
-export type AgentSection =
-  "chat" | "memory" | "reminders" | "mailbox" | "events";
+export type AgentSection = "chat" | "memory" | "reminders" | "outbox" | "inbox";
 
 export default function AgentSidebar({
   state,
@@ -58,12 +57,12 @@ export default function AgentSidebar({
         ? [
             ["memory", FileText, "memoryTab"],
             ["reminders", Bell, "reminders"],
-            ["mailbox", Inbox, "inbox"],
+            ["inbox", Inbox, "inbox"],
           ]
         : [
             ["memory", FileText, "memoryTab"],
-            ["events", Radio, "eventsTab"],
-            ["mailbox", Send, "outbox"],
+            ["inbox", Inbox, "inbox"],
+            ["outbox", Send, "outbox"],
           ];
     return (
       <Disclosure

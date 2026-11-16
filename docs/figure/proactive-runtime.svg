@@ -1,7 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1780" height="1020" viewBox="0 0 1780 1020" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1780" height="1120" viewBox="0 0 1780 1120" role="img" aria-labelledby="title desc">
   <title id="title">Proactive Runtime</title>
-  <desc id="desc">A work example connects Codex dialogue, Claude Code trajectories submitted through the event API, and screenshots to an Event Inbox. The built-in collector gathers new Codex dialogue and screenshots every five minutes; Claude Code is an illustrative external source. Pending events are claimed oldest first and acknowledged after saving. A timeline alternates Sleep periods with short Run slices, with one run expanded below. Between runs the Agent waits without continuously calling the model; segment lengths are illustrative. A run digests inputs, reasons about progress and decides whether to remind. Five curved arrows connect the run directly to five workspace file cards: read source files, read and update task memory, read and refresh the daily summary, save round details, and check or write reminders. Task memory updates use agent_memory; historical details and recent reminders are read as needed. The Outbox combines the priority legend with P0, P1, P2 and Quiet examples in a single panel. Quiet creates no reminder. Only committed reminders are published through the Outbox to the Chat Agent Inbox for assessment. File cards show complete example paths under the configured workspace root, wrapped across lines.</desc>
-  <metadata>Source: reme/config/proactive.yaml; reme/schema/application_config.py; reme/steps/proactive/data_connectors/work_observation.py; reme/steps/proactive/data_connectors/screen_capture.py; reme/steps/proactive/agent/proactive.py; reme/components/agent_runtime/_internal/registry.py; reme/components/agent_runtime/_internal/sessions.py; reme/components/agent_inbox/agent_event_inbox.py; reme/components/agent_runtime/_internal/outbox.py. Drawn from the current working tree. Claude Code is an illustrative external event source, not a built-in collector. Full paths use workspace/ as the configured workspace root. All events and decisions are illustrative.</metadata>
+  <desc id="desc">A work example connects Codex dialogue, externally submitted Claude Code trajectories and screenshots to an Event Inbox. Built-in work observations collect new Codex user messages, final answers and screenshots every five minutes. Events are claimed oldest first and acknowledged after saving. The Agent waits between runs without continuous model calls. Each run reads task memory and any existing summaries for today and yesterday, reads original inputs, records only new facts or material changes, and searches related daily history at most five times. Summaries and retrieved history help avoid repeated reminders. An optional reminder contains one sentence without file paths; its evidence stays in the round record. The run merges today's records and generated reminders into today's summary, leaving it unchanged when there is nothing new. Five file cards show source manifests and payloads, task memory, both calendar summaries, daily records and optional reminders. Arrows show reads, writes and history lookup. Collector progress and unfinished delivery stay under their source roots and are not Agent inputs. Only committed reminders reach Chat Inbox as events pointing to saved reminder files. All messages are illustrative.</desc>
+  <metadata>Source: reme/config/proactive.yaml; reme/schema/application_config.py; reme/steps/proactive/data_connectors/base_connector.py; reme/steps/proactive/data_connectors/work_observation.py; reme/steps/proactive/data_connectors/_codex_dialogue.py; reme/steps/proactive/agent/proactive.py; reme/steps/proactive/agent/proactive.yaml; reme/components/agent_runtime/_internal/outbox.py; reme/components/agent_inbox/agent_event_inbox.py. Drawn from the current working tree. Claude Code is an illustrative external source. Paths use the defaults workspace_dir=.reme, resource_dir=resource, daily_dir=daily and reme_agent_dir=reme_agents; directory settings may be overridden. {today} and {yesterday} are application-local calendar dates; {batch} is HHMMSS_random6. Permanent work Agent shown. All events and decisions are illustrative.</metadata>
   <defs>
     <style>
       text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; fill: #22383F; }
@@ -34,7 +34,7 @@
     </filter>
   </defs>
 
-  <rect width="1780" height="1020" fill="#F8FAFA" />
+  <rect width="1780" height="1120" fill="#F8FAFA" />
   <text x="64" y="43" class="section teal">REME / 01</text>
   <text x="64" y="91" class="title">Proactive Runtime</text>
   <rect x="1588" y="53" width="128" height="32" rx="16" fill="#EAF1F1" />
@@ -127,31 +127,31 @@
     <text x="576" y="377" font-size="32" font-weight="650" letter-spacing="-.6" class="white">A proactive run</text>
     <g data-box="576,406,194,88">
       <rect x="576" y="406" width="194" height="88" rx="12" fill="#244A53" stroke="#365C64" />
-      <text x="596" y="440" font-size="21" font-weight="600" class="white">Digest</text>
-      <text x="596" y="468" class="small" style="fill:#B3CED1">Read inputs</text>
+      <text x="596" y="440" font-size="21" font-weight="600" class="white">Read</text>
+      <text x="596" y="468" class="small" style="fill:#B3CED1">Memory, summaries, inputs</text>
     </g>
     <g data-box="790,406,194,88">
       <rect x="790" y="406" width="194" height="88" rx="12" fill="#244A53" stroke="#365C64" />
-      <text x="810" y="440" font-size="21" font-weight="600" class="white">Reason</text>
-      <text x="810" y="468" class="small" style="fill:#B3CED1">Connect facts</text>
+      <text x="810" y="440" font-size="21" font-weight="600" class="white">Record</text>
+      <text x="810" y="468" class="small" style="fill:#B3CED1">Changes + related history</text>
     </g>
     <g data-box="1004,406,196,88">
       <rect x="1004" y="406" width="196" height="88" rx="12" fill="#244A53" stroke="#365C64" />
-      <text x="1024" y="440" font-size="21" font-weight="600" class="white">Decide</text>
-      <text x="1024" y="468" class="small" style="fill:#B3CED1">Remind or log</text>
+      <text x="1024" y="440" font-size="21" font-weight="600" class="white">Remind?</text>
+      <text x="1024" y="468" class="small" style="fill:#B3CED1">One sentence or quiet</text>
     </g>
     <path d="M774 450H786" class="line" stroke="#91BCBF" stroke-width="1.3" marker-end="url(#light)" />
     <path d="M988 450H1000" class="line" stroke="#91BCBF" stroke-width="1.3" marker-end="url(#light)" />
     <path d="M576 521H1200" class="line" stroke="#36565E" />
-    <text x="576" y="552" class="body" style="fill:#D3E6E5">Update files · remind only when needed</text>
-    <text x="576" y="582" class="small" style="fill:#9CBBC0">Restore context, save findings and continue next time.</text>
+    <text x="576" y="552" class="body" style="fill:#D3E6E5">Read today + yesterday · search daily history at most 5 times</text>
+    <text x="576" y="582" class="small" style="fill:#9CBBC0">Then merge today's records and reminders; keep the summary if unchanged.</text>
   </g>
 
   <path data-role="run-to-outbox" d="M1229 463H1306" class="line" stroke="#9A83BA" stroke-width="1.8" marker-end="url(#purple)" />
   <g data-role="outbox-examples" data-box="1308,196,408,356">
     <rect x="1308" y="196" width="408" height="356" rx="16" fill="#FFFFFF" stroke="#E2DBEC" />
     <text x="1332" y="238" class="heading purple">Outbox</text>
-    <text x="1332" y="266" class="small muted">Risks, progress and pending tasks</text>
+    <text x="1332" y="266" class="small muted">One-sentence reminders · evidence in records</text>
     <g data-role="reminder-types">
       <rect x="1332" y="290" width="36" height="22" rx="6" fill="#EEE9F5" />
       <text x="1350" y="306" font-size="12" font-weight="600" class="purple" text-anchor="middle">P0</text>
@@ -175,12 +175,12 @@
     <g data-role="reminder-example">
       <rect x="1332" y="430" width="52" height="24" rx="6" fill="#EEE9F5" />
       <text x="1358" y="447" font-size="12" font-weight="600" class="purple" text-anchor="middle">P1</text>
-      <text x="1398" y="447" font-size="15">Possible edge case. Check now.</text>
+      <text x="1398" y="447" font-size="15">Project A has new results.</text>
     </g>
     <g data-role="reminder-example">
       <rect x="1332" y="468" width="52" height="24" rx="6" fill="#EEE9F5" />
       <text x="1358" y="485" font-size="12" font-weight="600" class="purple" text-anchor="middle">P2</text>
-      <text x="1398" y="485" font-size="15">Today's report is still pending.</text>
+      <text x="1398" y="485" font-size="15">A relevant paper is available.</text>
     </g>
     <g data-role="quiet-decision-example">
       <rect x="1332" y="506" width="52" height="24" rx="6" fill="#EAF0F1" />
@@ -193,60 +193,63 @@
   <g data-role="chat-inbox" data-box="1308,600,408,68">
     <rect x="1308" y="600" width="408" height="68" rx="12" fill="#FFFFFF" stroke="#E2DBEC" />
     <text x="1332" y="629" font-size="21" font-weight="650" class="purple">Chat Agent Inbox</text>
-    <text x="1332" y="651" class="small muted">Reminder references, ready for assessment</text>
+    <text x="1332" y="651" class="small muted">Events pointing to saved reminder files</text>
   </g>
 
   <!-- Ordered curves preserve five direct relationships without crossing. -->
   <g data-role="file-connections" stroke-width="1.7">
     <path data-role="file-link-source" d="M222 774C222 692 600 719 600 627" class="line" stroke="#8BB9BA" marker-end="url(#teal)" />
-    <path data-role="file-link-memory" d="M556 774C556 707 745 703 745 627" class="line" stroke="#8BB9BA" marker-start="url(#teal)" marker-end="url(#teal)" />
+    <path data-role="file-link-memory" d="M556 774C556 707 745 703 745 627" class="line" stroke="#8BB9BA" marker-end="url(#teal)" />
     <path data-role="file-link-summary" d="M890 774V627" class="line" stroke="#8BB9BA" marker-start="url(#teal)" marker-end="url(#teal)" />
-    <path data-role="file-link-details" d="M1035 627C1035 703 1224 707 1224 774" class="line" stroke="#CEB58D" marker-end="url(#gold)" />
-    <path data-role="file-link-reminders" d="M1180 627C1180 719 1558 692 1558 774" class="line" stroke="#B6A6CA" marker-start="url(#purple)" marker-end="url(#purple)" />
+    <path data-role="file-link-details" d="M1035 627C1035 703 1224 707 1224 774" class="line" stroke="#CEB58D" marker-start="url(#gold)" marker-end="url(#gold)" />
+    <path data-role="file-link-reminders" d="M1180 627C1180 719 1558 692 1558 774" class="line" stroke="#B6A6CA" marker-end="url(#purple)" />
   </g>
   <text x="64" y="725" font-size="21" font-weight="650">Workspace files</text>
 
   <g data-role="workspace-files">
-    <g data-box="64,778,316,198" data-path="workspace/resource/{source}/{date}/{batch}/">
-      <rect x="64" y="778" width="316" height="198" rx="14" fill="#FFFFFF" stroke="#DDE7E7" />
+    <g data-box="64,778,316,246" data-path=".reme/resource/{source}/{date}/{batch}/metadata.json">
+      <rect x="64" y="778" width="316" height="246" rx="14" fill="#FFFFFF" stroke="#DDE7E7" />
       <rect x="84" y="796" width="58" height="24" rx="6" fill="#E8F2F1" />
       <text x="113" y="813" font-size="11" font-weight="650" letter-spacing=".8" class="teal" text-anchor="middle">READ</text>
       <text x="84" y="856" font-size="22" font-weight="650">Source files</text>
-      <text x="84" y="883" font-size="15" class="muted">Review new inputs</text>
-      <text x="84" y="916" class="file"><tspan x="84">workspace/resource/</tspan><tspan x="84" dy="20">{source}/{date}/{batch}/</tspan></text>
+      <text x="84" y="883" font-size="15" class="muted">Read manifest + listed payloads</text>
+      <text x="84" y="916" class="file"><tspan x="84">.reme/resource/</tspan><tspan x="84" dy="20">{source}/{date}/{batch}/</tspan><tspan x="84" dy="20">metadata.json</tspan></text>
+      <text x="84" y="998" font-size="13" class="muted">{batch} = HHMMSS_random6</text>
     </g>
-    <g data-box="398,778,316,198" data-path="workspace/reme_agents/work/MEMORY.md">
-      <rect x="398" y="778" width="316" height="198" rx="14" fill="#FFFFFF" stroke="#DDE7E7" />
-      <rect x="418" y="796" width="134" height="24" rx="6" fill="#E8F2F1" />
-      <text x="485" y="813" font-size="11" font-weight="650" letter-spacing=".5" class="teal" text-anchor="middle">READ &amp; UPDATE</text>
+    <g data-box="398,778,316,246" data-path=".reme/reme_agents/work/MEMORY.md">
+      <rect x="398" y="778" width="316" height="246" rx="14" fill="#FFFFFF" stroke="#DDE7E7" />
+      <rect x="418" y="796" width="58" height="24" rx="6" fill="#E8F2F1" />
+      <text x="447" y="813" font-size="11" font-weight="650" letter-spacing=".8" class="teal" text-anchor="middle">READ</text>
       <text x="418" y="856" font-size="22" font-weight="650">Task memory</text>
       <text x="418" y="883" font-size="15" class="muted">Read task &amp; preferences</text>
-      <text x="418" y="916" class="file"><tspan x="418">workspace/reme_agents/work/</tspan><tspan x="418" dy="20">MEMORY.md</tspan></text>
+      <text x="418" y="916" class="file"><tspan x="418">.reme/reme_agents/work/</tspan><tspan x="418" dy="20">MEMORY.md</tspan></text>
     </g>
-    <g data-box="732,778,316,198" data-path="workspace/daily/{date}/work.md">
-      <rect x="732" y="778" width="316" height="198" rx="14" fill="#FFFFFF" stroke="#DDE7E7" />
-      <rect x="752" y="796" width="134" height="24" rx="6" fill="#E8F2F1" />
-      <text x="819" y="813" font-size="11" font-weight="650" letter-spacing=".5" class="teal" text-anchor="middle">READ &amp; UPDATE</text>
-      <text x="752" y="856" font-size="22" font-weight="650">Daily summary</text>
-      <text x="752" y="883" font-size="15" class="muted">Recall progress</text>
-      <text x="752" y="916" class="file"><tspan x="752">workspace/daily/{date}/</tspan><tspan x="752" dy="20">work.md</tspan></text>
+    <g data-box="732,778,316,246" data-path=".reme/daily/{today}/work.md" data-read-path=".reme/daily/{yesterday}/work.md">
+      <rect x="732" y="778" width="316" height="246" rx="14" fill="#FFFFFF" stroke="#DDE7E7" />
+      <rect x="752" y="796" width="160" height="24" rx="6" fill="#E8F2F1" />
+      <text x="832" y="813" font-size="10.5" font-weight="650" letter-spacing=".3" class="teal" text-anchor="middle">READ · MERGE TODAY</text>
+      <text x="752" y="856" font-size="22" font-weight="650">Daily summaries</text>
+      <text x="752" y="883" font-size="15" class="muted">Read both; skip missing files</text>
+      <text x="752" y="916" class="file"><tspan x="752">.reme/daily/{today}/</tspan><tspan x="752" dy="20">work.md</tspan><tspan x="752" dy="28">.reme/daily/{yesterday}/</tspan><tspan x="752" dy="20">work.md</tspan></text>
     </g>
-    <g data-box="1066,778,316,198" data-path="workspace/daily/{date}/work_HHMMSS.md">
-      <rect x="1066" y="778" width="316" height="198" rx="14" fill="#FFFFFF" stroke="#E7E0D5" />
-      <rect x="1086" y="796" width="64" height="24" rx="6" fill="#F6EFE3" />
-      <text x="1118" y="813" font-size="11" font-weight="650" letter-spacing=".8" style="fill:#A07A3D" text-anchor="middle">WRITE</text>
+    <g data-box="1066,778,316,246" data-path=".reme/daily/{date}/work_HHMMSS.md">
+      <rect x="1066" y="778" width="316" height="246" rx="14" fill="#FFFFFF" stroke="#E7E0D5" />
+      <rect x="1086" y="796" width="128" height="24" rx="6" fill="#F6EFE3" />
+      <text x="1150" y="813" font-size="11" font-weight="650" letter-spacing=".5" style="fill:#A07A3D" text-anchor="middle">READ &amp; WRITE</text>
       <text x="1086" y="856" font-size="22" font-weight="650">Round details</text>
-      <text x="1086" y="883" font-size="15" class="muted">Record findings</text>
-      <text x="1086" y="916" class="file"><tspan x="1086">workspace/daily/{date}/</tspan><tspan x="1086" dy="20">work_HHMMSS.md</tspan></text>
+      <text x="1086" y="883" font-size="15" class="muted">Record changes; look up history</text>
+      <text x="1086" y="916" class="file"><tspan x="1086">.reme/daily/{date}/</tspan><tspan x="1086" dy="20">work_HHMMSS.md</tspan></text>
     </g>
-    <g data-box="1400,778,316,198" data-path="workspace/reme_agents/work/reminder/{date}/work_HHMMSS.md">
-      <rect x="1400" y="778" width="316" height="198" rx="14" fill="#FFFFFF" stroke="#E2DBEC" />
-      <rect x="1420" y="796" width="140" height="24" rx="6" fill="#EEE9F5" />
-      <text x="1490" y="813" font-size="11" font-weight="650" letter-spacing=".5" class="purple" text-anchor="middle">CHECK &amp; WRITE</text>
+    <g data-box="1400,778,316,246" data-path=".reme/reme_agents/work/reminder/{date}/HHMMSS.md">
+      <rect x="1400" y="778" width="316" height="246" rx="14" fill="#FFFFFF" stroke="#E2DBEC" />
+      <rect x="1420" y="796" width="150" height="24" rx="6" fill="#EEE9F5" />
+      <text x="1495" y="813" font-size="11" font-weight="650" letter-spacing=".5" class="purple" text-anchor="middle">WRITE IF NEEDED</text>
       <text x="1420" y="856" font-size="22" font-weight="650">Reminders</text>
-      <text x="1420" y="883" font-size="15" class="muted">Avoid duplicate reminders</text>
-      <text x="1420" y="916" class="file"><tspan x="1420">workspace/reme_agents/work/</tspan><tspan x="1420" dy="20">reminder/{date}/</tspan><tspan x="1420" dy="20">work_HHMMSS.md</tspan></text>
+      <text x="1420" y="883" font-size="15" class="muted">One sentence, no file paths</text>
+      <text x="1420" y="916" class="file"><tspan x="1420">.reme/reme_agents/work/</tspan><tspan x="1420" dy="20">reminder/{date}/</tspan><tspan x="1420" dy="20">HHMMSS.md</tspan></text>
     </g>
   </g>
-  <text x="1716" y="1003" font-size="12" class="muted" text-anchor="end">REME / PROACTIVE RUNTIME</text>
+  <text x="64" y="1050" font-size="12" class="muted">Default paths: workspace_dir=.reme · resource_dir=resource · daily_dir=daily · reme_agent_dir=reme_agents. Directory settings may be overridden.</text>
+  <text x="64" y="1072" font-size="12" class="muted">Work collector state: .reme/resource/codex_dialogue/progress.jsonl and .reme/resource/{source}/pending.json; source = screenshot or codex_dialogue.</text>
+  <text x="1716" y="1103" font-size="12" class="muted" text-anchor="end">REME / PROACTIVE RUNTIME</text>
 </svg>

@@ -2,7 +2,7 @@
 
 from ..agent.base import BaseAgentStep
 from ....components import R
-from ....schema.agent_runtime import ReadInboxRequest, SendChatMessageRequest
+from ....schema.agent_runtime import SendChatMessageRequest
 
 
 class _InboxTool(BaseAgentStep):
@@ -18,11 +18,23 @@ class _InboxTool(BaseAgentStep):
 
 @R.register("read_inbox_step")
 class ReadInboxStep(_InboxTool):
-    """Read the selected batch; the framework consumes successful decisions."""
+    """Expose reminder text and supporting paths while the runtime owns acknowledgements."""
 
     async def execute(self):
-        request = ReadInboxRequest.model_validate(self.parameters())
-        self.context.response.answer = await self.agent_runtime.notifications.read_turn(self.turn(), request.priority)
+        if self.parameters():
+            raise ValueError("read_inbox accepts no arguments")
+        batch = await self.agent_runtime.notifications.read_turn(self.turn())
+        self.context.response.answer = {
+            "items": [
+                {
+                    "task": item["from_agent_id"],
+                    "created_at": item["created_at"],
+                    "message": item["message"],
+                    "paths": list(dict.fromkeys(path for path in item["paths"] if path != item["reminder_path"])),
+                }
+                for item in batch["items"]
+            ],
+        }
         return self.context.response
 
 

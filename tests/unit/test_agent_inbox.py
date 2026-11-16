@@ -634,5 +634,7 @@ async def test_event_inbox_validates_sources_and_supports_unicode_waits(tmp_path
             await inbox.append("观察", {"id": "invalid"})
         with pytest.raises(ValidationError):
             await inbox.append("观察", {"id": "escape", "file": "../outside.md"})
+        with pytest.raises(ValidationError):
+            await inbox.append("观察", {"id": "old-reference", "file": "reminders/result.md"})
         batch = await inbox.claim("观察")
         assert batch["items"][0]["metadata"]["_received_at"] == "first"

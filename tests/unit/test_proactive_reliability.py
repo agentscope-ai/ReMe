@@ -17,7 +17,6 @@ from reme.schema import Response, StreamChunk
 from reme.schema.proactive_agent import ProactiveRunResult
 from reme.steps.proactive.agent import ChatAgentStep, InboxChatStep, ProactiveAgentStep
 from reme.steps.proactive.tools.inbox import ReadInboxStep, SendChatMessageStep
-from reme.steps.proactive.tools.memory import AgentMemoryStep
 from .test_agent_runtime import inbox_path, completed_result, create_agent, running_runtime
 from .test_inbox_fork import append_message, prepare
 
@@ -30,7 +29,7 @@ async def test_latest_foreground_instruction_invalidates_same_session_reminder(t
 
         async def reply(_hint, **options):
             bound = options["injected_job_kwargs"]
-            await ReadInboxStep(app_context=context)(priority="P1", **bound)
+            await ReadInboxStep(app_context=context)(**bound)
             before = await runtime.sessions.current("chat")
             await ChatAgentStep(app_context=context)(
                 RuntimeContext(stream_queue=asyncio.Queue()),
@@ -76,8 +75,8 @@ async def test_incompatible_sdk_blocks_retry_and_is_visible_in_agent_views(tmp_p
                 metadata={"reme.job_error": {"type": "TypeError"}},
             ),
         )
-        await runtime.notifications._wake(run, "inbox_chat", arguments["priority"], arguments["msg_ids"])
-        await runtime.notifications.tick(run, "inbox_chat")
+        await runtime.notifications._wake(run, arguments["priority"], arguments["msg_ids"])
+        await runtime.notifications.tick(run)
         assert run.await_count == 1 and runtime.notifications.blocked
         chat = (await runtime.list_views())["items"][0]
         assert chat["status"] == "error" and chat["error"] == "unexpected SDK argument"
@@ -92,10 +91,10 @@ async def test_transient_inbox_failure_backs_off_and_success_clears_health(tmp_p
         runtime.now = lambda: now
         run = AsyncMock(side_effect=ConnectionError("offline"))
         for attempt in range(4):
-            await runtime.notifications._wake(run, "inbox_chat", arguments["priority"], arguments["msg_ids"])
+            await runtime.notifications._wake(run, arguments["priority"], arguments["msg_ids"])
             assert runtime.notifications.retry_at == now + timedelta(seconds=5 * 2**attempt)
         assert not runtime.notifications.blocked
-        await runtime.notifications._wake(AsyncMock(return_value=Response()), "inbox_chat", "P1", arguments["msg_ids"])
+        await runtime.notifications._wake(AsyncMock(return_value=Response()), "P1", arguments["msg_ids"])
         assert (
             runtime.notifications.error is None
             and runtime.notifications.retry_at is None
@@ -160,7 +159,7 @@ async def test_missing_result_blocks_temporary_collection_before_source_deletion
         runtime.files.path(ref.file).unlink()
         directory = runtime.agents.path("experiment")
         runtime.now = lambda: start + timedelta(days=8)
-        await runtime.tick(AsyncMock(), "proactive_run")
+        await runtime.tick(AsyncMock())
         assert directory.is_dir() and (directory / "MEMORY.md").is_file()
         assert ref.file in runtime.outbox.issues
         assert (await runtime.inbox.snapshot("experiment"))["receipt"].metadata["reminders"] == [ref.model_dump()]
@@ -189,56 +188,39 @@ async def test_temporary_lifetime_survives_priority_consumption_and_restart(tmp_
         directory = runtime.agents.path("experiment")
         runtime.now = lambda: now
         await runtime.run("experiment", AsyncMock(return_value=(ProactiveRunResult(notifications=[]), "session")))
-        await runtime.tick(AsyncMock(), "proactive_run")
+        await runtime.tick(AsyncMock())
         assert directory.is_dir()
         receipt = (await runtime.inbox.snapshot("experiment"))["receipt"]
         assert receipt.metadata["last_received_at"] == recent.isoformat()
 
 
 @pytest.mark.asyncio
-async def test_memory_revisions_preserve_user_edits_and_limit_task_scope(tmp_path):
+async def test_formal_sessions_allow_native_memory_file_updates(tmp_path):
     async with running_runtime(tmp_path) as (runtime, context, _):
         await create_agent(runtime)
-        step = AgentMemoryStep(app_context=context)
-        read = (await step(action="read", agent_id="monitor", _agent_id="chat")).answer
-        path = tmp_path / read["path"]
-        path.write_text("New user requirement\n", encoding="utf-8")
-        with pytest.raises(ValueError, match="memory changed"):
-            await step(
-                action="write",
-                agent_id="monitor",
-                content="Old text",
-                expected_revision=read["revision"],
-                _agent_id="chat",
-            )
-        assert path.read_text() == "New user requirement\n"
-        latest = (await step(action="read", _agent_id="monitor")).answer
-        await step(
-            action="write",
-            content=latest["content"] + "Confirmed fact\n",
-            expected_revision=latest["revision"],
-            _agent_id="monitor",
-        )
-        assert path.read_text() == "New user requirement\nConfirmed fact\n"
-        with pytest.raises(PermissionError, match="only their own"):
-            await step(action="read", agent_id="chat", _agent_id="monitor")
-        with pytest.raises(ValueError):
-            await step(action="write", content="Unconditional overwrite", _agent_id="chat")
+        agent = await runtime.definition("monitor")
+        options = [
+            ChatAgentStep(app_context=context).session_options(),
+            ProactiveAgentStep(app_context=context).session_options(agent),
+        ]
+        for name, item in zip(("chat", "monitor"), options):
+            assert "read_only_paths" not in item and "agent_memory" not in item["job_tools"]
+            path = runtime.agents.path(name) / "MEMORY.md"
+            path.write_text("Confirmed fact\n", encoding="utf-8")
+            await runtime.sessions.ensure(name, runtime.agent_wrapper, item, runtime.now())
+            assert path.read_text() == "Confirmed fact\n"
 
 
-def test_memory_profile_cannot_be_replaced_by_a_legacy_turn_sandbox(tmp_path):
-    memory = str(tmp_path / "MEMORY.md")
+def test_native_memory_updates_use_standard_workspace_permissions(tmp_path):
     wrapper = CodexAgentWrapper(cwd=tmp_path)
     arguments = {
         "sandbox": "workspace-write",
-        "read_only_paths": [memory],
         "config": {"sandbox_workspace_write": {"network_access": False}},
     }
     options = wrapper._thread_options(arguments)
-    profile = options["config"]["permissions"]["reme_agent"]
-    assert options["sandbox"] is None and profile["filesystem"][memory] == "read"
-    assert profile["filesystem"][str(tmp_path)] == "write" and not profile["network"]["enabled"]
-    assert "sandbox" not in wrapper._turn_options(arguments)
+    assert options["sandbox"].value == "workspace-write"
+    assert options["config"] == arguments["config"]
+    assert wrapper._turn_options(arguments)["sandbox"].value == "workspace-write"
 
 
 @pytest.mark.asyncio

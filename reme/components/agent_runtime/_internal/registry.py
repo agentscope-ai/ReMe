@@ -71,7 +71,7 @@ class AgentRegistry:
         self.files.write(directory / "MEMORY.md", description, create_only=True)
 
     def create(self, config, now: datetime):
-        """Publish initial memory before configuration; retained memory survives restoration."""
+        """Publish the task and report restoration from the same registry snapshot."""
         config = CreateProactiveAgentConfig.model_validate(config)
         agents = self.load(include_deleted=True)
         previous = next((agent for key, agent in agents.items() if key.casefold() == config.name.casefold()), None)
@@ -88,7 +88,7 @@ class AgentRegistry:
         self._validate_names(list(agents.values()))
         self.initialize_memory(self.directory_for(agent), config.description)
         self.save(agent)
-        return agent
+        return agent, previous is not None
 
     def update(self, agent_id, patch):
         """Update execution settings while keeping task text in its memory file."""

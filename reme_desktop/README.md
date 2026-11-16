@@ -62,8 +62,9 @@ The client uses the following jobs from the same checkout:
 | `agent_chat`                                            | Stream a user turn in that Agent's formal session; defaults to chat                  |
 | `agent_new_session`                                     | Select a fresh empty formal session and retain previous native history               |
 | `agent_events`                                          | Observe one Agent's current session plus global sidebar status                       |
-| `agent_mailbox`                                         | Chat inbox or task outbox; canonical mail and independent user-read receipts         |
-| `agent_event_list`                                      | Page pending, processing and processed inputs without consuming them                 |
+| `agent_inbox`                                           | Page every Agent's pending, processing and processed input events                    |
+| `agent_outbox`                                          | Page a task Agent's committed reminders                                              |
+| `agent_reminder`                                        | Read canonical reminders and acknowledge user reading independently of processing    |
 | `session_read` / `session_status`                       | Read retained native history / inspect native activity                               |
 | `list`, `load`, `list_tags`, `list_tag_files`, `search` | Read-only Knowledge browsing                                                         |
 

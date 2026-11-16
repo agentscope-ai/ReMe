@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from .agent_runtime import AgentId
 from .agent_session import SessionSnapshot
@@ -61,28 +61,21 @@ class AgentPageRequest(AgentRequest):
     limit: int = Field(default=20, ge=1, le=100, strict=True)
 
 
-class AgentEventListRequest(AgentPageRequest):
+class AgentInboxRequest(AgentPageRequest):
     """Observe inputs without claiming or acknowledging them."""
 
     state: Literal["all", "pending", "processing", "processed"] = "all"
 
 
-class AgentMailboxRequest(AgentPageRequest):
-    """Chat sees received mail; task Agents see their own committed output."""
+class AgentOutboxRequest(AgentPageRequest):
+    """Page reminders produced by one task Agent."""
 
-    action: Literal["list", "read"] = "list"
+    agent_id: AgentId
     state: Literal["all", "pending", "processed"] = "all"
-    message_id: str | None = Field(default=None, min_length=1, max_length=128)
-    mark_read: StrictBool = False
 
-    @model_validator(mode="after")
-    def action_arguments(self):
-        """User reading never acknowledges Agent processing."""
-        if self.action == "read":
-            if self.message_id is None:
-                raise ValueError("read requires message_id")
-            if self.model_fields_set & {"state", "offset", "limit"}:
-                raise ValueError("read does not accept listing filters")
-        elif self.model_fields_set & {"message_id", "mark_read"}:
-            raise ValueError("list does not accept read arguments")
-        return self
+
+class AgentReminderRequest(AgentRequest):
+    """Read a scoped reminder and optionally acknowledge explicit user reading."""
+
+    message_id: str = Field(min_length=1, max_length=128)
+    mark_read: StrictBool = False
