@@ -1,13 +1,56 @@
 """Local candidate Git operations shared by Home Jobs and evaluation snapshots."""
 
 from pathlib import Path
+import re
 
 from ..evaluation.artifacts import contained, read_json
 from ..preparation.code import git, git_tree
 from ..preparation.spec import relative_path
 
 INITIAL_BRANCH = "init"
+EVALUATED_PREFIX = "evaluated-"
 MAX_OUTPUT = 100_000
+
+
+def preserve_evaluated(repository: Path, commit_sha: str) -> str:
+    """Pin a formal attempt without moving HEAD; caller holds the workspace lock."""
+    commit_sha = resolve_revision(repository, commit_sha)
+    name = EVALUATED_PREFIX + commit_sha
+    refs = git(repository, "for-each-ref", "--format=%(refname:short)", "refs/heads").splitlines()
+    if name in refs:
+        if resolve_revision(repository, "refs/heads/" + name) != commit_sha:
+            raise ValueError("Protected evaluated branch no longer matches its commit")
+    else:
+        git(repository, "branch", name, commit_sha)
+    return name
+
+
+def protected_branch(branch: str) -> bool:
+    """Baseline and host-owned evaluated refs cannot advance through managed Jobs."""
+    return branch == INITIAL_BRANCH or branch.startswith(EVALUATED_PREFIX)
+
+
+def resolve_commit_prefix(repository: Path, value: str) -> str:
+    """Accept a unique case-insensitive prefix of a reachable commit, never guess."""
+    if not re.fullmatch(r"[0-9a-fA-F]{1,40}", value):
+        raise ValueError("commit_sha must be a hexadecimal commit ID or unique prefix")
+    matches = [sha for sha in git(repository, "rev-list", "--all").splitlines() if sha.startswith(value.lower())]
+    if len(matches) != 1:
+        raise ValueError(f"Commit prefix {value!r} has {len(matches)} matches; supply a longer unique prefix")
+    return matches[0]
+
+
+def selection_branch(repository: Path, value: str) -> str:
+    """Resolve literal branches first, then an evaluated commit ID or abbreviated pin."""
+    local = git(repository, "for-each-ref", "--format=%(refname:short)", "refs/heads").splitlines()
+    if value in local:
+        return value
+    prefix = value.removeprefix(EVALUATED_PREFIX)
+    commit_sha = resolve_commit_prefix(repository, prefix)
+    name = EVALUATED_PREFIX + commit_sha
+    if name not in local:
+        raise ValueError("Commit has no preserved evaluation branch")
+    return name
 
 
 def resolve_revision(repository: Path, revision: str) -> str:
@@ -73,6 +116,7 @@ def branches(repository: Path) -> dict:
         "local_branches": local,
         "candidate_branches": candidates,
         "candidate_branch_count": len(candidates),
+        "evaluated_branches": [branch for branch in local if branch.startswith(EVALUATED_PREFIX)],
     }
 
 
@@ -96,6 +140,8 @@ def status(repository: Path, _record: dict) -> dict:
 def create_branch(repository: Path, record: dict, *, branch_name: str) -> dict:
     """Fork from the current candidate or baseline and switch to the new branch."""
     validate_branch(repository, branch_name)
+    if branch_name.startswith(EVALUATED_PREFIX):
+        raise ValueError("evaluated- is reserved for protected evaluation branches")
     if branch_name in branches(repository)["local_branches"]:
         raise ValueError("Local branch already exists")
     require_clean(repository)
@@ -107,8 +153,10 @@ def create_branch(repository: Path, record: dict, *, branch_name: str) -> dict:
 def switch_branch(repository: Path, record: dict, *, branch_name: str) -> dict:
     """Switch only to an existing local ref, including the baseline."""
     validate_branch(repository, branch_name)
-    if branch_name not in branches(repository)["local_branches"]:
-        raise ValueError("Unknown local branch")
+    try:
+        branch_name = selection_branch(repository, branch_name)
+    except ValueError as error:
+        raise ValueError(f"Unknown local branch or ambiguous evaluated commit: {error}") from error
     require_clean(repository)
     validate_tree(repository, record, resolve_revision(repository, "refs/heads/" + branch_name))
     git(repository, "switch", "--no-guess", branch_name)
@@ -142,8 +190,8 @@ def merge_branch(repository: Path, record: dict, *, branch_name: str) -> dict:
     """Stage compatible candidates; automatically abort conflicts."""
     validate_branch(repository, branch_name)
     state = branches(repository)
-    if state["current_branch"] == INITIAL_BRANCH:
-        raise ValueError("Cannot merge into init")
+    if protected_branch(state["current_branch"]):
+        raise ValueError("Cannot merge into init or a protected evaluated branch; create a candidate branch first")
     if branch_name in (INITIAL_BRANCH, state["current_branch"]):
         raise ValueError("Select another candidate branch")
     if branch_name not in state["candidate_branches"]:
@@ -173,8 +221,8 @@ def merge_branch(repository: Path, record: dict, *, branch_name: str) -> dict:
 
 def commit(repository: Path, record: dict, *, message: str) -> dict:
     """Commit all candidate changes without rewriting existing history."""
-    if current_branch(repository) == INITIAL_BRANCH:
-        raise ValueError("Create a candidate branch before committing; init is protected")
+    if protected_branch(current_branch(repository)):
+        raise ValueError("Create a candidate branch before committing; init and evaluated branches are protected")
     # Validate existing staged changes before staging anything else, then the complete index.
     validate_tree(repository, record, git(repository, "write-tree"))
     changes = status(repository, record)["changes"]

@@ -359,7 +359,7 @@ single evaluation-directory names, so `/` and `\` are forbidden.
 | `home_code_status` | Current branch, full commit SHA, exact changed paths and pending merge state. |
 | `home_list_candidate_branches` | Local branches and candidates, excluding protected `init` from the candidate count. |
 | `home_create_candidate_branch` | `branch_name`: fork current HEAD and switch to a new candidate. |
-| `home_switch_candidate_branch` | `branch_name`: switch to an existing local branch, including `init`. |
+| `home_switch_candidate_branch` | `branch_name`: existing local branch, evaluated commit SHA, or unique SHA prefix. |
 | `home_merge_candidate_branch` | `branch_name`: merge another candidate without committing; conflicts are aborted. |
 | `home_commit_candidate` | `message`: stage and commit all visible changes within prepared `candidate_paths`. |
 | `home_code_diff` | Omit inputs for tracked changes against HEAD; supply `base_revision` and `revision` to compare commits. With only `base_revision`, compare the working tree against that commit. |
@@ -589,6 +589,7 @@ It never registers results, updates sampling, rebuilds summaries or writes artif
 | --- | --- |
 | `home_list_validation_results` | Find runs, optionally filtered by `branch_name` and `commit_sha`. |
 | `home_inspect_validation` | Inspect a `validation_path`, then narrow with `case_id` and `query_id`. |
+| `home_compare_validations` | Compact paired score/token deltas, coverage and regression counts for `base_validation_path` and `candidate_validation_path`. |
 | `home_trace_query_evidence` | Link a query to source sessions, memory checkpoints and saved evidence without a model call. |
 | `home_inspect_memory_history` | Page through one case's exported memory Git checkpoints. |
 | `home_compare_memory` | Compare committed memory within a run or across evaluations of the same case. |
@@ -878,7 +879,35 @@ Only one optimizer can run per Home workspace; cancellation releases its lock
 after nested tool cleanup. Separate diagnostic calls and case studies may run
 concurrently with fresh state.
 
-The final optimizer response must identify `branch_name`, full `commit_sha`,
+Every allocated scored evaluation automatically preserves its commit in a protected
+`evaluated-<full SHA>` branch, including standalone and unsuccessful formal attempts.
+Debug runs do not create these branches. Preservation does not make failed evidence
+eligible for final selection. Continue editing on the original candidate branch or
+fork from a preserved branch; managed commit and merge operations cannot advance it.
+Switching accepts the complete branch name, `evaluated-<unique SHA prefix>`, or a
+unique evaluated commit prefix (case-insensitive). Ambiguous prefixes fail explicitly.
+
+Completed scored runs automatically save `paired_comparisons.json` alongside their
+summary, comparing against prior compatible completed runs without model calls.
+During optimization, the optimizer's evaluation tool hides the comparison pointer.
+Selection guidance is injected when the formal budget is exhausted, including when
+resuming an exhausted run. To finish early, the optimizer calls `begin_final_selection`,
+which stops cycle reminders and returns the same compact comparison instructions.
+Use the evaluation catalog as the common entry point; the last run's table alone
+does not compare two historical finalists. Compare those runs directly when necessary.
+The table records shared and exclusive query coverage, paired score differences,
+improvement and regression counts, and paired query token differences per model.
+Detailed question/case breakdowns are intentionally omitted to save optimizer tokens;
+follow the original evaluation paths with `home_inspect_validation` when needed.
+Dataset and judge fingerprints must match;
+infrastructure-failed runs are excluded. Known candidate failures score zero; missing
+scores and unreported token usage remain unknown. Snapshot equality is reported
+separately: common questions with different construction snapshots do not isolate
+answer-side effects. Use `home_compare_validations` to recompute a compact comparison.
+The table is descriptive, not an automatic ranking or a
+confidence estimate, and can be rebuilt from the immutable evaluation artifacts.
+
+The final optimizer response must identify `branch_name`, `commit_sha` (full SHA or unique prefix),
 `evaluation_path` and `report`. The host verifies a clean checkout at that exact
 branch/commit and a matching completed, scored, end-to-end evaluation without
 infrastructure failures. Sampled formal evidence and host-selected,
@@ -887,6 +916,8 @@ Keeping the initial baseline is valid. Invalid final claims
 fail while preserving changes and the raw report in
 `home/logs/optimization-reports/`. The host verifies provenance rather than
 ranking candidates by a single average score.
+The host expands accepted prefixes in its saved final response. A protected evaluated
+branch may use the matching commit's original evaluation even after its working branch advances.
 
 Dedicated `as_llm` and `agent_wrapper` components are named `home_optimizer` and
 `home_diagnostic`; override them through ordinary application configuration.

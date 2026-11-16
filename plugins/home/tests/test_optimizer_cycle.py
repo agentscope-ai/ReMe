@@ -49,16 +49,32 @@ async def test_evaluation_tool_forwards_formal_targets_and_ignores_debug_targets
 
         async def __call__(self, **kwargs):
             calls.append(kwargs)
-            return SimpleNamespace(success=False, answer={"status": "rejected"}, metadata={})
+            return SimpleNamespace(
+                success=False,
+                answer={"status": "rejected", "paired_comparisons": {"path": "private-until-selection"}},
+                metadata={},
+            )
 
     wrapper = SimpleNamespace(app_context=SimpleNamespace(jobs={"home_evaluate": EvaluationJob()}))
     tool = optimizer.evaluation_tool(wrapper, {}, home=tmp_path)
     targets = {"1": [], "2": None, "3": ["fact:1"]}
-    await tool._func(debug=debug, target_queries=targets, _agent_state=AgentState())
+    result = await tool._func(debug=debug, target_queries=targets, _agent_state=AgentState())
+    assert "paired_comparisons" not in result["answer"]
     assert ("target_queries" in calls[0]) is not debug
     if not debug:
         assert calls[0]["target_queries"] == targets
         assert calls[0]["sampling"] is True
+
+
+@pytest.mark.asyncio
+async def test_early_selection_reveals_guidance_and_stops_timer():
+    timer = optimizer.ValidationCycleTimer(10)
+    hint = await optimizer.final_selection_tool(timer)._func()
+    assert hint == optimizer.FINAL_SELECTION_HINT
+    assert "home_compare_validations" in hint
+    assert "historical finalists" in hint
+    assert timer.next_reminder() is None
+    assert hint in optimizer.VALIDATION_BUDGET_EXHAUSTED_HINT
 
 
 @pytest.mark.parametrize("budget", [True, 0, -1, float("nan"), float("inf"), "10"])

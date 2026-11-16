@@ -14,7 +14,15 @@ from pydantic import Field
 from reme.steps.base_step import BaseStep, Ref
 from reme.utils.async_utils import complete_in_thread as blocking
 
-from ..code.repository import validate_repository, require_clean, validate_tree, status
+from ..code.repository import (
+    EVALUATED_PREFIX,
+    resolve_commit_prefix,
+    selection_branch,
+    validate_repository,
+    require_clean,
+    validate_tree,
+    status,
+)
 from ..evaluation.artifacts import contained, read_json, write_json
 from ..evaluation.inputs import EvaluationSpec, load_inputs
 from ..evaluation.history import read_state
@@ -37,14 +45,35 @@ MUTATION_JOBS = (
     "home_commit_candidate",
 )
 PENDING_CYCLE_TRANSITIONS = "home.optimizer.pending_cycle_transitions"
+FINAL_SELECTION_HINT = (
+    "Final selection: use home_list_validation_results to locate eligible evaluated commits. "
+    "Read their paired_comparisons.json files beside summary.json, or use home_compare_validations "
+    "for the shortlisted runs. The last run's table compares only that run against history; compare "
+    "historical finalists directly when needed. Prefer shared-question score, regressions, coverage "
+    "and query token cost; unknown values are not zero and different snapshots do not isolate answer changes. "
+    "Read original artifacts only if the compact evidence is insufficient. Leave the selected evaluated "
+    "branch checked out and return branch_name, commit_sha (unique prefix accepted), evaluation_path and report."
+)
 VALIDATION_BUDGET_EXHAUSTED_HINT = (
     "<system-reminder>The formal validation budget is exhausted. All previous validation-cycle timer reminders "
     "are expired. Select the best candidate using existing evaluation evidence; do not develop new candidates "
     "or run further evaluations. Complete any necessary evidence and repository checks, and leave the selected "
     "evaluated branch and full commit checked out with no uncommitted changes. Return exactly one JSON object "
     "with branch_name, commit_sha, evaluation_path and report. Put all summary and explanation in report; "
-    "do not include Markdown fences or text outside the JSON object.</system-reminder>"
+    "do not include Markdown fences or text outside the JSON object. " + FINAL_SELECTION_HINT + "</system-reminder>"
 )
+
+
+def final_selection_tool(timer=None):
+    """Reveal selection guidance only when the optimizer elects to finish early."""
+
+    async def begin_final_selection():
+        """Enter final selection when ready to finish optimization early."""
+        if timer is not None:
+            timer.stop()
+        return FINAL_SELECTION_HINT
+
+    return FunctionTool(begin_final_selection, name="begin_final_selection", is_concurrency_safe=False)
 
 
 class ValidationCycleTimer(RunTimeBudgetTimer):
@@ -201,7 +230,7 @@ class OptimizationResult(SpecModel):
     """An agent claim that must be checked against Git and saved formal evidence."""
 
     branch_name: str = Field(min_length=1)
-    commit_sha: str = Field(pattern="^[0-9a-f]{40}$")
+    commit_sha: str = Field(pattern="^[0-9a-fA-F]{1,40}$")
     evaluation_path: str = Field(min_length=1)
     report: str = Field(min_length=1)
 
@@ -343,10 +372,12 @@ def verify_final(home, result):
         require_clean(repo)
         validate_tree(repo, record, "HEAD")
         current = status(repo, record)
+        result.commit_sha = resolve_commit_prefix(repo, result.commit_sha)
+        result.branch_name = selection_branch(repo, result.branch_name)
         if current["current_branch"] != result.branch_name or current["commit_sha"] != result.commit_sha:
             raise ValueError("Final branch/commit does not match the checked-out HEAD")
         evidence = verify_evaluation(home, result.evaluation_path, result.commit_sha)
-        if evidence["manifest"]["branch_name"] != result.branch_name:
+        if result.branch_name not in {evidence["manifest"]["branch_name"], EVALUATED_PREFIX + result.commit_sha}:
             raise ValueError("Final evaluation belongs to a different branch")
         return evidence["evaluation_path"]
 
@@ -402,6 +433,8 @@ def evaluation_tool(wrapper, options, *, home, timer=None, max_evaluations=10, b
             reuse_construction_from=None,
             **({"target_queries": target_queries} if not debug and target_queries is not None else {}),
         )
+        if isinstance(response.answer, dict):
+            response.answer = {key: value for key, value in response.answer.items() if key != "paired_comparisons"}
         if not debug:
             budget = await blocking(validation_budget_status, home, max_evaluations)
             if isinstance(response.answer, dict):
@@ -514,6 +547,7 @@ class HomeOptimizeStep(BaseStep):
                     Edit(backend=backend),
                     diagnostic_tool(self.agent_wrapper),
                     validation_budget_tool(home, max_evaluations),
+                    final_selection_tool(timer),
                     evaluation_tool(
                         self.agent_wrapper,
                         options,

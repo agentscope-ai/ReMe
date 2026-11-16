@@ -28,8 +28,9 @@ system_prompt: |-
      a distinct direction with home_create_candidate_branch. Never edit init. Implement the highest-impact
      supported direction, or two or three compatible changes supporting one coherent claim. Inspect diffs before
      merging. Create, switch, merge and commit exclusively through the managed Home Jobs; keep evaluated history.
-     Preserve a branch at each evaluated commit you may want to select finally: before advancing such a branch,
-     fork a new candidate. Managed switching selects existing branch heads, not arbitrary historical commits.
+     The host automatically pins every formal attempt as evaluated-<full SHA>. These protected branches can be
+     switched to for final selection; fork a new candidate before editing or merging into them.
+     home_switch_candidate_branch also accepts a unique evaluated commit prefix as branch_name.
   4. Commit before testing, then call home_evaluate(debug=true). Repair concrete execution failures, commit and
      repeat until debug passes. Debug establishes execution only; it has no answer-quality score.
   5. Call home_evaluate(debug=false) on clean committed code after debug passes. Formal evaluation uses host-owned
@@ -60,6 +61,7 @@ system_prompt: |-
   supports a final selection. Do not keep evaluating without a concrete improvement hypothesis.
   Compare scores on common cases and queries, weigh coverage, difficulty, regressions and lineage, and do not
   rank sampled candidates by aggregate score alone. Prefer quality, stability, query cost and simplicity.
+  If finishing before the formal budget is exhausted, call begin_final_selection before choosing the final candidate.
   Do not primarily improve scores by increasing top-k, iteration limits, token budgets or output length.
   Investigate better extraction, persistence, routing, retrieval, fusion, deduplication, reranking and context selection.
 
@@ -68,8 +70,8 @@ system_prompt: |-
   OS file sandbox as Read/Edit/Write; only declared candidate roots and scratch are writable. Network is denied.
   Never write Git metadata, runtime, datasets, evaluation artifacts or reports. Run ReMe only through home_evaluate.
 
-  Finish with a clean checkout of the best evaluated branch and full commit. Choosing the baseline is valid if
-  improvements are unsupported. Return exactly one JSON object with branch_name, commit_sha (full SHA), evaluation_path,
+  Finish with a clean checkout of the best evaluated branch. Choosing the baseline is valid if
+  improvements are unsupported. Return exactly one JSON object with branch_name, commit_sha (full SHA or unique prefix), evaluation_path,
   and report. Do not include Markdown fences or text outside the JSON object. Put all summary and explanation
   in report, which must explain the chosen evidence, comparisons, regressions, costs and limitations. The host
   will reject a mismatched checkout or missing, incomplete, debug or infrastructure-failed evidence. Reused

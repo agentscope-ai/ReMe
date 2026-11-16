@@ -18,6 +18,7 @@ backends:
   home_evaluate_step: reme_home.evaluation.step:HomeEvaluateStep
   home_list_validation_results_step: reme_home.evaluation.inspection_step:HomeListValidationResultsStep
   home_inspect_validation_step: reme_home.evaluation.inspection_step:HomeInspectValidationStep
+  home_compare_validations_step: reme_home.evaluation.comparison:HomeCompareValidationsStep
   auto_bash_step: reme_home.auto_bash:AutoBashStep
 
 application_defaults:
@@ -285,6 +286,18 @@ application_defaults:
           limit: {type: integer, minimum: 1, maximum: 100, default: 20}
       steps:
         - backend: home_list_validation_results_step
+    home_compare_validations:
+      backend: base
+      description: "Compact shared-question score/token deltas, coverage and regression counts; inspect original runs for details. Unknown usage is not zero; different snapshots do not isolate answer changes. No model calls"
+      parameters:
+        type: object
+        additionalProperties: false
+        required: [base_validation_path, candidate_validation_path]
+        properties:
+          base_validation_path: {type: string, minLength: 1}
+          candidate_validation_path: {type: string, minLength: 1}
+      steps:
+        - backend: home_compare_validations_step
     home_inspect_validation:
       backend: base
       description: "Read an evaluation's case summaries, a case's query summaries, or one query's answer/judge previews; follow next_offset and source paths for details"
@@ -437,13 +450,13 @@ application_defaults:
           operation: create_branch
     home_switch_candidate_branch:
       backend: base
-      description: Switch to an existing local branch; requires clean code
+      description: Switch to an existing local branch or preserved evaluated commit (full SHA or unique prefix); requires clean code
       parameters:
         additionalProperties: false
         properties:
           branch_name:
             description: >-
-              Valid local Git branch name used as a single evaluation-directory name; '/' and '\' are forbidden.
+              Existing local branch name, evaluated-<SHA prefix>, or unique evaluated commit SHA prefix.
             maxLength: 100
             minLength: 1
             type: string

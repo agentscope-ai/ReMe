@@ -13,7 +13,7 @@ from reme.utils.async_utils import complete_in_thread as blocking
 from reme.utils.async_utils import finish_cleanup
 
 from ..preparation.data.models import utc_now
-from ..code.repository import current_branch, validate_candidate
+from ..code.repository import current_branch, validate_candidate, preserve_evaluated, validate_repository
 from .adapters import accepts_build, build_jobs, evaluation_query
 from .artifacts import (
     contained,
@@ -297,6 +297,9 @@ class HomeEvaluation(BaseComponent):
         """Allocate ascending IDs under a collision-safe commit prefix."""
         home = self.workspace.home_path
         with _initialization_lock(self.workspace.state_path / "workspace.lock"):
+            if manifest.get("mode") == "scored":
+                repo, _ = validate_repository(home)
+                manifest["evaluated_branch"] = preserve_evaluated(repo, commit)
             parent = contained(home, f"evaluations/{branch}", directory=True)
             parent.mkdir(parents=True, exist_ok=True)
             width = 7
@@ -576,8 +579,15 @@ class HomeEvaluation(BaseComponent):
             else:
                 write_json(run / "manifest.json", manifest)
                 write_json(run / "summary.json", summary, compact_leaf_containers=True)
+            comparison = None
+            if not spec.debug:
+                from .comparison import publish_comparisons
+
+                comparison = await blocking(publish_comparisons, self.workspace.home_path, run)
             return {
                 "result_dir": str(run),
+                "evaluated_branch": manifest.get("evaluated_branch"),
+                "paired_comparisons": comparison,
                 "commit_sha": commit,
                 "execution_mode": manifest["execution_mode"],
                 "record_history": spec.record_history and not spec.debug,

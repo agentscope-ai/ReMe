@@ -21,6 +21,7 @@ from .structured_report import parse_json_object
 INSPECTION_JOBS = (
     "home_list_validation_results",
     "home_inspect_validation",
+    "home_compare_validations",
     "home_trace_query_evidence",
     "home_inspect_memory_history",
     "home_compare_memory",
