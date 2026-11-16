@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="800" viewBox="0 0 1600 800" role="img" aria-labelledby="title desc">
+<title id="title">Proactive 怎样持续运行</title><desc id="desc">任务通常在等待。事件或定时触发到来后，领取输入、恢复会话并读取记忆、分析处理、保存本轮结果，再等待下一次触发。工作区文件在各轮之间保留。</desc>
+<metadata>ReMe working-tree implementation: reme/steps/proactive/agent/; reme/components/agent_runtime/; reme/components/agent_inbox/; reme/config/proactive.yaml. File paths are workspace-relative. Records and durations are illustrative.</metadata>
+<defs>
+<marker id="teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1L9 5L1 9Z" fill="#087F8C"/></marker>
+<marker id="muted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1L9 5L1 9Z" fill="#607485"/></marker>
+<marker id="violet" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1L9 5L1 9Z" fill="#7253B3"/></marker>
+</defs>
+<style>text{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",Arial,sans-serif;fill:#182B3A}.mono{font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace}</style>
+<rect x="0" y="0" width="1600" height="800" rx="0" fill="#FFFFFF" stroke="none" stroke-width="1.6"/>
+<text x="56" y="30" font-size="14" font-weight="600" text-anchor="start" style="fill:#087F8C">REME / PROACTIVE 01</text>
+<text x="56" y="78" font-size="34" font-weight="700" text-anchor="start" style="fill:#182B3A">Proactive 怎样持续运行</text>
+<text x="56" y="117" font-size="20" font-weight="400" text-anchor="start" style="fill:#607485">有新信息或到了约定时间，就处理一轮；等待期间不持续调用模型。</text>
+<rect x="56" y="187" width="1488" height="68" rx="10" fill="#F5F8FA" stroke="none" stroke-width="1.6"/>
+<rect x="310" y="187" width="54" height="68" rx="0" fill="#BFDEDE" stroke="none" stroke-width="1.6"/>
+<rect x="895" y="187" width="62" height="68" rx="0" fill="#087F8C" stroke="none" stroke-width="1.6"/>
+<rect x="1440" y="187" width="50" height="68" rx="0" fill="#BFDEDE" stroke="none" stroke-width="1.6"/>
+<text x="175" y="228" font-size="23" font-weight="500" text-anchor="middle" style="fill:#607485">等待</text>
+<text x="620" y="228" font-size="23" font-weight="500" text-anchor="middle" style="fill:#607485">等待</text>
+<text x="1195" y="228" font-size="23" font-weight="500" text-anchor="middle" style="fill:#607485">等待</text>
+<rect x="824" y="140" width="206" height="34" rx="17" fill="#EAF5F3" stroke="none" stroke-width="1.6"/>
+<text x="927.0" y="163" font-size="16" font-weight="600" text-anchor="middle" style="fill:#087F8C">新事件 / 到达时间</text>
+<path d="M927 176V185" fill="none" stroke="#087F8C" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M927 185L921.8 176L932.2 176Z" fill="#087F8C"/>
+<path d="M1545 222H1570" fill="none" stroke="#607485" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1570 222L1559 227.2L1559 216.8Z" fill="#607485"/>
+<path d="M895 257L80 326H1520L957 257Z" fill="#EAF5F3"/>
+<rect x="56" y="326" width="1488" height="222" rx="16" fill="#EAF5F3" stroke="none" stroke-width="1.6"/>
+<text x="82" y="367" font-size="23" font-weight="700" text-anchor="start" style="fill:#087F8C">一次执行</text>
+<text x="212" y="367" font-size="18" font-weight="400" text-anchor="start" style="fill:#607485">沿用任务会话，读取最新文件</text>
+<rect x="80" y="392" width="341" height="128" rx="10" fill="#FFFFFF" stroke="#D4E2E5" stroke-width="1.6"/>
+<rect x="96" y="406" width="38" height="34" rx="17" fill="#EAF5F3" stroke="none" stroke-width="1.6"/>
+<text x="115.0" y="429" font-size="16" font-weight="600" text-anchor="middle" style="fill:#087F8C">1</text>
+<text x="100" y="469" font-size="27" font-weight="600" text-anchor="start" style="fill:#182B3A">领取事件</text>
+<text x="100" y="501" font-size="18" font-weight="400" text-anchor="start" style="fill:#607485">取出一批待处理输入</text>
+<path d="M423 456H440" fill="none" stroke="#087F8C" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M440 456L429 461.2L429 450.8Z" fill="#087F8C"/>
+<rect x="445" y="392" width="341" height="128" rx="10" fill="#FFFFFF" stroke="#D4E2E5" stroke-width="1.6"/>
+<rect x="461" y="406" width="38" height="34" rx="17" fill="#EAF5F3" stroke="none" stroke-width="1.6"/>
+<text x="480.0" y="429" font-size="16" font-weight="600" text-anchor="middle" style="fill:#087F8C">2</text>
+<text x="465" y="469" font-size="27" font-weight="600" text-anchor="start" style="fill:#182B3A">读取记忆</text>
+<text x="465" y="501" font-size="18" font-weight="400" text-anchor="start" style="fill:#607485">任务要求 + 上次进度</text>
+<path d="M788 456H805" fill="none" stroke="#087F8C" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M805 456L794 461.2L794 450.8Z" fill="#087F8C"/>
+<rect x="810" y="392" width="341" height="128" rx="10" fill="#FFFFFF" stroke="#D4E2E5" stroke-width="1.6"/>
+<rect x="826" y="406" width="38" height="34" rx="17" fill="#EAF5F3" stroke="none" stroke-width="1.6"/>
+<text x="845.0" y="429" font-size="16" font-weight="600" text-anchor="middle" style="fill:#087F8C">3</text>
+<text x="830" y="469" font-size="27" font-weight="600" text-anchor="start" style="fill:#182B3A">分析与处理</text>
+<text x="830" y="501" font-size="18" font-weight="400" text-anchor="start" style="fill:#607485">查看原文，关联历史</text>
+<path d="M1153 456H1170" fill="none" stroke="#087F8C" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1170 456L1159 461.2L1159 450.8Z" fill="#087F8C"/>
+<rect x="1175" y="392" width="341" height="128" rx="10" fill="#FFFFFF" stroke="#087F8C" stroke-width="1.6"/>
+<rect x="1191" y="406" width="38" height="34" rx="17" fill="#EAF5F3" stroke="none" stroke-width="1.6"/>
+<text x="1210.0" y="429" font-size="16" font-weight="600" text-anchor="middle" style="fill:#087F8C">4</text>
+<text x="1195" y="469" font-size="27" font-weight="600" text-anchor="start" style="fill:#182B3A">保存结果</text>
+<text x="1195" y="501" font-size="18" font-weight="400" text-anchor="start" style="fill:#607485">更新进度，按需生成提醒</text>
+<rect x="56" y="646" width="1488" height="94" rx="12" fill="#F5F8FA" stroke="#CCD8DE" stroke-width="1.6"/>
+<text x="82" y="684" font-size="23" font-weight="600" text-anchor="start" style="fill:#182B3A">工作区文件</text>
+<text x="82" y="718" font-size="19" font-weight="400" text-anchor="start" style="fill:#607485">任务记忆 · 日记与摘要 · 提醒 · 输入记录</text>
+<path d="M615 644V525" fill="none" stroke="#087F8C" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M615 525L620.2 536L609.8 536Z" fill="#087F8C"/>
+<text x="635" y="601" font-size="18" font-weight="400" text-anchor="start" style="fill:#087F8C">读取</text>
+<path d="M1345 522V644" fill="none" stroke="#087F8C" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1345 644L1339.8 633L1350.2 633Z" fill="#087F8C"/>
+<text x="1365" y="601" font-size="18" font-weight="400" text-anchor="start" style="fill:#087F8C">写回</text>
+<text x="56" y="775" font-size="16" font-weight="400" text-anchor="start" style="fill:#607485">每轮保存的信息供下一轮接着使用。条带长度仅示意等待与执行的交替。</text>
+</svg>

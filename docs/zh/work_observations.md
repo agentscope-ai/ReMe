@@ -3,6 +3,8 @@
 [`proactive.yaml`](../../reme/config/proactive.yaml) 默认每五分钟采集一次多屏截图和本机 Codex 新增对话，
 通过一次 `append_event(agent_id=work, events=[...])` 投递给工作 Agent。采集器不调用模型。
 
+这些观察如何用于跟进进展和生成提醒，见 [Proactive Agent](./proactive_runtime.md)。
+
 先启动服务：
 
 ```bash

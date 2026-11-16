@@ -63,6 +63,8 @@ curl -N http://127.0.0.1:2333/chat \
 
 ## Agent 运行时
 
+[Proactive Agent](./proactive_runtime.md) 介绍持续任务、文件记忆和提醒的整体流程；本节说明对应的服务配置和接口。
+
 `agent_runtime` 组件协调会话、统一 Inbox、输出和调度；`reme/steps/proactive/agent/` 下的 `ChatAgentStep` 与
 `ProactiveAgentStep` 分别定义两种 Agent 行为。组件配置使用 `components.agent_runtime.default`，
 工作区相对配置 `reme_agent_dir` 默认是 `reme_agents`。每个 Agent 拥有 `config.json`、`MEMORY.md` 和
