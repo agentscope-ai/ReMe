@@ -293,14 +293,15 @@ async def test_invalid_nearest_source_falls_back_to_older_ancestor(
 
 
 @pytest.mark.asyncio
-async def test_nearest_source_limits_replay_but_full_rebuild_restores_all_cases(
+async def test_targeted_sampling_uses_nearest_source_and_older_source_fills_coverage(
     app,
     prepared,
     reviewer,
     sandbox,
     monkeypatch,
 ):
-    assert (await app.run_job("home_evaluate")).success
+    baseline = await app.run_job("home_evaluate")
+    assert baseline.success
     commit_candidate(prepared)
     recent = await app.run_job("home_evaluate", case_ids=["1"])
     commit_candidate(prepared)
@@ -312,10 +313,13 @@ async def test_nearest_source_limits_replay_but_full_rebuild_restores_all_cases(
         ),
     )
     force_draw(monkeypatch, 0.1)
-    replay = await app.run_job("home_evaluate", sampling=True)
+    replay = await app.run_job("home_evaluate", sampling=True, target_queries={"1": [], "2": []})
     assert replay.success, replay.answer
     assert replay.answer["automatic_construction_reuse"]["source_validation"] == recent.answer["result_dir"]
-    assert replay.answer["case_count"] == 1
+    assert replay.answer["case_count"] == 2
+    sources = replay.answer["automatic_construction_reuse"]["case_sources"]
+    assert sources["1"]["result_dir"] == recent.answer["result_dir"]
+    assert sources["2"]["result_dir"] == baseline.answer["result_dir"]
     commit_candidate(prepared)
     force_draw(monkeypatch, 0.8)
     rebuilt = await app.run_job("home_evaluate", sampling=True)
@@ -542,7 +546,7 @@ async def test_optimizer_final_selection_accepts_automatic_replay(app, prepared,
     manifest = read_json(Path(result.answer["evaluation_path"]) / "manifest.json")
     assert manifest["execution_mode"] == "query_only_replay"
     schema = next(tool for tool in model.calls[0]["tools"] if tool["function"]["name"] == "home_evaluate")
-    assert set(schema["function"]["parameters"]["properties"]) == {"debug"}
+    assert set(schema["function"]["parameters"]["properties"]) == {"debug", "target_queries"}
 
 
 @pytest.mark.asyncio

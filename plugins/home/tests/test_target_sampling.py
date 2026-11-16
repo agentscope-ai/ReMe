@@ -1,0 +1,416 @@
+"""Targeted formal sampling and per-case replay through real Home Jobs."""
+
+# pylint: disable=missing-function-docstring,redefined-outer-name,unused-argument,protected-access
+
+import copy
+from pathlib import Path
+
+import pytest
+
+from reme_home import sampling
+from reme_home.agent.optimizer import verify_evaluation
+from reme_home.evaluation import reuse
+from reme_home.evaluation.artifacts import read_json, write_json
+from reme_home.evaluation.history import rebuild_sampling_state, read_state
+from reme_home.preparation.data.models import CaseSpec, QuerySpec
+from test_evaluation import (  # noqa: F401  # pylint: disable=unused-import
+    FakeFactory,
+    command,
+    commit_candidate,
+    home_application,
+    preparation_inputs,
+    prepared_home,
+)
+
+
+def cases():
+    return [
+        CaseSpec(
+            case_id=str(index),
+            sessions=[],
+            queries=[QuerySpec(query_id=f"fact:{qid}", question="?", golden_answer="answer") for qid in range(1, 5)],
+        )
+        for index in range(1, 5)
+    ]
+
+
+def test_target_forms_invalid_ids_and_remaining_capacity(monkeypatch):
+    monkeypatch.setattr(sampling.time, "time_ns", lambda: 12345)
+    state = {"round": 2, "cases": {}, "queries": {}}
+    before = copy.deepcopy(state)
+    plan = sampling.create_sampling_plan(
+        cases(),
+        state,
+        sampling.SamplingPolicy(max_cases=4, max_queries=12),
+        target_queries={"1": [], "2": None, "3": ["fact:1", "fact:1", "missing"], "missing": None},
+    )
+    assert set(plan["case_ids"]) == {"1", "2", "3", "4"}
+    assert sum(map(len, plan["query_ids"].values())) == 12
+    assert set(plan["query_ids"]["2"]) == {f"fact:{qid}" for qid in range(1, 5)}
+    assert "fact:1" in plan["query_ids"]["3"]
+    targets = plan["targets"]
+    assert targets["invalid_case_ids"] == ["missing"]
+    assert targets["invalid_query_ids"] == {"3": ["missing"]}
+    assert targets["retained_query_ids"]["1"] == []
+    assert targets["retained_query_ids"]["3"] == ["fact:1"]
+    assert all(len(ids) == len(set(ids)) for ids in plan["query_ids"].values())
+    assert state == before
+
+
+@pytest.mark.parametrize("case_limit,query_limit", [(2, 8), (4, 2), (3, 5), (4, None)])
+def test_oversized_targets_stay_within_both_limits(monkeypatch, case_limit, query_limit):
+    monkeypatch.setattr(sampling.time, "time_ns", lambda: 42)
+    requested = {str(index): None for index in range(1, 5)}
+    policy = sampling.SamplingPolicy(max_cases=case_limit, max_queries=query_limit)
+    plan = sampling.create_sampling_plan(cases(), {}, policy, target_queries=requested)
+    assert len(plan["case_ids"]) == min(case_limit, query_limit or case_limit)
+    assert sum(map(len, plan["query_ids"].values())) == min(query_limit or 16, case_limit * 4)
+    assert all(plan["query_ids"].values())
+    assert plan == sampling.create_sampling_plan(cases(), {}, policy, target_queries=requested)
+    assert set(plan["targets"]["trimmed_case_ids"]) == set(requested) - set(plan["case_ids"])
+
+
+def test_case_anchor_keeps_a_question_before_other_targets_consume_budget(monkeypatch):
+    monkeypatch.setattr(sampling.time, "time_ns", lambda: 42)
+    plan = sampling.create_sampling_plan(
+        cases(),
+        {},
+        sampling.SamplingPolicy(max_cases=2, max_queries=4),
+        target_queries={"1": [], "2": None},
+    )
+    assert len(plan["query_ids"]["1"]) == 1
+    assert len(plan["query_ids"]["2"]) == 3
+    assert len(plan["targets"]["trimmed_query_ids"]["2"]) == 1
+
+
+def test_invalid_questions_keep_case_and_invalid_cases_fall_back(monkeypatch):
+    monkeypatch.setattr(sampling.time, "time_ns", lambda: 7)
+    policy = sampling.SamplingPolicy(max_cases=1, max_queries=2)
+    plan = sampling.create_sampling_plan(cases(), {}, policy, target_queries={"2": ["missing"]})
+    assert plan["case_ids"] == ["2"]
+    assert len(plan["query_ids"]["2"]) == 2
+    assert plan["targets"]["retained_query_ids"] == {"2": []}
+    fallback = sampling.create_sampling_plan(cases(), {}, policy, target_queries={"missing": []})
+    original = sampling.create_sampling_plan(cases(), {}, policy)
+    assert {key: value for key, value in fallback.items() if key != "targets"} == original
+
+
+def test_debug_ignores_targets_and_empty_targets_preserve_exact_mode():
+    from reme_home.evaluation.inputs import EvaluationSpec
+
+    assert EvaluationSpec(debug=True, target_queries={"missing": None}).target_queries is None
+    assert EvaluationSpec(target_queries={}).target_queries is None
+
+
+@pytest.fixture
+def allow_reuse(monkeypatch):
+    from reme_home.agent import candidate_gate, construction_equivalence
+
+    reviews, draws = [], []
+
+    async def review(wrapper, home, context, spec, selected, fingerprints, **kwargs):
+        reviews.append((context["source_validation"], [case.case_id for case in selected]))
+        return {**context, "decision": "construction_unchanged", "reason": "Answer-only change"}
+
+    def draw():
+        draws.append(True)
+        return {"probability": 0.6, "draw": 0.1, "selected": True}
+
+    async def admit(wrapper, home, context, budget, **kwargs):
+        return {**context, "decision": "accept", "reason": "Fixture candidate"}
+
+    monkeypatch.setattr(construction_equivalence, "review_construction", review)
+    monkeypatch.setattr(candidate_gate, "review_candidate", admit)
+    monkeypatch.setattr(reuse, "select_query_only", draw)
+    return reviews, draws
+
+
+@pytest.mark.asyncio
+async def test_partial_reuse_preserves_targets_and_recovers_frozen_plan(app, prepared, allow_reuse, monkeypatch):
+    baseline = await app.run_job("home_evaluate", case_ids=["1"])
+    assert baseline.success
+    commit_candidate(prepared)
+    monkeypatch.setattr(FakeFactory, "bad_export", True)
+    failed = await app.run_job(
+        "home_evaluate",
+        sampling=True,
+        sampling_policy={"max_cases": 2, "max_queries": 2},
+        target_queries={"1": [], "2": ["missing"], "invalid": None},
+        max_evaluations=10,
+    )
+    assert not failed.success
+    assert isinstance(failed.answer, dict), failed.answer
+    old = read_json(Path(failed.answer["result_dir"]) / "manifest.json")
+    assert old["execution_mode"] == "mixed_validation"
+    assert set(old["case_ids"]) == {"1", "2"}
+    assert set(old["construction_sources"]) == {"1"}
+    assert old["target_selection"]["invalid_case_ids"] == ["invalid"]
+    events = FakeFactory.instances[-1].events
+    assert ("1", "upload") in events
+    assert any(event[:2] == ("2", "build") for event in events)
+    monkeypatch.setattr(FakeFactory, "bad_export", False)
+
+    def no_draw(*args, **kwargs):
+        pytest.fail("Recovery cannot redraw targets or reuse")
+
+    monkeypatch.setattr(sampling, "create_sampling_plan", no_draw)
+    monkeypatch.setattr("reme_home.evaluation.component.create_sampling_plan", no_draw)
+    monkeypatch.setattr(reuse, "select_query_only", no_draw)
+    recovered = await app.run_job(
+        "home_evaluate",
+        sampling=True,
+        target_queries={"invalid-new": None},
+        max_evaluations=10,
+    )
+    assert recovered.success, recovered.answer
+    run = Path(recovered.answer["result_dir"])
+    manifest = read_json(run / "manifest.json")
+    assert manifest["query_ids"] == old["query_ids"]
+    assert manifest["construction_sources"] == old["construction_sources"]
+    assert manifest["target_selection"] == old["target_selection"]
+    assert recovered.answer["selection"]["invalid_case_count"] == 1
+    assert recovered.answer["selection"]["invalid_query_count"] == 1
+    assert any("Restored" in message for message in recovered.answer["selection"]["notices"])
+    assert len(allow_reuse[0]) == 1 and not allow_reuse[1]
+    verify_evaluation(prepared, run, manifest["commit_sha"])
+    before = read_state(prepared)
+    assert rebuild_sampling_state(prepared) == before
+    # Final acceptance must check the actual per-case snapshot, not just the run mode.
+    result_path = run / "cases/1/memory_construction/result.json"
+    result = read_json(result_path)
+    write_json(result_path, {**result, "workspace_sha256": "wrong"})
+    with pytest.raises(ValueError, match="provenance"):
+        verify_evaluation(prepared, run, manifest["commit_sha"])
+
+
+@pytest.mark.asyncio
+async def test_multiple_sources_reuse_every_available_selected_case(app, prepared, allow_reuse):
+    first = await app.run_job("home_evaluate", case_ids=["1"])
+    assert first.success
+    commit_candidate(prepared)
+    second = await app.run_job("home_evaluate", case_ids=["2"])
+    assert second.success
+    commit_candidate(prepared)
+    response = await app.run_job(
+        "home_evaluate",
+        sampling=True,
+        target_queries={"1": None, "2": []},
+        sampling_policy={"max_cases": 2, "max_queries": 2},
+    )
+    assert response.success, response.answer
+    run = Path(response.answer["result_dir"])
+    manifest = read_json(run / "manifest.json")
+    assert manifest["execution_mode"] == "query_only_replay"
+    assert manifest["construction_sources"]["1"]["result_dir"] == first.answer["result_dir"]
+    assert manifest["construction_sources"]["2"]["result_dir"] == second.answer["result_dir"]
+    assert len(allow_reuse[0]) == 2 and not allow_reuse[1]
+    assert all(event[1] != "build" for event in FakeFactory.instances[-1].events)
+    verify_evaluation(prepared, run, manifest["commit_sha"])
+
+
+@pytest.mark.asyncio
+async def test_legacy_single_source_recovery_keeps_authorization(app, prepared, allow_reuse, monkeypatch):
+    assert (await app.run_job("home_evaluate")).success
+    commit_candidate(prepared)
+    monkeypatch.setattr(FakeFactory, "bad_export", True)
+    failed = await app.run_job("home_evaluate", sampling=True)
+    assert not failed.success
+    path = Path(failed.answer["result_dir"]) / "manifest.json"
+    manifest = read_json(path)
+    manifest.pop("construction_sources")
+    manifest["automatic_construction_reuse"].pop("case_sources")
+    manifest["automatic_construction_reuse"].pop("source_reviews")
+    write_json(path, manifest)
+    monkeypatch.setattr(FakeFactory, "bad_export", False)
+    recovered = await app.run_job("home_evaluate", sampling=True)
+    assert recovered.success, recovered.answer
+    verify_evaluation(prepared, Path(recovered.answer["result_dir"]), recovered.answer["commit_sha"])
+    assert len(allow_reuse[0]) == len(allow_reuse[1]) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("selected", [True, False])
+async def test_each_init_child_samples_after_review_and_draw(app, prepared, allow_reuse, monkeypatch, selected):
+    from reme_home.evaluation import component
+
+    assert (await app.run_job("home_evaluate")).success
+    events = []
+    review = reuse._review_source
+    sample = component.create_sampling_plan
+
+    async def tracked_review(*args, **kwargs):
+        events.append("review")
+        return await review(*args, **kwargs)
+
+    def draw():
+        events.append("draw")
+        return {"probability": 0.6, "draw": 0.1 if selected else 0.9, "selected": selected}
+
+    def tracked_sample(*args, **kwargs):
+        events.append("sample")
+        return sample(*args, **kwargs)
+
+    monkeypatch.setattr(reuse, "_review_source", tracked_review)
+    monkeypatch.setattr(reuse, "select_query_only", draw)
+    monkeypatch.setattr(component, "create_sampling_plan", tracked_sample)
+    for sibling in (False, True):
+        if sibling:
+            command(prepared / "code/repo", "switch", "-c", "sibling", "init")
+            path = prepared / "code/repo/plugins/beam/src/reme_beam/__init__.py"
+            path.write_text(path.read_text() + "\nsibling = True\n")
+        commit_candidate(prepared)
+        events.clear()
+        response = await app.run_job("home_evaluate", sampling=True, sampling_policy={"max_cases": 1, "max_queries": 1})
+        assert response.success, response.answer
+        assert events == ["review", "draw", "sample"]
+        assert response.answer["case_count"] == response.answer["scored_query_count"] == 1
+        assert response.answer["execution_mode"] == ("query_only_replay" if selected else "full_validation")
+        run = Path(response.answer["result_dir"])
+        verify_evaluation(prepared, run, response.answer["commit_sha"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("targets", [None, {}, {"invalid": None}])
+async def test_no_targets_replays_exact_source_selection_without_sampling(
+    app,
+    prepared,
+    allow_reuse,
+    monkeypatch,
+    targets,
+):
+    assert (await app.run_job("home_evaluate")).success
+    commit_candidate(prepared)
+    source = await app.run_job("home_evaluate", case_ids=["2"], query_ids={"2": ["fact:1"]})
+    assert source.success
+    commit_candidate(prepared)
+    monkeypatch.setattr(
+        "reme_home.evaluation.component.create_sampling_plan",
+        lambda *args, **kwargs: pytest.fail("A paired replay must not sample"),
+    )
+    response = await app.run_job(
+        "home_evaluate",
+        sampling=True,
+        target_queries=targets,
+        sampling_policy={"max_cases": 1},
+    )
+    assert response.success, response.answer
+    manifest = read_json(Path(response.answer["result_dir"]) / "manifest.json")
+    old = read_json(Path(source.answer["result_dir"]) / "manifest.json")
+    assert manifest["case_ids"] == old["case_ids"]
+    assert manifest["query_ids"] == old["query_ids"]
+    assert manifest["sampling"]["mode"] == "replay"
+    assert response.answer["selection"]["invalid_case_count"] == bool(targets)
+    verify_evaluation(prepared, Path(response.answer["result_dir"]), manifest["commit_sha"])
+
+
+@pytest.mark.asyncio
+async def test_init_source_does_not_replace_the_direct_parent_check(app, prepared, allow_reuse, monkeypatch):
+    baseline = await app.run_job("home_evaluate")
+    assert baseline.success
+    commit_candidate(prepared)
+    commit_candidate(prepared)
+    monkeypatch.setattr(
+        "reme_home.evaluation.component.create_sampling_plan",
+        lambda *args, **kwargs: pytest.fail("The direct parent is not init, even though the memory source is init"),
+    )
+    response = await app.run_job("home_evaluate", sampling=True)
+    assert response.success, response.answer
+    manifest = read_json(Path(response.answer["result_dir"]) / "manifest.json")
+    old = read_json(Path(baseline.answer["result_dir"]) / "manifest.json")
+    assert manifest["case_ids"] == old["case_ids"]
+    assert manifest["query_ids"] == old["query_ids"]
+    assert manifest["sampling"]["mode"] == "replay"
+
+
+@pytest.mark.asyncio
+async def test_init_child_sampling_can_select_an_uncovered_case(app, prepared, allow_reuse, monkeypatch):
+    from reme_home.evaluation import component
+
+    assert (await app.run_job("home_evaluate", case_ids=["1"])).success
+    commit_candidate(prepared)
+    sample = component.create_sampling_plan
+
+    def uncovered_sample(available, state, policy, **kwargs):
+        assert len(allow_reuse[0]) == len(allow_reuse[1]) == 1
+        return sample([case for case in available if case.case_id == "2"], state, policy, **kwargs)
+
+    monkeypatch.setattr(component, "create_sampling_plan", uncovered_sample)
+    response = await app.run_job("home_evaluate", sampling=True, sampling_policy={"max_cases": 1, "max_queries": 1})
+    assert response.success, response.answer
+    decision = response.answer["automatic_construction_reuse"]
+    assert decision["probability_selected"] is True and decision["selected"] is False
+    assert decision["case_sources"] == {}
+    assert decision["reason"] == "no_reusable_snapshot_for_sampled_cases"
+    assert response.answer["execution_mode"] == "full_validation"
+    manifest = read_json(Path(response.answer["result_dir"]) / "manifest.json")
+    assert manifest["case_ids"] == ["2"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("selected", [True, False])
+@pytest.mark.parametrize("target", [[], None, ["fact:1"], ["invalid"]])
+async def test_targets_reuse_even_when_background_draw_misses(
+    app,
+    prepared,
+    allow_reuse,
+    monkeypatch,
+    selected,
+    target,
+):
+    assert (await app.run_job("home_evaluate")).success
+    commit_candidate(prepared)
+    draws = []
+
+    def draw():
+        draws.append(True)
+        return {"probability": 0.6, "draw": 0.1 if selected else 0.9, "selected": selected}
+
+    monkeypatch.setattr(reuse, "select_query_only", draw)
+    response = await app.run_job(
+        "home_evaluate",
+        sampling=True,
+        target_queries={"1": target},
+        sampling_policy={"max_cases": 2, "max_queries": 2},
+    )
+    assert response.success, response.answer
+    decision = response.answer["automatic_construction_reuse"]
+    assert decision["selected"] is True and decision["probability_selected"] is selected
+    assert set(decision["case_sources"]) == ({"1", "2"} if selected else {"1"})
+    assert decision["reuse_reasons"]["1"] == "target_case"
+    assert len(draws) == 1
+    assert response.answer["execution_mode"] == ("query_only_replay" if selected else "mixed_validation")
+    run = Path(response.answer["result_dir"])
+    verify_evaluation(prepared, run, response.answer["commit_sha"])
+    if not selected:
+        path = run / "manifest.json"
+        manifest = read_json(path)
+        manifest["automatic_construction_reuse"]["target_case_ids"] = []
+        write_json(path, manifest)
+        with pytest.raises(ValueError, match="target priority"):
+            verify_evaluation(prepared, run, response.answer["commit_sha"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case_limit,query_limit", [(1, 2), (2, 1)])
+async def test_oversized_replay_source_falls_back_to_sampling(
+    app,
+    prepared,
+    allow_reuse,
+    monkeypatch,
+    case_limit,
+    query_limit,
+):
+    assert (await app.run_job("home_evaluate")).success
+    commit_candidate(prepared)
+    assert (await app.run_job("home_evaluate")).success
+    commit_candidate(prepared)
+    monkeypatch.setattr(reuse, "select_query_only", lambda: pytest.fail("No compatible source to draw for"))
+    response = await app.run_job(
+        "home_evaluate",
+        sampling=True,
+        sampling_policy={"max_cases": case_limit, "max_queries": query_limit},
+    )
+    assert response.success, response.answer
+    assert response.answer["case_count"] == 1
+    assert response.answer["execution_mode"] == "full_validation"
+    assert not allow_reuse[0]

@@ -38,6 +38,29 @@ def cycle_hints(messages, source="meta_reme_validation_timer"):
     ]
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("debug", [False, True])
+async def test_evaluation_tool_forwards_formal_targets_and_ignores_debug_targets(tmp_path, debug):
+    write_history(tmp_path, [])
+    calls = []
+
+    class EvaluationJob:
+        enabled = is_started = True
+
+        async def __call__(self, **kwargs):
+            calls.append(kwargs)
+            return SimpleNamespace(success=False, answer={"status": "rejected"}, metadata={})
+
+    wrapper = SimpleNamespace(app_context=SimpleNamespace(jobs={"home_evaluate": EvaluationJob()}))
+    tool = optimizer.evaluation_tool(wrapper, {}, home=tmp_path)
+    targets = {"1": [], "2": None, "3": ["fact:1"]}
+    await tool._func(debug=debug, target_queries=targets, _agent_state=AgentState())
+    assert ("target_queries" in calls[0]) is not debug
+    if not debug:
+        assert calls[0]["target_queries"] == targets
+        assert calls[0]["sampling"] is True
+
+
 @pytest.mark.parametrize("budget", [True, 0, -1, float("nan"), float("inf"), "10"])
 def test_cycle_rejects_invalid_budget(budget):
     with pytest.raises(ValueError, match="positive"):
@@ -225,7 +248,7 @@ async def test_evaluation_reset_boundary_matches_dev_meta(tmp_path, outcome, res
 
     wrapper = SimpleNamespace(app_context=SimpleNamespace(jobs={"home_evaluate": EvaluationJob()}))
     tool = optimizer.evaluation_tool(wrapper, {}, home=home, timer=timer if timed else None)
-    assert set(tool.input_schema["properties"]) == {"debug"}
+    assert set(tool.input_schema["properties"]) == {"debug", "target_queries"}
     if outcome == "cancelled":
         with pytest.raises(asyncio.CancelledError):
             await tool._func(debug=False, _agent_state=state)

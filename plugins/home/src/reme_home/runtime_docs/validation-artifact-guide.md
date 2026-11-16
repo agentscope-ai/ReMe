@@ -143,6 +143,31 @@ explicit evaluation. Debug always bypasses history. `sampling_policy` is the
 host policy input, distinct from the boolean toggle. The effective policy is
 captured in the started plan, or `manifest.selection_plan` for untracked adaptive runs.
 
+Optional `target_queries` maps case IDs to `[]` (sample questions in that case),
+`null` (prioritize all questions), or a list of query IDs. Unknown IDs are ignored;
+a valid case whose requested queries are all invalid becomes a case-only target.
+Targets exceeding case/query limits are sampled down before filling spare capacity.
+Question identity is `(case_id, query_id)`. The response's `selection` reports invalid
+IDs and trimming counts; `target_selection` in the manifest and `targets` in the
+plan retain the full request, retained targets and dropped IDs. Debug ignores targets.
+
+Without valid targets, the host reviews construction equivalence and draws 60/40
+before sampling. Reuse preserves one compatible source evaluation's complete
+case/question selection within the current budget. If the candidate's direct parent
+is init, reuse still samples within budget, loading snapshots for the sampled cases.
+Rebuilding also samples. This parent check applies to every child of init.
+
+With valid targets, selection happens first. Authorized target cases always reuse
+memory; one 60% draw controls reuse for background cases only. Missing snapshots
+rebuild, and different cases may use different source evaluations.
+`automatic_construction_reuse.probability_selected` records the draw separately
+from `selected` (whether any memory is reused); null means no draw was needed.
+`construction_sources` records the per-case origins and `reuse_reasons` distinguishes
+target priority from probabilistic reuse. `execution_mode` distinguishes full,
+query-only and mixed validation.
+Retries freeze selection and sources. Only common questions using identical
+construction snapshots support comparisons that control construction differences.
+
 `record_history=true` (the default) includes a successful full baseline even when
 `sampling=false`. `record_history=false` runs the same scoring and artifact pipeline
 without registering results or advancing any optimization/sampling counters. The

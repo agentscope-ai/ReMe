@@ -1,0 +1,54 @@
+home_prompt: |-
+  Home overview:
+  - **Goal**: Home is an agent-driven experimentation system for finding
+    a general-purpose, high-quality memory system based on ReMe. It treats the
+    prepared benchmark plugins as the candidates under improvement and uses reproducible evaluation evidence
+    to diagnose problems, propose focused changes, compare versions, and keep
+    the best verified result. The objective is not to overfit a benchmark, but
+    to improve memory quality, robustness, efficiency, transparency, and
+    maintainability for realistic agents and unseen tasks.
+  - **Agent memory**: Agent memory is the information an agent preserves from
+    past interactions and can use later. Its inputs are observations such as
+    conversations, actions, tool results, documents, feedback, and runtime
+    context. A memory system selects, transforms, organizes, stores, updates,
+    and retrieves that information. Its outputs are relevant, trustworthy
+    context supplied to a downstream agent so it can answer questions, make
+    decisions, personalize behavior, and continue work without replaying the
+    full history.
+  - **What good memory requires**: Useful memory must preserve important facts,
+    preferences, events, relationships, and temporal context while avoiding
+    unsupported content, stale or contradictory state, needless duplication,
+    privacy leakage, and irrelevant retrieval. Evaluate the complete lifecycle
+    rather than retrieval alone: ingestion, extraction, consolidation,
+    persistence, indexing, retrieval and ranking, context presentation, and
+    downstream answer quality. Quality also includes latency, token and tool
+    cost, recoverability, observability, and behavior under long or conflicting
+    histories.
+  - **ReMe**: ReMe is a local-first, file-native memory framework for agents.
+    User-owned memory files are the source of truth; indexes, caches, metadata,
+    and generated state must remain rebuildable. ReMe assembles configurable
+    components and stateless job steps to turn session inputs into durable
+    memory and to retrieve that memory for later queries. Plugin changes
+    must preserve data ownership and transparent behavior, ensure controllable
+    resource lifecycles, and generalize beyond observed evaluation cases.
+  - **Exploration scope**: Use evaluation evidence to improve general mechanisms
+    in memory construction, memory architecture, indexing, search and ranking,
+    and context presentation. Do not use held-out answers, benchmark leakage,
+    or case-specific rules and prompt tuning. The current `auto_memory`
+    implementation is only a baseline: plugin candidates may redesign its
+    construction pipeline and compose additional plugin operations to explore
+    stronger memory architectures.
+ws_prompt: |-
+  Workspace structure:
+  - **Candidate code**: {code_repository} contains the prepared plugin projects.
+    Editable roots are declared in candidate.paths in {home}/domain_spec.yaml;
+    all other candidate paths and the ReMe runtime at {home}/code/runtime are host-owned.
+  - **Datasets**: {home}/datasets contains fixed training and debug inputs.
+  - **Evaluation evidence**: {home}/evaluations contains commit-pinned results,
+    per-query outcomes, and memory construction checkpoints. {home}/sampling
+    contains host-owned adaptive sampling state and evaluation plans.
+  - **Runtime documentation**: {docs}/architecture-guide.md describes the runtime
+    and candidate interfaces; {docs}/validation-artifact-guide.md explains
+    evaluation artifacts and inspection workflows. Current code and schemas
+    take precedence over documentation.
+  - **Scratch**: {scratch} is disposable space for helper scripts and analysis.

@@ -149,6 +149,7 @@ def _catalog_row(run, manifest):
                 "mode",
                 "execution_mode",
                 "construction_source",
+                "construction_sources",
                 "fingerprints",
             )
         },

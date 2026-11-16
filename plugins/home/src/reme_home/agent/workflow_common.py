@@ -97,9 +97,15 @@ async def workflow_reply(
     if not probe.ok():
         raise RuntimeError("Home workflow sandbox unavailable: " + probe.stderr.decode(errors="replace"))
     prompt = yaml.safe_load(Path(__file__).with_name(f"{role}.yaml").read_text(encoding="utf-8"))
+    prompt_values = dict(scope)
+    if role == "optimizer":
+        structure = yaml.safe_load(Path(__file__).with_name("overall_structure.yaml").read_text(encoding="utf-8"))
+        prompt_values["overall_structure"] = "\n\n".join(
+            structure[key].strip().format(**scope) for key in ("home_prompt", "ws_prompt")
+        )
     reply = await wrapper.reply(
         task,
-        system_prompt=prompt["system_prompt"].format(**scope),
+        system_prompt=prompt["system_prompt"].format(**prompt_values),
         toolkit=create_toolkit(
             wrapper,
             backend,

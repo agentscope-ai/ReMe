@@ -98,6 +98,34 @@ async def test_workflow_rejects_incomplete_agent_reports(app, prepared, sandbox,
         await workflow_common.workflow_reply(wrapper, prepared, "diagnostic", "Diagnose this failure.")
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("role", ["optimizer", "diagnostic"])
+async def test_workflow_injects_overview_only_into_optimizer(app, prepared, sandbox, monkeypatch, role):
+    wrapper = app.context.components["agent_wrapper"][f"home_{role}"]
+    reply = AsyncMock(return_value={"result": "Complete report", "status": "completed", "error": None})
+    monkeypatch.setattr(wrapper, "reply", reply)
+
+    await workflow_common.workflow_reply(wrapper, prepared, role, "Inspect the candidate.")
+
+    prompt = reply.call_args.kwargs["system_prompt"]
+    assert "{overall_structure}" not in prompt
+    assert str(prepared / "code/repo") in prompt
+    if role == "optimizer":
+        assert prompt.startswith("Home overview:")
+        assert prompt.count("Home overview:") == 1
+        assert prompt.count("Workspace structure:") == 1
+        assert prompt.count("User-owned memory files are the source of truth") == 1
+        assert "behavior under long or conflicting histories" in " ".join(prompt.split())
+        assert str(prepared / "code/runtime") in prompt
+        assert str(prepared / "docs/architecture-guide.md") in prompt
+        assert str(prepared / "datasets") in prompt
+        assert "Execute the optimization loop" in prompt
+        assert "{home}" not in prompt
+    else:
+        assert "Home overview:" not in prompt
+        assert "Workspace structure:" not in prompt
+
+
 def final_report(home, branch="init", path=None):
     repo = home / "code/repo"
     if path is None:
@@ -339,7 +367,7 @@ async def test_real_optimization_diagnoses_edits_debugs_and_evaluates(
     assert trace["session_id"] and any("Improve general retrieval" in str(msg) for msg in trace["messages"])
     assert "permission_context" not in trace
     schemas = {item["function"]["name"]: item["function"]["parameters"] for item in optimizer.calls[0]["tools"]}
-    assert set(schemas["home_evaluate"]["properties"]) == {"debug"}
+    assert set(schemas["home_evaluate"]["properties"]) == {"debug", "target_queries"}
     assert "caller_trajectory" not in schemas["home_diagnose"]["properties"]
     assert "get_validation_budget" in schemas
     assert not any("equivalence" in name for name in schemas)

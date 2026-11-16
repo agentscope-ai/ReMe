@@ -749,32 +749,51 @@ The optimizer diagnoses, edits declared `candidate_paths`, commits through
 managed Git Jobs, runs debug until execution passes, then evaluates using the
 host's adaptive sampling policy. The host automatically chooses whether to
 rebuild memory or replay compatible construction snapshots, as described below.
-The agent cannot change execution settings, selections, sampling mode, or
-construction reuse through its evaluation tool; only `debug` is model-selected.
+The agent selects `debug` and optional `target_queries`; execution limits, sampling
+mode and memory reuse remain host-owned. Targets map case IDs to `[]` (sample
+questions in this case), `null` (prioritize all questions), or a list of query IDs.
+Invalid IDs are ignored with feedback; a valid case with no valid requested queries
+becomes a case-only target. Oversized targets are sampled within case/query limits,
+then remaining capacity is sampled without duplicate case/query pairs. Omitted or
+empty targets preserve the original sampler. Debug ignores targets.
 Normal `home_evaluate` callers retain their existing interface and replay support.
 Unchanged candidates and infrastructure retries follow the existing repetition
 rules. There is no architecture agent in this workflow.
 
-Sampled or budgeted formal evaluations automatically find the nearest ancestor
-commit with a completed scored training run and reusable construction snapshots.
+Sampled formal evaluations without valid targets review ancestor construction
+equivalence and draw 60/40 before sampling. A successful reuse decision preserves
+one source evaluation's complete case/question selection, provided it fits the
+current budget. Candidates whose direct parent is init always sample within budget,
+even when reusing memory; this applies to every child of init, not just the first
+formal evaluation. A rebuild decision or lack of a compatible source also samples.
+
+Targeted formal evaluations first fix their question selection, then find reusable
+construction snapshots in completed scored ancestor runs. Authorized target cases
+always reuse memory; one 60% draw controls reuse for background cases only. No draw
+is needed when no background case has an authorized snapshot. Budgeted unsampled
+host calls retain their exact selection and apply the draw to reusable cases.
 The host checks dataset/runtime/config/model fingerprints, archive integrity,
-successful source answers and the existing 5% construction-failure limit. Invalid
-sources are skipped while looking for an older usable ancestor. The
+successful source answers per case. Missing or invalid snapshots do not disqualify
+other cases; older ancestors can supply uncovered cases. Explicit source replay
+retains its existing eligibility checks, including the 5% construction-failure limit. The
 `home_construction_equivalence` agent compares the exact source and candidate
-commits. If construction is unchanged, the host draws once: 60% query-only replay,
-40% full construction and evaluation. Changed or uncertain construction always
-rebuilds. Substantive changes to `auto_memory.py` or its YAML/hyphenated variants
+commits for each source group. `probability_selected` records the draw separately
+from `selected`, which records whether any memory is actually reused.
+Cases without an authorized snapshot rebuild; one run may use multiple sources.
+Changed or uncertain construction cannot authorize a source. Substantive changes
+to `auto_memory.py` or its YAML/hyphenated variants
 conservatively force rebuilding without a model call, matching dev_meta.
 
 The optimizer cannot request query-only evaluation, choose a source, alter the
-probability or bypass review. Its evaluation tool still exposes only `debug`.
+probability or bypass review.
 Baseline and debug always rebuild; ordinary unsampled, unbudgeted calls and
 explicit host `reuse_construction_from` calls retain their existing interfaces.
-Replay sampling stays within reusable source cases and may select new queries
-from those cases. Full rebuild sampling considers all prepared cases. An
-infrastructure retry preserves the previous mode, source and frozen selection
-without another review or probability draw. Both full and automatically reviewed
-query-only results can support the optimizer's final selection; the initial
+Targeted reuse can answer new queries from the same case and never changes the
+sampled coverage. Explicit `reuse_construction_from` sampling remains
+restricted to that source. An infrastructure retry preserves the previous per-case
+sources and frozen selection without another review or probability draw. Full,
+query-only and mixed results can support final selection when every reused case has
+matching host-reviewed provenance and snapshot checksums; the initial
 baseline must still be full and cover all cases/queries.
 
 The equivalence agent receives one read-only export under
@@ -789,7 +808,7 @@ paths, Home Job tools or network access. Reports are host-written under
 are deleted when review finishes, fails or is cancelled. Reports retain commit and
 source-evaluation provenance; `source_path` records the temporary location used
 during review and is no longer available afterward. Model or malformed-report failures are
-recorded and force a full rebuild; sandbox setup failure stops evaluation.
+recorded and disqualify that source; uncovered cases rebuild. Sandbox setup failure stops evaluation.
 Both construction-equivalence and candidate-admission reports accept JSON wrapped
 in prose or a code fence, ignore think blocks, and repair trailing commas outside
 strings. If parsing or schema validation still fails, the reviewer makes one
@@ -801,11 +820,13 @@ applies: construction is rebuilt or candidate admission allows evaluation.
 Reviewer shell commands receive an explicit minimal environment instead of
 inheriting host model credentials or other environment values.
 Cancellation propagates, and a branch/commit change during review fails before
-sampling or spending a validation slot.
+execution or spending a validation slot.
 
 Evaluation manifests and responses retain `automatic_construction_reuse`,
 including source/base/candidate commits, the equivalence report and, when drawn,
-the probability, random draw and selected mode. Configure the reviewer through
+the probability, random draw, source reviews and per-case sources. Manifests also
+record `construction_sources` and distinguish `full_validation`, `query_only_replay`
+and `mixed_validation`. Configure the reviewer through
 `components.as_llm.home_construction_equivalence` (default `qwen3.8-max`, 128,000
 context tokens) and
 `components.agent_wrapper.home_construction_equivalence.react_config.max_iters`

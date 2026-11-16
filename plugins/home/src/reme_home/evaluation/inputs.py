@@ -24,6 +24,7 @@ class EvaluationSpec(SpecModel):
 
     case_ids: list[str] | None = None
     query_ids: dict[str, list[str]] | None = None
+    target_queries: dict[str, list[str] | None] | None = None
     reuse_construction_from: str | None = Field(default=None, min_length=1)
     debug: bool = False
     sampling: bool = False
@@ -71,6 +72,12 @@ class EvaluationSpec(SpecModel):
             raise ValueError("Budgeted formal evaluations require record_history=true")
         if self.debug and self.reuse_construction_from:
             raise ValueError("Construction reuse requires training-set")
+        if self.debug or not self.target_queries:
+            self.target_queries = None
+        if self.target_queries is not None and (
+            not self.sampling or self.case_ids is not None or self.query_ids is not None
+        ):
+            raise ValueError("target_queries requires sampled formal evaluation without exact case/query selections")
         if self.sampling and not self.debug and (self.case_ids is not None or self.query_ids is not None):
             raise ValueError("sampling=true selects case/query IDs automatically; omit explicit selections")
         if "fail_fast" not in self.model_fields_set:

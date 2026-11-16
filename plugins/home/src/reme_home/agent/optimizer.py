@@ -19,6 +19,7 @@ from ..evaluation.artifacts import contained, read_json, write_json
 from ..evaluation.inputs import EvaluationSpec, load_inputs
 from ..evaluation.history import read_state
 from ..evaluation.budget import validate_max_evaluations, validation_budget_status
+from ..evaluation.reuse import verify_case_reuse
 from ..preparation.spec import SpecModel
 from ..workspace import HomeWorkspace, _initialization_lock, _validate_directory
 from .diagnostic import diagnostic_tool, evaluation_paths
@@ -255,7 +256,11 @@ def verify_evaluation(home, path, commit, *, baseline=False):
     ):
         raise ValueError("Evaluation must match the commit and complete without infrastructure failures")
     mode = manifest.get("execution_mode")
-    if mode != "full_validation":
+    if manifest.get("construction_sources"):
+        if baseline:
+            raise ValueError("Initial baseline cannot reuse construction")
+        verify_case_reuse(home, run, manifest, commit)
+    elif mode != "full_validation":
         reuse = manifest.get("automatic_construction_reuse", {})
         report = reuse.get("equivalence_report", {})
         source = manifest.get("construction_source", {})
@@ -367,11 +372,11 @@ def validation_budget_tool(home, max_evaluations):
 
 
 def evaluation_tool(wrapper, options, *, home, timer=None, max_evaluations=10, budget_exhausted=False):
-    """Only debug mode is model-selected; the host decides construction replay."""
+    """Expose optional formal targets; execution limits and construction replay remain host-owned."""
     job = required_job(wrapper, "home_evaluate")
     validate_max_evaluations(max_evaluations)
 
-    async def evaluate(debug: bool = False, **kwargs):
+    async def evaluate(debug: bool = False, target_queries: dict[str, list[str] | None] | None = None, **kwargs):
         """Run debug after committing; after debug passes, run a sampled formal evaluation.
 
         Debug checks execution, not answer quality. Inspect infrastructure failures
@@ -395,6 +400,7 @@ def evaluation_tool(wrapper, options, *, home, timer=None, max_evaluations=10, b
             case_ids=None,
             query_ids=None,
             reuse_construction_from=None,
+            **({"target_queries": target_queries} if not debug and target_queries is not None else {}),
         )
         if not debug:
             budget = await blocking(validation_budget_status, home, max_evaluations)
@@ -425,7 +431,19 @@ def evaluation_tool(wrapper, options, *, home, timer=None, max_evaluations=10, b
     tool = FunctionTool(evaluate, name="home_evaluate", is_concurrency_safe=False, is_state_injected=True)
     tool.input_schema = {
         "type": "object",
-        "properties": {"debug": {"type": "boolean", "default": False}},
+        "properties": {
+            "debug": {"type": "boolean", "default": False},
+            "target_queries": {
+                "type": ["object", "null"],
+                "additionalProperties": {"type": ["array", "null"], "items": {"type": "string"}},
+                "description": (
+                    "Formal targets keyed by case ID: [] prioritizes a case with sampled questions; null targets "
+                    "all its questions; a list targets those query IDs. After a change, you may target relevant "
+                    "cases and questions to check whether it has the intended effect. "
+                    "Ignored for debug."
+                ),
+            },
+        },
         "additionalProperties": False,
     }
     return tool

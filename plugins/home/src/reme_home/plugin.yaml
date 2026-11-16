@@ -309,7 +309,7 @@ application_defaults:
         - backend: home_inspect_validation_step
     home_evaluate:
       backend: base
-      description: "Evaluate committed code; sampled/budgeted runs automatically review construction equivalence and select 60% replay when unchanged. Unchanged scored candidates are rejected, except infrastructure retries"
+      description: "Evaluate committed code; sampled/budgeted runs review construction equivalence and may reuse verified memory per case, rebuilding the remainder. Unchanged scored candidates are rejected, except infrastructure retries"
       parameters:
         type: object
         additionalProperties: false
@@ -318,6 +318,12 @@ application_defaults:
             type: boolean
             default: false
             description: "Adaptively select case/query IDs using the host sampling_policy; debug ignores this flag"
+          target_queries:
+            type: [object, "null"]
+            additionalProperties:
+              type: [array, "null"]
+              items: {type: string}
+            description: "Optional sampled formal targets keyed by case ID: [] samples questions in that case, null prioritizes all questions, a list prioritizes those query IDs. After a change, you may target relevant cases and questions to check whether it has the intended effect. Debug ignores targets"
           record_history:
             type: boolean
             default: true
