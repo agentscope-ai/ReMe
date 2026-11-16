@@ -78,6 +78,22 @@ export interface TextItem extends ItemBase {
 
 export interface SummaryItem extends Omit<TextItem, "type"> {
   type: "summary";
+  kind: "reasoning" | "plan";
+}
+
+export interface ToolAction {
+  kind:
+    | "read"
+    | "list"
+    | "search"
+    | "command"
+    | "edit"
+    | "webSearch"
+    | "browse"
+    | "image"
+    | "tool";
+  target?: string;
+  query?: string;
 }
 
 export interface ToolItem extends ItemBase {
@@ -85,6 +101,7 @@ export interface ToolItem extends ItemBase {
   name: string;
   input: string;
   output: string;
+  actions: ToolAction[];
 }
 
 export interface ArtifactItem extends ItemBase {

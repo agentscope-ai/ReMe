@@ -315,17 +315,21 @@ html[data-platform="darwin"] .workspace-titlebar {
 }
 .chat-history {
   padding: 28px max(32px, calc((100% - 760px) / 2)) 12px;
+  --ink: light-dark(#202124, #ececec);
+  --muted: light-dark(#8e9194, #a0a0a0);
+  color: var(--ink);
 }
 .message {
-  font-size: 13px;
-  line-height: 1.9;
-  margin-bottom: 27px;
+  font-size: 14px;
+  line-height: 1.8;
+  margin-bottom: 30px;
 }
 .message.user {
-  border: 1px solid light-dark(#dce6df, #c3e3cd1f);
-  border-radius: 15px 15px 4px 15px;
-  padding: 10px 16px;
-  background: light-dark(#eff5f0b3, #9aceb00a);
+  border: 0;
+  border-radius: 24px;
+  padding: 13px 20px;
+  background: light-dark(#080808, #343434);
+  color: #fafafa;
   max-width: 85%;
 }
 .message-focused {

@@ -622,15 +622,17 @@ button {
 }
 
 .message-body > .message-content,
-.message-body > .activity-group,
-.message-body > .reasoning-summary {
-  margin-block: 14px;
+.message-body > .activity-group {
+  margin-block: 20px;
 }
-.activity-group {
+.activity-group,
+.turn-completion {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
-.activity-group > summary {
+.activity-group > summary,
+.turn-completion > summary,
+.reasoning-details > summary {
   display: flex;
   align-items: center;
   gap: 7px;
@@ -638,31 +640,75 @@ button {
   list-style: none;
   width: fit-content;
 }
-.activity-group > summary::-webkit-details-marker {
+.activity-group > summary::-webkit-details-marker,
+.turn-completion > summary::-webkit-details-marker,
+.reasoning-details > summary::-webkit-details-marker {
   display: none;
 }
-.activity-group[open] .activity-chevron {
+details[open] > summary > .activity-chevron {
   transform: rotate(90deg);
 }
 .activity-failed {
   color: var(--error);
 }
 .activity-details {
-  margin: 10px 0 0 6px;
-  padding-left: 14px;
-  border-left: 1px solid var(--soft);
+  margin: 12px 0 0 7px;
+  padding: 0 0 0 17px;
+  border-left: 1px solid var(--line);
 }
 .tool-detail {
-  margin-block: 12px;
+  margin-block: 10px;
   color: var(--muted);
+}
+.tool-detail > summary {
+  list-style: none;
+  cursor: pointer;
+}
+.tool-detail > summary::-webkit-details-marker {
+  display: none;
+}
+.tool-action {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  min-width: 0;
+  margin-block: 8px;
+}
+.tool-action > svg {
+  flex-shrink: 0;
+  align-self: center;
+}
+.action-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.action-target {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-underline-offset: 3px;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+button.action-target {
+  text-decoration: underline dotted;
+}
+button.action-target:hover {
+  color: var(--ink);
+}
+.tool-outcome {
+  margin-left: 24px;
+  font-size: 11px;
 }
 .tool-detail header {
   display: flex;
   justify-content: space-between;
   gap: 16px;
 }
-.tool-detail[data-status="failed"] header,
-.tool-detail[data-status="interrupted"] header {
+.tool-detail[data-status="failed"],
+.tool-detail[data-status="interrupted"] {
   color: var(--error);
 }
 .message-body .tool-detail pre {
@@ -671,12 +717,22 @@ button {
   font-size: 11px;
   white-space: pre-wrap;
 }
-.reasoning-summary {
+.reasoning-details {
   color: var(--muted);
   font-size: 12px;
+  margin-top: 14px;
 }
-.reasoning-summary > summary {
-  cursor: pointer;
+.reasoning-details > summary {
+  margin-bottom: 8px;
+}
+.turn-completion {
+  margin-top: 26px;
+}
+.message.user .message-body a {
+  color: inherit;
+}
+.message.user .message-body :not(pre) > code {
+  background: #ffffff1c;
 }
 .attachment-link {
   display: inline-flex;

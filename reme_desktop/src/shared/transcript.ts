@@ -4,6 +4,7 @@ import type {
   TranscriptItem,
   ToolItem,
 } from "./protocol.ts";
+import { toolActions } from "./tool-activity.ts";
 
 export interface ReplyProgress {
   text: string;
@@ -62,9 +63,8 @@ export function reduceReply(
     const type = chunk.chunk_type === "content" ? "text" : "summary";
     const text = current?.type === type ? current.text : "";
     const phase = metadata.phase ?? native.phase;
-    item = {
+    const block = {
       id,
-      type,
       status,
       text:
         chunk.chunk == null
@@ -74,11 +74,19 @@ export function reduceReply(
             : text + printable(chunk.chunk),
       phase:
         phase === "commentary" || phase === "final_answer"
-          ? phase
+          ? (phase as "commentary" | "final_answer")
           : current?.type === type
             ? current.phase
             : undefined,
     };
+    item =
+      type === "text"
+        ? { ...block, type }
+        : {
+            ...block,
+            type,
+            kind: metadata.kind === "plan" ? "plan" : "reasoning",
+          };
   } else if (
     chunk.chunk_type === "tool_call" ||
     chunk.chunk_type === "tool_result"
@@ -93,6 +101,7 @@ export function reduceReply(
             input: "",
             output: "",
             status: "running",
+            actions: [],
           };
     const result = chunk.chunk_type === "tool_result";
     const failed =
@@ -108,15 +117,24 @@ export function reduceReply(
         chunk.chunk)
       : (payload.arguments ?? payload.input ?? payload.command ?? chunk.chunk);
     const field = result ? "output" : "input";
+    const name =
+      chunk.tool_call_name ??
+      (typeof payload.tool === "string"
+        ? payload.tool
+        : typeof payload.name === "string"
+          ? payload.name
+          : tool.name);
     item = {
       ...tool,
-      name:
-        chunk.tool_call_name ??
-        (typeof payload.tool === "string"
-          ? payload.tool
-          : typeof payload.name === "string"
-            ? payload.name
-            : tool.name),
+      name,
+      actions:
+        (!result && chunk.event !== "delta") ||
+        !tool.actions.length ||
+        payload.type === "commandExecution" ||
+        payload.type === "fileChange" ||
+        Array.isArray(payload.commandActions)
+          ? toolActions(name, chunk.chunk)
+          : tool.actions,
       status: failed
         ? "failed"
         : settled(tool.status) && (!result || chunk.event === "delta")

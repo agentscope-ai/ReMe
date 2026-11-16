@@ -79,6 +79,10 @@ Tool details expand on demand. Markdown retains stable blocks while its active t
 independent Markdown document. The conversation follows new output only while the reader is at the bottom, offers a
 return-to-latest action, and loads older messages in batches.
 
+Normal progress messages remain in the conversation. Reasoning summaries stay inside expandable process details;
+they do not separate adjacent tool calls. Native command actions identify reads, directory listings and searches,
+including their paths and queries. Completed turns show a localized completion row with the retained process details.
+
 The existing `manage_proactive_agent(action=query)` remains a separate temporary, read-only query. Desktop conversations
 use `agent_chat`, so their history remains available to later automatic execution. See
 [`AgentRuntime`](../reme/components/agent_runtime/base_agent_runtime.py) and

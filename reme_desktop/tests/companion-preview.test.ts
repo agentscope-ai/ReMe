@@ -27,6 +27,7 @@ test("the companion receives final text without tool details or full history", (
         input: "private arguments",
         output: "large tool output",
         status: "completed",
+        actions: [{ kind: "command" }],
       },
       {
         id: "answer",

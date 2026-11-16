@@ -194,6 +194,138 @@ test("both roles render Markdown and each message has an independent Markdown do
   }
 });
 
+test("reasoning stays inside activity disclosure while prose, plans and completion remain visible in both languages", async () => {
+  const server = await createServer({
+    configFile: false,
+    server: { middlewareMode: true, watch: null, hmr: false, ws: false },
+  });
+  try {
+    const { default: MessageBody, timelineItems } = await server.ssrLoadModule(
+      "/src/renderer/message-body.tsx",
+    );
+    const reply = readReply([
+      content("intro", "我先核查来源。"),
+      {
+        chunk_type: "think",
+        block_id: "r1",
+        event: "end",
+        chunk: "Compare the available sources",
+        metadata: { kind: "reasoning_summary" },
+      },
+      {
+        chunk_type: "tool_result",
+        tool_call_id: "read",
+        tool_call_name: "commandExecution",
+        event: "end",
+        status: "completed",
+        chunk: {
+          type: "commandExecution",
+          commandActions: [
+            { type: "read", path: "daily/report.md" },
+            { type: "listFiles", path: "daily" },
+            { type: "search", path: "daily", query: "小米" },
+          ],
+        },
+      },
+      {
+        chunk_type: "think",
+        block_id: "r2",
+        event: "end",
+        chunk: "Validate the result",
+        metadata: { kind: "reasoning_summary" },
+      },
+      {
+        chunk_type: "tool_result",
+        tool_call_id: "cmd",
+        tool_call_name: "commandExecution",
+        event: "end",
+        status: "completed",
+        chunk: { type: "commandExecution", command: "date" },
+      },
+      content("progress", "来源已核实，正在整理结论。"),
+      {
+        chunk_type: "think",
+        block_id: "plan",
+        event: "end",
+        chunk: "## 执行计划",
+        metadata: { kind: "plan" },
+      },
+      content("final", "结果已经确认。"),
+    ]);
+    const entries = timelineItems(reply.items);
+    assert.deepEqual(
+      entries.map((entry: { type: string }) => entry.type),
+      ["text", "activity", "text", "summary", "text"],
+    );
+    assert.equal(entries[1].items.length, 4);
+    const message: DisplayMessage = {
+      id: "reply",
+      role: "assistant",
+      source: "chat",
+      content: reply.text,
+      items: reply.items,
+      completed: true,
+      streaming: false,
+      status: null,
+    };
+    const render = (
+      value: DisplayMessage,
+      language: "zh" | "en",
+      compact = false,
+    ) =>
+      renderToStaticMarkup(
+        createElement(MessageBody, {
+          message: value,
+          language,
+          compact,
+          onLink: () => {},
+        }),
+      );
+    for (const language of ["zh", "en"] as const) {
+      const html = render(message, language);
+      assert.equal((html.match(/class="activity-group/g) ?? []).length, 1);
+      assert.match(
+        html,
+        language === "zh"
+          ? /已读取文件、运行了命令/
+          : /Read files, Ran commands/,
+      );
+      assert.match(html, /<h2>执行计划<\/h2>/);
+      assert.match(html, /来源已核实，正在整理结论/);
+      assert.match(html, language === "zh" ? /已完成/ : /Completed/);
+      assert.doesNotMatch(
+        html,
+        /Compare the available sources|Validate the result|reasoning-summary/,
+      );
+      assert.doesNotMatch(
+        render(
+          {
+            ...message,
+            status: {
+              kind: "status",
+              id: "wait",
+              text: "Waiting",
+              tone: "waiting",
+            },
+          },
+          language,
+        ),
+        /turn-completion/,
+      );
+      assert.doesNotMatch(
+        render({ ...message, error: "Connection lost" }, language),
+        /turn-completion/,
+      );
+      assert.doesNotMatch(
+        render(message, language, true),
+        /turn-completion|activity-group/,
+      );
+    }
+  } finally {
+    await server.close();
+  }
+});
+
 test("a task send immediately replaces the previous round while Remy keeps its history", () => {
   const model = modelFor(assistant);
   const pending: PendingTurn = {
