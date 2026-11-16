@@ -65,7 +65,7 @@ class CodexDialogueIndex:
         handle.seek(max(0, offset - _WINDOW))
         return sha256(handle.read(min(offset, _WINDOW))).hexdigest()
 
-    def _cursor(self, handle, stat, offset, meta=None, reconcile=False):
+    def _cursor(self, handle, stat, offset, meta=None):
         return {
             "dev": stat.st_dev,
             "ino": stat.st_ino,
@@ -74,7 +74,6 @@ class CodexDialogueIndex:
             "offset": offset,
             "signature": self._signature(handle, offset),
             "meta": meta,
-            "reconcile": reconcile,
         }
 
     def load(self, now):
@@ -95,10 +94,12 @@ class CodexDialogueIndex:
                     continue
             self._validate(state)
             self.files.write_jsonl(self.progress_path, [{"type": "baseline", **state}])
+            state["known_ids"] = {}
         else:
             if not isinstance(state, dict) or state.pop("type", None) != "baseline":
                 raise ValueError("Codex progress journal must begin with a baseline")
             self._validate(state)
+            state["known_ids"] = {}
             for record in records:
                 self.check_stopped()
                 self._apply(state, record)
@@ -116,6 +117,7 @@ class CodexDialogueIndex:
         state["files"].update(record["updates"])
         state["last_batch"] = record["id"]
         state["next_path"] = record["next_path"]
+        state["known_ids"].update(dict.fromkeys(record["message_ids"]))
 
     def _validate(self, state):
         """Reject corrupt offsets before they can become unbounded reads or skipped data."""
@@ -136,23 +138,18 @@ class CodexDialogueIndex:
 
     def commit(self, state, transaction):
         """Append confirmed progress once before clearing the unfinished batch."""
+        unchanged_cursor = transaction["next_path"] == state.get("next_path", "")
+        if not transaction["updates"] and not transaction["message_ids"] and unchanged_cursor:
+            return
         if state.get("last_batch") != transaction["id"]:
             record = {
                 "type": "commit",
                 **{key: transaction[key] for key in ("id", "updates", "message_ids", "next_path")},
             }
-            updated = {**state, "files": dict(state["files"])}
+            updated = {**state, "files": dict(state["files"]), "known_ids": dict(state["known_ids"])}
             self._apply(updated, record)
             self.files.append_jsonl(self.progress_path, record)
             state.update(updated)
-
-    def _known_ids(self):
-        known = set()
-        for record in self.files.iter_jsonl(self.progress_path, incomplete_ok=True):
-            self.check_stopped()
-            if record["type"] == "commit":
-                known.update(record["message_ids"])
-        return known
 
     @staticmethod
     def _meta(handle):
@@ -212,7 +209,7 @@ class CodexDialogueIndex:
     def scan(self, state, max_scan_bytes, max_output_bytes):
         """Bound each pass; tool-only records advance cursors without producing events."""
         updates, messages, message_ids, errors = {}, [], set(), {}
-        known = None
+        known = state["known_ids"]
         scanned, output_size = 0, 0
         started_at = datetime.fromisoformat(state["started_at"])
         paths = list(self.paths())
@@ -259,10 +256,6 @@ class CodexDialogueIndex:
                         continue
                     if reset:
                         offset = 0
-                    reconcile = reset or previous.get("reconcile", False)
-                    if reconcile:
-                        if known is None:
-                            known = self._known_ids()
                     handle.seek(offset)
                     file_messages, file_ids, file_bytes = [], set(), 0
                     while handle.tell() < stat.st_size:
@@ -279,7 +272,7 @@ class CodexDialogueIndex:
                         message = self._message(json.loads(line), meta, started_at)
                         if message is not None:
                             key = f"{message['session_id']}:{message['message_id']}"
-                            if key not in message_ids and key not in file_ids and (known is None or key not in known):
+                            if key not in message_ids and key not in file_ids and key not in known:
                                 size = len((json.dumps(message, ensure_ascii=False) + "\n").encode())
                                 if output_size + size > max_output_bytes:
                                     if size > max_output_bytes:
@@ -291,7 +284,7 @@ class CodexDialogueIndex:
                                 output_size += size
                         offset = handle.tell()
                         file_bytes += len(line)
-                    updates[relative] = self._cursor(handle, stat, offset, meta, reconcile and offset < stat.st_size)
+                    updates[relative] = self._cursor(handle, stat, offset, meta)
                     messages.extend(file_messages)
                     message_ids.update(file_ids)
                     scanned += file_bytes

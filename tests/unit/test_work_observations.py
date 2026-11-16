@@ -223,6 +223,48 @@ async def test_restart_rebuilds_cursors_from_progress_without_replaying_dialogue
 
 
 @pytest.mark.asyncio
+async def test_repeated_message_ids_are_skipped_across_appends_and_restarts(tmp_path, source):
+    home, path = source
+    async with runtime(tmp_path) as (context, _, _):
+        await WorkObservationInitStep(**options(context, home))()
+        append(path, record("UserMessage", "same text", "same-id"))
+        await WorkObservationStep(**options(context, home))()
+        append(path, record("UserMessage", "same text", "same-id"))
+        result = await WorkObservationStep(**options(context, home))()
+        assert result.answer["dialogue_messages"] == 0
+    append(path, record("UserMessage", "same text", "same-id"), record("UserMessage", "same text", "new-id"))
+    async with runtime(tmp_path) as (context, _, _):
+        result = await WorkObservationStep(**options(context, home))()
+        assert result.answer["dialogue_messages"] == 1
+        assert [item["message_id"] for item in messages(context)] == ["same-id", "new-id"]
+
+
+@pytest.mark.asyncio
+async def test_unchanged_screens_and_idle_dialogue_produce_no_events_or_progress_writes(
+    tmp_path,
+    source,
+    monkeypatch,
+):
+    home, path = source
+    monkeypatch.setattr(ScreenCaptureStep, "collect", Mock(return_value=[]))
+    async with runtime(tmp_path) as (context, inbox, delivery):
+        await WorkObservationInitStep(**options(context, home))()
+        original = progress(context).read_bytes()
+        result = await WorkObservationStep(**options(context, home))()
+        assert result.success and result.answer["event_ids"] == []
+        assert progress(context).read_bytes() == original
+        delivery.assert_not_awaited()
+        assert not list(workspace(context).glob("resource/screenshot/*/*"))
+        append(path, record("CommandExecution", "tool output"))
+        await WorkObservationStep(**options(context, home))()
+        advanced = progress(context).read_bytes()
+        assert advanced != original
+        await WorkObservationStep(**options(context, home))()
+        assert progress(context).read_bytes() == advanced
+        assert (await inbox.snapshot("work"))["pending_count"] == 0
+
+
+@pytest.mark.asyncio
 async def test_progress_replays_a_journal_larger_than_the_record_limit(tmp_path, source, monkeypatch):
     home, _ = source
     async with runtime(tmp_path) as (context, _, _):
@@ -236,7 +278,7 @@ async def test_progress_replays_a_journal_larger_than_the_record_limit(tmp_path,
             )
         assert index.progress_path.stat().st_size > 2048
         assert index.load(_NOW) == state
-        assert index._known_ids() == {f"thread:{number}" for number in range(30)}
+        assert set(index.load(_NOW)["known_ids"]) == {f"thread:{number}" for number in range(30)}
 
 
 @pytest.mark.asyncio

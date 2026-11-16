@@ -3,6 +3,7 @@
 # pylint: disable=missing-function-docstring,protected-access
 
 from datetime import datetime
+import asyncio
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -28,6 +29,51 @@ class PackageConnector(BaseConnectorStep):
     def collect(self, directory: Path):
         (directory / "1.png").write_bytes(b"image")
         return [{"path": "1.png"}]
+
+
+@pytest.fixture(name="displays")
+def mock_displays(monkeypatch):
+    mss = pytest.importorskip("mss")
+
+    capture = Mock()
+    capture.monitors = [{}, {"left": 0, "top": 0, "width": 1, "height": 1}]
+    capture.grab.return_value = SimpleNamespace(rgb=b"\x00\x00\x00", size=(1, 1))
+    capture.__enter__ = Mock(return_value=capture)
+    capture.__exit__ = Mock(return_value=False)
+    monkeypatch.setattr(mss, "MSS", Mock(return_value=capture))
+    return capture
+
+
+@pytest.mark.asyncio
+async def test_screen_groups_skip_unchanged_pixels_and_preserve_a_return_to_an_old_image(tmp_path, displays):
+    context = ApplicationContext(workspace_dir=str(tmp_path))
+    expected = [False, True, False, False]
+    for pixels, skipped in zip((b"\x00\x00\x00", b"\x00\x00\x00", b"\xff\xff\xff", b"\x00\x00\x00"), expected):
+        displays.grab.return_value = SimpleNamespace(rgb=pixels, size=(1, 1))
+        step = ScreenCaptureStep(app_context=context)
+        response = await step()
+        assert (response.answer == {"skipped": "no_new_data"}) is skipped
+    assert len(list(tmp_path.glob("resource/screenshot/*/*/metadata.json"))) == 3
+    assert len(list(tmp_path.glob("resource/screenshot/*/*"))) == 3
+
+
+@pytest.mark.asyncio
+async def test_screen_geometry_changes_are_new_even_when_pixels_match(tmp_path, displays):
+    context = ApplicationContext(workspace_dir=str(tmp_path))
+    await ScreenCaptureStep(app_context=context)()
+    displays.monitors[1]["left"] = 100
+    response = await ScreenCaptureStep(app_context=context)()
+    assert "path" in response.answer
+    assert len(list(tmp_path.glob("resource/screenshot/*/*/metadata.json"))) == 2
+
+
+@pytest.mark.asyncio
+async def test_concurrent_screen_capture_publishes_identical_pixels_once(tmp_path, displays):
+    context = ApplicationContext(workspace_dir=str(tmp_path))
+    results = await asyncio.gather(*(ScreenCaptureStep(app_context=context)() for _ in range(2)))
+    assert sum(response.answer == {"skipped": "no_new_data"} for response in results) == 1
+    assert len(list(tmp_path.glob("resource/screenshot/*/*/metadata.json"))) == 1
+    assert displays.grab.call_count == 2
 
 
 @pytest.mark.asyncio

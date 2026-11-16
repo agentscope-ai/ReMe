@@ -126,6 +126,20 @@ class FinanceNewsStep(FinanceCollectorStep):
     def collect(self, directory: Path) -> list[dict]:
         end = self.collected_at.astimezone(_SHANGHAI).replace(microsecond=0)
         start = end - timedelta(hours=24)
+        progress = self.resource_root / "progress.json"
+        self.require_path(progress)
+        saved = self.files.read_json(progress, None)
+        if saved is not None:
+            checked_until = datetime.fromisoformat(saved["checked_until"])
+            if checked_until.tzinfo is None:
+                raise ValueError("News collection progress must include a timezone")
+            start = max(start, min(checked_until, end) - timedelta(minutes=10))
         known = self._known_ids(start)
         records = [item for item in self._fetch(start, end) if item.news_id not in known]
         return self.write_records(directory, "news.jsonl", records)
+
+    def _collect_and_publish(self, target, created_at, cancelled):
+        result = super()._collect_and_publish(target, created_at, cancelled)
+        self.check_stopped()
+        self.files.write_json(self.resource_root / "progress.json", {"checked_until": self.collected_at.isoformat()})
+        return result

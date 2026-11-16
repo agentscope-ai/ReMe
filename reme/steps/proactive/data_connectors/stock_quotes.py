@@ -1,6 +1,6 @@
-"""Collect minute snapshots for the configured HK and US watchlist."""
+"""Collect changed quotes during the configured HK and US market sessions."""
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 import re
@@ -10,6 +10,7 @@ import httpx
 
 from ._finance import FinanceCollectorStep
 from ....components import R
+from ....schema import ResourceMetadata
 from ....schema.finance import StockQuote
 
 _SYMBOLS = {
@@ -34,7 +35,7 @@ def _calendar(name, year):
 
 
 def _active_session(market, now):
-    """Use market-local dates and allow 30 minutes for delayed closing/auction prices."""
+    """Accept only regular trading hours, excluding breaks and the closing boundary."""
     name, timezone, _ = _MARKETS[market]
     day = now.astimezone(ZoneInfo(timezone)).date()
     calendar = _calendar(name, day.year)
@@ -42,7 +43,7 @@ def _active_session(market, now):
         return None
     opening = calendar.session_open(day.isoformat()).to_pydatetime()
     closing = calendar.session_close(day.isoformat()).to_pydatetime()
-    if not opening <= now <= closing + timedelta(minutes=30):
+    if not opening <= now < closing:
         return None
     pause = calendar.session_break_start(day.isoformat())
     resume = calendar.session_break_end(day.isoformat())
@@ -53,13 +54,22 @@ def _active_session(market, now):
 
 @R.register("stock_quotes_step")
 class StockQuotesStep(FinanceCollectorStep):
-    """Batch all active symbols into one request and one event per observed minute."""
+    """Request active symbols together and publish only changed quotes."""
 
     source = "stock_quotes"
     description = (
         "Watchlist daily price changes from Tencent. Read quotes.jsonl; change_percent is relative to previous close. "
         "Quotes may be delayed: use quoted_at and quote_age_seconds, not collection time, to judge freshness."
     )
+
+    def delivery_ready(self, path: Path, metadata: ResourceMetadata) -> bool:
+        quotes = []
+        for item in metadata.files:
+            payload = path.parent / item.path
+            self.require_path(payload)
+            quotes.extend(StockQuote.model_validate(value) for value in self.files.iter_jsonl(payload))
+        now = datetime.now(self.collected_at.tzinfo)
+        return bool(quotes) and all(_active_session(quote.market, now) is not None for quote in quotes)
 
     def _quote(self, key, fields, session, received_at):
         symbol, market = _SYMBOLS[key]
@@ -103,4 +113,21 @@ class StockQuotesStep(FinanceCollectorStep):
         if any(key not in values or len(values[key]) < 33 for key in keys):
             raise ValueError("Tencent returned missing or incomplete quotes")
         quotes = [self._quote(key, values[key], sessions[_SYMBOLS[key][1]], received_at) for key in keys]
-        return self.write_records(directory, "quotes.jsonl", [quote for quote in quotes if quote is not None])
+        latest = {}
+        for quote in self.saved_records("quotes.jsonl", StockQuote):
+            previous = latest.get(quote.symbol)
+            if previous is None or quote.collected_at > previous.collected_at:
+                latest[quote.symbol] = quote
+        changed = []
+        for quote in quotes:
+            if quote is None:
+                continue
+            previous = latest.get(quote.symbol)
+            if previous is not None and (
+                quote.quoted_at < previous.quoted_at
+                or (quote.trading_date, quote.price, quote.previous_close)
+                == (previous.trading_date, previous.price, previous.previous_close)
+            ):
+                continue
+            changed.append(quote)
+        return self.write_records(directory, "quotes.jsonl", changed)

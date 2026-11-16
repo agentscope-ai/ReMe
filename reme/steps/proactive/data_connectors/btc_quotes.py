@@ -15,7 +15,7 @@ _URL = "https://data-api.binance.vision/api/v3/ticker/24hr"
 
 @R.register("btc_quotes_step")
 class BtcQuotesStep(FinanceCollectorStep):
-    """Collect once per minute, including weekends, without stock-market calendar filtering."""
+    """Publish changed spot statistics around the clock, including weekends."""
 
     source = "btc_quotes"
     description = (
@@ -42,4 +42,10 @@ class BtcQuotesStep(FinanceCollectorStep):
             window_end=datetime.fromtimestamp(int(payload["closeTime"]) / 1000, timezone.utc),
             collected_at=datetime.now(self.collected_at.tzinfo),
         )
+        previous = max(self.saved_records("btc.jsonl", CryptoQuote), key=lambda item: item.collected_at, default=None)
+        if previous is not None and (
+            quote.window_end < previous.window_end
+            or (quote.price, quote.open_24h) == (previous.price, previous.open_24h)
+        ):
+            return []
         return self.write_records(directory, "btc.jsonl", [quote])

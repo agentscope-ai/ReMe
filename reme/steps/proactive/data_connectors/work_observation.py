@@ -157,16 +157,22 @@ class WorkObservationStep(_WorkObservationBase):
             directories["screenshot"] = screenshot
             try:
                 capture = ScreenCaptureStep(app_context=self.app_context)
+                capture.context = self.context
                 entries = capture.collect(screenshot)
-                resource, event = self._package(
-                    screenshot,
-                    "screenshot",
-                    capture.description,
-                    entries,
-                    now,
-                )
-                sources["screenshot"]["resources"].append(resource)
-                sources["screenshot"]["events"].append(event.model_dump(mode="json"))
+                if not isinstance(entries, list):
+                    raise ValueError("Screen collection must return a list of resource files")
+                if entries:
+                    resource, event = self._package(
+                        screenshot,
+                        "screenshot",
+                        capture.description,
+                        entries,
+                        now,
+                    )
+                    sources["screenshot"]["resources"].append(resource)
+                    sources["screenshot"]["events"].append(event.model_dump(mode="json"))
+                else:
+                    shutil.rmtree(screenshot)
             except Exception as exc:
                 sources["screenshot"]["errors"]["screenshot"] = str(exc)
                 shutil.rmtree(screenshot)
@@ -239,8 +245,9 @@ class WorkObservationStep(_WorkObservationBase):
         if (await self.agent_runtime.definition(self.agent_id)).trigger_type != "event":
             raise ValueError("Work observations require an event Agent")
         async with await get_path_lock(directory):
-            sources = await self._offload(self._prepare)
-            events = await self._offload(self._publish, sources)
+            async with await get_path_lock(directory / "screenshot"):
+                sources = await self._offload(self._prepare)
+                events = await self._offload(self._publish, sources)
             if events:
                 response = await self.run_job(
                     "append_event",

@@ -79,6 +79,19 @@ class FinanceCollectorStep(BaseConnectorStep):
                 return True
         return False
 
+    def saved_records(self, filename, model):
+        """Read retained source records; derived quote state can always be rebuilt."""
+        for manifest in self.manifests():
+            path = manifest.parent / filename
+            self.require_path(path)
+            for value in self.files.iter_jsonl(path):
+                self.check_stopped()
+                yield model.model_validate(value)
+
+    def delivery_ready(self, _path: Path, _metadata: ResourceMetadata) -> bool:
+        """Sources may defer a saved batch until their delivery window opens."""
+        return True
+
     async def _deliver_pending(self):
         manifests = await asyncio.to_thread(lambda: list(self.manifests()))
         for path in manifests:
@@ -100,6 +113,8 @@ class FinanceCollectorStep(BaseConnectorStep):
                 self.require_path(payload)
                 if not payload.is_file():
                     raise ValueError(f"Missing finance resource: {payload}")
+            if not await asyncio.to_thread(self.delivery_ready, path, metadata):
+                continue
             event = Event(
                 id=event_id,
                 event_ts=metadata.created_at,
