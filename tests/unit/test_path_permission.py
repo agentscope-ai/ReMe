@@ -26,6 +26,7 @@ from pathlib import Path
 import pytest
 
 from reme.components.file_store import LocalFileStore
+from reme.enumeration import LinkScopeEnum
 from reme.schema import FileNode
 from reme.steps.file_io._path import _check_path_permission
 from reme.steps.file_io.delete import DeleteStep
@@ -79,6 +80,35 @@ async def _run(step_cls, store: LocalFileStore, **kwargs):
 NOTE = "daily/2025-06-01/podcast-habits.md"
 SIBLING = "daily/2025-06-01/other-note.md"
 OUTSIDE = "topics/roadmap.md"
+
+
+class _LinkAppearingAfterPrecheckGraph:
+    """Graph wrapper simulating a concurrent editor on a deterministic schedule.
+
+    A scoped move consults the reverse index twice — once for the dry-run
+    permission precheck, once for the real rewrite pass. On the second lookup
+    this wrapper first saves a matching ``[[src]]`` link into the out-of-scope
+    note (a direct file edit the index has not caught up with), reproducing a
+    referencing file that changes between the two passes without threads or
+    timing windows.
+    """
+
+    def __init__(self, inner, workspace: Path, rel: str, body: str) -> None:
+        self._inner = inner
+        self._workspace = workspace
+        self._rel = rel
+        self._body = body
+        self._lookups = 0
+
+    async def get_inlinks(self, path: str, scope=LinkScopeEnum.REAL):
+        """Delegate the reverse-index lookup, saving the link first on the second call."""
+        self._lookups += 1
+        if self._lookups == 2:
+            (self._workspace / self._rel).write_text(self._body, encoding="utf-8")
+        return await self._inner.get_inlinks(path, scope=scope)
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
 
 
 @pytest.mark.asyncio
@@ -289,6 +319,50 @@ async def test_move_scope_still_retargets_in_scope_references():
         assert resp.success is True
         assert "[[daily/2025-06-01/renamed.md]]" in sibling_abs.read_text(encoding="utf-8")
         assert outside_abs.read_text(encoding="utf-8") == "roadmap\n"
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_move_scope_rechecks_permission_when_link_appears_after_precheck():
+    """A referencing file that changes between the precheck and the rewrite is still protected.
+
+    The dry-run precheck only vets files that contain a matching link at that
+    moment; an out-of-scope note whose link appears afterwards (concurrent
+    save, lagging graph backend) used to be rewritten unchallenged because the
+    real pass re-read content without any permission constraint. The write-time
+    guard must reject that rewrite: the move fails, the note keeps the
+    editor's content, and the source survives for retry.
+    """
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        workspace = Path(tmp)
+        note_body = "target\n"
+        stale_body = "No current reference.\n"
+        saved_body = f"See [[{NOTE}]]\n"
+        note_abs = _seed(workspace, NOTE, note_body)
+        outside_abs = _seed(workspace, OUTSIDE, stale_body)
+        store = await _make_store()
+        # The index still reports the pre-edit edge (an index lagging a direct
+        # file edit), so retargeting visits the out-of-scope note; its on-disk
+        # content has no matching link yet, which is what hides it from the
+        # dry-run precheck.
+        await _register_in_graph(store, workspace, NOTE, note_body)
+        await _register_in_graph(store, workspace, OUTSIDE, saved_body)
+        outside_abs.write_text(stale_body, encoding="utf-8")
+        store.file_graph = _LinkAppearingAfterPrecheckGraph(store.file_graph, workspace, OUTSIDE, saved_body)
+        scope = {"_allowed_paths": ["daily/2025-06-01"]}
+
+        resp = await _run(MoveStep, store, src_path=NOTE, dst_path="daily/2025-06-01/renamed.md", **scope)
+        assert resp.success is False
+        assert "no permission" in str(resp.answer).lower()
+        # The concurrent save survives untouched — the link still points at
+        # the original path and was never rewritten to the destination.
+        assert outside_abs.read_text(encoding="utf-8") == saved_body
+        assert "[[daily/2025-06-01/renamed.md]]" not in outside_abs.read_text(encoding="utf-8")
+        # Fail-closed move semantics on a mid-move retarget error: the source
+        # is kept (the destination copy from the interrupted attempt lingers
+        # too, so the caller can diagnose and retry).
+        assert note_abs.exists()
+        assert (workspace / "daily/2025-06-01/renamed.md").exists()
         await store.close()
 
 
