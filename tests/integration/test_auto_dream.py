@@ -17,6 +17,7 @@ ARTIFACT_DIR = INTEGRATION_DIR / "logs" / "auto_dream_latest"
 sys.path.insert(0, str(INTEGRATION_DIR))
 
 # pylint: disable=wrong-import-position
+from _provenance import targets_with_provenance  # noqa: E402
 from _workspace_fixture import DREAM_INPUT_PATH, workspace_env  # noqa: E402
 
 from reme.utils.jsonl_zst import read_jsonl_zst  # noqa: E402
@@ -182,11 +183,10 @@ def test_auto_dream():
                 # sentence containing the wikilink and explicitly forbids bare
                 # `- [[...]]` lines, so match the provenance link target itself
                 # (with or without an alias) rather than a specific line form.
-                source_links = [
-                    rel
-                    for rel, text in target_texts.items()
-                    if f"[[{DREAM_INPUT_PATH}]]" in text or f"[[{DREAM_INPUT_PATH}|" in text
-                ]
+                # The shared wikilink grammar decides what counts as a link:
+                # aliases, embeds, and anchors parse to the same target, while
+                # unterminated `[[...` spans do not.
+                source_links = targets_with_provenance(target_texts, DREAM_INPUT_PATH)
                 print(f"[wikilink] integrated targets: {target_paths}")
                 print(f"[wikilink] integrated targets with [[digest/...]] links: {digest_wikilinks}")
                 print(f"[wikilink] integrated targets with source links: {source_links}")
