@@ -77,6 +77,29 @@ def test_logo_mcp_fallback_matches_service_defaults(monkeypatch) -> None:
     assert f"http://{REME_DEFAULT_HOST}:{REME_DEFAULT_PORT}/sse" in output
 
 
+def test_logo_brackets_ipv6_http_address(monkeypatch) -> None:
+    """Advertise IPv6 hosts as valid URLs, including the wildcard's loopback."""
+    config = ApplicationConfig(service=ComponentConfig(backend="http"))
+
+    for host, shown in (("::1", "[::1]"), ("::", "[::1]")):
+        output = _render_logo(monkeypatch, config, SimpleNamespace(host=host, port=8123))
+
+        assert f"http://{shown}:8123" in output
+        assert f"http://{shown}:8123/mcp" in output
+        assert "http://::1:8123" not in output
+
+
+def test_logo_brackets_ipv6_mcp_address(monkeypatch) -> None:
+    """Advertise IPv6 MCP endpoints as valid URLs."""
+    config = ApplicationConfig(service=ComponentConfig(backend="mcp"))
+    runtime_service = SimpleNamespace(transport="sse", host="::1", port=8123)
+
+    output = _render_logo(monkeypatch, config, runtime_service)
+
+    assert "http://[::1]:8123/sse" in output
+    assert "http://::1:8123/sse" not in output
+
+
 def test_application_passes_instantiated_service_to_logo(monkeypatch, tmp_path) -> None:
     """Render the service address after backend defaults and overrides resolve."""
     captured = {}
