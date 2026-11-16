@@ -176,6 +176,7 @@ class HomePreparation(BaseComponent):
                 transaction / "output-3",
                 sessions_per_case=config.debug.sessions_per_case,
                 messages_per_session=config.debug.messages_per_session,
+                queries_per_case=config.debug.queries_per_case,
             )
         else:
             (transaction / "output-3/cases").mkdir(parents=True)

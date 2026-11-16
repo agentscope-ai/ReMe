@@ -273,6 +273,11 @@ barrier/query-stealing schedule. `max_construction_failure_rate` defaults to the
 old strict-below-3% rule; other pool callers retain strict build-success behavior.
 
 `debug=true` selects prepared debug cases and runs smoke inputs without a judge.
+Preparation selects 10% of training cases (rounded up), with a minimum of four
+when available. By default, each debug case retains up to four sessions, the first
+eight messages per session, and up to four questions (`debug.queries_per_case`).
+Questions are sampled with a fixed seed, maximizing question-type coverage across
+the selected debug cases before randomly filling each case's remaining slots.
 It defaults to `fail_fast=true`; scored runs (`debug=false`, the default) use
 `fail_fast=false`. An explicitly supplied `fail_fast` overrides either default.
 Debug requires successful construction and nonempty, error-free answers, and
