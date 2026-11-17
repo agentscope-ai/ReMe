@@ -18,7 +18,7 @@ from ...file_io import get_path_lock
 from ....components import R
 from ....components.agent_runtime._internal.files import AgentFiles
 from ....schema import Event, ResourceMetadata
-from ....schema.agent_runtime import validate_agent_id
+from ....schema.agent_runtime import validate_agent_name
 from ....utils.async_utils import finish_cleanup
 from ....utils.file_sync import sync_directory, sync_file
 
@@ -26,12 +26,12 @@ from ....utils.file_sync import sync_directory, sync_file
 class _WorkObservationBase(BaseAgentStep):
     """Use invocation-owned cancellation and a shared path lock, without a permanent watcher."""
 
-    def __init__(self, codex_home=None, agent_id="work", max_scan_bytes=32 * 1024 * 1024, **kwargs):
+    def __init__(self, codex_home=None, agent_name="work", max_scan_bytes=32 * 1024 * 1024, **kwargs):
         super().__init__(**kwargs)
         if type(max_scan_bytes) is not int or max_scan_bytes < 1:
             raise ValueError("max_scan_bytes must be a positive integer")
         self.codex_home = Path(codex_home or os.environ.get("CODEX_HOME") or Path.home() / ".codex")
-        self.agent_id = validate_agent_id(agent_id)
+        self.agent_name = validate_agent_name(agent_name)
         self.max_scan_bytes = max_scan_bytes
         self.cancelled = ThreadEvent()
 
@@ -147,7 +147,7 @@ class WorkObservationStep(_WorkObservationBase):
         directories = {}
         try:
             sources = {
-                source: {"id": package_id, "agent_id": self.agent_id, "resources": [], "events": [], "errors": {}}
+                source: {"id": package_id, "agent_name": self.agent_name, "resources": [], "events": [], "errors": {}}
                 for source in pending
             }
             dialogue_batch = sources["codex_dialogue"]
@@ -210,7 +210,7 @@ class WorkObservationStep(_WorkObservationBase):
         for event in events:
             self.require_paths(*(index.files.path(path) for path in event.paths))
         for source, batch in sources.items():
-            if batch["agent_id"] != self.agent_id:
+            if batch["agent_name"] != self.agent_name:
                 raise ValueError("Pending resources do not match their Agent")
             for resource in batch["resources"]:
                 self._check_stopped()
@@ -245,7 +245,7 @@ class WorkObservationStep(_WorkObservationBase):
         directory = self._authorize()
         if self.get_job("append_event") is None:
             raise RuntimeError("Work observations require the append_event Job")
-        if (await self.agent_runtime.definition(self.agent_id)).trigger_type != "event":
+        if (await self.agent_runtime.definition(self.agent_name)).agent_type != "proactive":
             raise ValueError("Work observations require an event Agent")
         async with await get_path_lock(directory):
             async with await get_path_lock(directory / "screenshot"):
@@ -254,7 +254,7 @@ class WorkObservationStep(_WorkObservationBase):
             if events:
                 response = await self.run_job(
                     "append_event",
-                    agent_id=self.agent_id,
+                    agent_name=self.agent_name,
                     events=events,
                     _allowed_paths=self.context.get("_allowed_paths"),
                 )

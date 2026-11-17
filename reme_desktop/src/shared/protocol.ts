@@ -127,7 +127,7 @@ export type CompanionSurface =
 
 export type ItemTarget =
   | { kind: "message"; id: string }
-  | { kind: "mail"; id: string; agentId: string };
+  | { kind: "mail"; id: string; agentName: string };
 
 export type ItemAction = "open" | "remind" | "explain" | "copy";
 
@@ -178,7 +178,7 @@ export interface SessionSnapshot {
 }
 
 export interface AgentEvent {
-  agent_id?: string;
+  agent_name?: string;
   agents?: AgentView[];
   type:
     | "snapshot"
@@ -245,9 +245,8 @@ export interface PendingTurn {
 }
 
 export interface AgentView {
-  agent_id: string;
-  name: string;
-  kind: "chat" | "cron" | "event";
+  agent_name: string;
+  agent_type: "chat" | "proactive" | "cron";
   enabled: boolean;
   running: boolean;
   status: SessionStatus;
@@ -262,7 +261,7 @@ export interface AgentView {
 
 export interface DesktopState {
   revision: number;
-  selectedAgentId?: string;
+  selectedAgentName?: string;
   agents?: AgentView[];
   connection: "connecting" | "connected" | "reconnecting" | "error";
   connectionError: string;
@@ -385,7 +384,7 @@ export type DesktopAction =
   | { type: "window.maximize" }
   | { type: "companion.reset" }
   | { type: "companion.visibility"; visible: boolean }
-  | { type: "agent.select"; agentId: string }
+  | { type: "agent.select"; agentName: string }
   | { type: "session.new" }
   | { type: "messages.read"; sessionId: string; ids: string[] }
   | { type: "items.read" }
@@ -450,15 +449,15 @@ export type WorkspaceRequest =
   | { type: "config" }
   | {
       type: "outbox";
-      agentId: string;
+      agentName: string;
       state?: MailState;
       offset?: number;
       limit?: number;
     }
-  | { type: "reminder"; agentId: string; id: string; markRead?: boolean }
+  | { type: "reminder"; agentName: string; id: string; markRead?: boolean }
   | {
       type: "inbox";
-      agentId: string;
+      agentName: string;
       state?: EventState;
       offset?: number;
       limit?: number;
@@ -483,7 +482,7 @@ export type EventState = MailState | "processing";
 
 export interface AgentMail {
   id: string;
-  from_agent_id: string;
+  from_agent_name: string;
   priority: "P0" | "P1" | "P2";
   message: string;
   paths: string[];

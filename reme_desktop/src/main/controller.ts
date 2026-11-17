@@ -14,6 +14,7 @@ import { SessionModel } from "./session-model.ts";
 import { normalizeEndpoint, Storage } from "./storage.ts";
 import { requestWorkspace } from "./workspace.ts";
 import { emptyReply, reduceReply } from "../shared/transcript.ts";
+import type { ReplyProgress } from "../shared/transcript.ts";
 import type {
   DesktopState,
   PendingTurn,
@@ -45,9 +46,9 @@ export function validateItemTarget(
     target.id.length > 8192 ||
     target.id.includes("\0") ||
     (target.kind === "mail" &&
-      (typeof target.agentId !== "string" ||
-        !target.agentId ||
-        target.agentId.length > 128))
+      (typeof target.agentName !== "string" ||
+        !target.agentName ||
+        target.agentName.length > 128))
   )
     throw new UiError("invalidAction");
 }
@@ -110,6 +111,7 @@ export class DesktopController {
     {
       model: SessionModel;
       pending: PendingTurn | null;
+      reply: ReplyProgress;
       error: unknown;
       connected: boolean;
       stream?: AbortController;
@@ -135,7 +137,7 @@ export class DesktopController {
       connectionError: "",
       settings: storage.settings,
       workspace: "",
-      selectedAgentId: "chat",
+      selectedAgentName: "Remy",
       agents: [],
       sessionId: null,
       status: null,
@@ -206,7 +208,7 @@ export class DesktopController {
     this.childWatch?.abort();
     for (const child of this.children.values()) child.stream?.abort();
     this.children.clear();
-    this.state.selectedAgentId = "chat";
+    this.state.selectedAgentName = "Remy";
     this.state.agents = [];
     this.lifecycle?.abort();
     this.stream?.abort();
@@ -327,7 +329,7 @@ export class DesktopController {
         this.state.workspace = config.workspace_dir;
         await client.stream(
           "agent_events",
-          { agent_id: "chat" },
+          { agent_name: "Remy" },
           signal,
           (chunk) => {
             if (signal.aborted || generation !== this.generation) return;
@@ -341,10 +343,10 @@ export class DesktopController {
               this.state.agents = payload.agents;
               if (
                 !payload.agents.some(
-                  (agent) => agent.agent_id === this.state.selectedAgentId,
+                  (agent) => agent.agent_name === this.state.selectedAgentName,
                 )
               )
-                this.selectAgent("chat");
+                this.selectAgent("Remy");
             }
             const previous = this.model.sessionId;
             const event = this.model.apply(chunk.chunk);
@@ -754,20 +756,20 @@ export class DesktopController {
         this.state.settings.language,
       );
     }
-    const selected = this.state.selectedAgentId ?? "chat";
+    const selected = this.state.selectedAgentName ?? "Remy";
     const child = this.children.get(selected);
-    if (selected !== "chat" && child) {
+    if (selected !== "Remy" && child) {
       this.state.sessionId = child.model.sessionId;
       this.state.status = child.connected ? child.model.status : "error";
       this.state.pending = child.pending;
       this.state.messages = displayMessages(
         {
-          sessionId: child.model.sessionId,
-          messages: child.model.messages,
+          sessionId: child.pending?.sessionId ?? child.model.sessionId,
+          messages: child.pending ? [] : child.model.messages,
           pending: child.pending,
-          replaceOnSend: true,
+          reply: child.reply,
         },
-        child.model.activities.chat,
+        child.pending ? undefined : child.model.activities.chat,
         this.state.settings.language,
       );
       if (child.error)
@@ -976,8 +978,9 @@ export class DesktopController {
       if (this.state.speech.playback?.kind === "manual") this.speech.stop();
     }
     if (target) {
-      const agentId = target.kind === "mail" ? target.agentId : "chat";
-      if (this.state.selectedAgentId !== agentId) this.selectAgent(agentId);
+      const agentName = target.kind === "mail" ? target.agentName : "Remy";
+      if (this.state.selectedAgentName !== agentName)
+        this.selectAgent(agentName);
     }
     this.state.focusTarget = target ?? null;
     if (target) {
@@ -1187,7 +1190,7 @@ export class DesktopController {
           await client.call(
             "agent_reminder",
             {
-              agent_id: "chat",
+              agent_name: "Remy",
               message_id: id,
               mark_read: true,
             },
@@ -1265,7 +1268,7 @@ export class DesktopController {
     const generation = this.generation;
     const response = await this.workspace({
       type: "reminder",
-      agentId: target.agentId,
+      agentName: target.agentName,
       id: target.id,
     });
     const mail = response.answer as AgentMail;
@@ -1307,7 +1310,7 @@ export class DesktopController {
     const message = await this.item(target);
     if (generation !== this.generation || sessionId !== this.model.sessionId)
       throw new UiError("itemUnavailable");
-    if (this.state.selectedAgentId !== "chat") this.selectAgent("chat");
+    if (this.state.selectedAgentName !== "Remy") this.selectAgent("Remy");
     this.state.focusTarget = null;
     this.state.focusRequest++;
     await this.send(
@@ -1318,9 +1321,9 @@ export class DesktopController {
   }
 
   speakMessage(id: string): void {
-    const selected = this.state.selectedAgentId ?? "chat";
+    const selected = this.state.selectedAgentName ?? "Remy";
     const message =
-      selected === "chat"
+      selected === "Remy"
         ? this.replayBubbles.active?.id === id
           ? this.replay?.message
           : this.notificationMessage(id)
@@ -1387,22 +1390,25 @@ export class DesktopController {
     this.emit();
   }
 
-  selectAgent(agentId: string): void {
+  selectAgent(agentName: string): void {
     if (
-      !(this.state.agents ?? []).some((agent) => agent.agent_id === agentId) &&
-      agentId !== "chat"
+      !(this.state.agents ?? []).some(
+        (agent) => agent.agent_name === agentName,
+      ) &&
+      agentName !== "Remy"
     )
       throw new UiError("invalidAction");
     this.speech.cancel();
-    this.state.selectedAgentId = agentId;
+    this.state.selectedAgentName = agentName;
     this.messageInputs = [];
     this.state.focusTarget = null;
     this.childWatch?.abort();
-    if (agentId !== "chat") {
-      if (!this.children.has(agentId))
-        this.children.set(agentId, {
+    if (agentName !== "Remy") {
+      if (!this.children.has(agentName))
+        this.children.set(agentName, {
           model: new SessionModel(),
           pending: null,
+          reply: emptyReply(),
           error: null,
           connected: false,
         });
@@ -1412,37 +1418,33 @@ export class DesktopController {
         controller.signal,
         this.lifecycle!.signal,
       ]);
-      this.childWatching = this.watchChild(agentId, signal);
+      this.childWatching = this.watchChild(agentName, signal);
     }
     this.emit();
   }
 
   private async watchChild(
-    agentId: string,
+    agentName: string,
     signal: AbortSignal,
   ): Promise<void> {
-    const child = this.children.get(agentId)!;
+    const child = this.children.get(agentName)!;
     while (!signal.aborted) {
       try {
         await this.client().stream(
           "agent_events",
-          { agent_id: agentId },
+          { agent_name: agentName },
           signal,
           (chunk) => {
             if (signal.aborted) return;
             if (chunk.chunk_type === "error")
               throw new Error(String(chunk.chunk));
             if (chunk.chunk_type !== "data") return;
-            const previousTurn = child.model.messages.at(-1)?.turn_id;
+            const previousSession = child.model.sessionId;
             child.model.apply(chunk.chunk);
-            this.syncPending(child.model, child.pending);
-            const currentTurn = child.model.messages.at(-1)?.turn_id;
             if (
-              this.acceptedReply(child.model, child.pending) ||
-              (child.pending &&
-                !child.pending.streaming &&
-                currentTurn !== previousTurn &&
-                currentTurn !== child.pending.turnId)
+              child.pending &&
+              !child.pending.streaming &&
+              child.model.sessionId !== previousSession
             )
               child.pending = null;
             child.connected = true;
@@ -1465,17 +1467,17 @@ export class DesktopController {
     }
   }
 
-  private async sendChild(agentId: string, query: string): Promise<void> {
-    const child = this.children.get(agentId);
+  private async sendChild(agentName: string, query: string): Promise<void> {
+    const child = this.children.get(agentName);
     if (
       !child?.connected ||
+      !child.model.sessionId ||
       !this.lifecycle ||
       !query.trim() ||
       query.length > 100000
     )
       throw new UiError("sessionUnavailable");
-    if (child.pending?.streaming || child.model.status === "active")
-      throw new UiError("busy");
+    if (child.pending?.streaming) throw new UiError("busy");
     const generation = this.generation;
     const client = this.client();
     const lifecycle = this.lifecycle.signal;
@@ -1487,40 +1489,37 @@ export class DesktopController {
       streaming: true,
     };
     child.pending = pending;
+    child.reply = emptyReply();
     const controller = new AbortController();
     child.stream = controller;
-    let progress = emptyReply();
     this.emit();
     const sending = (async () => {
       try {
         await client.stream(
           "agent_chat",
-          { agent_id: agentId, query: pending.query },
+          { agent_name: agentName, query: pending.query },
           AbortSignal.any([controller.signal, lifecycle]),
           (chunk) => {
             if (generation !== this.generation) return;
-            if (
-              !["reply_start", "reply_end", "error"].includes(chunk.chunk_type)
-            )
-              return;
-            progress = reduceReply(progress, chunk);
+            const progress = (child.reply = reduceReply(child.reply, chunk));
             Object.assign(pending, {
               turnId: progress.turnId,
               outcome: progress.status,
               sessionId: progress.sessionId ?? pending.sessionId,
             });
-            this.syncPending(child.model, pending);
             this.emit();
           },
         );
-        if (progress.error)
-          throw typeof progress.error === "string"
-            ? new Error(progress.error)
-            : progress.error;
-        if (progress.status !== "completed" && progress.status !== "waiting")
+        if (child.reply.error) throw new Error(child.reply.error);
+        if (
+          child.reply.status !== "completed" &&
+          child.reply.status !== "waiting"
+        )
           throw new UiError("replyIncomplete");
       } catch (error) {
-        if (controller.signal.aborted) pending.outcome = "interrupted";
+        pending.outcome = controller.signal.aborted
+          ? "interrupted"
+          : (pending.outcome ?? "failed");
         pending.error = errorText(
           controller.signal.aborted ? new UiError("interrupted") : error,
           this.state.settings.language,
@@ -1529,7 +1528,6 @@ export class DesktopController {
         if (generation !== this.generation) return;
         pending.streaming = false;
         child.stream = undefined;
-        if (this.acceptedReply(child.model, pending)) child.pending = null;
         this.emit();
       }
     })();
@@ -1538,7 +1536,7 @@ export class DesktopController {
   }
 
   async newSession(): Promise<void> {
-    if ((this.state.selectedAgentId ?? "chat") !== "chat")
+    if ((this.state.selectedAgentName ?? "Remy") !== "Remy")
       throw new UiError("invalidAction");
     await this.settingsWrites;
     if (
@@ -1556,8 +1554,8 @@ export class DesktopController {
   }
 
   async send(query: string): Promise<void> {
-    const agentId = this.state.selectedAgentId ?? "chat";
-    if (agentId !== "chat") return this.sendChild(agentId, query);
+    const agentName = this.state.selectedAgentName ?? "Remy";
+    if (agentName !== "Remy") return this.sendChild(agentName, query);
     const generation = this.generation;
     await this.settingsWrites;
     if (generation !== this.generation) throw new UiError("sessionUnavailable");
@@ -1674,8 +1672,8 @@ export class DesktopController {
   }
 
   stopReply(): void {
-    const selected = this.state.selectedAgentId ?? "chat";
-    if (selected !== "chat") {
+    const selected = this.state.selectedAgentName ?? "Remy";
+    if (selected !== "Remy") {
       this.children.get(selected)?.stream?.abort();
       return;
     }

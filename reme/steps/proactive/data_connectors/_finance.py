@@ -12,7 +12,7 @@ from .base_connector import BaseConnectorStep
 from ...file_io import check_path_permission, get_path_lock
 from ....components.agent_runtime._internal.files import AgentFiles
 from ....schema import Event, ResourceMetadata
-from ....schema.agent_runtime import validate_agent_id
+from ....schema.agent_runtime import validate_agent_name
 from ....utils.async_utils import complete_in_thread
 
 
@@ -23,9 +23,9 @@ class FinanceCollectorStep(BaseConnectorStep):
     files: AgentFiles
     resource_root: Path
 
-    def __init__(self, agent_id="finance", max_retries=3, request_timeout=20, request_interval=1, **kwargs):
+    def __init__(self, agent_name="finance", max_retries=3, request_timeout=20, request_interval=1, **kwargs):
         super().__init__(**kwargs)
-        self.agent_id = validate_agent_id(agent_id)
+        self.agent_name = validate_agent_name(agent_name)
         if type(max_retries) is not int or max_retries < 1:
             raise ValueError("max_retries must be a positive integer")
         for name, value in (("request_timeout", request_timeout), ("request_interval", request_interval)):
@@ -95,11 +95,11 @@ class FinanceCollectorStep(BaseConnectorStep):
     async def _deliver_pending(self):
         manifests = await asyncio.to_thread(lambda: list(self.manifests()))
         for path in manifests:
-            receipt = path.parent / f"delivery-{self.agent_id}.json"
+            receipt = path.parent / f"delivery-{self.agent_name}.json"
             self.require_path(receipt)
             relative = path.parent.relative_to(self.workspace_path).as_posix()
             event_id = f"resource-{sha256(relative.encode()).hexdigest()}"
-            expected = {"agent_id": self.agent_id, "event_id": event_id}
+            expected = {"agent_name": self.agent_name, "event_id": event_id}
             saved = await asyncio.to_thread(self.files.read_json, receipt, None)
             if saved is not None:
                 if saved != expected:
@@ -124,7 +124,7 @@ class FinanceCollectorStep(BaseConnectorStep):
             )
             response = await self.run_job(
                 "append_event",
-                agent_id=self.agent_id,
+                agent_name=self.agent_name,
                 events=[event.model_dump(mode="json")],
                 _allowed_paths=self.context.get("_allowed_paths"),
             )

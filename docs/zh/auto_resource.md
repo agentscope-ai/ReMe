@@ -62,7 +62,7 @@ workspace/
 ## 定时屏幕采集
 
 `config=proactive` 包含默认关闭的 `screen_capture_cron`。先创建事件 Agent，再配置
-`jobs.screen_capture_cron.agent_id` 和 `jobs.screen_capture_cron.enabled=true` 后重启。
+`jobs.screen_capture_cron.agent_name` 和 `jobs.screen_capture_cron.enabled=true` 后重启。
 采集按应用时区每 5 分钟触发，启动时不立即采集。
 
 `BaseConnectorStep` 将资料直接写入资源目录，最后原子写入 `metadata.json`；`ScreenCaptureStep` 为每个显示器保留一张原尺寸 PNG。
@@ -116,8 +116,8 @@ BTC 使用滚动 24 小时涨跌幅，保存统计窗口和采集时间；USDT �
 若仍为 cron 类型，在另一个终端执行：
 
 ```bash
-reme manage_proactive_agent action=update name=finance trigger_type=event
-reme manage_proactive_agent action=status name=finance
+reme manage_proactive_agent action=update agent_name=finance agent_type=proactive
+reme manage_proactive_agent action=status agent_name=finance
 ```
 
 按返回的 `memory_path` 更新已有任务和 AI 新闻偏好，重启不会覆盖记忆。
@@ -133,16 +133,14 @@ Agent 写入一张 caption 卡片并链接原图。卡片正文以 `![[resource/
 图像处理默认开启（`include_images=true`），需要绑定兼容模型与 formatter 的 AgentScope wrapper。
 通过 `components.agent_wrapper.<name>.as_llm` 配置模型，在资源 Step 上用 `agent_wrapper` 选择对应 wrapper。
 原图片 Step 的 `as_llm` 覆盖项和自动选择 `as_llm.vision` 的逻辑由此绑定方式替代。
-不再单独调用 caption 模型或执行额外的 schema 提取；Agent 失败后也不以纯文本重跑。
-这是一次 Agent 工作流，工具调用可能带来多轮模型请求。
+图片由 Agent 使用配置的模型与工具完成解读，工作流可能包含多轮模型请求。
 
 每次解读图片都会新建会话，处理记录可通过返回的 `agent_session_id` 查找。更新同一张图片时，仍然修改原来的卡片。
 卡片正文应包含原图引用和 `## Caption` 下的描述或文字转录，不能留空或直接写入 JSON。
 `status` 留给后续流程填写，更新卡片时保留原值。
 
-自定义图片提示词使用 `prompt_dict.resource_instructions`，中文使用 `resource_instructions_zh`；旧配置中的
-`user_message` / `user_message_zh` 需相应改名。公共创建或更新模板通过
-`{resource_instructions}` 插入图片要求；旧模板没有该占位符时，图片要求会追加到末尾。
+自定义图片提示词使用 `prompt_dict.resource_instructions`，中文使用 `resource_instructions_zh`。公共创建或更新模板通过
+`{resource_instructions}` 插入图片要求；没有该占位符时，图片要求追加到末尾。
 
 在 `auto_resource` 调用或 Job 默认值中设置 `include_images=false`，会跳过图片的**全部事件，包括删除**。
 调用参数优先于 Job 默认值，两者都未设置时默认开启。监听任务可设置 `jobs.resource_watch_loop.include_images=false`，

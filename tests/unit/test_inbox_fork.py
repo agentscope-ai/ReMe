@@ -42,7 +42,7 @@ def append_message(session_id, content, *, message_id, **kwargs):
 async def test_fork_sends_only_explicit_content_and_consumes_decisions(tmp_path, content):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         arguments = await prepare(runtime, context)
-        source = (await runtime.sessions.current("chat")).session_id
+        source = (await runtime.sessions.current("Remy")).session_id
         activity = runtime.notifications.last_activity_at
         wrapper.append_session = AsyncMock(side_effect=append_message)
         captured = {}
@@ -57,7 +57,7 @@ async def test_fork_sends_only_explicit_content_and_consumes_decisions(tmp_path,
             assert result.answer == {
                 "items": [
                     {
-                        "task": "monitor",
+                        "agent_name": "monitor",
                         "created_at": turn.items[0]["created_at"],
                         "message": "Experiment finished",
                         "paths": ["daily/experiment.md"],
@@ -81,7 +81,7 @@ async def test_fork_sends_only_explicit_content_and_consumes_decisions(tmp_path,
         assert not runtime.notifications.pending
         assert runtime.notifications.active_turn is None
         assert runtime.notifications.last_activity_at == activity
-        assert (await runtime.sessions.list("chat"))["total"] == 1
+        assert (await runtime.sessions.list("Remy"))["total"] == 1
         if content.strip():
             wrapper.append_session.assert_awaited_once()
             assert wrapper.append_session.call_args.args == (source, content.strip())
@@ -120,9 +120,9 @@ async def test_read_inbox_exposes_unique_supporting_paths_without_changing_inter
         await runtime.run("monitor", AsyncMock(return_value=(result, session)))
         await runtime.outbox.sync()
         ids = list(runtime.notifications.pending)
-        session_id = (await runtime.sessions.current("chat")).session_id
+        session_id = (await runtime.sessions.current("Remy")).session_id
         async with runtime.notifications.turn(session_id, "P0", ids) as turn:
-            bound = {"_agent_id": "chat", "_inbox_turn": turn.id}
+            bound = {"_agent_name": "Remy", "_inbox_turn": turn.id}
             tool = ReadInboxStep(app_context=context)
             response = await tool(**bound)
             assert response.answer["items"][0]["paths"] == expected_paths
@@ -140,7 +140,7 @@ async def test_read_inbox_exposes_unique_supporting_paths_without_changing_inter
 async def test_native_content_changes_leave_stale_reminder_decisions_pending(tmp_path, content):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         arguments = await prepare(runtime, context)
-        snapshot = await wrapper.read_session((await runtime.sessions.current("chat")).session_id)
+        snapshot = await wrapper.read_session((await runtime.sessions.current("Remy")).session_id)
 
         async def append(_session_id, _content, *, expected_revision, **_kwargs):
             if expected_revision != snapshot.revision:
@@ -217,12 +217,12 @@ async def test_fork_allows_foreground_chat_and_rejects_a_rotated_session(tmp_pat
 async def test_failed_session_read_releases_selected_inbox_claim(tmp_path):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         arguments = await prepare(runtime, context)
-        session = (await runtime.sessions.current("chat")).session_id
+        session = (await runtime.sessions.current("Remy")).session_id
         wrapper.read_session = AsyncMock(side_effect=OSError("native session unavailable"))
         with pytest.raises(OSError, match="unavailable"):
             async with runtime.notifications.turn(session, arguments["priority"], arguments["msg_ids"]):
                 raise AssertionError("session selection must fail before inference")
-        snapshot = await runtime.inbox.snapshot("chat")
+        snapshot = await runtime.inbox.snapshot("Remy")
         assert snapshot["pending_count"] == 1 and snapshot["in_flight_count"] == 0
         assert runtime.notifications.active_turn is None
 
@@ -241,7 +241,7 @@ async def test_inbox_timeout_covers_native_session_setup_and_releases_claim(tmp_
             async with asyncio.timeout(1) as outer:
                 await InboxChatStep(app_context=context, timeout_seconds=0.01)(**arguments)
         assert not outer.expired()
-        snapshot = await runtime.inbox.snapshot("chat")
+        snapshot = await runtime.inbox.snapshot("Remy")
         assert snapshot["pending_count"] == 1 and snapshot["in_flight_count"] == 0
         assert runtime.notifications.active_turn is None
 
@@ -250,7 +250,7 @@ async def test_inbox_timeout_covers_native_session_setup_and_releases_claim(tmp_
 async def test_priority_wakeup_can_overtake_older_low_priority_reminders(tmp_path):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         low = await prepare(runtime, context, "P2")
-        await runtime.create({"name": "urgent", "trigger_type": "event", "description": "Urgent observations"})
+        await runtime.create({"agent_name": "urgent", "agent_type": "proactive", "task_memory": "Urgent observations"})
         await runtime.append(
             "urgent",
             {"id": "urgent", "event_ts": runtime.now(), "source": "test", "description": "Urgent"},
@@ -264,7 +264,7 @@ async def test_priority_wakeup_can_overtake_older_low_priority_reminders(tmp_pat
         async def reply(_hint, **options):
             bound = options["injected_job_kwargs"]
             items = (await ReadInboxStep(app_context=context)(**bound)).answer["items"]
-            assert [item["task"] for item in items] == ["urgent"]
+            assert [item["agent_name"] for item in items] == ["urgent"]
             turn = runtime.notifications.current_turn(bound["_inbox_turn"])
             assert [item["id"] for item in turn.items] == urgent
             await SendChatMessageStep(app_context=context)(content="", **bound)
@@ -273,7 +273,7 @@ async def test_priority_wakeup_can_overtake_older_low_priority_reminders(tmp_pat
         wrapper.reply = AsyncMock(side_effect=reply)
         await InboxChatStep(app_context=context)(priority="P0", msg_ids=urgent)
         assert list(runtime.notifications.pending) == low["msg_ids"]
-        assert (await runtime.inbox.snapshot("chat"))["pending_count"] == 1
+        assert (await runtime.inbox.snapshot("Remy"))["pending_count"] == 1
         assert runtime.notifications.active_turn is None
 
 
@@ -346,7 +346,9 @@ async def test_tools_cannot_read_other_priorities_or_consume_later_arrivals(tmp_
             with pytest.raises(ValueError, match="accepts no arguments"):
                 await ReadInboxStep(app_context=context)(priority="P2", **bound)
             await ReadInboxStep(app_context=context)(**bound)
-            await runtime.create({"name": "other", "trigger_type": "event", "description": "Other observations"})
+            await runtime.create(
+                {"agent_name": "other", "agent_type": "proactive", "task_memory": "Other observations"},
+            )
             await runtime.append(
                 "other",
                 {"id": "new", "event_ts": runtime.now(), "source": "test", "description": "New"},
@@ -431,15 +433,27 @@ async def test_cancelling_delivery_waiting_for_foreground_chat_does_not_hang(tmp
             await foreground_task
 
 
-def test_codex_ephemeral_fork_uses_the_native_paginated_protocol():
-    import inspect
+@pytest.mark.asyncio
+async def test_codex_ephemeral_fork_matches_the_native_sdk_contract(monkeypatch):
+    from types import SimpleNamespace
     from openai_codex import AsyncCodex
     from reme.components.agent_wrapper import CodexAgentWrapper
 
     options = CodexAgentWrapper()._thread_options({"fork_session": True, "ephemeral": True})
-    assert options["include_turns"] is False
     assert options["ephemeral"] is True
-    inspect.signature(AsyncCodex.thread_fork).bind(None, "source-session", **options)
+    codex = AsyncCodex()
+    transport = SimpleNamespace(
+        thread_fork=AsyncMock(return_value=SimpleNamespace(thread=SimpleNamespace(id="fork-session"))),
+    )
+    monkeypatch.setattr(codex, "_ensure_initialized", AsyncMock())
+    monkeypatch.setattr(codex, "_client", transport)
+
+    fork = await codex.thread_fork("source-session", **options)
+
+    assert fork.id == "fork-session"
+    source, params = transport.thread_fork.call_args.args
+    assert source == "source-session" and params.ephemeral is True
+    assert params.exclude_turns is True
 
 
 @pytest.mark.asyncio

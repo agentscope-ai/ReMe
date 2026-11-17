@@ -17,9 +17,9 @@ export function viewState(
         ...state,
         messages: noMessages,
         agents: [],
-        selectedAgentId: "chat",
+        selectedAgentName: "Remy",
         sessionId:
-          state.agents?.find((agent) => agent.agent_id === "chat")
+          state.agents?.find((agent) => agent.agent_name === "Remy")
             ?.session_id ?? state.sessionId,
         surface:
           state.surface?.kind === "message"

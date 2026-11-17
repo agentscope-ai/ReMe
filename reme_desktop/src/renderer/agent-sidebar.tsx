@@ -23,23 +23,23 @@ export default function AgentSidebar({
 }: {
   state: DesktopState;
   section: AgentSection;
-  onSelect: (agentId: string, section: AgentSection) => void;
+  onSelect: (agentName: string, section: AgentSection) => void;
 }) {
   const t = translator(state.settings.language);
-  const selected = state.selectedAgentId ?? "chat";
+  const selected = state.selectedAgentName ?? "Remy";
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const setOpen = (key: string, open: boolean) =>
     setExpanded((value) => ({ ...value, [key]: open }));
   const agents = state.agents ?? [];
-  const chat = agents.find((agent) => agent.kind === "chat");
+  const chat = agents.find((agent) => agent.agent_type === "chat");
   const row = (
     agent: Pick<
       AgentView,
-      "agent_id" | "name" | "kind" | "running" | "enabled" | "error"
+      "agent_name" | "agent_type" | "running" | "enabled" | "error"
     >,
   ) => {
-    const isSelected = selected === agent.agent_id;
-    const key = `agent:${agent.agent_id}`;
+    const isSelected = selected === agent.agent_name;
+    const key = `agent:${agent.agent_name}`;
     const open = expanded[key] ?? false;
     const status = t(
       agent.error
@@ -51,9 +51,13 @@ export default function AgentSidebar({
             : "agentIdle",
     );
     const Icon =
-      agent.kind === "chat" ? Bot : agent.kind === "cron" ? Clock3 : Radio;
+      agent.agent_type === "chat"
+        ? Bot
+        : agent.agent_type === "cron"
+          ? Clock3
+          : Radio;
     const sections: Array<[AgentSection, LucideIcon, Parameters<typeof t>[0]]> =
-      agent.kind === "chat"
+      agent.agent_type === "chat"
         ? [
             ["memory", FileText, "memoryTab"],
             ["reminders", Bell, "reminders"],
@@ -66,24 +70,24 @@ export default function AgentSidebar({
           ];
     return (
       <Disclosure
-        key={agent.agent_id}
-        label={agent.name}
+        key={agent.agent_name}
+        label={agent.agent_name}
         open={open}
         onOpenChange={(value) => setOpen(key, value)}
-        className={`agent-node ${isSelected ? "active" : ""} ${agent.kind === "chat" ? "remy-node" : ""}`}
+        className={`agent-node ${isSelected ? "active" : ""} ${agent.agent_type === "chat" ? "remy-node" : ""}`}
         triggerClassName="agent-toggle"
         action={
           <button
             className="agent-row"
             aria-pressed={isSelected}
             aria-current={isSelected && section === "chat" ? "page" : undefined}
-            data-agent-id={agent.agent_id}
-            onClick={() => onSelect(agent.agent_id, "chat")}
+            data-agent-name={agent.agent_name}
+            onClick={() => onSelect(agent.agent_name, "chat")}
           >
             <span className="agent-avatar">
               <Icon size={17} />
             </span>
-            <span className="agent-name">{agent.name}</span>
+            <span className="agent-name">{agent.agent_name}</span>
             <span
               className={`agent-status-dot ${agent.error ? "error" : agent.running ? "running" : !agent.enabled ? "disabled" : ""}`}
               title={status}
@@ -92,12 +96,12 @@ export default function AgentSidebar({
           </button>
         }
       >
-        <nav className="agent-sections" aria-label={agent.name}>
+        <nav className="agent-sections" aria-label={agent.agent_name}>
           {sections.map(([id, SectionIcon, label]) => (
             <button
               key={id}
               aria-current={isSelected && section === id ? "page" : undefined}
-              onClick={() => onSelect(agent.agent_id, id)}
+              onClick={() => onSelect(agent.agent_name, id)}
             >
               <SectionIcon size={15} />
               <span>{t(label)}</span>
@@ -118,28 +122,27 @@ export default function AgentSidebar({
       </div>
       {row(
         chat ?? {
-          agent_id: "chat",
-          name: "Remy",
-          kind: "chat",
+          agent_name: "Remy",
+          agent_type: "chat",
           running: false,
           enabled: true,
           error: null,
         },
       )}
-      {(["event", "cron"] as const).map((kind) => {
-        const items = agents.filter((agent) => agent.kind === kind);
-        const key = `group:${kind}`;
+      {(["proactive", "cron"] as const).map((agentType) => {
+        const items = agents.filter((agent) => agent.agent_type === agentType);
+        const key = `group:${agentType}`;
         return (
           <Disclosure
-            key={kind}
-            label={kind === "event" ? "Proactive" : "Cron"}
+            key={agentType}
+            label={agentType === "proactive" ? "Proactive" : "Cron"}
             open={expanded[key] ?? true}
             onOpenChange={(value) => setOpen(key, value)}
             className="agent-group"
             triggerClassName="agent-group-heading"
             summary={
               <>
-                <span>{kind === "event" ? "Proactive" : "Cron"}</span>
+                <span>{agentType === "proactive" ? "Proactive" : "Cron"}</span>
                 <small>{items.length}</small>
               </>
             }

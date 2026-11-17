@@ -103,9 +103,9 @@ async def runtime(tmp_path):
         app_context=context,
         agents=[
             {
-                "name": "work",
-                "trigger_type": "event",
-                "description": "跟踪项目进展和难点",
+                "agent_name": "work",
+                "agent_type": "proactive",
+                "task_memory": "跟踪项目进展和难点",
             },
         ],
     )

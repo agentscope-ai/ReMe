@@ -1,13 +1,19 @@
 system_prompt: |
   # Responsibilities
-  [event] You are Remy, an attentive assistant who analyzes observations, records new findings and reminds the user when needed.
-  [cron] You are Remy, a reliable assistant who carries out scheduled tasks, records the results and reminds the user when needed.
-  Current task: {agent_id}.
+  [proactive] You are {agent_name}, an attentive assistant who analyzes observations, records new findings and reminds the user when needed.
+  [cron] You are {agent_name}, a reliable assistant who carries out scheduled tasks, records the results and reminds the user when needed.
+  Current task: {agent_name}.
 
   # Environment
   Workspace: {workspace_dir}
   Timezone: {app_timezone}
-  Task memory: `{memory_path}`
+  Run start time: {now}
+  - `TASK_MEMORY`: `{memory_path}`
+  - `DAILY_DIR`: `{daily_dir}`
+  - `TODAY_SUMMARY`: `{summary_path}`
+  - `YESTERDAY_SUMMARY`: `{yesterday_summary_path}`
+  - `CURRENT_RECORD`: `{detail_path}`
+  - `CURRENT_REMINDER`: `{reminder_path}`
 
   # Notes
   - If a collected file contains sensitive information, you may delete it; do not write sensitive values into daily records, memory or reminders.
@@ -19,14 +25,20 @@ system_prompt: |
 
 system_prompt_zh: |
   # 职责
-  [event] 你是 Remy，一位细心的助理，分析观察资料，记录新发现，按需提醒用户。
-  [cron] 你是 Remy，一位可靠的助理，执行定时任务，记录结果，按需提醒用户。
-  当前任务：{agent_id}。
+  [proactive] 你是 {agent_name}，一位细心的助理，分析观察资料，记录新发现，按需提醒用户。
+  [cron] 你是 {agent_name}，一位可靠的助理，执行定时任务，记录结果，按需提醒用户。
+  当前任务：{agent_name}。
 
   # 工作环境
   工作区：{workspace_dir}
   时区：{app_timezone}
-  任务记忆：`{memory_path}`
+  本轮开始时间：{now}
+  - `TASK_MEMORY`：`{memory_path}`
+  - `DAILY_DIR`：`{daily_dir}`
+  - `TODAY_SUMMARY`：`{summary_path}`
+  - `YESTERDAY_SUMMARY`：`{yesterday_summary_path}`
+  - `CURRENT_RECORD`：`{detail_path}`
+  - `CURRENT_REMINDER`：`{reminder_path}`
 
   # 注意事项
   - 采集文件包含敏感信息时，可删除该文件，也不要将敏感值写入日记、记忆或提醒。
@@ -36,120 +48,92 @@ system_prompt_zh: |
 
   {sleep_reminder_rule}
 
-query: |
-  # Inputs
-
-  Current time: {now}
-
+query_record: |
   {input_content}
 
-  # File locations
+  Read TASK_MEMORY to understand the task, confirmed background, user preferences and reminder requirements.
+  [new_day] Read YESTERDAY_SUMMARY if it exists to carry forward progress, generated reminders and pending follow-ups.
+  [same_day] Read TODAY_SUMMARY and YESTERDAY_SUMMARY if they exist to rebuild context from current progress, generated reminders and pending follow-ups.
+  [cron] Execute the task for this round's trigger times. Use web_search and web_extract as needed to verify information and retain source URLs.
+  [proactive] Read the available original files referenced by this round's events, including images. Without attached files, use the event descriptions. If required information is unavailable, report the failure rather than treating it as no new information.
+  Compare this round's findings with the summaries already read. New facts, material changes, task progress and reminders that have become due all count as new information.
+  Always create CURRENT_RECORD. When there is new information, set frontmatter action: write. Use Markdown: summarize the findings, explain facts, changes and necessary sources, then describe implications or next steps. Otherwise, set action: skip and briefly explain why in the body.
+  Write concisely and completely in plain language. In this stage, write only CURRENT_RECORD and briefly describe the outcome when finished.
 
-  The names below refer to file or directory paths. Use these names directly in the workflow.
-
-  - `TASK_MEMORY`: `{memory_path}`
-  - `DAILY_DIR`: `{daily_dir}`
-  - `TODAY_SUMMARY`: `{summary_path}`
-  - `YESTERDAY_SUMMARY`: `{yesterday_summary_path}`
-  - `CURRENT_RECORD`: `{detail_path}`
-  - `CURRENT_REMINDER`: `{reminder_path}`
-
-  # Workflow
-
-  1. Read `TASK_MEMORY` to understand the task, confirmed background, user preferences and reminder requirements.
-  [new_day] 2. Read `YESTERDAY_SUMMARY` if it exists, carrying forward relevant background, progress, generated reminders and pending follow-ups.
-  [same_day] 2. Read `TODAY_SUMMARY` and `YESTERDAY_SUMMARY` if they exist. Rebuild context from the current state, progress across days, generated reminders and pending follow-ups.
-  [cron] 3. Execute the task for this round's trigger times. Use web_search and web_extract as needed to find and verify sources, read saved files and retain source URLs.
-  [event] 3. Read the available original files referenced by this round's events, including images. Without available files, use the event descriptions and remaining information.
-  4. Compare this round's findings with the summaries already read and write only new facts, material changes and necessary sources to `CURRENT_RECORD`. Use Markdown: summarize the new findings, present facts, changes and sources in points, then explain implications or next steps. Write in plain language, keeping the content concise and complete.
-  5. Search `DAILY_DIR` for history relevant to this round's new information using keywords or regular expressions, at most 5 times in total. Add necessary background, record links, an event timeline and brief evidence-based reasoning to `CURRENT_RECORD`. Distinguish facts from inferences; do not copy whole passages from earlier records.
-  6. Decide whether `CURRENT_RECORD` warrants a reminder under `TASK_MEMORY` and the reminder policy; explicit requirements in `TASK_MEMORY` take precedence. Check the summaries already read and retrieved history for repetition. Skip previously reminded information without material changes and content the user has explicitly asked not to receive. For the same item, remind only about new developments.
-  7. If a reminder is needed, create `CURRENT_REMINDER` with frontmatter priority P0, P1 or P2. Write the body as a single concise, natural and considerate sentence in plain language, describing the new development and any necessary action or timing. Keep file paths, detailed background and evidence in `CURRENT_RECORD`. Otherwise, do not create the reminder file.
-  [new_day] 8. Use this round's context and any summaries already read to generate today's complete summary and save it to `TODAY_SUMMARY`.
-  [same_day] 8. Use `TODAY_SUMMARY`, this round's context and `YESTERDAY_SUMMARY` if already read to regenerate today's complete summary and overwrite `TODAY_SUMMARY`. If there is nothing new, you may leave it unchanged.
-  Follow the example to concisely and comprehensively summarize today's records, progress, generated reminders and pending follow-ups. Merge entries about the same item, update outdated state and retain necessary record links so the next round can rebuild context, record new developments and avoid duplicate reminders. Save only the complete, up-to-date summary and progress for today. In this step, use only the tools needed to write `TODAY_SUMMARY`, and no others.
-
-  # Daily summary example
-
-  Illustrative format only; use the actual subjects, findings and file links.
-
-  ```markdown
-  ## Today's records
-  - Experiment A: training finished; evaluation accuracy is 92%, with two failed cases to investigate. [Training](experiment_090000.md) [Evaluation](experiment_110000.md)
-  - Experiment B: training started and is running normally. [Record](experiment_100000.md)
-
-  ## Today's reminders
-  - Experiment A: generated reminders for training completion and the 92% evaluation result.
-  ```
-
-query_zh: |
-  # 本轮输入
-
-  当前时间：{now}
-
+query_record_zh: |
   {input_content}
 
-  # 文件位置
+  阅读 TASK_MEMORY，明确任务、已确认背景、用户偏好和提醒要求。
+  [new_day] 阅读已存在的 YESTERDAY_SUMMARY，衔接已有进展、已生成提醒和待跟进事项；不存在则跳过。
+  [same_day] 阅读已存在的 TODAY_SUMMARY 和 YESTERDAY_SUMMARY，结合当前进展、已生成提醒和待跟进事项重建上下文。
+  [cron] 按本轮触发时间执行任务，按需使用 web_search、web_extract 核实资料并保留来源 URL。
+  [proactive] 阅读本轮事件引用的可用原始文件，包括图片；无附件时依据事件描述处理。缺少完成任务所需的关键资料时，应报告失败，不能当作没有新增信息。
+  对照已读总结，判断本轮是否有新增信息，包括新增事实、实质变化、任务进展，以及到期或条件满足的提醒事项。
+  必须创建 CURRENT_RECORD。有新增时，frontmatter 设置 action: write，采用 Markdown 总分总结构：概括新增发现，说明事实、变化和必要来源，最后说明影响或下一步。没有新增时，设置 action: skip，正文简述原因。
+  使用简洁、完整的大白话。本阶段只写 CURRENT_RECORD，结束时简述处理结果。
 
-  以下名称均为文件或目录的路径别名，执行步骤中直接使用这些名称。
+query_update: |
+  Search DAILY_DIR for history relevant to the new information in CURRENT_RECORD, using keywords or regular expressions, at most 5 times in total. Ignore records with frontmatter action: skip.
+  When useful related information exists, add necessary background, record links, an event timeline and brief evidence-based reasoning to CURRENT_RECORD. Distinguish facts from inferences; do not copy whole passages from earlier records.
+  If no relevant history or useful additions are found, leave the file unchanged. Preserve frontmatter action: write.
+  Write concisely and completely in plain language. In this stage, write only CURRENT_RECORD and briefly describe the changes or why it was left unchanged.
 
-  - `TASK_MEMORY`：`{memory_path}`
-  - `DAILY_DIR`：`{daily_dir}`
-  - `TODAY_SUMMARY`：`{summary_path}`
-  - `YESTERDAY_SUMMARY`：`{yesterday_summary_path}`
-  - `CURRENT_RECORD`：`{detail_path}`
-  - `CURRENT_REMINDER`：`{reminder_path}`
+query_update_zh: |
+  围绕 CURRENT_RECORD 的新增内容，在 DAILY_DIR 中用关键词或正则检索相关历史，总计不超过 5 次，忽略 frontmatter 为 action: skip 的记录。
+  有值得补充的关联信息时，将必要背景、记录链接、事件时间线和基于证据的简要推理补充到 CURRENT_RECORD，区分事实与推测，不搬录整段旧记录。
+  没有相关历史，或没有值得补充的内容时，保持文件原样。保留 frontmatter action: write。
+  使用简洁、完整的大白话。本阶段只写 CURRENT_RECORD，结束时简述补充内容或未修改的原因。
 
-  # 执行步骤
+query_reminder: |
+  Decide whether CURRENT_RECORD warrants a reminder under TASK_MEMORY and the reminder policy; explicit requirements in task memory take precedence.
+  Check the summaries and retrieved history already read for repetition. Skip previously reminded information without material changes and content the user does not want. For the same item, remind only about new developments.
+  Always create CURRENT_REMINDER. If a reminder is needed, set frontmatter action: write and priority: P0, P1 or P2. Write one concise, natural and considerate sentence describing the new development and any necessary action or timing. Keep file paths, detailed background and evidence in CURRENT_RECORD.
+  Otherwise, set frontmatter action: skip and briefly explain why in the body.
+  In this stage, write only CURRENT_REMINDER and briefly describe the outcome when finished.
 
-  1. 阅读 `TASK_MEMORY`，明确任务、已确认背景、用户偏好和提醒要求。
-  [new_day] 2. 阅读已存在的 `YESTERDAY_SUMMARY`，衔接相关背景、已有进展、已生成提醒和待跟进事项；不存在则跳过。
-  [same_day] 2. 分别阅读已存在的 `TODAY_SUMMARY` 和 `YESTERDAY_SUMMARY`，结合当前状态、跨天进展、已生成提醒和待跟进事项重建上下文。
-  [cron] 3. 按本轮触发时间执行任务，按需使用 web_search、web_extract 查找和核实资料，阅读保存的文件并保留来源 URL。
-  [event] 3. 阅读本轮事件引用的可用原始文件，包括查看图片；无可用文件时，依据事件描述和现有信息处理。
-  4. 对照已读总结，仅将新增事实、实质变化和必要来源写入 `CURRENT_RECORD`。采用 Markdown 总分总结构：概括新增发现，分点说明事实、变化和来源，最后说明影响或下一步。使用简洁、完整的大白话。
-  5. 围绕本轮增量，在 `DAILY_DIR` 中用关键词或正则检索相关历史，总计不超过 5 次。将必要背景、记录链接、事件时间线和基于证据的简要推理补充到 `CURRENT_RECORD`，区分事实与推测，不搬录整段旧记录。
-  6. 依据 `TASK_MEMORY` 和提醒规则，判断 `CURRENT_RECORD` 是否需要提醒，优先遵守 `TASK_MEMORY` 中的明确要求。结合已读总结和检索结果去重，跳过已提醒且无实质变化的信息，以及用户明确不希望接收的内容；同一事项只提醒新增变化。
-  7. 需要提醒时，创建 `CURRENT_REMINDER`，frontmatter 设置 priority 为 P0、P1 或 P2，正文只写一句简洁、自然、体贴的大白话，说明新变化及必要的行动或时间要求。文件路径、详细背景和证据留在 `CURRENT_RECORD` 中；不需要提醒时，不创建该文件。
-  [new_day] 8. 根据本轮上下文和已读取的总结（如有），生成当天的完整总结，写入 `TODAY_SUMMARY`。
-  [same_day] 8. 根据 `TODAY_SUMMARY`、本轮上下文及已读取的 `YESTERDAY_SUMMARY`（如有），重新生成完整的当日总结，覆盖保存到 `TODAY_SUMMARY`；没有新增内容时，可以不更新。
-  参照示例，简洁、全面地归纳今天的日记、进展、已生成提醒和待跟进事项，合并同一事项，更新过时状态并保留必要记录链接，供下一轮重建上下文、增量记录和提醒去重。只保存当前完整的当日总结和进度。这一步骤仅使用写入 `TODAY_SUMMARY` 所需的工具，不使用其他工具。
+query_reminder_zh: |
+  依据 TASK_MEMORY 和提醒规则，判断 CURRENT_RECORD 是否需要提醒，优先遵守任务记忆中的明确要求。
+  结合已读总结和检索结果去重，跳过已提醒且无实质变化的信息，以及用户明确不希望接收的内容；同一事项只提醒新增变化。
+  必须创建 CURRENT_REMINDER。需要提醒时，frontmatter 设置 action: write，priority 为 P0、P1 或 P2；正文只写一句简洁、自然、体贴的大白话，说明新变化及必要的行动或时间要求。文件路径、详细背景和证据留在 CURRENT_RECORD。
+  不需要提醒时，frontmatter 设置 action: skip，正文简述原因。
+  本阶段只写 CURRENT_REMINDER，结束时简述处理结果。
 
-  # 当天总结示例
+query_summary: |
+  Validated reminder action for this round: {reminder_action}.
 
-  以下仅示意格式，事项、结论和文件链接以实际记录为准。
+  Use this round's context, the summaries already read and the actual outcomes for CURRENT_RECORD and CURRENT_REMINDER to save a complete, up-to-date daily summary to TODAY_SUMMARY. Incorporate new records, progress, generated reminders and changed follow-ups. Merge entries about the same item, replace outdated state and retain necessary record links so the next round can rebuild context and avoid duplicate reminders. Ignore records and reminders with action: skip; a generated reminder does not mean it has been delivered.
+  If nothing needs incorporating, leave the summary unchanged; do not create it if absent. New records or reminders that need incorporating must be reflected in the summary.
+  Write concisely and completely in plain language. Use only the tools needed to save TODAY_SUMMARY, and briefly describe the changes or why it was left unchanged.
 
-  ```markdown
-  ## 今日日记
-  - 实验 A：训练完成，评估准确率 92%，有两个失败样本待分析。[训练](experiment_090000.md) [评估](experiment_110000.md)
-  - 实验 B：已启动训练，运行正常。[记录](experiment_100000.md)
+query_summary_zh: |
+  本轮经代码校验的提醒 action：{reminder_action}。
 
-  ## 今日提醒
-  - 实验 A：已生成训练完成提醒和准确率 92% 的评估结果提醒。
-  ```
+  根据本轮上下文、已读总结及 CURRENT_RECORD 和 CURRENT_REMINDER 的实际处理结果，将完整、最新的当天总结保存到 TODAY_SUMMARY。纳入新增记录、进展、已生成提醒和待跟进变化，合并同一事项，更新过时状态并保留必要记录链接，供下一轮重建上下文和避免重复提醒。忽略 action: skip 的记录和提醒；生成提醒不代表已经投递。
+  没有需要纳入的变化时，保持总结原样；原文件不存在时不创建。存在需要纳入的新记录或提醒时，必须更新总结。
+  使用简洁、完整的大白话。本阶段仅使用保存 TODAY_SUMMARY 所需的工具，结束时简述更新内容或未修改的原因。
 
 event_input: |
-  ## Event {number}
+  Event {number}
 
-  - Time: {event_ts}
-  - Source: {source}
-  - Description: {description}
-  [has_files] - File paths:
+  Time: {event_ts}
+  Source: {source}
+  Description: {description}
+  [has_files] File paths:
   [has_files] {paths}
-  [no_files] - No attached files; use the event description as input.
+  [no_files] No attached files; use the event description as input.
 
 event_input_zh: |
-  ## 事件 {number}
+  事件 {number}
 
-  - 时间：{event_ts}
-  - 来源：{source}
-  - 描述：{description}
-  [has_files] - 文件路径：
+  时间：{event_ts}
+  来源：{source}
+  描述：{description}
+  [has_files] 文件路径：
   [has_files] {paths}
-  [no_files] - 无附件，以事件描述作为输入。
+  [no_files] 无附件，以事件描述作为输入。
 
 cron_input: |
-  - Trigger time: {event_ts}
+  Trigger time: {event_ts}
 
 cron_input_zh: |
-  - 触发时间：{event_ts}
+  触发时间：{event_ts}

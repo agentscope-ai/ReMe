@@ -138,6 +138,16 @@ class BaseCodexAppServer(BaseComponent):
     async def read_session(self, session_id: str) -> SessionSnapshot:
         """Read native display history."""
 
+    @asynccontextmanager
+    @abstractmethod
+    async def append_lease(self, session_id: str) -> AsyncIterator[dict[str, SessionMessage]]:
+        """Serialize append receipts independently of generation and retain pending requests."""
+        yield
+
+    @abstractmethod
+    async def inject_items(self, session_id: str, items: list[dict[str, Any]]) -> None:
+        """Submit native history items without waiting for generation to finish."""
+
     @abstractmethod
     async def wait_idle(self, thread: AsyncThread) -> None:
         """Wait for the native operation while preserving session ownership."""

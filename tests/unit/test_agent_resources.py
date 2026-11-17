@@ -41,30 +41,30 @@ async def test_event_pages_are_ordered_isolated_snapshots_without_claiming_or_wr
 async def test_inbox_outbox_and_user_receipts_share_canonical_reminders_without_consuming(tmp_path):
     async with running_runtime(tmp_path) as (runtime, context, _):
         await create_agent(runtime)
-        await runtime.create({"name": "other", "trigger_type": "event", "description": "Other"})
+        await runtime.create({"agent_name": "other", "agent_type": "proactive", "task_memory": "Other"})
         await runtime.run("monitor", AsyncMock(return_value=completed_result(runtime)))
         task = AgentOutboxStep(app_context=context)
         inbox = AgentInboxStep(app_context=context)
         reminder = AgentReminderStep(app_context=context)
-        outgoing = (await task(agent_id="monitor")).answer["items"]
+        outgoing = (await task(agent_name="monitor")).answer["items"]
         assert len(outgoing) == 1 and outgoing[0]["delivered_at"] is None
         assert not (await inbox()).answer["items"]
         assert not runtime.notifications.pending
         with pytest.raises(ValueError, match="not found"):
-            await reminder(agent_id="other", message_id=outgoing[0]["id"], mark_read=True)
+            await reminder(agent_name="other", message_id=outgoing[0]["id"], mark_read=True)
         await runtime.outbox.sync()
         incoming = (await inbox()).answer["items"]
-        assert incoming[0]["reminder"] == (await task(agent_id="monitor")).answer["items"][0]
+        assert incoming[0]["reminder"] == (await task(agent_name="monitor")).answer["items"][0]
         identifier = incoming[0]["event"]["id"]
         read = (await reminder(message_id=identifier, mark_read=True)).answer
-        assert read == (await task(agent_id="monitor")).answer["items"][0]
+        assert read == (await task(agent_name="monitor")).answer["items"][0]
         assert read["user_read_at"] and read["read_at"] is None and identifier in runtime.notifications.pending
         await runtime.notifications.consume([identifier])
         assert not (await inbox(state="pending")).answer["items"]
         assert (await inbox(state="processed")).answer["items"][0]["event"]["id"] == identifier
-        assert (await task(agent_id="monitor", state="processed")).answer["items"][0]["user_read_at"]
+        assert (await task(agent_name="monitor", state="processed")).answer["items"][0]["user_read_at"]
         with pytest.raises(PermissionError):
-            await task(RuntimeContext(_allowed_paths=["daily"]), agent_id="monitor")
+            await task(RuntimeContext(_allowed_paths=["daily"]), agent_name="monitor")
         with pytest.raises(ValueError):
             await task(kind="instruction")
 
@@ -75,15 +75,15 @@ async def test_inbox_endpoint_accepts_chat_and_tasks_and_preserves_processing_st
         await create_agent(runtime)
         task = AgentInboxStep(app_context=context)
         assert (await task()).answer == {"items": [], "total": 0, "offset": 0, "limit": 20}
-        assert (await task(agent_id="monitor")).answer["items"][0]["state"] == "pending"
+        assert (await task(agent_name="monitor")).answer["items"][0]["state"] == "pending"
         assert (await runtime.status("monitor"))["pending_events"] == 1
         batch = await runtime.inbox.claim("monitor")
-        assert (await task(agent_id="monitor", state="processing")).answer["total"] == 1
+        assert (await task(agent_name="monitor", state="processing")).answer["total"] == 1
         await runtime.inbox.nack("monitor", batch["token"])
         with pytest.raises(ValueError):
-            await task(agent_id="missing")
+            await task(agent_name="missing")
         with pytest.raises(PermissionError):
-            await task(RuntimeContext(_allowed_paths=["daily"]), agent_id="monitor")
+            await task(RuntimeContext(_allowed_paths=["daily"]), agent_name="monitor")
 
 
 @pytest.mark.parametrize(
@@ -92,7 +92,7 @@ async def test_inbox_endpoint_accepts_chat_and_tasks_and_preserves_processing_st
         (AgentInboxRequest, {"limit": 101}),
         (AgentInboxRequest, {"offset": True}),
         (AgentOutboxRequest, {}),
-        (AgentOutboxRequest, {"agent_id": "monitor", "mark_read": True}),
+        (AgentOutboxRequest, {"agent_name": "monitor", "mark_read": True}),
         (AgentReminderRequest, {}),
         (AgentReminderRequest, {"message_id": "id", "state": "all"}),
         (AgentReminderRequest, {"message_id": "id", "action": "read"}),

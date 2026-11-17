@@ -26,17 +26,17 @@ export default function AgentResources({
   inbox: boolean;
 }) {
   const t = translator(state.settings.language);
-  const agentId = state.selectedAgentId ?? "chat";
+  const agentName = state.selectedAgentName ?? "Remy";
   const [offset, setOffset] = useState(0);
   const [filter, setFilter] = useState<EventState>("all");
   const [selected, setSelected] = useState("");
   const [focusedMail, setFocusedMail] = useState<AgentMail>();
   const [readError, setReadError] = useState<unknown>(null);
   const request: WorkspaceRequest = inbox
-    ? { type: "inbox", agentId, offset, state: filter }
+    ? { type: "inbox", agentName, offset, state: filter }
     : {
         type: "outbox",
-        agentId,
+        agentName,
         offset,
         state: filter === "processing" ? "pending" : filter,
       };
@@ -51,10 +51,10 @@ export default function AgentResources({
   useEffect(() => {
     if (
       state.focusTarget?.kind === "mail" &&
-      state.focusTarget.agentId === agentId
+      state.focusTarget.agentName === agentName
     )
       setSelected(state.focusTarget.id);
-  }, [state.focusTarget, state.focusRequest, agentId, inbox]);
+  }, [state.focusTarget, state.focusRequest, agentName, inbox]);
   useEffect(() => {
     if (page && offset && offset >= page.total)
       setOffset(Math.max(0, Math.ceil(page.total / 20) - 1) * 20);
@@ -69,12 +69,16 @@ export default function AgentResources({
       !selected ||
       !page ||
       state.activePage !== "remy" ||
-      (inbox && agentId !== "chat") ||
+      (inbox && agentName !== "Remy") ||
       Boolean(listed)
     )
       return;
     let live = true;
-    void requestResource<AgentMail>({ type: "reminder", agentId, id: selected })
+    void requestResource<AgentMail>({
+      type: "reminder",
+      agentName,
+      id: selected,
+    })
       .then((value) => {
         if (live) setFocusedMail(value);
       })
@@ -87,7 +91,7 @@ export default function AgentResources({
   }, [
     inbox,
     selected,
-    agentId,
+    agentName,
     Boolean(listed),
     Boolean(page),
     state.activePage,
@@ -109,7 +113,7 @@ export default function AgentResources({
     const receipt = watchReadReceipt(async () => {
       await requestResource({
         type: "reminder",
-        agentId,
+        agentName,
         id: mail.id,
         markRead: true,
       });
@@ -119,7 +123,7 @@ export default function AgentResources({
   }, [
     mail?.id,
     mail?.user_read_at,
-    agentId,
+    agentName,
     state.chatVisible,
     state.chatFocused,
     state.activePage,
@@ -220,13 +224,13 @@ export default function AgentResources({
                 : "pending";
           return {
             id: mail.id,
-            title: mail.from_agent_id,
+            title: mail.from_agent_name,
             preview: plainText(mail.message),
             time: mail.created_at,
             badge: `${mail.priority} · ${stateLabel(status)}`,
             unread: !mail.user_read_at,
             state: status,
-            target: { kind: "mail" as const, agentId, id: mail.id },
+            target: { kind: "mail" as const, agentName, id: mail.id },
           };
         })}
       >
@@ -273,12 +277,12 @@ export default function AgentResources({
                 status: null,
               }}
               sourcePath={item.paths[0]}
-              target={{ kind: "mail", agentId, id: item.id }}
+              target={{ kind: "mail", agentName, id: item.id }}
             >
               <div className="mail-receipts">
                 <span className="priority-pill">{item.priority}</span>
                 <span>
-                  {t("fromAgent")} {item.from_agent_id}
+                  {t("fromAgent")} {item.from_agent_name}
                 </span>
                 <span>
                   {t(item.delivered_at ? "mailDelivered" : "mailWaiting")}

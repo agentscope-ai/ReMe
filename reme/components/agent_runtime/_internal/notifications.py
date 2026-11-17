@@ -1,7 +1,7 @@
 """Chat reminder scheduling and disposable-fork decisions over the shared Inbox component."""
 
 import asyncio
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 from dataclasses import dataclass, field
 from datetime import timedelta
 from hashlib import sha256
@@ -21,6 +21,8 @@ class InboxTurn:
     msg_ids: tuple[str, ...]
     chat_revision: int = 0
     session_revision: str | None = None
+    session_turn_id: str | None = None
+    active_delivery: bool = False
     id: str = field(default_factory=lambda: uuid4().hex)
     items: list[dict] | None = None
     content: str | None = None
@@ -98,7 +100,7 @@ class ChatNotifications:
                 "items": [
                     {
                         **outbox.records[ref].model_dump(mode="json"),
-                        "from_agent_id": outbox.owners[ref],
+                        "from_agent_name": outbox.owners[ref],
                         "reminder_path": ref.file,
                     }
                     for ref in refs
@@ -134,25 +136,31 @@ class ChatNotifications:
             )
         if not selected:
             raise ValueError("no pending messages at the selected priority")
-        batch = await self.runtime.inbox.claim("chat", item_ids=list(selected))
+        batch = await self.runtime.inbox.claim("Remy", item_ids=list(selected))
         if batch is None:
             raise RuntimeError("Chat inbox is already being processed")
         try:
             selected = tuple(item["id"] for item in batch["items"])
-            revision = (await self.runtime.agent_wrapper.read_session(session_id)).revision
+            snapshot = await self.runtime.agent_wrapper.read_session(session_id)
             turn = InboxTurn(
                 session_id,
                 priority,
                 selected,
                 chat_revision=self.chat_revision,
-                session_revision=revision,
+                session_revision=snapshot.revision,
+                session_turn_id=snapshot.last_turn_id,
+                active_delivery=(
+                    priority == "P0"
+                    and self.runtime.agent_wrapper.supports_active_append
+                    and snapshot.state.status == "active"
+                ),
             )
             self.active_turn = turn
             yield turn
         finally:
             self.active_turn = None
             try:
-                await finish_cleanup(self.runtime.inbox.nack("chat", batch["token"]))
+                await finish_cleanup(self.runtime.inbox.nack("Remy", batch["token"]))
             except ValueError:
                 pass
 
@@ -183,8 +191,8 @@ class ChatNotifications:
                 raise ValueError("the reminder decision has already been submitted")
             turn.content = content
             if not turn.done:
-                async with self.runtime.chat_lock:
-                    current = await self.runtime.sessions.current("chat")
+                async with nullcontext() if turn.active_delivery else self.runtime.chat_lock:
+                    current = await self.runtime.sessions.current("Remy")
                     if self.runtime.closed or current is None or current.session_id != turn.session_id:
                         raise RuntimeError("Chat session changed; retry the reminders in the current conversation")
                     if self.chat_revision != turn.chat_revision:
@@ -225,9 +233,17 @@ class ChatNotifications:
                                 content,
                                 message_id=turn.message_id,
                                 role="assistant",
-                                expected_revision=turn.session_revision,
+                                expected_turn_id=turn.session_turn_id if turn.active_delivery else None,
+                                expected_revision=None if turn.active_delivery else turn.session_revision,
                                 delivery="immediate" if turn.priority == "P0" else "idle",
                             )
+                        current = await self.runtime.sessions.current("Remy")
+                        if (
+                            current is None
+                            or current.session_id != turn.session_id
+                            or self.chat_revision != turn.chat_revision
+                        ):
+                            raise RuntimeError("Chat conversation changed during delivery; reassess reminders")
                         await self.consume([item["id"] for item in turn.items])
                         turn.done = True
 

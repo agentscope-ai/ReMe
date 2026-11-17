@@ -10,7 +10,7 @@ class BaseChatAgentStep(BaseAgentStep):
     def session_options(self):
         """Build the shared Chat prompt, memory path and tool bindings."""
         runtime = self.agent_runtime
-        memory = runtime.agents.path("chat") / "MEMORY.md"
+        memory = runtime.agents.path("Remy") / "MEMORY.md"
         return {
             **self.web_options(True),
             "system_prompt": self.prompt_format(
@@ -19,13 +19,13 @@ class BaseChatAgentStep(BaseAgentStep):
                 memory_path=memory,
             ),
             "job_tools": self.kwargs.get("job_tools", []),
-            "injected_job_kwargs": {"_agent_id": "chat"},
+            "injected_job_kwargs": {"_agent_name": "Remy"},
         }
 
     async def ensure_session(self, options, *, new=False):
         """Select the current Chat session or create a fresh one with the same bindings."""
         runtime = self.agent_runtime
-        return await runtime.sessions.ensure("chat", runtime.agent_wrapper, options, runtime.now(), new=new)
+        return await runtime.sessions.ensure("Remy", runtime.agent_wrapper, options, runtime.now(), new=new)
 
 
 @R.register("chat_agent_step")
@@ -40,7 +40,7 @@ class ChatAgentStep(BaseChatAgentStep):
         async with self.agent_runtime.chat_turn():
             options = self.session_options()
             session_id = await self.ensure_session(options)
-            await self.stream_reply(arguments["query"], session_id=session_id, agent_id="chat", **options)
+            await self.stream_reply(arguments["query"], session_id=session_id, agent_name="Remy", **options)
         return self.context.response
 
 
@@ -56,7 +56,7 @@ class NewChatSessionStep(BaseChatAgentStep):
             raise RuntimeError("Chat Agent is busy; retry new_chat_session after its turn completes")
         async with self.agent_runtime.chat_turn():
             await self.ensure_session(self.session_options(), new=True)
-        self.context.response.answer = {"agent_id": "chat", "created": True}
+        self.context.response.answer = {"agent_name": "Remy", "created": True}
         return self.context.response
 
 
@@ -68,6 +68,6 @@ class ListChatSessionsStep(BaseAgentStep):
         arguments = self.parameters()
         if set(arguments) - {"offset", "limit"}:
             raise ValueError("list_chat_sessions accepts only offset and limit")
-        self.require_paths(self.agent_runtime.agents.path("chat"))
+        self.require_paths(self.agent_runtime.agents.path("Remy"))
         self.context.response.answer = await self.agent_runtime.list_chat_sessions(**arguments)
         return self.context.response

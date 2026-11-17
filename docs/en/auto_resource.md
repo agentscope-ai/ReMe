@@ -69,7 +69,7 @@ Permanent material should remain in user-controlled workspace paths.
 ## Scheduled Screen Capture
 
 `config=proactive` includes an opt-in `screen_capture_cron` job. Create an event agent first, configure
-`jobs.screen_capture_cron.agent_id` with its ID, and set `jobs.screen_capture_cron.enabled=true` before restarting.
+`jobs.screen_capture_cron.agent_name` with its ID, and set `jobs.screen_capture_cron.enabled=true` before restarting.
 It captures every five minutes in the application timezone, without a startup capture.
 
 `BaseConnectorStep` writes payloads directly to their resource directory and atomically writes `metadata.json` last;
@@ -134,8 +134,8 @@ Start the service in one terminal with `reme start config=proactive`. Initial Ag
 only once. For a workspace whose finance Agent still uses cron, run this in another terminal:
 
 ```bash
-reme manage_proactive_agent action=update name=finance trigger_type=event
-reme manage_proactive_agent action=status name=finance
+reme manage_proactive_agent action=update agent_name=finance agent_type=proactive
+reme manage_proactive_agent action=status agent_name=finance
 ```
 
 Use the returned `memory_path` to update its existing task and AI-news preferences; restarting does not overwrite memory.
@@ -151,9 +151,8 @@ so text search reaches image content through the caption.
 
 Image processing is enabled by default (`include_images=true`) and requires an AgentScope wrapper bound to a compatible
 model and formatter. Configure the model through `components.agent_wrapper.<name>.as_llm`, selecting the wrapper with
-`agent_wrapper` on the resource Step. The former image-Step `as_llm` override and automatic `as_llm.vision` selection
-are replaced by that binding. There is no separate caption model, schema-extraction call, or text-only retry after an
-agent failure. An agent workflow can make multiple model requests while using its tools.
+`agent_wrapper` on the resource Step. The Agent interprets the image through its configured model and tools;
+a workflow can make multiple model requests.
 
 Each image interpretation starts a new session. Use the returned `agent_session_id` to find its processing record;
 reprocessing the same image still updates the original card. The body should contain the image embed followed by a
@@ -161,9 +160,8 @@ description or transcription under `## Caption`, not an empty caption or a JSON 
 processing steps and keep its existing value when updating the card.
 
 Customize image instructions with `prompt_dict.resource_instructions` (`resource_instructions_zh` for Chinese).
-Rename existing `user_message` / `user_message_zh` settings accordingly.
-Shared create/update templates insert these instructions at `{resource_instructions}`; older templates
-without the placeholder receive them at the end.
+Shared create/update templates insert these instructions at `{resource_instructions}`;
+when the placeholder is omitted, the instructions are appended.
 
 Set `include_images=false` on an `auto_resource` call or as a Job default to skip **all** image events, including
 deletions. Call-time values override Job defaults; when neither is set, image processing is enabled. For the watcher, use

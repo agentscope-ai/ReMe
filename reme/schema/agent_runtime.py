@@ -15,7 +15,7 @@ from pydantic import (
 from .event import Event
 
 
-def validate_agent_id(value: str) -> str:
+def validate_agent_name(value: str) -> str:
     """Keep application identities portable as workspace directory names."""
     reserved = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
     valid_length = isinstance(value, str) and 1 <= len(value) <= 80
@@ -25,11 +25,12 @@ def validate_agent_id(value: str) -> str:
         or not re.fullmatch(r"[\w-]+", value)
         or value.upper() in reserved
     ):
-        raise ValueError("agent_id must contain only letters, numbers, underscores or hyphens")
+        raise ValueError("agent_name must contain only letters, numbers, underscores or hyphens")
     return value
 
 
-AgentId = Annotated[str, Field(min_length=1, max_length=80, pattern=r"^[\w-]+$"), AfterValidator(validate_agent_id)]
+AgentName = Annotated[str, Field(min_length=1, max_length=80, pattern=r"^[\w-]+$"), AfterValidator(validate_agent_name)]
+AgentType = Literal["chat", "proactive", "cron"]
 InboxMessageId = Annotated[str, Field(pattern=r"^[a-zA-Z0-9_-]{1,128}$")]
 InboxPriority = Literal["P0", "P1", "P2"]
 
@@ -68,7 +69,7 @@ class CreateChatAgentConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    description: str = Field(default="", max_length=100000)
+    task_memory: str = Field(default="", max_length=100000)
 
 
 class ChatAgentConfig(BaseModel):
@@ -76,8 +77,8 @@ class ChatAgentConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    name: Literal["chat"] = "chat"
-    type: Literal["chat"] = "chat"
+    agent_name: Literal["Remy"] = "Remy"
+    agent_type: Literal["chat"] = "chat"
     temporary: Literal[False] = False
     created_at: AwareDatetime
 

@@ -4,7 +4,6 @@ from contextlib import aclosing
 
 from .base import BaseAgentStep
 from .chat import ChatAgentStep, NewChatSessionStep
-from .proactive import ProactiveAgentStep
 from ....components import R
 from ....enumeration import ChunkEnum
 from ....schema import StreamChunk
@@ -28,8 +27,8 @@ class _AgentViewStep(BaseAgentStep):
 
     async def chat_call(self, step_class):
         """Reuse the chat job while preserving the caller's shared runtime inputs."""
-        supplied = "agent_id" in self.context.data
-        agent_id = self.context.data.pop("agent_id", None)
+        supplied = "agent_name" in self.context.data
+        agent_name = self.context.data.pop("agent_name", None)
         try:
             return await step_class(
                 app_context=self.app_context,
@@ -37,7 +36,7 @@ class _AgentViewStep(BaseAgentStep):
             )(self.context)
         finally:
             if supplied:
-                self.context.data["agent_id"] = agent_id
+                self.context.data["agent_name"] = agent_name
 
 
 @R.register("agent_list_step")
@@ -58,7 +57,7 @@ class AgentSessionStep(_AgentViewStep):
 
     async def execute(self):
         request = self.request()
-        self.context.response.answer = await self.agent_runtime.read_agent(request.agent_id)
+        self.context.response.answer = await self.agent_runtime.read_agent(request.agent_name)
         return self.context.response
 
 
@@ -68,7 +67,7 @@ class AgentEventsStep(_AgentViewStep):
 
     async def execute(self):
         request = self.request()
-        async with aclosing(self.agent_runtime.watch_agent(request.agent_id)) as events:
+        async with aclosing(self.agent_runtime.watch_agent(request.agent_name)) as events:
             async for event in events:
                 await self.context.add_stream_chunk(StreamChunk(chunk_type=ChunkEnum.DATA, chunk=event))
         return self.context.response
@@ -76,45 +75,31 @@ class AgentEventsStep(_AgentViewStep):
 
 @R.register("agent_chat_step")
 class AgentChatStep(_AgentViewStep):
-    """Continue formal sessions without consuming event batches or creating query forks."""
+    """Continue Chat or ask a read-only fork of the latest task session."""
 
     async def execute(self):
         request = self.request(AgentChatRequest)
         if not request.query.strip():
             raise ValueError("query must not be blank")
-        if request.agent_id == "chat":
+        if request.agent_name == "Remy":
             return await self.chat_call(ChatAgentStep)
-        runtime = self.agent_runtime
-        async with runtime.agent_turn(request.agent_id):
-            agent = await runtime.definition(request.agent_id)
-            step = ProactiveAgentStep(app_context=self.app_context, agent_runtime=runtime)
-            options = step.session_options(agent)
-            session_id = await runtime.sessions.ensure(agent.agent_id, runtime.agent_wrapper, options, runtime.now())
-            await self.stream_reply(request.query, session_id=session_id, agent_id=agent.agent_id, **options)
+        reply = await self.query_reply(request.agent_name, request.query)
+        self.context.response.success = reply["status"] == "completed" and self.context.stream_error is None
+        self.context.response.answer = reply["result"]
+        self.context.response.metadata.update(reply, agent_name=request.agent_name)
         return self.context.response
 
 
 @R.register("agent_new_session_step")
 class AgentNewSessionStep(_AgentViewStep):
-    """Select an empty formal session while preserving all earlier references."""
+    """Start a fresh main Chat session while retaining earlier history."""
 
     async def execute(self):
-        request = self.request()
-        runtime = self.agent_runtime
-        if request.agent_id == "chat":
-            await self.chat_call(NewChatSessionStep)
-        else:
-            async with runtime.agent_turn(request.agent_id):
-                agent = await runtime.definition(request.agent_id)
-                options = ProactiveAgentStep(app_context=self.app_context, agent_runtime=runtime).session_options(agent)
-                await runtime.sessions.ensure(
-                    agent.agent_id,
-                    runtime.agent_wrapper,
-                    options,
-                    runtime.now(),
-                    new=True,
-                )
-        self.context.response.answer = await runtime.read_agent(request.agent_id)
+        if self.parameters():
+            raise ValueError("agent_new_session accepts no arguments")
+        self.require_paths(self.workspace_path)
+        await self.chat_call(NewChatSessionStep)
+        self.context.response.answer = await self.agent_runtime.read_agent("Remy")
         return self.context.response
 
 

@@ -273,7 +273,7 @@ async def test_invalid_source_fails_before_collection(tmp_path, source):
 async def test_event_ids_include_source_and_date_and_are_retry_stable(tmp_path):
     runtime = Mock(spec=BaseAgentRuntime)
     runtime.files = AgentFiles(tmp_path)
-    runtime.definition = AsyncMock(return_value=SimpleNamespace(trigger_type="event"))
+    runtime.definition = AsyncMock(return_value=SimpleNamespace(agent_type="proactive"))
     runtime.append = AsyncMock(return_value={})
     step = ResourceEventStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)), agent_runtime=runtime)
     paths = [
@@ -295,7 +295,7 @@ async def test_event_ids_include_source_and_date_and_are_retry_stable(tmp_path):
         )
         manifest = f"{package}/metadata.json"
         (tmp_path / manifest).write_text(metadata.model_dump_json())
-        await step(agent_id="observer", resource={"path": manifest})
+        await step(agent_name="observer", resource={"path": manifest})
         event = runtime.append.call_args.args[1]
         assert event.paths == [manifest, f"{package}/1.png"]
     ids = [call.args[1].id for call in runtime.append.call_args_list]

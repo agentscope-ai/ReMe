@@ -19,9 +19,11 @@ export default function Remy({
   collapsed?: boolean;
 }) {
   const t = translator(state.settings.language);
-  const selected = state.selectedAgentId ?? "chat";
-  const agent = state.agents?.find((item) => item.agent_id === selected);
-  const [sections, setSections] = useState<Record<string, AgentSection>>({});
+  const selected = state.selectedAgentName ?? "Remy";
+  const agent = state.agents?.find((item) => item.agent_name === selected);
+  const [sections, setSections] = useState<
+    Partial<Record<string, AgentSection>>
+  >({});
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [error, setError] = useState<unknown>(null);
   const scope = `${state.settings.endpoint}:${state.workspace}`;
@@ -39,7 +41,7 @@ export default function Remy({
       ...value,
       [selected]:
         state.focusTarget?.kind === "mail"
-          ? selected === "chat"
+          ? selected === "Remy"
             ? "inbox"
             : "outbox"
           : state.focusTarget?.kind === "message"
@@ -47,13 +49,13 @@ export default function Remy({
             : "chat",
     }));
   }, [state.focusRequest, state.focusTarget]);
-  const select = (agentId: string, value: AgentSection) => {
+  const select = (agentName: string, value: AgentSection) => {
     setError(null);
-    setSections((current) => ({ ...current, [agentId]: value }));
-    if (agentId !== selected)
-      void action({ type: "agent.select", agentId }).catch(setError);
+    setSections((current) => ({ ...current, [agentName]: value }));
+    if (agentName !== selected)
+      void action({ type: "agent.select", agentName }).catch(setError);
   };
-  const name = agent?.name ?? (selected === "chat" ? "Remy" : selected);
+  const name = agent?.agent_name ?? selected;
   const title =
     section === "chat"
       ? name
@@ -128,7 +130,7 @@ export default function Remy({
           {section === "memory" && agent && (
             <AgentMemory state={state} path={agent.memory_path} />
           )}
-          {section === "reminders" && selected === "chat" && (
+          {section === "reminders" && selected === "Remy" && (
             <Reminders state={state} />
           )}
           {(section === "outbox" || section === "inbox") && (

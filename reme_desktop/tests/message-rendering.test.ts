@@ -326,66 +326,47 @@ test("reasoning stays inside activity disclosure while prose, plans and completi
   }
 });
 
-test("a task send immediately replaces the previous round while Remy keeps its history", () => {
+test("task fork replies display independently of automatic history", () => {
   const model = modelFor(assistant);
   const pending: PendingTurn = {
-    id: "next",
-    sessionId: "session",
-    query: "新一轮输入",
+    id: "question",
+    sessionId: "query-fork",
+    turnId: "query-turn",
+    query: "当前进展？",
     streaming: true,
   };
+  let reply = reduceReply(emptyReply(), content("answer", "正在核实"));
   const task = () =>
     displayMessages(
-      { ...model, pending, replaceOnSend: true },
+      { sessionId: pending.sessionId, messages: [], pending, reply },
       undefined,
       "zh",
     );
   assert.deepEqual(
     task().map((message) => message.content),
-    ["新一轮输入", ""],
+    ["当前进展？", "正在核实"],
   );
+  assert.equal(task()[1].streaming, true);
   assert.equal(
-    displayMessages({ ...model, pending }, undefined, "zh")[0].id,
+    displayMessages({ ...model, pending: null }, undefined, "zh")[0].id,
     assistant.id,
   );
-  pending.turnId = "next-turn";
-  assert.deepEqual(
-    task().map((message) => message.content),
-    ["新一轮输入", ""],
-  );
-  pending.streaming = false;
-  pending.error = "执行失败";
-  const failed = task();
-  assert.equal(failed.length, 2);
-  assert.equal(failed[1].error, "执行失败");
-  model.snapshot({
-    session_id: "session",
-    state: { session_id: "session", status: "idle", active_flags: [] },
-    messages: [
-      {
-        ...assistant,
-        id: "new-user",
-        role: "user",
-        turn_id: "next-turn",
-        content: pending.query,
-        chunks: [],
-      },
-      {
-        ...assistant,
-        id: "new-answer",
-        turn_id: "next-turn",
-        content: "新一轮结果",
-        chunks: [content("answer", "新一轮结果")],
-      },
-    ],
+  reply = reduceReply(reply, {
+    chunk_type: "reply_end",
+    status: "completed",
+    chunk: { result: "已确认进展" },
   });
+  pending.streaming = false;
+  pending.outcome = "completed";
+  assert.equal(task()[1].content, "已确认进展");
+  assert.equal(task()[1].completed, true);
+  assert.equal(task()[1].streaming, false);
+  pending.outcome = "interrupted";
+  pending.error = "查询已停止";
+  assert.equal(task()[1].error, "查询已停止");
   assert.deepEqual(
-    task().map((message) => message.id),
-    ["new-user", "new-answer"],
-  );
-  assert.deepEqual(
-    task().map((message) => message.content),
-    ["新一轮输入", "新一轮结果"],
+    model.messages.map((message) => message.id),
+    [assistant.id],
   );
 });
 

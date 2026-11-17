@@ -30,12 +30,12 @@ async def test_latest_foreground_instruction_invalidates_same_session_reminder(t
         async def reply(_hint, **options):
             bound = options["injected_job_kwargs"]
             await ReadInboxStep(app_context=context)(**bound)
-            before = await runtime.sessions.current("chat")
+            before = await runtime.sessions.current("Remy")
             await ChatAgentStep(app_context=context)(
                 RuntimeContext(stream_queue=asyncio.Queue()),
                 query="Cancel the reminder",
             )
-            assert (await runtime.sessions.current("chat")).session_id == before.session_id
+            assert (await runtime.sessions.current("Remy")).session_id == before.session_id
             await SendChatMessageStep(app_context=context)(content="Outdated decision", **bound)
 
         wrapper.reply = AsyncMock(side_effect=reply)
@@ -112,7 +112,7 @@ async def test_missing_reminder_isolated_across_restart_and_recovers_when_restor
         path = tmp_path / ref.file
         original = path.read_bytes()
         path.unlink()
-        await runtime.create({"name": "other", "trigger_type": "event", "description": "Other"})
+        await runtime.create({"agent_name": "other", "agent_type": "proactive", "task_memory": "Other"})
         await runtime.append(
             "other",
             {"id": "other", "event_ts": runtime.now(), "source": "test", "description": "Other"},
@@ -150,7 +150,7 @@ async def test_missing_result_blocks_temporary_collection_before_source_deletion
     async with running_runtime(tmp_path) as (runtime, _, _):
         start = runtime.now()
         await runtime.create(
-            {"name": "experiment", "description": "Observe", "trigger_type": "event", "temporary": True},
+            {"agent_name": "experiment", "task_memory": "Observe", "agent_type": "proactive", "temporary": True},
         )
         await runtime.append("experiment", {"event_ts": start, "source": "lab", "description": "Finished"})
         await runtime.run("experiment", AsyncMock(return_value=completed_result(runtime, "experiment")))
@@ -171,7 +171,7 @@ async def test_temporary_lifetime_survives_priority_consumption_and_restart(tmp_
         now = runtime.now()
         runtime.now = lambda: now - timedelta(days=8)
         await runtime.create(
-            {"name": "experiment", "description": "Observe", "trigger_type": "event", "temporary": True},
+            {"agent_name": "experiment", "task_memory": "Observe", "agent_type": "proactive", "temporary": True},
         )
         await runtime.append("experiment", {"id": "old", "event_ts": now, "source": "lab", "description": "Old"})
         recent = now - timedelta(days=1)
@@ -199,11 +199,13 @@ async def test_formal_sessions_allow_native_memory_file_updates(tmp_path):
     async with running_runtime(tmp_path) as (runtime, context, _):
         await create_agent(runtime)
         agent = await runtime.definition("monitor")
+        step = ProactiveAgentStep(app_context=context)
+        now = runtime.now()
         options = [
             ChatAgentStep(app_context=context).session_options(),
-            ProactiveAgentStep(app_context=context).session_options(agent),
+            step.session_options(agent, step._paths(agent, now), now),
         ]
-        for name, item in zip(("chat", "monitor"), options):
+        for name, item in zip(("Remy", "monitor"), options):
             assert "read_only_paths" not in item and "agent_memory" not in item["job_tools"]
             path = runtime.agents.path(name) / "MEMORY.md"
             path.write_text("Confirmed fact\n", encoding="utf-8")
@@ -245,7 +247,7 @@ async def test_proactive_timeout_releases_claim_and_preserves_inputs(tmp_path, p
         else:
             wrapper.reply_stream = never_finish
         with pytest.raises(TimeoutError):
-            await ProactiveAgentStep(app_context=context, timeout_seconds=0.01)(agent_id="monitor")
+            await ProactiveAgentStep(app_context=context, timeout_seconds=0.01)(agent_name="monitor")
         snapshot = await runtime.inbox.snapshot("monitor")
         assert snapshot["pending_count"] == 1 and snapshot["in_flight_count"] == 0
         assert not runtime.workers
@@ -289,6 +291,7 @@ async def test_canonical_acknowledgement_rebuilds_reference_views(tmp_path):
         assert ref.file.endswith(".md")
         assert document.content == "Experiment finished"
         assert set(document.metadata) == {
+            "action",
             "id",
             "created_at",
             "priority",

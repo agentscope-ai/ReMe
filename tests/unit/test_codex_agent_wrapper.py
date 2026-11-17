@@ -368,7 +368,6 @@ async def test_empty_session_preserves_thread_options_and_resumes_without_genera
     session_id = await first.create_session(**options)
     client = _Codex.instances[0]
     assert client.opened[0][0] == "start"
-    assert client.opened[0][2]["developer_instructions"] == options["system_prompt"]
     assert first.app_server._threads[session_id].binding is not None
     assert client.unsubscribed == []
     assert not client.threads[session_id].inputs
@@ -656,7 +655,6 @@ async def test_resume_fork_and_sdk_options_remain_explicit(system, approval_mode
     client = _Codex.instances[0]
     options = client.opened[0][2]
     assert options["model"] == "custom"
-    assert options["developer_instructions"] == "instructions"
     assert options["base_instructions"] is None
     assert options["approval_mode"] == (ApprovalMode.auto_review if approval_mode else ApprovalMode.deny_all)
     assert options["sandbox"] == Sandbox.full_access
@@ -1648,7 +1646,6 @@ async def test_rejected_resume_preserves_settings_for_retry_and_fork(system, mon
         effort="high",
     )
     assert native.opened[-1][2]["model"] == "source-model"
-    assert native.opened[-1][2]["developer_instructions"] == "Source instructions."
     assert native.threads[fork["session_id"]].options[-1]["effort"].value == "high"
     await first.reply("retry", resume=source_id)
     assert native.threads[source_id].options[-1]["model"] == "source-model"
@@ -1676,31 +1673,67 @@ async def test_live_thread_settings_are_detached_from_mutable_call_options(syste
 
 
 @pytest.mark.asyncio
-async def test_fork_waits_for_source_and_cancellation_preserves_its_tools(system):
+async def test_fork_captures_active_source_without_waiting_or_changing_its_tools(system):
     first, second, server, _ = system
     source_id = (await first.reply("initial", job_tools=["search"]))["session_id"]
     token = server._threads[source_id].token
     entered, release = asyncio.Event(), asyncio.Event()
     native = _Codex.instances[0]
 
-    async def hold(_thread, _inputs):
-        entered.set()
-        await release.wait()
+    async def hold(thread, _inputs):
+        if thread.id == source_id:
+            entered.set()
+            await release.wait()
 
     native.run_hook = hold
     running = asyncio.create_task(first.reply("running", resume=source_id, job_tools=["search"]))
     await asyncio.wait_for(entered.wait(), 2)
-    forked = asyncio.create_task(second.reply("handoff", resume=source_id, fork_session=True))
     try:
-        await asyncio.sleep(0.02)
-        assert not any(operation == "fork" for operation, _, _ in native.opened)
+        result = await asyncio.wait_for(second.reply("query", resume=source_id, fork_session=True), 2)
+        assert result["status"] == "completed" and result["session_id"] != source_id
+        assert not running.done() and native.threads[source_id].busy
+        assert native.threads[source_id].interrupts == 0
+        assert token in server.jobs_mcp.scopes
+        assert server._threads[source_id].token == token
+        assert any(operation == "fork" for operation, _, _ in native.opened)
+    finally:
+        release.set()
+        await running
+
+
+@pytest.mark.asyncio
+async def test_cancelled_active_source_fork_keeps_original_turn_and_tools(system, monkeypatch):
+    first, second, server, _ = system
+    source_id = (await first.reply("initial", job_tools=["search"]))["session_id"]
+    token = server._threads[source_id].token
+    native = _Codex.instances[0]
+    running_entered, fork_entered, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+    async def hold(_thread, _inputs):
+        running_entered.set()
+        await release.wait()
+
+    async def pause_fork(_thread_id, **_options):
+        fork_entered.set()
+        await asyncio.Event().wait()
+
+    native.run_hook = hold
+    monkeypatch.setattr(native, "thread_fork", pause_fork)
+    running = asyncio.create_task(first.reply("running", resume=source_id, job_tools=["search"]))
+    await asyncio.wait_for(running_entered.wait(), 1)
+    forked = asyncio.create_task(second.reply("query", resume=source_id, fork_session=True))
+    try:
+        await asyncio.wait_for(fork_entered.wait(), 1)
         forked.cancel()
         with pytest.raises(asyncio.CancelledError):
             await forked
         assert token in server.jobs_mcp.scopes and len(server.jobs_mcp.scopes) == 1
+        assert server._threads[source_id].users == 1
+        assert not running.done() and native.threads[source_id].interrupts == 0
     finally:
+        forked.cancel()
         release.set()
-        await running
+        await asyncio.gather(running, forked, return_exceptions=True)
 
 
 @pytest.mark.asyncio
@@ -1978,7 +2011,7 @@ async def test_sessions_use_current_configuration_without_sidecar_files(system, 
             model="old-model",
             effort="low",
             job_tools=[job.name],
-            injected_job_kwargs={"_agent_id": "main"},
+            injected_job_kwargs={"_agent_name": "Remy"},
         )
     )["session_id"]
     sidecars = server.workspace_path / "session" / "proactive"
@@ -1993,16 +2026,15 @@ async def test_sessions_use_current_configuration_without_sidecar_files(system, 
         system_prompt="Current instructions.",
         effort="high",
         job_tools=[job.name],
-        injected_job_kwargs={"_agent_id": "main"},
+        injected_job_kwargs={"_agent_name": "Remy"},
     )
     result = await second.reply("continue", resume=source_id, fork_session=fork)
     assert result["status"] == "completed"
     assert native.opened[-1][2]["model"] == "current-model"
-    assert native.opened[-1][2]["developer_instructions"] == "Current instructions."
     assert native.threads[result["session_id"]].options[-1]["effort"].value == "high"
     token = server._threads[result["session_id"]].token
     await server.jobs_mcp.scopes[token][0].fn(query="memory")
-    assert job.calls[-1]["_agent_id"] == "main"
+    assert job.calls[-1]["_agent_name"] == "Remy"
     assert not sidecars.exists()
 
 

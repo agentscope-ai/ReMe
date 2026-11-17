@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncGenerator, AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 from dataclasses import dataclass
 from functools import partial
 import json
@@ -51,6 +51,8 @@ class CodexAgentWrapper(BaseAgentWrapper):
     """Configure agents while sharing transport, authentication and session locks."""
 
     SDK_PACKAGE = "openai-codex"
+    supports_active_fork = True
+    supports_active_append = True
     _SERVER_OPTIONS = frozenset(
         {
             "auth_mode",
@@ -136,6 +138,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
         }
         if kwargs.get("fork_session"):
             if kwargs.get("ephemeral"):
+                # Paginated ephemeral forks require excludeTurns; inherited model context is unchanged.
                 options["include_turns"] = False
             options.update(
                 ephemeral=kwargs.get("ephemeral"),
@@ -320,10 +323,9 @@ class CodexAgentWrapper(BaseAgentWrapper):
 
         Native message IDs carry retry identity and presentation metadata; the
         native rollout remains the only durable copy of the message content.
-        Both delivery policies wait for the session to become idle.
+        Immediate delivery submits to the native input queue while a turn is active;
+        both policies return only after native history confirms persistence.
         """
-        from openai_codex.generated.v2_all import ThreadInjectItemsResponse
-
         from ..codex_app_server._session_history import validate_identifier
 
         validate_identifier(session_id)
@@ -339,51 +341,104 @@ class CodexAgentWrapper(BaseAgentWrapper):
         if expected_turn_id:
             validate_identifier(expected_turn_id)
         async with asyncio.timeout(timeout):
-            async with self._session_request(), self._session({"session_id": session_id}, compact=True) as thread:
-                snapshot = await self.read_session(session_id)
-                identifier = f"reme-proactive-{message_id}"
-                accepted = next((message for message in snapshot.messages if message.id == identifier), None)
-                if accepted is not None:
-                    if (accepted.content, accepted.role) != (content, role):
-                        raise ValueError("message_id already belongs to different content or role")
-                    return accepted
-                if expected_turn_id is not None and (snapshot.last_turn_id or "") != expected_turn_id:
-                    raise RuntimeError("Session changed before appending")
-                if expected_revision is not None and snapshot.revision != expected_revision:
-                    raise RuntimeError("Session changed before appending")
-                if snapshot.path is None:
-                    raise ValueError("Appending requires a persisted Codex session")
-                native_id = codex_session_history.item_id(session_id, message_id, snapshot.last_turn_id, delivery)
-
-                async def inject():
-                    await thread._codex._client.request(  # pylint: disable=protected-access
-                        "thread/inject_items",
-                        {
-                            "threadId": thread.id,
-                            "items": [
-                                {
-                                    "type": "message",
-                                    "id": native_id,
-                                    "role": role,
-                                    "content": [
-                                        {
-                                            "type": "output_text" if role == "assistant" else "input_text",
-                                            "text": content,
-                                        },
-                                    ],
-                                },
-                            ],
-                        },
-                        response_model=ThreadInjectItemsResponse,
+            async with self._session_request(), self.app_server.append_lease(session_id) as pending:
+                unloaded = (await self.get_session_status(session_id)).status == "not_loaded"
+                lease = (
+                    self._session({"session_id": session_id}, compact=True)
+                    if delivery == "idle" or unloaded
+                    else nullcontext()
+                )
+                async with lease:
+                    return await self._append_message(
+                        session_id,
+                        content,
+                        message_id,
+                        role,
+                        delivery,
+                        expected_turn_id,
+                        expected_revision,
+                        pending,
                     )
-                    saved = await self.read_session(session_id)
-                    message = next((message for message in saved.messages if message.id == identifier), None)
-                    if message is None or (message.content, message.role) != (content, role):
-                        raise RuntimeError("Codex acknowledged append without persisting its native message")
-                    self.app_server._notify_session(session_id, message)  # pylint: disable=protected-access
-                    return message
 
-                return await finish_cleanup(inject())
+    async def _append_message(
+        self,
+        session_id,
+        content,
+        message_id,
+        role,
+        delivery,
+        expected_turn_id,
+        expected_revision,
+        pending,
+    ) -> SessionMessage:
+        """Keep an accepted or uncertain native dispatch distinct from a persisted message."""
+        identifier = f"reme-proactive-{message_id}"
+        snapshot = await self.read_session(session_id)
+        accepted = next((message for message in snapshot.messages if message.id == identifier), None)
+        receipt = accepted or pending.get(identifier)
+        if receipt is not None and (receipt.content, receipt.role) != (content, role):
+            raise ValueError("message_id already belongs to different content or role")
+        if accepted is not None:
+            pending.pop(identifier, None)
+            return accepted
+        if receipt is None:
+            if expected_turn_id is not None and (snapshot.last_turn_id or "") != expected_turn_id:
+                raise RuntimeError("Session changed before appending")
+            if expected_revision is not None and snapshot.revision != expected_revision:
+                raise RuntimeError("Session changed before appending")
+            if snapshot.path is None:
+                raise ValueError("Appending requires a persisted Codex session")
+            native_id = codex_session_history.item_id(session_id, message_id, snapshot.last_turn_id, delivery)
+
+            async def inject():
+                # Keep uncertain dispatches too: a lost RPC receipt must not cause a duplicate.
+                pending[identifier] = SessionMessage(
+                    id=identifier,
+                    role=role,
+                    content=content,
+                    source="proactive",
+                    turn_id=snapshot.last_turn_id,
+                    delivery=delivery,
+                    origin_session_id=session_id,
+                )
+                try:
+                    await self.app_server.inject_items(
+                        session_id,
+                        [
+                            {
+                                "type": "message",
+                                "id": native_id,
+                                "role": role,
+                                "content": [
+                                    {
+                                        "type": "output_text" if role == "assistant" else "input_text",
+                                        "text": content,
+                                    },
+                                ],
+                            },
+                        ],
+                    )
+                except Exception as exc:
+                    # Protocol rejection is definitive; transport/internal failures may follow acceptance.
+                    if getattr(exc, "code", None) in {-32600, -32601, -32602}:
+                        pending.pop(identifier, None)
+                    raise
+                self.logger.info(
+                    f"Codex append session={session_id} message={message_id} result=accepted delivery={delivery}",
+                )
+
+            await finish_cleanup(inject())
+        while True:
+            saved = await self.read_session(session_id)
+            message = next((message for message in saved.messages if message.id == identifier), None)
+            if message is not None:
+                if (message.content, message.role) != (content, role):
+                    raise RuntimeError("Codex persisted different content for the append ID")
+                pending.pop(identifier, None)
+                self.app_server._notify_session(session_id, message)  # pylint: disable=protected-access
+                self.logger.info(f"Codex append session={session_id} message={message_id} result=persisted")
+                return message
+            await asyncio.sleep(0.05)
 
     async def get_session_status(self, session_id: str) -> SessionStatus:
         """Report native thread activity, including approval/input waits."""

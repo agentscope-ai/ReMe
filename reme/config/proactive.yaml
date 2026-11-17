@@ -102,7 +102,7 @@ jobs:
     enabled: false
     cron: "*/5 * * * *"
     # Optional standalone collector; work_observation_cron already captures every display.
-    agent_id: work
+    agent_name: work
     steps:
       - backend: screen_capture_step
         similarity_threshold: 0.99
@@ -121,7 +121,7 @@ jobs:
     cron: "*/5 * * * *"
     steps:
       - backend: work_observation_step
-        agent_id: work
+        agent_name: work
         codex_home: *work_codex_home
         screenshot_similarity_threshold: 0.99
 
@@ -130,7 +130,7 @@ jobs:
     cron: "*/5 * * * *"
     steps:
       - backend: finance_news_step
-        agent_id: finance
+        agent_name: finance
 
   stock_quotes_cron:
     backend: cron
@@ -138,7 +138,7 @@ jobs:
     # The collector checks each market's trading calendar and skips closed sessions.
     steps:
       - backend: stock_quotes_step
-        agent_id: finance
+        agent_name: finance
 
   btc_quotes_cron:
     backend: cron
@@ -146,40 +146,40 @@ jobs:
     # BTC trades continuously; stock trading calendars do not apply.
     steps:
       - backend: btc_quotes_step
-        agent_id: finance
+        agent_name: finance
 
   manage_proactive_agent:
     backend: base
     description: >-
-      Manage tasks by name: list/create/status/update/delete/query. All parameters are top-level.
+      Manage tasks by agent_name: list/create/status/update/delete/query. All parameters are top-level.
       Before creating or changing a task, use list/status to inspect relevant tasks and reuse a matching one.
-      Create requires name, instructions and trigger_type; cron tasks also require cron.
-      Status/update/delete/query require name; query also requires question and a previously completed run.
-      Instructions initialize MEMORY.md. Read and edit the returned memory_path using native file tools.
-      Names may be Chinese or English and must be unique regardless of case; chat and tmp are reserved.
+      Create requires agent_name, task_memory and agent_type; cron tasks also require cron.
+      Status/update/delete/query require agent_name; query also requires question and an existing queryable task session.
+      Task memory initializes MEMORY.md. List, create and status return memory_path. Read the current file before editing, preserve valid information, and read it back after saving.
+      Choose 1-3 simple lowercase English words joined by underscores, describing the task topic or responsibility. Names must be unique regardless of case; Remy and tmp are reserved.
       Recreating a deleted name restores its existing memory and history; read memory_path to verify the requirements.
-      Update accepts only changed execution settings, not instructions, name changes or temporary changes.
+      Update accepts only changed execution settings, not task_memory, agent_name changes or temporary changes.
       Optional settings: enabled, cron, min_trigger_interval_seconds for event tasks, notify_window {start,end} in HH:MM.
       Cron tasks have web access; event tasks use incoming observations and local files.
-      Temporary is create-only and independent of trigger_type; idle temporary tasks are collected after seven days without new inputs.
+      Temporary is create-only and independent of agent_type; idle temporary tasks are collected after seven days without new inputs.
       Query returns an answer from a temporary read-only fork. Delete retains history; external collectors must be stopped separately.
     parameters:
       type: object
       additionalProperties: false
       properties:
         action: {type: string, enum: [list, create, status, update, delete, query]}
-        name: &agent_id
+        agent_name: &agent_name
           type: string
           minLength: 1
           maxLength: 80
           pattern: '^[\w-]+$'
-          description: "Task name, unique regardless of case; Chinese or English. chat and tmp are reserved."
-        instructions:
+          description: "Stable Agent name; for new tasks use 1-3 simple lowercase English words joined by underscores. Remy and tmp are reserved for task creation."
+        task_memory:
           type: string
           minLength: 1
           maxLength: 100000
-          description: "Create only: task requirements and background written to MEMORY.md."
-        trigger_type: {type: string, enum: [cron, event]}
+          description: "Create only: initial task memory written verbatim to MEMORY.md."
+        agent_type: {type: string, enum: [proactive, cron]}
         enabled: {type: boolean}
         temporary: {type: boolean, description: "Create only: collect the task after seven days without new inputs."}
         cron: {type: [string, "null"], description: "Cron expression in the application timezone."}
@@ -224,7 +224,7 @@ jobs:
       type: object
       additionalProperties: false
       properties:
-        agent_id: *agent_id
+        agent_name: *agent_name
         events:
           type: array
           minItems: 1
@@ -239,7 +239,7 @@ jobs:
               metadata: {type: object}
             required: [event_ts, source, description]
             additionalProperties: false
-      required: [agent_id, events]
+      required: [agent_name, events]
     steps:
       - backend: append_event_step
 
@@ -247,7 +247,7 @@ jobs:
     backend: base
     enable_serve: false
     description: >-
-      Read the selected reminders as task, created_at, message and supporting paths, excluding the reminder Markdown.
+      Read the selected reminders as agent_name, created_at, message and supporting paths, excluding the reminder Markdown.
       Successful send_chat_msg decisions consume the batch automatically.
     parameters:
       type: object
@@ -294,11 +294,11 @@ jobs:
       type: object
       additionalProperties: false
       properties:
-        agent_id: *agent_id
+        agent_name: *agent_name
         offset: &page_offset {type: integer, minimum: 0, default: 0}
         limit: &page_limit {type: integer, minimum: 1, maximum: 100, default: 20}
         state: {type: string, enum: [all, pending, processed], default: all}
-      required: [agent_id]
+      required: [agent_name]
     steps:
     - backend: agent_outbox_step
   agent_reminder:
@@ -307,7 +307,7 @@ jobs:
       type: object
       additionalProperties: false
       properties:
-        agent_id: &view_agent_id {<<: *agent_id, default: chat}
+        agent_name: &view_agent_name {<<: *agent_name, default: Remy}
         message_id: {type: string, minLength: 1, maxLength: 128}
         mark_read: {type: boolean, default: false}
       required: [message_id]
@@ -319,7 +319,7 @@ jobs:
       type: object
       additionalProperties: false
       properties:
-        agent_id: *view_agent_id
+        agent_name: *view_agent_name
         offset: *page_offset
         limit: *page_limit
         state: {type: string, enum: [all, pending, processing, processed], default: all}
@@ -339,7 +339,7 @@ jobs:
       type: object
       additionalProperties: false
       properties:
-        agent_id: *view_agent_id
+        agent_name: *view_agent_name
     steps:
     - backend: agent_session_step
   agent_events:
@@ -354,7 +354,7 @@ jobs:
       type: object
       additionalProperties: false
       properties:
-        agent_id: *view_agent_id
+        agent_name: *view_agent_name
         query:
           type: string
           minLength: 1
@@ -366,7 +366,10 @@ jobs:
       backend: agent_chat_step
   agent_new_session:
     backend: base
-    parameters: *agent_request
+    parameters:
+      type: object
+      additionalProperties: false
+      properties: {}
     steps:
     - <<: *chat_step
       backend: agent_new_session_step
@@ -614,30 +617,30 @@ components:
       agent_wrapper: default
       inbox: default
       chat:
-        description: |
+        task_memory: |
           主人关注 AI 相关的大新闻，以及当前项目的进度、进展、难点和待讨论问题。
-      # Initial descriptions are written verbatim to MEMORY.md; existing tasks and memory are retained on restart.
+      # Initial task memories are written verbatim to MEMORY.md; existing tasks and memory are retained on restart.
       agents:
-        - name: finance
+        - agent_name: finance
           enabled: true
-          trigger_type: event
+          agent_type: proactive
           min_trigger_interval_seconds: 10
           max_batch_events: 20
-          description: |
+          task_memory: |
             帮我关注 AI 领域的大新闻，以及小米、阿里巴巴、腾讯、苹果、亚马逊、Meta 和 BTC/USDT 的行情。
             出现重大 AI 新闻，或这些标的日内振幅超过 5% 时提醒我，结合财联社新闻简单说明发生了什么、可能的影响和来源。
             其他信息正常记录，不用提醒。同一件事避免重复提醒，数据有延迟或不完整时请注明。
-        - name: work
+        - agent_name: work
           max_batch_events: 2
           enabled: true
-          trigger_type: event
-          description: |
+          agent_type: proactive
+          task_memory: |
             帮我梳理目前在做的项目，跟进各个项目的进展和难点，整理需要进一步讨论的问题。
-        - name: 科技早报
+        - agent_name: tech_news
           enabled: true
-          trigger_type: cron
+          agent_type: cron
           cron: "0 8 * * *"
-          description: |
+          task_memory: |
             每天早上8点帮我整理一份科技早报，汇总过去24小时的重要科技新闻，简要说明要点和影响，并附上来源链接。整理好后提醒我查看。
 
   codex_app_server:

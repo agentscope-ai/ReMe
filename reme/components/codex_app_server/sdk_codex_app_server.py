@@ -16,7 +16,7 @@ from .base_codex_app_server import BaseCodexAppServer
 from ..component_registry import R
 from ...constants import normalize_connect_host
 from ...utils.async_utils import finish_cleanup
-from ...schema import SessionSnapshot, SessionStatus, TokenUsage
+from ...schema import SessionMessage, SessionSnapshot, SessionStatus, TokenUsage
 
 if TYPE_CHECKING:
     from openai_codex import AsyncCodex, AsyncThread, CodexConfig
@@ -25,6 +25,8 @@ if TYPE_CHECKING:
 @dataclass
 class _ThreadState:
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    append_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    appends: dict[str, SessionMessage] = field(default_factory=dict)
     users: int = 0
     revision: int = 0
     binding: str | None = None
@@ -114,6 +116,35 @@ class SdkCodexAppServer(BaseCodexAppServer):
         async with self._session_client() as codex:
             thread = (await codex._client.thread_read(session_id)).thread  # pylint: disable=protected-access
             return session_status(thread)
+
+    @asynccontextmanager
+    async def append_lease(self, session_id: str) -> AsyncIterator[dict[str, SessionMessage]]:
+        """Own pending append receipts without taking the generation lock."""
+        from ._session_history import validate_identifier
+
+        validate_identifier(session_id)
+        async with self._session_client():
+            state = self._threads.setdefault(session_id, _ThreadState())
+            state.users += 1
+            state.revision += 1
+            try:
+                async with state.append_lock:
+                    yield state.appends
+            finally:
+                state.users -= 1
+
+    async def inject_items(self, session_id: str, items: list[dict[str, Any]]) -> None:
+        """Use the native queue for active turns; this call starts no model turn."""
+        from ._session_history import validate_identifier
+        from openai_codex.generated.v2_all import ThreadInjectItemsResponse
+
+        validate_identifier(session_id)
+        async with self._session_client() as codex:
+            await codex._client.request(  # pylint: disable=protected-access
+                "thread/inject_items",
+                {"threadId": session_id, "items": items},
+                response_model=ThreadInjectItemsResponse,
+            )
 
     async def get_session_path(self, session_id: str) -> Path | None:
         """Read only native metadata; the reported file may not have been created yet."""
@@ -304,7 +335,11 @@ class SdkCodexAppServer(BaseCodexAppServer):
         """Revoke idle tool bindings only after the server confirms their threads unloaded."""
         from openai_codex.generated.v2_all import ThreadLoadedListResponse
 
-        candidates = {key: (state, state.revision) for key, state in self._threads.items() if not state.users}
+        candidates = {
+            key: (state, state.revision)
+            for key, state in self._threads.items()
+            if not state.users and not state.appends
+        }
         if not candidates:
             return
         try:
@@ -411,13 +446,12 @@ class SdkCodexAppServer(BaseCodexAppServer):
 
     @asynccontextmanager
     async def _fork_source(self, thread_id: str) -> AsyncIterator[_ThreadState]:
-        """Hold the source lease while preparing a native fork."""
+        """Pin the source state while native fork captures a snapshot, without blocking its turn."""
         source = self._threads.setdefault(thread_id, _ThreadState())
         source.users += 1
         source.revision += 1
         try:
-            async with source.lock:
-                yield source
+            yield source
         finally:
             source.users -= 1
 

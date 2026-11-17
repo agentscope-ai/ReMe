@@ -32,7 +32,7 @@ export default function Chat({
 }) {
   const language = state.settings.language;
   const t = translator(language);
-  const isRemy = (state.selectedAgentId ?? "chat") === "chat";
+  const isRemy = (state.selectedAgentName ?? "Remy") === "Remy";
   const [localQuery, setLocalQuery] = useState("");
   const [commandHidden, setCommandHidden] = useState(false);
   const query = draft ?? localQuery;
@@ -44,8 +44,8 @@ export default function Chat({
     else setLocalQuery(next);
   };
   const agentName =
-    state.agents?.find((agent) => agent.agent_id === state.selectedAgentId)
-      ?.name ?? "Remy";
+    state.agents?.find((agent) => agent.agent_name === state.selectedAgentName)
+      ?.agent_name ?? "Remy";
   const [error, setError] = useState<unknown>(null);
   const history = useRef<HTMLDivElement | null>(null);
   const content = useRef<HTMLDivElement | null>(null);
@@ -110,8 +110,12 @@ export default function Chat({
     .join("\n");
   const readIds = useRef(new Set<string>());
   readIds.current = new Set(state.readMessageIds);
-  const busy = Boolean(state.pending?.streaming) || state.status === "active";
-  const ready = state.connection === "connected" && state.status !== "error";
+  const busy =
+    Boolean(state.pending?.streaming) || (isRemy && state.status === "active");
+  const ready =
+    state.connection === "connected" &&
+    state.status !== "error" &&
+    (isRemy || Boolean(state.sessionId));
   const command = query.trim().toLowerCase();
   const showClear =
     isRemy &&

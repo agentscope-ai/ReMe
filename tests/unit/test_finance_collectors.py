@@ -59,7 +59,7 @@ async def collector_runtime(tmp_path):
     inbox = AgentEventInbox(app_context=context)
     runtime = LocalAgentRuntime(
         app_context=context,
-        agents=[{"name": "finance", "trigger_type": "event", "description": "偏好 AI 相关的财经新闻"}],
+        agents=[{"agent_name": "finance", "agent_type": "proactive", "task_memory": "偏好 AI 相关的财经新闻"}],
     )
     context.components = {
         "agent_inbox": {"default": inbox},
@@ -118,7 +118,7 @@ async def test_news_uses_existing_job_and_source_files_deduplicate_after_restart
         assert response.success
         event = (await inbox.claim("finance"))["items"][0]
         assert event["source"] == "finance_news"
-        assert append.await_args.kwargs["agent_id"] == "finance"
+        assert append.await_args.kwargs["agent_name"] == "finance"
         assert append.await_args.kwargs["events"][0]["id"] == event["id"]
         manifest, payload = event["paths"]
         item = FinanceNewsItem.model_validate_json((tmp_path / payload).read_text())
@@ -728,8 +728,8 @@ def test_proactive_configuration_connects_both_crons_to_existing_finance_agent()
         assert jobs[name]["backend"] == "cron" and jobs[name]["cron"] == interval
         assert jobs[name].get("enabled", True)
         spec = jobs[name]["steps"][0]
-        assert spec["agent_id"] == "finance"
+        assert spec["agent_name"] == "finance"
         assert R.get(ComponentEnum.STEP, spec["backend"]) is step
-    agents = {value["name"]: value for value in config["components"]["agent_runtime"]["default"]["agents"]}
-    assert agents["finance"]["trigger_type"] == "event" and "cron" not in agents["finance"]
+    agents = {value["agent_name"]: value for value in config["components"]["agent_runtime"]["default"]["agents"]}
+    assert agents["finance"]["agent_type"] == "proactive" and "cron" not in agents["finance"]
     assert agents["finance"]["enabled"] and agents["work"]["enabled"]

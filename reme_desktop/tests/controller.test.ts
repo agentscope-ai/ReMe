@@ -15,16 +15,15 @@ import type {
   SettingsUpdate,
 } from "../src/shared/protocol.ts";
 
-const agents: AgentView[] = ["chat", "monitor"].map((agent_id) => ({
-  agent_id,
-  name: agent_id,
-  kind: agent_id === "chat" ? "chat" : "event",
+const agents: AgentView[] = ["Remy", "monitor"].map((agent_name) => ({
+  agent_name,
+  agent_type: agent_name === "Remy" ? "chat" : "proactive",
   enabled: true,
   running: false,
   status: "idle",
-  session_id: agent_id + "-session",
-  memory_path: `reme_agents/${agent_id}/MEMORY.md`,
-  directory: `reme_agents/${agent_id}`,
+  session_id: agent_name + "-session",
+  memory_path: `reme_agents/${agent_name}/MEMORY.md`,
+  directory: `reme_agents/${agent_name}`,
   pending_events: 0,
   next_trigger_at: null,
   last_completed_at: null,
@@ -32,19 +31,19 @@ const agents: AgentView[] = ["chat", "monitor"].map((agent_id) => ({
 }));
 
 const snapshot = (
-  agentId: string,
+  agentName: string,
   messages: SessionMessage[] = [],
 ): AgentEvent => ({
   type: "snapshot",
-  agent_id: agentId,
-  session_id: agentId + "-session",
+  agent_name: agentName,
+  session_id: agentName + "-session",
   status: "idle",
   agents,
   activities: {},
   snapshot: {
-    session_id: agentId + "-session",
+    session_id: agentName + "-session",
     state: {
-      session_id: agentId + "-session",
+      session_id: agentName + "-session",
       status: "idle",
       active_flags: [],
     },
@@ -108,6 +107,7 @@ test("authoritative subscriptions reconcile replies and endpoint changes respect
   const calls: string[] = [];
   let holdChild = false;
   let waiting = false;
+  let taskStream: ((chunk: StreamChunk) => void) | undefined;
   t.mock.method(ReMeClient.prototype, "call", async (job: string) => {
     calls.push(job);
     assert.equal(job, "app_config");
@@ -136,23 +136,26 @@ test("authoritative subscriptions reconcile replies and endpoint changes respect
     "stream",
     async (
       job: string,
-      body: { agent_id?: string },
+      body: { agent_name?: string },
       signal: AbortSignal,
       receive: (chunk: StreamChunk) => void,
     ) => {
-      const agentId = body.agent_id ?? "chat";
+      const agentName = body.agent_name ?? "Remy";
       if (job === "agent_events") {
-        listeners.set(agentId, receive);
-        receive({ chunk_type: "data", chunk: snapshot(agentId) });
+        listeners.set(agentName, receive);
+        receive({ chunk_type: "data", chunk: snapshot(agentName) });
         await untilAbort(signal);
       } else {
         receive({
           chunk_type: "reply_start",
-          session_id: agentId + "-session",
+          session_id: agentName === "Remy" ? "Remy-session" : "query-fork",
           turn_id: "turn",
           chunk: "Answer",
         });
-        if (agentId !== "chat" && holdChild) await untilAbort(signal);
+        if (agentName !== "Remy") {
+          taskStream = receive;
+          if (holdChild) await untilAbort(signal);
+        }
         receive({
           chunk_type: "reply_end",
           status: waiting ? "waiting" : "completed",
@@ -189,9 +192,9 @@ test("authoritative subscriptions reconcile replies and endpoint changes respect
     chunks: [],
   };
   const observed = t.mock.method(controller.speech, "observe");
-  listeners.get("chat")!({
+  listeners.get("Remy")!({
     chunk_type: "data",
-    chunk: snapshot("chat", [message]),
+    chunk: snapshot("Remy", [message]),
   });
   assert.equal(controller.state.pending, null);
   assert.equal(controller.state.messages[0].id, "reply");
@@ -205,8 +208,32 @@ test("authoritative subscriptions reconcile replies and endpoint changes respect
   waiting = false;
 
   controller.selectAgent("monitor");
+  const active = snapshot("monitor");
+  active.status = "active";
+  listeners.get("monitor")!({ chunk_type: "data", chunk: active });
+  await controller.send("Current progress?");
+  assert.equal(controller.state.sessionId, "monitor-session");
+  assert.equal(controller.state.pending?.sessionId, "query-fork");
+  assert.deepEqual(
+    controller.state.messages.map((message) => message.content),
+    ["Current progress?", "Answer"],
+  );
+  assert.equal(controller.state.messages[1].completed, true);
+  listeners.get("monitor")!({ chunk_type: "data", chunk: active });
+  assert.equal(controller.state.messages[1].content, "Answer");
   holdChild = true;
   const sending = controller.send("Check task");
+  taskStream!({
+    chunk_type: "content",
+    block_id: "answer",
+    event: "delta",
+    chunk: "Live progress",
+  });
+  assert.equal(controller.state.messages[1].content, "Live progress");
+  await assert.rejects(
+    controller.send("Another question"),
+    (error: unknown) => error instanceof UiError && error.key === "busy",
+  );
   await assert.rejects(
     controller.settings({ endpoint: "http://127.0.0.1:2444" }),
     (error: unknown) =>

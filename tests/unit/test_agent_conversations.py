@@ -16,8 +16,8 @@ from .test_agent_runtime import create_agent, running_runtime
 
 
 @pytest.mark.parametrize(
-    "step_class,agent_id",
-    [(ChatAgentStep, "chat"), (AgentChatStep, "chat"), (AgentChatStep, "monitor")],
+    "step_class,agent_name",
+    [(ChatAgentStep, "Remy"), (AgentChatStep, "Remy"), (AgentChatStep, "monitor")],
 )
 @pytest.mark.parametrize(
     "status,stream_error",
@@ -28,12 +28,14 @@ async def test_conversation_streams_preserve_outcomes_metadata_and_caller_inputs
     tmp_path,
     monkeypatch,
     step_class,
-    agent_id,
+    agent_name,
     status,
     stream_error,
 ):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
+        if agent_name != "Remy":
+            await runtime.sessions.ensure(agent_name, wrapper, {}, runtime.now())
         chunks = []
 
         async def reply_stream(_query, **options):
@@ -63,24 +65,29 @@ async def test_conversation_streams_preserve_outcomes_metadata_and_caller_inputs
         monkeypatch.setattr(wrapper, "reply_stream", reply_stream)
         request = RuntimeContext(stream_queue=asyncio.Queue())
         request.response.metadata["previous_step"] = "retained"
-        arguments = {} if step_class is ChatAgentStep else {"agent_id": agent_id}
+        arguments = {} if step_class is ChatAgentStep else {"agent_name": agent_name}
         response = await step_class(app_context=context)(request, query="Hello", **arguments)
 
         assert response is request.response
         assert response.success is (status == "completed" and not stream_error)
         assert response.answer == "final answer"
-        assert response.metadata["agent_id"] == agent_id
+        assert response.metadata["agent_name"] == agent_name
         assert response.metadata["status"] == status
         assert response.metadata["raw"] == {"native": "retained"}
         assert response.metadata["usage"] == {"input_tokens": 3, "output_tokens": 2}
         assert response.metadata["previous_step"] == "retained"
         assert response.metadata["events"] == [chunk.model_dump(mode="json") for chunk in chunks]
         assert [request.stream_queue.get_nowait() for _ in chunks] == chunks
-        assert request.get("agent_id") == arguments.get("agent_id")
+        assert request.get("agent_name") == arguments.get("agent_name")
         assert not runtime.chat_lock.locked() and not runtime.agent_tasks
         assert (await runtime.status("monitor"))["pending_events"] == 1
-        activity = runtime.activities[agent_id]
-        assert activity.turn_id == "turn" and activity.phase == status
+        if agent_name == "Remy":
+            activity = runtime.activities[agent_name]
+            assert activity.turn_id == "turn" and activity.phase == status
+        else:
+            assert agent_name not in runtime.activities and agent_name not in runtime.live_turns.turns
+            assert wrapper.created[-1]["fork_session"]
+            assert (await runtime.sessions.current(agent_name)).session_id == "session-1"
 
 
 @pytest.mark.asyncio
@@ -115,7 +122,7 @@ async def test_subscription_reports_portable_tool_activity_and_cancellation(tmp_
         )
         try:
             await entered.wait()
-            events = AgentViews(runtime).events("chat", interval=0)
+            events = AgentViews(runtime).events("Remy", interval=0)
             try:
                 value = await anext(events)
                 activity = value["activities"]["chat"]
@@ -133,16 +140,16 @@ async def test_subscription_reports_portable_tool_activity_and_cancellation(tmp_
             await asyncio.gather(task, return_exceptions=True)
 
 
-@pytest.mark.parametrize("agent_id", ["chat", "monitor", "timer"])
+@pytest.mark.parametrize("agent_name", ["Remy", "monitor", "timer"])
 @pytest.mark.parametrize("completed", [True, False])
 @pytest.mark.asyncio
-async def test_task_views_keep_only_latest_turn_without_mutating_native_history(tmp_path, agent_id, completed):
+async def test_task_views_keep_only_latest_turn_without_mutating_native_history(tmp_path, agent_name, completed):
     async with running_runtime(tmp_path) as (runtime, _, wrapper):
         await create_agent(runtime)
         await runtime.create(
-            {"name": "timer", "description": "Daily report", "trigger_type": "cron", "cron": "0 8 * * *"},
+            {"agent_name": "timer", "task_memory": "Daily report", "agent_type": "cron", "cron": "0 8 * * *"},
         )
-        sid = await runtime.sessions.ensure(agent_id, wrapper, {}, runtime.now())
+        sid = await runtime.sessions.ensure(agent_name, wrapper, {}, runtime.now())
         snapshot = SessionSnapshot(
             session_id=sid,
             last_turn_id="latest",
@@ -164,26 +171,26 @@ async def test_task_views_keep_only_latest_turn_without_mutating_native_history(
         )
         original = snapshot.model_dump()
         wrapper.read_session = AsyncMock(return_value=snapshot)
-        value = await runtime.read_agent(agent_id)
-        expected = snapshot.messages if agent_id == "chat" else snapshot.messages[2:]
+        value = await runtime.read_agent(agent_name)
+        expected = snapshot.messages if agent_name == "Remy" else snapshot.messages[2:]
         assert [message["id"] for message in value["snapshot"]["messages"]] == [message.id for message in expected]
         assert value["snapshot"]["messages"][-1]["completed"] is completed
         assert value["snapshot"]["messages"][-1]["chunks"][0]["block_id"] == "answer"
         assert snapshot.model_dump() == original
         wrapper.read_session.assert_awaited_once_with(sid)
-        assert (await runtime.sessions.current(agent_id)).session_id == sid
+        assert (await runtime.sessions.current(agent_name)).session_id == sid
 
 
-@pytest.mark.parametrize("trigger_type", ["event", "cron"])
+@pytest.mark.parametrize("agent_type", ["proactive", "cron"])
 @pytest.mark.asyncio
-async def test_task_subscription_atomically_replaces_turns_and_reconnects_without_old_messages(tmp_path, trigger_type):
+async def test_task_subscription_atomically_replaces_turns_and_reconnects_without_old_messages(tmp_path, agent_type):
     async with running_runtime(tmp_path) as (runtime, _, wrapper):
         await runtime.create(
             {
-                "name": "monitor",
-                "description": "Report",
-                "trigger_type": trigger_type,
-                **({"cron": "0 8 * * *"} if trigger_type == "cron" else {}),
+                "agent_name": "monitor",
+                "task_memory": "Report",
+                "agent_type": agent_type,
+                **({"cron": "0 8 * * *"} if agent_type == "cron" else {}),
             },
         )
         sid = await runtime.sessions.ensure("monitor", wrapper, {}, runtime.now())

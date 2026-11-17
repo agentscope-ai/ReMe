@@ -24,6 +24,15 @@ class BaseAgentWrapper(BaseComponent):
     component_type = ComponentEnum.AGENT_WRAPPER
     SDK_PACKAGE: ClassVar[str | None] = None
     TOKEN_COUNTER_PREFIX: ClassVar[str] = "__token_counter"
+    # Capability flags describe the adapter's verified concurrency contract.
+    # Callers must keep idle scheduling for backends which do not advertise it.
+    # True promises an independent context snapshot without waiting for or
+    # interrupting the source turn; running tools are not cloned.
+    supports_active_fork: ClassVar[bool] = False
+    # Active append means immediate delivery can submit to the running session.
+    # Native acceptance alone is not persistence: append_session still waits for
+    # a durable receipt. The queue/receipt lifecycle belongs to the backend.
+    supports_active_append: ClassVar[bool] = False
 
     def __init__(
         self,
@@ -278,7 +287,13 @@ class BaseAgentWrapper(BaseComponent):
         raise NotImplementedError(f"{type(self).__name__} does not support session compaction")
 
     async def create_session(self, **kwargs) -> str:
-        """Create a resumable empty session without generating a reply."""
+        """Create a resumable session without generating a reply.
+
+        With resume and fork_session=True, capture source context in an independent
+        session. Only supports_active_fork promises this can happen while the source
+        is running; other adapters may serialize behind the source's execution.
+        Subsequent source messages are not automatically copied into the fork.
+        """
         raise NotImplementedError(f"{type(self).__name__} does not support session creation")
 
     async def release_session(self, session_id: str) -> None:
@@ -318,7 +333,15 @@ class BaseAgentWrapper(BaseComponent):
         """Append a user or assistant message once without generating a reply.
 
         The optional revision guard rejects any changed display content; the turn guard checks only its anchor.
-        Both idle/immediate delivery policies wait for the session to become idle before injection.
+        Idle delivery waits for generation. Immediate delivery submits during generation
+        only on backends advertising supports_active_append; callers must not infer active
+        delivery support from the presence of the delivery parameter.
+
+        Successful return confirms native persistence, not merely input-queue acceptance.
+        Acceptance need not interrupt the current model request or start another turn.
+        A timeout or cancellation after submission does not prove rejection: retry with
+        the same message_id, role and content. An already accepted request keeps its
+        original identity and is recovered before applying guards for a new append.
         """
         raise NotImplementedError(f"{type(self).__name__} does not support session appending")
 

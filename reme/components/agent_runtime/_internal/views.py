@@ -13,12 +13,12 @@ class AgentViews:
     def __init__(self, runtime):
         self.runtime = runtime
 
-    async def view(self, agent_id):
+    async def view(self, agent_name):
         """Read identity, native activity and original file references."""
         runtime = self.runtime
-        if agent_id == "chat":
+        if agent_name == "Remy":
             inbox = runtime.notifications
-            config, facts, kind = (
+            config, facts, agent_type = (
                 {},
                 {
                     "error": inbox.error,
@@ -28,22 +28,22 @@ class AgentViews:
                 },
                 "chat",
             )
-            directory = runtime.agents.path("chat")
+            directory = runtime.agents.path("Remy")
             running = runtime.chat_lock.locked() or inbox.worker is not None
         else:
-            agent = await runtime.definition(agent_id)
-            facts = await runtime.status(agent_id)
-            config, kind = facts["config"], agent.trigger_type
+            agent = await runtime.definition(agent_name)
+            facts = await runtime.status(agent_name)
+            config, agent_type = facts["config"], agent.agent_type
             directory = runtime.agents.directory_for(agent)
-            running = facts["running"] or agent_id in runtime.interactive.values()
-        session = await runtime.sessions.current(agent_id)
+            running = facts["running"]
+        session = await runtime.sessions.current(agent_name)
         status, error = "idle", facts.get("error")
         issues = runtime.outbox.issues
         prefix = directory.relative_to(runtime.workspace_path).as_posix() + "/"
         problems = [
             f"{path}: {message}"
             for path, message in issues.items()
-            if agent_id == "chat" or path.startswith(prefix) or path.startswith(str(directory) + "/")
+            if agent_name == "Remy" or path.startswith(prefix) or path.startswith(str(directory) + "/")
         ]
         if problems:
             error = "; ".join(filter(None, [error, *problems]))[:2000]
@@ -60,9 +60,8 @@ class AgentViews:
         elif error:
             status = "error"
         return AgentView(
-            agent_id=agent_id,
-            name="Remy" if agent_id == "chat" else agent_id,
-            kind=kind,
+            agent_name=agent_name,
+            agent_type=agent_type,
             enabled=config.get("enabled", True),
             running=running or status == "active",
             status=status,
@@ -79,20 +78,20 @@ class AgentViews:
     async def list(self):
         """Include the fixed chat identity before named tasks."""
         agents = await asyncio.to_thread(self.runtime.agents.load)
-        items = [await self.view(agent_id) for agent_id in ["chat", *agents]]
+        items = [await self.view(agent_name) for agent_name in ["Remy", *agents]]
         return {
             "items": [item.model_dump(mode="json") for item in items],
             "total": len(items),
         }
 
-    async def read(self, agent_id, *, include_live=True):
+    async def read(self, agent_name, *, include_live=True):
         """Keep Chat history; task workspaces expose only their latest native turn."""
-        agent = await self.view(agent_id)
+        agent = await self.view(agent_name)
         snapshot = None
         if agent.session_id is not None:
             if await self.runtime.agent_wrapper.session_exists(agent.session_id):
                 snapshot = await self.runtime.agent_wrapper.read_session(agent.session_id)
-                if agent.kind != "chat":
+                if agent.agent_type != "chat":
                     snapshot = snapshot.model_copy(
                         update={
                             "messages": [
@@ -113,15 +112,15 @@ class AgentViews:
         if value["snapshot"]:
             for message in value["snapshot"]["messages"]:
                 message["notification_eligible"] = (
-                    agent_id == "chat"
+                    agent_name == "Remy"
                     and message["source"] == "proactive"
                     and message["role"] == "assistant"
                     and message["completed"]
                     and bool(message["content"].strip())
                 )
-        return self.runtime.live_turns.overlay(agent_id, value) if include_live else value
+        return self.runtime.live_turns.overlay(agent_name, value) if include_live else value
 
-    async def events(self, agent_id, interval=1, heartbeat=15):
+    async def events(self, agent_name, interval=1, heartbeat=15):
         """Diff bounded polling views; every new connection receives an authoritative snapshot.
 
         Polling also observes external file changes and works with every session-capable wrapper.
@@ -137,7 +136,7 @@ class AgentViews:
             value, agents = {}, []
             while not self.runtime.closed:
                 wake.clear()
-                live = self.runtime.live_turns.turns.get(agent_id)
+                live = self.runtime.live_turns.turns.get(agent_name)
                 epoch = self.runtime.live_turns.epoch
                 if (
                     not value
@@ -145,15 +144,15 @@ class AgentViews:
                     or epoch != polled_epoch
                     or (live and live.session_id != value["session_id"])
                 ):
-                    value = await self.read(agent_id, include_live=False)
+                    value = await self.read(agent_name, include_live=False)
                     agents = (await self.list())["items"]
                     if epoch != self.runtime.live_turns.epoch:
                         continue
                     polled_epoch = epoch
                     next_poll = monotonic() + interval
-                current = self.runtime.live_turns.overlay(agent_id, value)
+                current = self.runtime.live_turns.overlay(agent_name, value)
                 snapshot = current["snapshot"]
-                activity = self.runtime.activities.get(agent_id)
+                activity = self.runtime.activities.get(agent_name)
                 activities = (
                     {"chat": activity.model_dump(mode="json")}
                     if activity and activity.source == "chat" and activity.session_id == value["session_id"]
@@ -161,7 +160,7 @@ class AgentViews:
                 )
                 event = {
                     "type": "snapshot",
-                    "agent_id": agent_id,
+                    "agent_name": agent_name,
                     "session_id": value["session_id"],
                     "status": value["agent"]["status"],
                     "activities": activities,
@@ -175,7 +174,7 @@ class AgentViews:
                 }
                 if event != previous:
                     # A task turn replaces its predecessor atomically, including its live partial output.
-                    if not previous or agent_id != "chat":
+                    if not previous or agent_name != "Remy":
                         yield event
                     elif previous["session_id"] != event["session_id"]:
                         yield {**event, "type": "session_changed", "snapshot": None}
@@ -217,7 +216,7 @@ class AgentViews:
                 elif monotonic() - last_emit >= heartbeat:
                     yield {
                         "type": "heartbeat",
-                        "agent_id": agent_id,
+                        "agent_name": agent_name,
                         "activities": {},
                         "agents": agents,
                     }

@@ -102,10 +102,10 @@ class LiveTurns:
             listener.set()
 
     @contextmanager
-    def observe(self, agent_id, session_id, query):
+    def observe(self, agent_name, session_id, query):
         """A later formal turn replaces the previous cache; native files remain authoritative."""
         turn = LiveTurn(session_id, query)
-        self.turns[agent_id] = turn
+        self.turns[agent_name] = turn
 
         def publish(chunk):
             turn.update(chunk)
@@ -127,9 +127,9 @@ class LiveTurns:
         finally:
             self.notify()
 
-    def overlay(self, agent_id, value):
+    def overlay(self, agent_name, value):
         """Recover unfinished output on reconnect without replaying token deltas."""
-        turn = self.turns.get(agent_id)
+        turn = self.turns.get(agent_name)
         if not turn or not turn.turn_id or turn.session_id != value["session_id"]:
             return value
         snapshot = value["snapshot"]
@@ -172,12 +172,12 @@ class LiveTurns:
             and final_saved
             and expected <= observed
         ):
-            self.turns.pop(agent_id, None)
+            self.turns.pop(agent_name, None)
             self.epoch += 1
             self.notify()
             return value
         retained = [message for message in messages if message.get("turn_id") != turn.turn_id]
-        if agent_id != "chat":
+        if agent_name != "Remy":
             retained = []
         return {
             **value,

@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
-from .agent_runtime import AgentId
+from .agent_runtime import AgentName, AgentType
 from .agent_session import SessionSnapshot
 
 
@@ -13,9 +13,8 @@ class AgentView(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    agent_id: AgentId
-    name: str
-    kind: Literal["chat", "cron", "event"]
+    agent_name: AgentName
+    agent_type: AgentType
     enabled: bool = True
     running: bool = False
     status: Literal["active", "idle", "not_loaded", "error"] = "idle"
@@ -34,11 +33,11 @@ class AgentRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    agent_id: AgentId = "chat"
+    agent_name: AgentName = "Remy"
 
 
 class AgentChatRequest(AgentRequest):
-    """A user message continues the selected Agent's current formal session."""
+    """A user message continues Chat or queries a fork of the latest task session."""
 
     query: str = Field(min_length=1, max_length=100000)
 
@@ -70,7 +69,7 @@ class AgentInboxRequest(AgentPageRequest):
 class AgentOutboxRequest(AgentPageRequest):
     """Page reminders produced by one task Agent."""
 
-    agent_id: AgentId
+    agent_name: AgentName
     state: Literal["all", "pending", "processed"] = "all"
 
 

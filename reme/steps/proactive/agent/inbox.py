@@ -1,6 +1,7 @@
 """Evaluate reminders in a disposable fork of the current Chat conversation."""
 
 import asyncio
+from contextlib import nullcontext
 import math
 
 from .chat import BaseChatAgentStep
@@ -29,10 +30,11 @@ class InboxChatStep(BaseChatAgentStep):
         if not any(identifier in runtime.notifications.pending for identifier in request.msg_ids):
             self.context.response.answer = {"skipped": "already_read"}
             return self.context.response
-        if runtime.chat_lock.locked():
+        active_fork = request.priority == "P0" and runtime.agent_wrapper.supports_active_fork
+        if not active_fork and runtime.chat_lock.locked():
             self.context.response.answer = {"skipped": "busy"}
             return self.context.response
-        async with runtime.chat_lock:
+        async with nullcontext() if active_fork else runtime.chat_lock:
             if runtime.closed:
                 raise RuntimeError("Agent runtime is closed")
             idle = max(0, (runtime.now() - runtime.notifications.last_activity_at).total_seconds())
@@ -43,9 +45,16 @@ class InboxChatStep(BaseChatAgentStep):
                 self.context.response.answer = {"skipped": "not_idle"}
                 return self.context.response
             options = self.session_options()
-            session_id = await self.ensure_session(options)
+            current = await runtime.sessions.current("Remy") if active_fork else None
+            session_id = current.session_id if current else await self.ensure_session(options)
             status = await runtime.agent_wrapper.get_session_status(session_id)
-            if status.status not in {"idle", "not_loaded"}:
+            if status.status not in ({"idle", "not_loaded", "active"} if active_fork else {"idle", "not_loaded"}):
+                self.context.response.answer = {"skipped": "busy"}
+                return self.context.response
+            if active_fork and (
+                len(runtime.chat_tasks) > 1 or (runtime.chat_lock.locked() and status.status != "active")
+            ):
+                # Queued user input is not necessarily part of the native snapshot yet.
                 self.context.response.answer = {"skipped": "busy"}
                 return self.context.response
         async with runtime.notifications.turn(session_id, request.priority, request.msg_ids) as turn:
@@ -63,7 +72,7 @@ class InboxChatStep(BaseChatAgentStep):
                     "ephemeral": True,
                     "sandbox": "read-only",
                     "job_tools": ["read_inbox", "send_chat_msg"],
-                    "injected_job_kwargs": {"_agent_id": "chat", "_inbox_turn": turn.id},
+                    "injected_job_kwargs": {"_agent_name": "Remy", "_inbox_turn": turn.id},
                 },
             )
             if not turn.done:

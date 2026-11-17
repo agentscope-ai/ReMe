@@ -77,7 +77,7 @@ test("explicit chat reading retries durable acknowledgements; historical suppres
         chunk_type: "data",
         chunk: {
           type: "snapshot",
-          agent_id: "chat",
+          agent_name: "Remy",
           session_id: "session",
           status: "idle",
           agents: [],
@@ -111,7 +111,7 @@ test("explicit chat reading retries durable acknowledgements; historical suppres
   await controller.markAllRead();
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0], {
-    agent_id: "chat",
+    agent_name: "Remy",
     message_id: reminder.id,
     mark_read: true,
   });
@@ -128,7 +128,7 @@ test("explicit chat reading retries durable acknowledgements; historical suppres
     chunk_type: "data",
     chunk: {
       type: "snapshot",
-      agent_id: "chat",
+      agent_name: "Remy",
       session_id: "next-session",
       status: "idle",
       agents: [],

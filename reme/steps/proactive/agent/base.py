@@ -16,7 +16,23 @@ class BaseAgentStep(BaseStep):
 
     agent_runtime: BaseAgentRuntime = Ref(BaseAgentRuntime, ComponentEnum.AGENT_RUNTIME)
 
-    async def stream_reply(self, query: str, *, session_id: str, agent_id: str, **options) -> Response:
+    async def query_reply(self, agent_name, query):
+        """Ask a disposable fork without changing task history or live execution state."""
+        runtime = self.agent_runtime
+        options = {**self.web_options(False), "sandbox": "read-only", "approval_mode": "deny_all"}
+        async with runtime.query_session(agent_name, options) as session_id:
+            return await collect_reply(
+                runtime.agent_wrapper.reply_stream(
+                    query,
+                    resume=session_id,
+                    activity_source="proactive",
+                    activity_task_id=agent_name,
+                    **options,
+                ),
+                on_chunk=self.context.add_stream_chunk if self.context.stream else None,
+            )
+
+    async def stream_reply(self, query: str, *, session_id: str, agent_name: str, **options) -> Response:
         """Relay a formal conversation and preserve its terminal outcome and native metadata."""
         runtime = self.agent_runtime
         tracker = ActivityTracker(
@@ -28,7 +44,7 @@ class BaseAgentStep(BaseStep):
                 started_at=runtime.now(),
             ),
         )
-        runtime.activities[agent_id] = tracker.activity
+        runtime.activities[agent_name] = tracker.activity
 
         async def observe(chunk):
             if chunk.turn_id:
@@ -38,24 +54,24 @@ class BaseAgentStep(BaseStep):
                         "execution_session_id": chunk.session_id or session_id,
                     },
                 )
-            runtime.activities[agent_id] = tracker.update(chunk)
+            runtime.activities[agent_name] = tracker.update(chunk)
             publish(chunk)
             await self.context.add_stream_chunk(chunk)
 
         try:
-            with runtime.live_turns.observe(agent_id, session_id, query) as publish:
+            with runtime.live_turns.observe(agent_name, session_id, query) as publish:
                 result = await collect_reply(
                     runtime.agent_wrapper.reply_stream(query, resume=session_id, **options),
                     on_chunk=observe,
                 )
         except BaseException as exc:
             phase = "interrupted" if isinstance(exc, asyncio.CancelledError) else "failed"
-            runtime.activities[agent_id] = tracker.activity.model_copy(update={"phase": phase, "tool": None})
+            runtime.activities[agent_name] = tracker.activity.model_copy(update={"phase": phase, "tool": None})
             raise
         response = self.context.response
         response.success = result["status"] == "completed" and self.context.stream_error is None
         response.answer = result["result"]
-        response.metadata.update(result, agent_id=agent_id)
+        response.metadata.update(result, agent_name=agent_name)
         return response
 
     @staticmethod
@@ -81,5 +97,5 @@ class BaseAgentStep(BaseStep):
         return {
             key: value
             for key, value in self.context.data.items()
-            if key not in {"metadata", "_allowed_paths", "_agent_id", "_inbox_turn"}
+            if key not in {"metadata", "_allowed_paths", "_agent_name", "_inbox_turn"}
         }

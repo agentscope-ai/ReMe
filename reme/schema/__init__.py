@@ -4,7 +4,8 @@ from .application_config import ApplicationConfig, ComponentConfig, JobConfig
 from .agent_reply import AgentReply, collect_reply, replay_reply
 from .agent_session import SessionMessage, SessionSnapshot, SessionStatus
 from .agent_runtime import (
-    AgentId,
+    AgentName,
+    AgentType,
     AgentNotification,
     AgentSession,
     ChatAgentConfig,
@@ -94,7 +95,8 @@ __all__ = [
     "AgentReminder",
     "ReminderRef",
     "AgentNotification",
-    "AgentId",
+    "AgentName",
+    "AgentType",
     "NotificationConfig",
     "SendChatMessageRequest",
     "ProactiveRunResult",

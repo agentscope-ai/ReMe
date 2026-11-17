@@ -36,7 +36,7 @@ async def test_shared_loop_runs_both_consumers_and_releases_their_claims_on_stop
 
         async def run_job(name, **kwargs):
             if name == "proactive_run":
-                return Response(answer=await runtime.run(kwargs["agent_id"], execute))
+                return Response(answer=await runtime.run(kwargs["agent_name"], execute))
             assert name == "inbox_chat"
             return await InboxChatStep(app_context=context)(**kwargs)
 
@@ -49,7 +49,7 @@ async def test_shared_loop_runs_both_consumers_and_releases_their_claims_on_stop
                 await task_started.wait()
                 await chat_started.wait()
                 assert (await runtime.inbox.snapshot("monitor"))["in_flight_count"] == 1
-                assert (await runtime.inbox.snapshot("chat"))["in_flight_count"] == 1
+                assert (await runtime.inbox.snapshot("Remy"))["in_flight_count"] == 1
                 stop.set()
                 await loop
         finally:
@@ -58,7 +58,7 @@ async def test_shared_loop_runs_both_consumers_and_releases_their_claims_on_stop
         assert not runtime.workers and runtime.notifications.worker is None
         assert runtime.notifications.active_turn is None
         assert list(runtime.notifications.pending) == arguments["msg_ids"]
-        for name in ("monitor", "chat"):
+        for name in ("monitor", "Remy"):
             snapshot = await runtime.inbox.snapshot(name)
             assert snapshot["pending_count"] == 1 and snapshot["in_flight_count"] == 0
 
@@ -86,7 +86,7 @@ async def test_scheduler_failure_does_not_starve_the_other_consumer(tmp_path, mo
         failure = AsyncMock(side_effect=OSError("scheduler unavailable"))
         if failed == "task":
             await runtime.create(
-                {"name": "timer", "description": "Report", "trigger_type": "cron", "cron": "* * * * *"},
+                {"agent_name": "timer", "task_memory": "Report", "agent_type": "cron", "cron": "* * * * *"},
             )
             monkeypatch.setattr(runtime, "_schedule_cron", failure)
         else:

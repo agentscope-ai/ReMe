@@ -19,19 +19,19 @@ const reply = (turn: string): SessionMessage => ({
   notification_eligible: false,
   chunks: [],
 });
-const snapshot = (turn: string): AgentEvent => ({
+const snapshot = (turn: string, sessionId = "session"): AgentEvent => ({
   type: "snapshot",
-  session_id: "session",
+  session_id: sessionId,
   status: "idle",
   activities: {},
   snapshot: {
-    session_id: "session",
-    state: { session_id: "session", status: "idle", active_flags: [] },
+    session_id: sessionId,
+    state: { session_id: sessionId, status: "idle", active_flags: [] },
     messages: [reply(turn)],
   },
 });
 
-test("a later task round replaces an old failed draft without losing same-round errors", async () => {
+test("automatic stages preserve query errors until the next task session", async () => {
   const model = new SessionModel();
   model.apply(snapshot("old"));
   const pending: PendingTurn = {
@@ -70,11 +70,14 @@ test("a later task round replaces an old failed draft without losing same-round 
       const receive = args[3] as (chunk: unknown) => void;
       receive({ chunk_type: "data", chunk: snapshot("old") });
       receive({ chunk_type: "data", chunk: snapshot("new") });
+      receive({ chunk_type: "data", chunk: snapshot("next", "next-session") });
       abort.abort();
     },
   });
   await controller.watchChild("monitor", abort.signal);
   assert.equal(observed[0].pending, pending);
-  assert.equal(observed[1].pending, null);
+  assert.equal(observed[1].pending, pending);
   assert.deepEqual(observed[1].messages, ["new:assistant"]);
+  assert.equal(observed[2].pending, null);
+  assert.deepEqual(observed[2].messages, ["next:assistant"]);
 });

@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StrictBool, field_validator, model_validator
 
-from .agent_runtime import AgentId, AgentNotification
+from .agent_runtime import AgentName, AgentNotification
 
 
 class NotificationWindow(BaseModel):
@@ -27,12 +27,12 @@ class NotificationWindow(BaseModel):
 
 
 class ProactiveAgentConfig(BaseModel):
-    """User-owned execution settings; task instructions live in MEMORY.md."""
+    """User-owned execution settings; task memory lives in MEMORY.md."""
 
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
-    name: AgentId
-    trigger_type: Literal["event", "cron"]
+    agent_name: AgentName
+    agent_type: Literal["proactive", "cron"]
     enabled: StrictBool = True
     temporary: StrictBool = False
     cron: str | None = None
@@ -40,12 +40,12 @@ class ProactiveAgentConfig(BaseModel):
     max_batch_events: int = Field(default=20, ge=1, strict=True)
     notify_window: NotificationWindow | None = None
 
-    @field_validator("name")
+    @field_validator("agent_name")
     @classmethod
     def safe_name(cls, value: str) -> str:
         """Names also identify workspace files, including non-English names."""
-        if value.casefold() in {"chat", "tmp"}:
-            raise ValueError("chat and tmp are reserved agent names")
+        if value.casefold() in {"remy", "tmp"}:
+            raise ValueError("Remy and tmp are reserved agent names")
         return value
 
     @field_validator("min_trigger_interval_seconds", mode="before")
@@ -59,7 +59,7 @@ class ProactiveAgentConfig(BaseModel):
     @model_validator(mode="after")
     def validate_trigger(self):
         """Validate the final task after creation or a partial update."""
-        if self.trigger_type == "cron":
+        if self.agent_type == "cron":
             from croniter import croniter
 
             if not self.cron or not croniter.is_valid(self.cron):
@@ -74,14 +74,14 @@ class ProactiveAgentConfig(BaseModel):
 class CreateProactiveAgentConfig(ProactiveAgentConfig):
     """Accept initial task text only when creating an Agent."""
 
-    description: str = Field(min_length=1, max_length=100000)
+    task_memory: str = Field(min_length=1, max_length=100000)
 
-    @field_validator("description")
+    @field_validator("task_memory")
     @classmethod
-    def nonempty_description(cls, value: str) -> str:
-        """Reject whitespace-only tasks without rewriting user instructions."""
+    def nonempty_task_memory(cls, value: str) -> str:
+        """Reject whitespace-only task memory without rewriting its contents."""
         if not value.strip():
-            raise ValueError("description must not be blank")
+            raise ValueError("task_memory must not be blank")
         return value
 
 
@@ -92,11 +92,6 @@ class ProactiveAgent(ProactiveAgentConfig):
 
     created_at: AwareDatetime
     deleted_at: AwareDatetime | None = None
-
-    @property
-    def agent_id(self) -> str:
-        """Avoid storing two identities that can disagree."""
-        return self.name
 
 
 class ProactiveRunResult(BaseModel):
@@ -113,9 +108,9 @@ class ManageProactiveAgentRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     action: Literal["list", "create", "status", "update", "delete", "query"]
-    name: AgentId | None = None
-    instructions: str | None = Field(default=None, min_length=1, max_length=100000)
-    trigger_type: Literal["event", "cron"] | None = None
+    agent_name: AgentName | None = None
+    task_memory: str | None = Field(default=None, min_length=1, max_length=100000)
+    agent_type: Literal["proactive", "cron"] | None = None
     enabled: StrictBool = True
     temporary: StrictBool = False
     cron: str | None = None
@@ -123,7 +118,7 @@ class ManageProactiveAgentRequest(BaseModel):
     notify_window: NotificationWindow | None = None
     question: str | None = Field(default=None, min_length=1, max_length=100000)
 
-    @field_validator("instructions", "question")
+    @field_validator("task_memory", "question")
     @classmethod
     def nonblank_text(cls, value):
         """Keep task text verbatim while rejecting whitespace-only requests."""
@@ -134,14 +129,17 @@ class ManageProactiveAgentRequest(BaseModel):
     @model_validator(mode="after")
     def action_arguments(self):
         """Reject unused fields instead of silently ignoring misspecified calls."""
-        settings = {"trigger_type", "enabled", "cron", "min_trigger_interval_seconds", "notify_window"}
+        settings = {"agent_type", "enabled", "cron", "min_trigger_interval_seconds", "notify_window"}
         required, allowed = {
             "list": (set(), set()),
-            "create": ({"name", "instructions", "trigger_type"}, settings | {"name", "instructions", "temporary"}),
-            "status": ({"name"}, {"name"}),
-            "update": ({"name"}, settings | {"name"}),
-            "delete": ({"name"}, {"name"}),
-            "query": ({"name", "question"}, {"name", "question"}),
+            "create": (
+                {"agent_name", "task_memory", "agent_type"},
+                settings | {"agent_name", "task_memory", "temporary"},
+            ),
+            "status": ({"agent_name"}, {"agent_name"}),
+            "update": ({"agent_name"}, settings | {"agent_name"}),
+            "delete": ({"agent_name"}, {"agent_name"}),
+            "query": ({"agent_name", "question"}, {"agent_name", "question"}),
         }[self.action]
         supplied = self.model_fields_set - {"action"}
         if supplied - allowed:

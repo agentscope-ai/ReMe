@@ -16,10 +16,10 @@ class ResourceEventStep(BaseAgentStep):
         if "resource" in self.context and self.context["resource"] is None:
             self.context.response.answer = {"skipped": "no_new_data"}
             return self.context.response
-        agent_id = self.context.get("agent_id")
-        if not isinstance(agent_id, str) or not agent_id:
-            raise ValueError("resource_event_step requires a target agent_id")
-        if (await self.agent_runtime.definition(agent_id)).trigger_type != "event":
+        agent_name = self.context.get("agent_name")
+        if not isinstance(agent_name, str) or not agent_name:
+            raise ValueError("resource_event_step requires a target agent_name")
+        if (await self.agent_runtime.definition(agent_name)).agent_type != "proactive":
             raise ValueError("resource observations require an event agent")
         resource = self.context.get("resource")
         if not isinstance(resource, dict) or not isinstance(resource.get("path"), str):
@@ -39,6 +39,6 @@ class ResourceEventStep(BaseAgentStep):
             description=metadata.description,
             paths=paths,
         )
-        result = await self.agent_runtime.append(agent_id, event)
+        result = await self.agent_runtime.append(agent_name, event)
         self.context.response.answer = {**resource, **result}
         return self.context.response

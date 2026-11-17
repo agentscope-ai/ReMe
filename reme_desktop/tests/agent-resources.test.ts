@@ -13,7 +13,7 @@ test("workspace links resolve documents, wikilinks and contained native paths", 
   assert.equal(
     resolveWorkspaceLink(
       "#reme-file=daily%2Freport.md",
-      "reme_agents/chat/MEMORY.md",
+      "reme_agents/Remy/MEMORY.md",
     ),
     "daily/report.md",
   );
@@ -68,32 +68,32 @@ test("desktop resource requests use the new scoped contracts and reject retired 
   const signal = new AbortController().signal;
   await requestWorkspace(
     client,
-    { type: "outbox", agentId: "finance", state: "pending" },
+    { type: "outbox", agentName: "finance", state: "pending" },
     signal,
   );
   await requestWorkspace(
     client,
-    { type: "inbox", agentId: "任务", state: "processing", offset: 20 },
+    { type: "inbox", agentName: "任务", state: "processing", offset: 20 },
     signal,
   );
   await requestWorkspace(
     client,
-    { type: "reminder", agentId: "finance", id: "message-1", markRead: true },
+    { type: "reminder", agentName: "finance", id: "message-1", markRead: true },
     signal,
   );
   assert.deepEqual(calls, [
     [
       "agent_outbox",
-      { agent_id: "finance", state: "pending", offset: 0, limit: 20 },
+      { agent_name: "finance", state: "pending", offset: 0, limit: 20 },
     ],
     [
       "agent_inbox",
-      { agent_id: "任务", state: "processing", offset: 20, limit: 20 },
+      { agent_name: "任务", state: "processing", offset: 20, limit: 20 },
     ],
     [
       "agent_reminder",
       {
-        agent_id: "finance",
+        agent_name: "finance",
         message_id: "message-1",
         mark_read: true,
       },
@@ -101,9 +101,9 @@ test("desktop resource requests use the new scoped contracts and reject retired 
   ]);
   for (const request of [
     { type: "proactiveInbox" },
-    { type: "outbox", agentId: "chat", offset: -1 },
-    { type: "inbox", agentId: "finance", limit: 101 },
-    { type: "reminder", agentId: "chat", id: "", markRead: true },
+    { type: "outbox", agentName: "Remy", offset: -1 },
+    { type: "inbox", agentName: "finance", limit: 101 },
+    { type: "reminder", agentName: "Remy", id: "", markRead: true },
   ]) {
     await assert.rejects(
       requestWorkspace(

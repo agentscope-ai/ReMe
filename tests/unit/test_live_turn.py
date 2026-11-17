@@ -38,10 +38,10 @@ def test_live_overlay_recovers_on_reconnect_and_yields_to_completed_native_histo
         "agent": {"status": "active"},
         "snapshot": {"messages": [], "revision": "native"},
     }
-    with live.observe("chat", "session", "Hello") as publish:
+    with live.observe("Remy", "session", "Hello") as publish:
         publish(StreamChunk(turn_id="turn", block_id="text", chunk="Partial"))
-        first = live.overlay("chat", source)
-        assert first == live.overlay("chat", source)
+        first = live.overlay("Remy", source)
+        assert first == live.overlay("Remy", source)
         assert first["snapshot"]["revision"] != source["snapshot"]["revision"]
         assert not source["snapshot"]["messages"]
         publish(
@@ -52,7 +52,7 @@ def test_live_overlay_recovers_on_reconnect_and_yields_to_completed_native_histo
                 chunk={"result": "Final", "raw": {"secret": "not forwarded"}},
             ),
         )
-    recovered = live.overlay("chat", source)
+    recovered = live.overlay("Remy", source)
     assert recovered["snapshot"]["messages"][-1]["completed"]
     assert "not forwarded" not in str(recovered)
     native = {
@@ -71,9 +71,9 @@ def test_live_overlay_recovers_on_reconnect_and_yields_to_completed_native_histo
         },
     }
     incomplete = {**native, "snapshot": {"messages": [{**native["snapshot"]["messages"][0], "chunks": []}]}}
-    assert live.overlay("chat", incomplete)["snapshot"]["messages"][-1]["content"] == "Partial"
-    assert "chat" in live.turns
-    assert live.overlay("chat", native) is native
+    assert live.overlay("Remy", incomplete)["snapshot"]["messages"][-1]["content"] == "Partial"
+    assert "Remy" in live.turns
+    assert live.overlay("Remy", native) is native
     assert not live.turns
 
 
@@ -95,20 +95,20 @@ def test_cancellation_preserves_received_content_and_settles_only_the_live_turn(
 async def test_live_subscription_recovers_partial_output_without_polling_each_token(
     tmp_path,
 ):
-    from tests.unit.test_agent_runtime import running_runtime
+    from .test_agent_runtime import running_runtime
     from reme.components.agent_runtime._internal.views import AgentViews
     from reme.schema import SessionSnapshot, SessionStatus
     from unittest.mock import AsyncMock
 
     async with running_runtime(tmp_path) as (runtime, _, wrapper):
-        sid = await runtime.sessions.ensure("chat", wrapper, {}, runtime.now())
+        sid = await runtime.sessions.ensure("Remy", wrapper, {}, runtime.now())
         wrapper.read_session = AsyncMock(
             return_value=SessionSnapshot(session_id=sid, state=SessionStatus(session_id=sid, status="active")),
         )
-        events = AgentViews(runtime).events("chat", interval=60)
+        events = AgentViews(runtime).events("Remy", interval=60)
         try:
             assert (await anext(events))["type"] == "snapshot"
-            with runtime.live_turns.observe("chat", sid, "Hello") as publish:
+            with runtime.live_turns.observe("Remy", sid, "Hello") as publish:
                 publish(StreamChunk(turn_id="live-turn", block_id="text", chunk="Partial"))
                 user = await asyncio.wait_for(anext(events), 1)
                 assert user["message"]["role"] == "user"
@@ -120,32 +120,32 @@ async def test_live_subscription_recovers_partial_output_without_polling_each_to
                 assert update["message"]["content"] == "Partial output"
                 assert wrapper.read_session.await_count == 1
                 # Reading/reconnecting observes the same partial turn, without generating anything.
-                restored = await runtime.read_agent("chat")
+                restored = await runtime.read_agent("Remy")
                 assert restored["snapshot"]["messages"][-1]["content"] == "Partial output"
                 assert not wrapper.turns
         finally:
             await events.aclose()
         assert not runtime.live_turns.listeners
-        assert "chat" in runtime.live_turns.turns
+        assert "Remy" in runtime.live_turns.turns
 
 
 @pytest.mark.asyncio
 async def test_native_handoff_invalidates_every_subscribers_cached_snapshot(tmp_path):
-    from tests.unit.test_agent_runtime import running_runtime
+    from .test_agent_runtime import running_runtime
     from reme.components.agent_runtime._internal.views import AgentViews
     from reme.schema import SessionSnapshot, SessionStatus, SessionMessage
     from unittest.mock import AsyncMock
 
     async with running_runtime(tmp_path) as (runtime, _, wrapper):
-        sid = await runtime.sessions.ensure("chat", wrapper, {}, runtime.now())
+        sid = await runtime.sessions.ensure("Remy", wrapper, {}, runtime.now())
         snapshot = SessionSnapshot(session_id=sid, state=SessionStatus(session_id=sid, status="idle"))
         wrapper.read_session = AsyncMock(side_effect=lambda _: snapshot)
-        first = AgentViews(runtime).events("chat", interval=60)
-        second = AgentViews(runtime).events("chat", interval=60)
+        first = AgentViews(runtime).events("Remy", interval=60)
+        second = AgentViews(runtime).events("Remy", interval=60)
         try:
             await anext(first)
             await anext(second)
-            with runtime.live_turns.observe("chat", sid, "Hello") as publish:
+            with runtime.live_turns.observe("Remy", sid, "Hello") as publish:
                 publish(StreamChunk(turn_id="turn", block_id="text", chunk="Final", event="end"))
                 publish(StreamChunk(chunk_type="reply_end", event="end", status="completed", chunk={"result": "Final"}))
             snapshot.messages = [
@@ -157,7 +157,7 @@ async def test_native_handoff_invalidates_every_subscribers_cached_snapshot(tmp_
                     chunks=[StreamChunk(block_id="text", chunk="Final", event="end")],
                 ),
             ]
-            await runtime.read_agent("chat")
+            await runtime.read_agent("Remy")
             assert not runtime.live_turns.turns
             for events in (first, second):
                 update = await asyncio.wait_for(anext(events), 1)
@@ -234,7 +234,7 @@ def test_tool_call_identity_wins_over_event_specific_block_ids():
 
 def test_native_handoff_waits_for_tool_results_even_if_the_call_id_is_present():
     live = LiveTurns()
-    with live.observe("chat", "session", "Check") as publish:
+    with live.observe("Remy", "session", "Check") as publish:
         publish(
             StreamChunk(
                 turn_id="turn",
@@ -263,31 +263,31 @@ def test_native_handoff_waits_for_tool_results_even_if_the_call_id_is_present():
         "agent": {"status": "idle"},
         "snapshot": {"messages": [{"turn_id": "turn", "role": "assistant", "completed": True, "chunks": [call]}]},
     }
-    projected = live.overlay("chat", value)
-    assert "chat" in live.turns
+    projected = live.overlay("Remy", value)
+    assert "Remy" in live.turns
     assert projected["snapshot"]["messages"][-1]["chunks"][1]["chunk"] == "/workspace"
     value["snapshot"]["messages"][0]["chunks"] = [
         {"chunk_type": "tool_result", "block_id": "result", "tool_call_id": "call", "chunk": "/workspace"},
     ]
-    assert live.overlay("chat", value) is value
+    assert live.overlay("Remy", value) is value
     assert not live.turns
 
 
 def test_native_handoff_keeps_final_output_until_the_assistant_is_saved():
     live = LiveTurns()
-    with live.observe("chat", "session", "Hello") as publish:
+    with live.observe("Remy", "session", "Hello") as publish:
         publish(StreamChunk(turn_id="turn", chunk_type="reply_end", status="completed", chunk={"result": "Final"}))
     value = {
         "session_id": "session",
         "agent": {"status": "idle"},
         "snapshot": {"messages": [{"turn_id": "turn", "role": "user", "completed": True}]},
     }
-    live.overlay("chat", value)
-    assert "chat" in live.turns
+    live.overlay("Remy", value)
+    assert "Remy" in live.turns
     value["snapshot"]["messages"].append(
         {"turn_id": "turn", "role": "assistant", "completed": True, "content": "Progress"},
     )
-    live.overlay("chat", value)
-    assert "chat" in live.turns
+    live.overlay("Remy", value)
+    assert "Remy" in live.turns
     value["snapshot"]["messages"][-1]["content"] = "Final"
-    assert live.overlay("chat", value) is value
+    assert live.overlay("Remy", value) is value

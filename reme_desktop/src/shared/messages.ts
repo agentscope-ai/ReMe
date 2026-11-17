@@ -1,6 +1,7 @@
 import { translator } from "./i18n.ts";
 import type { Language } from "./i18n.ts";
 import { finishItems } from "./transcript.ts";
+import type { ReplyProgress } from "./transcript.ts";
 import type {
   AgentActivity,
   DisplayMessage,
@@ -68,20 +69,14 @@ export function displayMessages(
     sessionId: string | null;
     messages: TranscriptMessage[];
     pending: PendingTurn | null;
-    replaceOnSend?: boolean;
+    reply?: ReplyProgress;
   },
   activity: AgentActivity | undefined,
   language: Language,
 ): DisplayMessage[] {
   const pending =
     state.pending?.sessionId === state.sessionId ? state.pending : null;
-  const messages = groupTurns(
-    pending && state.replaceOnSend
-      ? state.messages.filter(
-          (message) => pending.turnId && message.turn_id === pending.turnId,
-        )
-      : state.messages,
-  );
+  const messages = groupTurns(state.messages);
   const result: DisplayMessage[] = messages.map((message) => {
     const live =
       pending?.turnId &&
@@ -150,9 +145,13 @@ export function displayMessages(
       role: "assistant",
       source: "chat",
       turnId: pending.turnId,
-      content: "",
-      items: [],
-      completed: false,
+      content: state.reply?.text ?? "",
+      items: state.reply
+        ? pending.streaming
+          ? state.reply.items
+          : finishItems(state.reply.items, pending.outcome ?? "interrupted")
+        : [],
+      completed: Boolean(state.reply && !pending.streaming),
       streaming:
         pending.streaming || (!pending.outcome && Boolean(pending.turnId)),
       status: null,

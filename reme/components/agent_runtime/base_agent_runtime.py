@@ -42,7 +42,6 @@ class BaseAgentRuntime(BaseComponent):
     chat_tasks: set[asyncio.Task]
     workers: dict[str, asyncio.Task]
     agent_tasks: dict[asyncio.Task, str]
-    interactive: dict[asyncio.Task, str]
     activities: dict[str, AgentActivity]
     changed: asyncio.Event
     closed: bool
@@ -57,7 +56,7 @@ class BaseAgentRuntime(BaseComponent):
         """Prepare an Agent's owned execution resources."""
 
     @abstractmethod
-    async def definition(self, agent_id: str) -> ProactiveAgent:
+    async def definition(self, agent_name: str) -> ProactiveAgent:
         """Read the latest task definition."""
 
     @abstractmethod
@@ -65,19 +64,19 @@ class BaseAgentRuntime(BaseComponent):
         """Create or restore a durable task identity."""
 
     @abstractmethod
-    async def update(self, agent_id: str, config: dict) -> dict:
+    async def update(self, agent_name: str, config: dict) -> dict:
         """Update execution settings independently of task memory."""
 
     @abstractmethod
-    async def delete(self, agent_id: str) -> dict:
+    async def delete(self, agent_name: str) -> dict:
         """Stop owned execution while preserving task history."""
 
     @abstractmethod
-    async def append(self, agent_id: str, events) -> dict:
+    async def append(self, agent_name: str, events) -> dict:
         """Persist external observations for an event Agent; cron inputs belong to the scheduler."""
 
     @abstractmethod
-    async def status(self, agent_id: str) -> dict:
+    async def status(self, agent_name: str) -> dict:
         """Return execution settings, status, and the original memory path."""
 
     @abstractmethod
@@ -92,14 +91,8 @@ class BaseAgentRuntime(BaseComponent):
 
     @asynccontextmanager
     @abstractmethod
-    async def query_turn(self, agent_id: str) -> AsyncIterator[str]:
-        """Own a query from checkpoint selection through temporary session cleanup."""
-        yield
-
-    @asynccontextmanager
-    @abstractmethod
-    async def agent_turn(self, agent_id: str) -> AsyncIterator[None]:
-        """Serialize a user turn with the selected Agent's background work."""
+    async def query_session(self, agent_name: str, options: dict) -> AsyncIterator[str]:
+        """Own a fork of the latest task session through query completion and cleanup."""
         yield
 
     @abstractmethod
@@ -107,16 +100,16 @@ class BaseAgentRuntime(BaseComponent):
         """Read all foreground and task identities with current session state."""
 
     @abstractmethod
-    async def read_agent(self, agent_id: str) -> dict:
+    async def read_agent(self, agent_name: str) -> dict:
         """Read one current session without creating it."""
 
     @abstractmethod
-    async def watch_agent(self, agent_id: str) -> AsyncIterator[dict]:
+    async def watch_agent(self, agent_name: str) -> AsyncIterator[dict]:
         """Observe one current conversation and global Agent state."""
         yield {}
 
     @abstractmethod
-    async def list_inputs(self, agent_id: str, **kwargs) -> dict:
+    async def list_inputs(self, agent_name: str, **kwargs) -> dict:
         """Page retained inputs without acquiring a consumption lease."""
 
     @abstractmethod
@@ -124,7 +117,7 @@ class BaseAgentRuntime(BaseComponent):
         """Inspect the Chat Agent's retained session references."""
 
     @abstractmethod
-    async def run(self, agent_id: str, execute: Callable) -> dict:
+    async def run(self, agent_name: str, execute: Callable) -> dict:
         """Execute and commit one serial input batch."""
 
     @abstractmethod

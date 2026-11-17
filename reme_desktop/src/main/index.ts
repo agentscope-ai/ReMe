@@ -277,9 +277,9 @@ else {
           case "speech.speak": {
             if (
               action.sessionId === controller!.model.sessionId &&
-              controller!.state.selectedAgentId !== "chat"
+              controller!.state.selectedAgentName !== "Remy"
             )
-              controller!.selectAgent("chat");
+              controller!.selectAgent("Remy");
             if (action.sessionId !== controller!.state.sessionId)
               throw new UiError("sessionUnavailable");
             controller!.speakMessage(action.messageId);
@@ -448,10 +448,10 @@ else {
           case "agent.select":
             if (
               event.sender.id !== windows!.chat.webContents.id ||
-              typeof action.agentId !== "string"
+              typeof action.agentName !== "string"
             )
               throw new UiError("invalidAction");
-            controller!.selectAgent(action.agentId);
+            controller!.selectAgent(action.agentName);
             return;
           case "session.new":
             return controller!.newSession();

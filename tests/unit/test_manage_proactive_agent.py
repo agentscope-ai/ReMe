@@ -21,22 +21,28 @@ from .test_agent_runtime import running_runtime
 @pytest.mark.parametrize(
     "arguments",
     [
-        {"action": "list", "name": "task"},
-        {"action": "list", "name": None},
-        {"action": "create", "name": "task", "trigger_type": "event"},
-        {"action": "create", "name": "task", "instructions": " ", "trigger_type": "event"},
-        {"action": "create", "config": {"name": "task", "description": "Do work", "trigger_type": "event"}},
+        {"action": "list", "agent_name": "task"},
+        {"action": "list", "agent_name": None},
+        {"action": "create", "agent_name": "task", "agent_type": "proactive"},
+        {"action": "create", "agent_name": "task", "task_memory": " ", "agent_type": "proactive"},
+        {"action": "create", "config": {"agent_name": "task", "task_memory": "Do work", "agent_type": "proactive"}},
         {"action": "status", "agent_id": "task"},
+        {"action": "status", "name": "task"},
+        {"action": "create", "agent_name": "task", "task_memory": "Observe", "agent_type": "event"},
+        {"action": "create", "agent_name": "task", "task_memory": "Observe", "agent_type": "chat"},
+        {"action": "create", "agent_name": "task", "instructions": "Observe", "agent_type": "proactive"},
+        {"action": "create", "agent_name": "task", "description": "Observe", "agent_type": "proactive"},
+        {"action": "create", "agent_name": "task", "task_memory": "Observe", "trigger_type": "event"},
         {"action": "status"},
-        {"action": "status", "name": "task", "enabled": True},
-        {"action": "update", "name": "task"},
-        {"action": "update", "name": "task", "instructions": "New work"},
-        {"action": "update", "name": "task", "temporary": True},
-        {"action": "update", "name": "task", "max_batch_events": 10},
-        {"action": "update", "name": "task", "min_trigger_interval_seconds": True},
-        {"action": "delete", "name": "task", "cron": None},
-        {"action": "query", "name": "task", "query": "Progress?"},
-        {"action": "query", "name": "task", "question": " "},
+        {"action": "status", "agent_name": "task", "enabled": True},
+        {"action": "update", "agent_name": "task"},
+        {"action": "update", "agent_name": "task", "task_memory": "New work"},
+        {"action": "update", "agent_name": "task", "temporary": True},
+        {"action": "update", "agent_name": "task", "max_batch_events": 10},
+        {"action": "update", "agent_name": "task", "min_trigger_interval_seconds": True},
+        {"action": "delete", "agent_name": "task", "cron": None},
+        {"action": "query", "agent_name": "task", "query": "Progress?"},
+        {"action": "query", "agent_name": "task", "question": " "},
     ],
 )
 def test_action_arguments_reject_legacy_and_irrelevant_fields(arguments):
@@ -52,27 +58,35 @@ async def test_all_actions_expose_only_their_results_and_keep_memory_files(tmp_p
         tool = ManageProactiveAgentStep(app_context=context)
         arguments = {
             "action": "create",
-            "name": "科技早报",
-            "instructions": "每天08:00整理科技新闻。\n保留来源。\n",
-            "trigger_type": "cron",
+            "agent_name": "tech_news",
+            "task_memory": "每天08:00整理科技新闻。\n保留来源。\n",
+            "agent_type": "cron",
             "cron": "0 8 * * *",
         }
         created = (await tool(**arguments)).answer
         assert created == {
-            "name": "科技早报",
-            "memory_path": "reme_agents/科技早报/MEMORY.md",
+            "agent_name": "tech_news",
+            "memory_path": "reme_agents/tech_news/MEMORY.md",
             "next_trigger_at": "2026-11-17T08:00:00+08:00",
         }
         memory = tmp_path / created["memory_path"]
-        assert memory.read_text() == arguments["instructions"]
+        assert memory.read_text() == arguments["task_memory"]
         assert not runtime.cron  # Inspecting the next trigger must not schedule or run work.
         assert (await tool(action="list")).answer == {
-            "items": [{"name": "科技早报", "trigger_type": "cron", "enabled": True, "cron": "0 8 * * *"}],
+            "items": [
+                {
+                    "agent_name": "tech_news",
+                    "agent_type": "cron",
+                    "enabled": True,
+                    "cron": "0 8 * * *",
+                    "memory_path": created["memory_path"],
+                },
+            ],
         }
-        status = (await tool(action="status", name="科技早报")).answer
+        status = (await tool(action="status", agent_name="tech_news")).answer
         assert status == {
             **created,
-            "trigger_type": "cron",
+            "agent_type": "cron",
             "enabled": True,
             "temporary": False,
             "cron": "0 8 * * *",
@@ -81,32 +95,34 @@ async def test_all_actions_expose_only_their_results_and_keep_memory_files(tmp_p
             "in_flight_events": 0,
             "last_completed_at": None,
         }
-        updated = (await tool(action="update", name="科技早报", cron="0 9 * * *")).answer
+        updated = (await tool(action="update", agent_name="tech_news", cron="0 9 * * *")).answer
         assert updated == {
-            "name": "科技早报",
+            "agent_name": "tech_news",
             "updated": {"cron": "0 9 * * *"},
             "next_trigger_at": "2026-11-17T09:00:00+08:00",
         }
-        paused = (await tool(action="update", name="科技早报", enabled=False)).answer
-        assert paused == {"name": "科技早报", "updated": {"enabled": False}}
-        assert memory.read_text() == arguments["instructions"]
+        paused = (await tool(action="update", agent_name="tech_news", enabled=False)).answer
+        assert paused == {"agent_name": "tech_news", "updated": {"enabled": False}}
+        assert memory.read_text() == arguments["task_memory"]
 
-        query = AsyncMock(return_value=Response(answer={"agent_id": "科技早报", "answer": "今天的早报已经完成。"}))
+        query = AsyncMock(return_value=Response(answer={"agent_name": "tech_news", "answer": "今天的早报已经完成。"}))
         monkeypatch.setattr(tool, "run_job", query)
-        assert (await tool(action="query", name="科技早报", question="进展如何？")).answer == "今天的早报已经完成。"
+        assert (
+            await tool(action="query", agent_name="tech_news", question="进展如何？")
+        ).answer == "今天的早报已经完成。"
         query.assert_awaited_once_with(
             "proactive_query",
-            agent_id="科技早报",
+            agent_name="tech_news",
             query="进展如何？",
             _allowed_paths=None,
         )
-        deleted = (await tool(action="delete", name="科技早报")).answer
-        assert deleted == "Deleted task '科技早报'; history files retained."
+        deleted = (await tool(action="delete", agent_name="tech_news")).answer
+        assert deleted == "Deleted task 'tech_news'; history files retained."
         assert (await tool(action="list")).answer == {"items": []}
-        assert memory.read_text() == arguments["instructions"]
-        restored = (await tool(**{**arguments, "instructions": "Changed request"})).answer
+        assert memory.read_text() == arguments["task_memory"]
+        restored = (await tool(**{**arguments, "task_memory": "Changed request"})).answer
         assert restored == {**created, "restored": True}
-        assert memory.read_text() == arguments["instructions"]
+        assert memory.read_text() == arguments["task_memory"]
 
 
 @pytest.mark.asyncio
@@ -115,29 +131,29 @@ async def test_trigger_changes_clear_old_settings_without_ignoring_explicit_conf
         tool = ManageProactiveAgentStep(app_context=context)
         await tool(
             action="create",
-            name="实验监控",
-            instructions="跟进实验",
-            trigger_type="event",
+            agent_name="experiment_watch",
+            task_memory="跟进实验",
+            agent_type="proactive",
             min_trigger_interval_seconds=30,
         )
-        await tool(action="update", name="实验监控", trigger_type="cron", cron="0 * * * *")
-        assert (await runtime.definition("实验监控")).min_trigger_interval_seconds == 0
-        await tool(action="update", name="实验监控", trigger_type="event")
-        assert (await runtime.definition("实验监控")).cron is None
+        await tool(action="update", agent_name="experiment_watch", agent_type="cron", cron="0 * * * *")
+        assert (await runtime.definition("experiment_watch")).min_trigger_interval_seconds == 0
+        await tool(action="update", agent_name="experiment_watch", agent_type="proactive")
+        assert (await runtime.definition("experiment_watch")).cron is None
         with pytest.raises(ValueError, match="trigger interval"):
             await tool(
                 action="update",
-                name="实验监控",
-                trigger_type="cron",
+                agent_name="experiment_watch",
+                agent_type="cron",
                 cron="0 * * * *",
                 min_trigger_interval_seconds=30,
             )
-        assert (await runtime.definition("实验监控")).trigger_type == "event"
-        await tool(action="update", name="实验监控", notify_window={"start": "09:00", "end": "18:00"})
-        assert (await runtime.definition("实验监控")).notify_window.start == "09:00"
-        cleared = (await tool(action="update", name="实验监控", notify_window=None)).answer
-        assert cleared == {"name": "实验监控", "updated": {"notify_window": None}}
-        assert (await runtime.definition("实验监控")).notify_window is None
+        assert (await runtime.definition("experiment_watch")).agent_type == "proactive"
+        await tool(action="update", agent_name="experiment_watch", notify_window={"start": "09:00", "end": "18:00"})
+        assert (await runtime.definition("experiment_watch")).notify_window.start == "09:00"
+        cleared = (await tool(action="update", agent_name="experiment_watch", notify_window=None)).answer
+        assert cleared == {"agent_name": "experiment_watch", "updated": {"notify_window": None}}
+        assert (await runtime.definition("experiment_watch")).notify_window is None
 
 
 @pytest.mark.asyncio
@@ -145,7 +161,7 @@ async def test_query_errors_remain_failed_tool_results(tmp_path, monkeypatch):
     async with running_runtime(tmp_path) as (_, context, _):
         tool = ManageProactiveAgentStep(app_context=context)
         monkeypatch.setattr(tool, "run_job", AsyncMock(return_value=Response(success=False, answer="No completed run")))
-        result = await tool(action="query", name="实验监控", question="进展如何？")
+        result = await tool(action="query", agent_name="experiment_watch", question="进展如何？")
         assert not result.success and result.answer == "No completed run"
 
 

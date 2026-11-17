@@ -11,7 +11,7 @@ class _InboxTool(BaseAgentStep):
     def turn(self):
         """Validate scope and file permissions before accessing the active batch."""
         self.require_paths(self.workspace_path)
-        if self.context.get("_agent_id") != "chat":
+        if self.context.get("_agent_name") != "Remy":
             raise ValueError("inbox tools require the calling Chat Agent")
         return self.agent_runtime.notifications.current_turn(self.context.get("_inbox_turn"))
 
@@ -27,7 +27,7 @@ class ReadInboxStep(_InboxTool):
         self.context.response.answer = {
             "items": [
                 {
-                    "task": item["from_agent_id"],
+                    "agent_name": item["from_agent_name"],
                     "created_at": item["created_at"],
                     "message": item["message"],
                     "paths": list(dict.fromkeys(path for path in item["paths"] if path != item["reminder_path"])),

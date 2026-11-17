@@ -84,8 +84,8 @@ export async function requestWorkspace(
           ? ["all", "pending", "processing", "processed"]
           : ["all", "pending", "processed"];
       if (
-        typeof request.agentId !== "string" ||
-        !request.agentId ||
+        typeof request.agentName !== "string" ||
+        !request.agentName ||
         !states.includes(request.state ?? "all") ||
         !Number.isSafeInteger(offset) ||
         offset < 0 ||
@@ -96,7 +96,7 @@ export async function requestWorkspace(
         throw new UiError("invalidWorkspaceRequest");
       job = request.type === "inbox" ? "agent_inbox" : "agent_outbox";
       body = {
-        agent_id: request.agentId,
+        agent_name: request.agentName,
         state: request.state ?? "all",
         offset,
         limit,
@@ -105,8 +105,8 @@ export async function requestWorkspace(
     }
     case "reminder":
       if (
-        typeof request.agentId !== "string" ||
-        !request.agentId ||
+        typeof request.agentName !== "string" ||
+        !request.agentName ||
         typeof request.id !== "string" ||
         !request.id ||
         request.id.length > 128 ||
@@ -116,7 +116,7 @@ export async function requestWorkspace(
         throw new UiError("invalidWorkspaceRequest");
       job = "agent_reminder";
       body = {
-        agent_id: request.agentId,
+        agent_name: request.agentName,
         message_id: request.id,
         mark_read: request.markRead ?? false,
       };

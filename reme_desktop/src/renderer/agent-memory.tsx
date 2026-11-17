@@ -17,7 +17,7 @@ export default function AgentMemory({
   const [error, setError] = useState<unknown>(null);
   const t = translator(state.settings.language);
   const completed = state.agents?.find(
-    (agent) => agent.agent_id === state.selectedAgentId,
+    (agent) => agent.agent_name === state.selectedAgentName,
   )?.last_completed_at;
   useEffect(() => {
     let live = true;
