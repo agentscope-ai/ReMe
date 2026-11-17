@@ -286,7 +286,95 @@ def test_worker_leaves_rerun_marker_when_another_pass_holds_the_lock(adapter, mo
     adapter.flush_worker(force=True)
 
     assert (adapter.data_dir() / "worker.rerun").exists()
+    assert (adapter.data_dir() / "worker.force").exists()
     assert "worker_requeued" in (adapter.data_dir() / "hooks.log").read_text(encoding="utf-8")
+
+
+def test_contender_records_the_request_before_the_owner_can_exit(adapter, monkeypatch):
+    write_config(adapter, {"auto_recall": False, "auto_memory": True, "memory_interval": 1})
+    capture_one(adapter, monkeypatch)
+    marker = adapter.data_dir() / "worker.rerun"
+    real_lock = adapter.lock
+    owner_saw: list[bool] = []
+
+    @contextlib.contextmanager
+    def paused_contender(path):
+        # The owner holds the lock while this contender fails to acquire it. The
+        # owner then finishes its pass and checks for a pending request before
+        # exiting, all while the contender is still suspended here.
+        with real_lock(path) as acquired:
+            assert acquired
+            owner_saw.append(marker.exists())
+        yield False
+
+    monkeypatch.setattr(adapter, "lock", paused_contender)
+    adapter.flush_worker(force=True)
+
+    assert owner_saw == [True]
+    assert marker.exists()
+
+
+def test_force_contender_then_plain_owner_still_delivers_the_short_batch(adapter, monkeypatch):
+    write_config(adapter, {"auto_recall": False, "auto_memory": True, "memory_interval": 5})
+    capture_one(adapter, monkeypatch)
+    call = Mock(return_value={"success": True})
+    monkeypatch.setattr(adapter, "call", call)
+    real_lock = adapter.lock
+
+    @contextlib.contextmanager
+    def _plain_owner_holds(path):
+        with real_lock(path) as acquired:
+            assert acquired
+            # The force=False Stop worker completes its own pass, which cannot
+            # deliver a batch below memory_interval, and releases the lock.
+            adapter.flush_all(adapter.load_config(), force=False)
+        yield False
+
+    def plain_owner_holds(path):
+        return _plain_owner_holds(path) if path.name == "worker.lock" else real_lock(path)
+
+    monkeypatch.setattr(adapter, "lock", plain_owner_holds)
+    adapter.flush_worker(force=True)
+
+    call.assert_not_called()
+    assert (adapter.data_dir() / "worker.force").exists()
+
+    monkeypatch.setattr(adapter, "lock", real_lock)
+    adapter.flush_worker(force=False)
+
+    assert call.called
+    assert not (adapter.data_dir() / "worker.force").exists()
+    assert not (adapter.data_dir() / "worker.rerun").exists()
+    root = adapter.session_queue(adapter.load_config(), stop_payload())
+    assert not list(root.glob("*.json"))
+
+
+def test_worker_stops_between_batches_when_memory_is_disabled(adapter, monkeypatch):
+    write_config(adapter, {"auto_recall": False, "auto_memory": True, "memory_interval": 1})
+    capture_one(adapter, monkeypatch, prompt="Remember the first one.", answer="First saved.")
+    spawn = Mock(return_value=True)
+    monkeypatch.setattr(adapter, "spawn_worker", spawn)
+    adapter.handle_event(prompt_payload(turn="turn-two", prompt="Remember the second one."))
+    adapter.handle_event(stop_payload(turn="turn-two", text="Second saved."))
+    root = adapter.session_queue(adapter.load_config(), stop_payload())
+    assert len(list(root.glob("*.json"))) == 2
+
+    batches: list[dict] = []
+
+    def call(_config, _action, payload, _timeout):
+        batches.append(payload)
+        if len(batches) == 1:
+            write_config(adapter, {"auto_recall": False, "auto_memory": False, "memory_interval": 1})
+        return {"success": True}
+
+    monkeypatch.setattr(adapter, "call", call)
+
+    adapter.flush_worker(force=True)
+
+    assert len(batches) == 1
+    assert len(list(root.glob("*.json"))) == 1
+    assert len(list(root.glob("*.done"))) == 1
+    assert "flush_skipped_auto_memory_disabled" in (adapter.data_dir() / "hooks.log").read_text(encoding="utf-8")
 
 
 def test_worker_runs_another_pass_when_a_session_is_captured_during_delivery(adapter, monkeypatch):

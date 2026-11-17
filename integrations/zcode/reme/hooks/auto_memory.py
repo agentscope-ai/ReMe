@@ -329,6 +329,11 @@ def flush(config: dict, root: Path, *, force: bool = False) -> None:
         if not acquired:
             return
         while True:
+            if not load_config()["auto_memory"]:
+                # Recheck before every submission: disabling recording stops an
+                # already-started worker too, and unsent queue files stay in place.
+                log_status("flush_skipped_auto_memory_disabled")
+                return
             pending = []
             for path in root.glob("*.json"):
                 if path.with_suffix(".done").exists():
@@ -369,6 +374,24 @@ def flush_all(config: dict, *, force: bool) -> None:
             log_status("retry_failed", exc)
 
 
+def request_pass(force: bool) -> None:
+    """Record a delivery request before contending for the worker lock.
+
+    The markers are written first on purpose. A competitor that is suspended after
+    its lock attempt fails must already have published its request, otherwise the
+    owner can finish its scan, release the lock, find no marker, and exit while the
+    request is still unrecorded. Recording first leaves only two outcomes: the owner
+    sees the marker and scans again, or the lock is free and this worker takes it.
+    """
+    root = data_dir()
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    (root / "worker.rerun").touch()
+    if force:
+        # A separate never-downgraded marker keeps force=True monotonic while
+        # competitors write concurrently: once requested, the next pass is forced.
+        (root / "worker.force").touch()
+
+
 def flush_worker(*, force: bool) -> None:
     """Run detached delivery passes until no newer request is waiting."""
     config = load_config()
@@ -377,19 +400,26 @@ def flush_worker(*, force: bool) -> None:
         # files untouched instead of delivering them behind the user's back.
         log_status("worker_skipped_auto_memory_disabled")
         return
-    rerun = data_dir() / "worker.rerun"
+    root = data_dir()
+    rerun = root / "worker.rerun"
+    forced = root / "worker.force"
+    request_pass(force)
     while True:
-        with lock(data_dir() / "worker.lock") as acquired:
+        with lock(root / "worker.lock") as acquired:
             if not acquired:
-                # Another worker owns the current pass. Its snapshot may predate
-                # the session that just queued this request, so leave a marker
-                # for it to scan again instead of dropping the request.
-                rerun.touch()
+                # Another worker owns the current pass. It published this request
+                # before its own lock check, so it either consumed it or will scan
+                # again; the markers stay behind for it.
                 log_status("worker_requeued")
                 return
+            run_force = force or forced.exists()
             rerun.unlink(missing_ok=True)
-            flush_all(config, force=force)
-        if not rerun.exists():
+            forced.unlink(missing_ok=True)
+            if not load_config()["auto_memory"]:
+                log_status("worker_skipped_auto_memory_disabled")
+                return
+            flush_all(config, force=run_force)
+        if not rerun.exists() and not forced.exists():
             return
 
 
