@@ -100,6 +100,32 @@ test("uses the persisted destination and request ID when sending a recovered bat
   }
 });
 
+test("scopes the bearer token to the endpoint it was configured for", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (url, init) => {
+    requests.push({ url, authorization: init.headers.Authorization });
+    return Response.json({ success: true });
+  };
+  try {
+    const client = new ReMeClient({
+      endpoint: "http://new.test",
+      authToken: "current-token",
+      requestTimeoutMs: 1000,
+      backgroundTimeoutMs: 1000,
+    });
+    // The current endpoint keeps the token.
+    await client.search("fact");
+    assert.equal(requests.at(-1).authorization, "Bearer current-token");
+    // A recovered batch for another endpoint must not receive it.
+    await client.autoMemory([], "session", { endpoint: "http://old.test" });
+    assert.equal(requests.at(-1).url, "http://old.test/auto_memory");
+    assert.equal(requests.at(-1).authorization, undefined);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("calls ReMe jobs with their native request and response envelopes", async () => {
   const calls = [];
   const originalFetch = globalThis.fetch;

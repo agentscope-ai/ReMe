@@ -7,6 +7,7 @@ environment or a .env file at the repo root. Hits the real LLM API.
 import asyncio
 import sys
 from pathlib import Path
+from uuid import uuid4
 
 INTEGRATION_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(INTEGRATION_DIR))
@@ -24,15 +25,16 @@ async def _run_session_persistence() -> None:
         try:
             wrapper = app.context.components[ComponentEnum.AGENT_WRAPPER]["default"]
 
-            sid = "test-persist-session"
+            sid = str(uuid4())
 
             # First call: establish session
-            _, msg_1 = await wrapper.reply(
+            reply_1 = await wrapper.reply(
                 "My favorite color is blue. Remember that.",
                 session_id=sid,
                 system_prompt="You are a helpful assistant. Keep answers short.",
             )
-            text_1 = (msg_1.get_text_content() or "").strip()
+            assert reply_1["status"] == "completed", reply_1["error"]
+            text_1 = reply_1["result"].strip()
             print(f"\n[session_persist] reply 1: {text_1!r}")
             assert text_1, "Empty first reply"
 
@@ -42,13 +44,14 @@ async def _run_session_persistence() -> None:
             assert len(files_after_1) == 1, f"Expected 1 session file, got {len(files_after_1)}"
             assert sid in files_after_1[0].name
 
-            # Second call: same session_id — agent should have previous context
-            _, msg_2 = await wrapper.reply(
+            # Resume the returned session to retain its context.
+            reply_2 = await wrapper.reply(
                 "What is my favorite color?",
-                session_id=sid,
+                resume=sid,
                 system_prompt="You are a helpful assistant. Keep answers short.",
             )
-            text_2 = (msg_2.get_text_content() or "").strip()
+            assert reply_2["status"] == "completed", reply_2["error"]
+            text_2 = reply_2["result"].strip()
             print(f"[session_persist] reply 2: {text_2!r}")
             assert "blue" in text_2.lower(), f"Agent should recall 'blue' from session context, got: {text_2!r}"
 
@@ -64,7 +67,7 @@ async def _run_fork_session() -> None:
         try:
             wrapper = app.context.components[ComponentEnum.AGENT_WRAPPER]["default"]
 
-            sid = "test-fork-origin"
+            sid = str(uuid4())
 
             # Establish original session
             await wrapper.reply(
@@ -76,13 +79,15 @@ async def _run_fork_session() -> None:
             assert len(files_before_fork) == 1
 
             # Fork the session
-            forked_sid, msg_fork = await wrapper.reply(
+            forked = await wrapper.reply(
                 "What is the secret number?",
-                session_id=sid,
+                resume=sid,
                 fork_session=True,
                 system_prompt="You are a helpful assistant. Keep answers short.",
             )
-            text_fork = (msg_fork.get_text_content() or "").strip()
+            assert forked["status"] == "completed", forked["error"]
+            forked_sid = forked["session_id"]
+            text_fork = forked["result"].strip()
             print(f"\n[fork_session] forked reply: {text_fork!r}")
             assert "42" in text_fork, f"Forked session should recall '42', got: {text_fork!r}"
 
@@ -104,31 +109,32 @@ async def _run_fork_session() -> None:
             await env.close_all()
 
 
-async def _run_no_session_id() -> None:
-    """When session_id is empty, no session file should be created."""
+async def _run_auto_session_id() -> None:
+    """Omitting session_id creates and returns a persisted session."""
     with workspace_env() as env:
         app = await env.make_app()
         try:
             wrapper = app.context.components[ComponentEnum.AGENT_WRAPPER]["default"]
 
-            _, msg = await wrapper.reply(
+            reply = await wrapper.reply(
                 "Say hello.",
                 system_prompt="You are a helpful assistant. Keep answers short.",
             )
-            text = (msg.get_text_content() or "").strip()
+            assert reply["status"] == "completed", reply["error"]
+            text = reply["result"].strip()
             print(f"\n[no_session] reply: {text!r}")
             assert text, "Empty reply"
 
             files = env.session_state_files()
-            assert len(files) == 0, f"No session files should be created without session_id, found {files}"
+            assert len(files) == 1 and reply["session_id"] in files[0].name, files
 
-            print("✓ test_no_session_id passed")
+            print("✓ test_auto_session_id passed")
         finally:
             await env.close_all()
 
 
 async def _run_all() -> None:
-    await _run_no_session_id()
+    await _run_auto_session_id()
     await _run_session_persistence()
     await _run_fork_session()
 

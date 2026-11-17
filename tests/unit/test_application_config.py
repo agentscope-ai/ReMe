@@ -14,12 +14,13 @@ from reme.schema import ApplicationConfig, FileChunk
 from reme.steps.evolve.auto_memory import AutoMemoryStep
 from reme.steps.file_io.daily_write import DailyWriteStep
 from reme.steps.index._source_format import is_session_path, render_chunk_body
-from reme.steps.index._watch_rules import build_watch_rules
+from reme.utils.file_watch import build_watch_rules
 
 
 def test_workspace_dir_expands_user_home(monkeypatch, tmp_path):
     """Home-relative workspace config is normalized before components consume it."""
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
 
     config = ApplicationConfig(workspace_dir="~/.copaw/workspaces/default")
 

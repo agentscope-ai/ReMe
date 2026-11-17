@@ -30,8 +30,9 @@ _OutputT = TypeVar("_OutputT", bound=BaseModel)
 
 def structured_output(result: dict[str, Any], model: type[_OutputT]) -> _OutputT:
     """Validate an agent wrapper's structured output."""
-    value = result.get("structured_output")
-    return value if isinstance(value, model) else model.model_validate(value)
+    if result["status"] != "completed":
+        raise RuntimeError(result["error"] or f"Agent reply ended: {result['status']}")
+    return model.model_validate(result["structured_output"])
 
 
 def strip_frontmatter(body: str) -> str:

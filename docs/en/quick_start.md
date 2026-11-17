@@ -178,9 +178,9 @@ Daily notes:
 
 ```bash
 reme write path=daily/2026-06-20/demo-session.md name=demo-session description="Demo session" content="Recorded content"
-reme daily_list
+reme daily_list date=2026-06-20
 reme daily_list start_date=2026-06-01 end_date=2026-06-20 page=1 page_size=20
-reme daily_reindex
+reme daily_reindex date=2026-06-20
 ```
 
 `write` can create a daily note directly. Run `daily_reindex` when the day's index needs to be refreshed.

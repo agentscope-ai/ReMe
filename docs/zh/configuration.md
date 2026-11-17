@@ -79,6 +79,7 @@ base_url: ${LLM_BASE_URL:-https://example.com/v1}
 | `plugins` | `[]` | 为当前 Application 启用的已安装插件 |
 | `service` | HTTP | 服务端配置 |
 | `jobs` | 默认 Job | Job 名到 Job 配置的映射 |
+| `job_history_limit` | `100` | 每个 Job 在应用内存中保留的已结束执行记录数；运行中的记录始终保留 |
 | `components` | 默认组件 | 按类型和名称组织的组件配置 |
 
 `session_dir` 必须保持 workspace-relative。其他 workspace 子目录也应使用清晰、稳定的相对名称。
@@ -95,6 +96,11 @@ reme start jobs.dream_cron.enabled=false
 重启服务后生效。独立的 `auto_dream` 接口仍可调用，其他 Job 继续运行。
 `enable_serve` 独立控制接口暴露：`enabled=true, enable_serve=false` 允许本地调用。
 Background 和 cron Job 始终不暴露服务接口。
+
+`jobs.<name>.track_execution` 对 background/cron Job 默认开启，对 base/stream Job 默认关闭。
+可以显式覆盖，例如 `reme start jobs.chat.track_execution=true` 为前台聊天开启记录。
+执行记录仅保存在内存中，重新创建 Application 后清空。`job_history_limit=0` 仅保留运行中的记录。
+查询方式与 Step 路径见 [Job 执行状态](./operations.md#job-执行状态)。
 
 ## LLM 配置
 
@@ -116,6 +122,21 @@ components:
 
 基础文件操作、BM25 检索、wikilink 遍历和 `proactive_read` 不需要 LLM。`auto_memory`、`auto_resource`、
 `auto_dream` 和 proactive refresh 等演化流程需要可用 LLM。
+
+## 联网搜索
+
+安装 `reme-ai[core]` 后，默认 `dashscope_search` Job 使用 DashScope SDK 调用 `qwen3.8-flash`，独立于上述 LLM 配置。
+在一个终端设置 Key 并启动服务：
+
+```bash
+export DASHSCOPE_API_KEY=sk-xxx
+reme start config=default
+```
+
+在另一个终端调用 `reme dashscope_search query="Qwen 最新模型"`。
+未配置 Key 不影响服务启动，但此 Job 调用会返回失败。
+结果的 `search_info.search_results` 保留供应商返回的来源字段，`content` 是单独的模型生成正文；
+网页正文和摘要不保证提供。模型、搜索策略和超时配置见 `reme/config/default.yaml`。
 
 ## 决策模型配置
 

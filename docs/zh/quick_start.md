@@ -172,9 +172,9 @@ Daily note：
 
 ```bash
 reme write path=daily/2026-06-20/demo-session.md name=demo-session description="Demo session" content="记录内容"
-reme daily_list
+reme daily_list date=2026-06-20
 reme daily_list start_date=2026-06-01 end_date=2026-06-20 page=1 page_size=20
-reme daily_reindex
+reme daily_reindex date=2026-06-20
 ```
 
 `write` 可直接创建 daily note；需要刷新当天索引时运行 `daily_reindex`。

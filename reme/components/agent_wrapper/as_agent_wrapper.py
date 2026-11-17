@@ -1,12 +1,12 @@
 """AgentScope backend for the unified agent wrapper."""
 
 import asyncio
-import json
 import os
 import re
 import subprocess
 import time
 from collections.abc import AsyncGenerator
+from contextlib import aclosing
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 from uuid import uuid4
@@ -36,7 +36,7 @@ from agentscope.event import (
     ToolResultStartEvent,
     ToolResultTextDeltaEvent,
 )
-from agentscope.message import TextBlock, ToolResultState, UserMsg
+from agentscope.message import Msg, TextBlock, ToolResultState, UserMsg
 from agentscope.permission import PermissionBehavior, PermissionContext, PermissionDecision, PermissionMode
 from agentscope.state import AgentState
 from agentscope.tool import (
@@ -58,7 +58,8 @@ from .base_agent_wrapper import BaseAgentWrapper
 from ..as_llm import BaseAsLLM
 from ..component_registry import R
 from ...enumeration import ChunkEnum
-from ...schema import StreamChunk, TokenUsage
+from ...schema import AgentReply, SessionStatus, StreamChunk, TokenUsage
+from ...schema.stream_chunk import stream_status
 from ...utils import AsStateHandler
 
 if TYPE_CHECKING:
@@ -299,6 +300,11 @@ class AsAgentWrapper(BaseAgentWrapper):
         """Resolve configured skill names to AgentScope local skill directories."""
         return [str(path) for path in self._resolve_project_skills(skills).values()]
 
+    def _create_agent(self, *, options: dict[str, Any], **kwargs: Any) -> Agent:
+        """Construct the SDK agent while subclasses reuse ReMe's tool and session wiring."""
+        del options
+        return Agent(**kwargs)
+
     async def _build_agent(self, inputs: Any, **kwargs) -> tuple[Agent, Any]:
         """Build an Agent instance from kwargs. Returns (agent, processed_inputs)."""
         model = self.as_llm.model if self.as_llm else None
@@ -307,7 +313,7 @@ class AsAgentWrapper(BaseAgentWrapper):
 
         self._cleanup_expired_sessions()
 
-        system_prompt = kwargs.get("system_prompt", "You are a helpful assistant.")
+        system_prompt = kwargs.get("system_prompt") or ""
         job_tools: list[str] = kwargs.get("job_tools", [])
         resolved_jobs = self._resolve_job_tools(job_tools)
         skills = self._resolve_skills(kwargs.get("skills"))
@@ -327,7 +333,8 @@ class AsAgentWrapper(BaseAgentWrapper):
         perm_mode = PermissionMode(kwargs.get("permission_mode", "bypass"))
         state = await self._load_state(kwargs, perm_mode)
 
-        agent = Agent(
+        agent = self._create_agent(
+            options=kwargs,
             name=self.name,
             system_prompt=system_prompt,
             model=model,
@@ -343,47 +350,81 @@ class AsAgentWrapper(BaseAgentWrapper):
 
         return agent, inputs
 
-    async def reply(self, inputs: Any, **kwargs) -> dict:
-        kwargs = self._merged_kwargs(kwargs)
-        agent, inputs = await self._build_agent(inputs, **kwargs)
-
-        await agent.observe(inputs)
-        last_msg = await agent.reply()
+    async def _finish_reply(self, agent: Agent, last_msg: Msg, kwargs: dict) -> AgentReply:
+        """Preserve the native message and optional structured-model response."""
         usage = self._agentscope_usage(last_msg.usage) if last_msg.usage is not None else None
-        await self._dump_state(agent.state)
 
-        result = {
-            "session_id": agent.state.session_id,
-            "last_message": last_msg.model_dump(),
-            "result": last_msg.get_text_content(),
-        }
+        message = last_msg.model_dump(mode="json")
+        raw = {"message": message}
+        reason = message["finished_reason"]
+        status = "completed"
+        error = None
+        if reason is None:
+            status = "waiting"
+        elif reason == "interrupted":
+            status = "interrupted"
+        elif reason != "completed":
+            status = "failed"
+            error = (message.get("error") or {}).get("message") or f"AgentScope reply ended: {reason}"
+        structured_output = message.get("structured_output")
 
         if usage is None:
             self.logger.error("AgentScope did not return token usage; token accounting is unavailable for this reply.")
 
-        output_schema: dict | None = kwargs.get("output_schema")
-        if output_schema is not None:
-            assert self.as_llm is not None, "AsAgentWrapper requires a bound as_llm component with a valid model."
-            model = self.as_llm.model
-            assert model is not None, "AsAgentWrapper requires a bound as_llm component with a valid model."
-            res = await model.generate_structured_output(
-                messages=agent.state.context,
-                structured_model=output_schema,
-            )
-            result["structured_output"] = res.content
-            if res.usage is None:
-                usage = None
-                self.logger.error(
-                    "AgentScope did not return structured-output token usage; token accounting is unavailable.",
+        try:
+            output_schema: dict | None = kwargs.get("output_schema")
+            if status == "completed" and output_schema is not None:
+                assert self.as_llm is not None, "AsAgentWrapper requires a bound as_llm component with a valid model."
+                model = self.as_llm.model
+                assert model is not None, "AsAgentWrapper requires a bound as_llm component with a valid model."
+                res = await model.generate_structured_output(
+                    messages=agent.state.context,
+                    structured_model=output_schema,
                 )
-            elif usage is not None:
-                usage = TokenUsage.combine([usage, self._agentscope_usage(res.usage)])
+                raw["structured_response"] = self._serialize(res)
+                structured_output = res.content
+                if raw["structured_response"]["finished_reason"] == "interrupted":
+                    status = "interrupted"
+                if res.usage is None:
+                    usage = None
+                    self.logger.error(
+                        "AgentScope did not return structured-output token usage; token accounting is unavailable.",
+                    )
+                elif usage is not None:
+                    usage = TokenUsage.combine([usage, self._agentscope_usage(res.usage)])
+        finally:
+            if usage is not None:
+                self._record_token_usage(usage)
 
-        result["usage"] = usage.model_dump() if usage is not None else None
-        if usage is not None:
-            self._record_token_usage(usage)
+        task = asyncio.current_task()
+        if task is not None and task.cancelling():
+            raise asyncio.CancelledError()
+        return self._reply_result(
+            session_id=agent.state.session_id,
+            result=last_msg.get_text_content(),
+            structured_output=structured_output,
+            usage=usage,
+            status=status,
+            error=error,
+            raw=raw,
+        )
 
-        return result
+    async def create_session(self, **kwargs) -> str:
+        """Persist an empty state so the next turn can resume without calling a model."""
+        kwargs = self._merged_kwargs(kwargs)
+        state = AgentState(
+            session_id=str(uuid4()),
+            permission_context=PermissionContext(mode=PermissionMode(kwargs.get("permission_mode", "bypass"))),
+        )
+        await self._dump_state(state)
+        return state.session_id
+
+    async def get_session_status(self, session_id: str) -> SessionStatus:
+        """Stored states are idle between application-owned turns."""
+        session_id = self._validate_session_id(session_id)
+        if not AsStateHandler.for_session(self.session_path, session_id).exists():
+            raise FileNotFoundError(f"AgentScope session not found: {session_id}")
+        return SessionStatus(session_id=session_id, status="idle")
 
     async def compact_session(self, session_id: str) -> None:
         """Force compression of an AgentScope session."""
@@ -397,103 +438,120 @@ class AsAgentWrapper(BaseAgentWrapper):
 
     @classmethod
     # pylint: disable=too-many-return-statements
-    def _event_to_chunk(cls, event: Any) -> StreamChunk | None:
-        """Convert an AgentScope event to a unified StreamChunk.
-
-        Returns ``None`` for events that should be silently skipped
-        (e.g. ``RequireUserConfirmEvent``).
-        """
+    def _event_to_chunk(cls, event: Any) -> StreamChunk:
+        """Normalize block operations while retaining native fields and unknown events."""
+        native = event.model_dump(mode="json")
+        operation = (
+            "start" if str(event.type).endswith("START") else "end" if str(event.type).endswith("END") else "delta"
+        )
+        metadata = {"native": native}
+        common = {
+            "event": operation,
+            "turn_id": getattr(event, "reply_id", None),
+            "message_id": getattr(event, "reply_id", None),
+            "chunk": None,
+            "metadata": metadata,
+        }
         if isinstance(event, ReplyStartEvent):
-            meta = {"reply_id": event.reply_id, "name": event.name, "role": event.role}
-            return cls._chunk(ChunkEnum.REPLY_START, session_id=event.session_id, chunk="", metadata=meta)
+            return cls._chunk(ChunkEnum.REPLY_START, **common, session_id=event.session_id, status="running")
         if isinstance(event, ReplyEndEvent):
+            metadata["finished_reason"] = native["finished_reason"]
+            metadata["error"] = (native.get("error") or {}).get("message")
             return cls._chunk(
                 ChunkEnum.REPLY_END,
+                **common,
                 session_id=event.session_id,
-                chunk="",
-                metadata={"reply_id": event.reply_id},
+                status=stream_status(event.finished_reason) or "waiting",
             )
 
-        for event_cls, chunk_type, attr in (
-            (TextBlockStartEvent, ChunkEnum.CONTENT, None),
-            (TextBlockDeltaEvent, ChunkEnum.CONTENT, "delta"),
-            (TextBlockEndEvent, ChunkEnum.CONTENT, None),
-            (ThinkingBlockStartEvent, ChunkEnum.THINK, None),
-            (ThinkingBlockDeltaEvent, ChunkEnum.THINK, "delta"),
-            (ThinkingBlockEndEvent, ChunkEnum.THINK, None),
-            (DataBlockStartEvent, ChunkEnum.DATA, None),
-            (DataBlockDeltaEvent, ChunkEnum.DATA, "data"),
-            (DataBlockEndEvent, ChunkEnum.DATA, None),
+        for classes, chunk_type in (
+            ((TextBlockStartEvent, TextBlockDeltaEvent, TextBlockEndEvent), ChunkEnum.CONTENT),
+            ((ThinkingBlockStartEvent, ThinkingBlockDeltaEvent, ThinkingBlockEndEvent), ChunkEnum.THINK),
+            ((DataBlockStartEvent, DataBlockDeltaEvent, DataBlockEndEvent), ChunkEnum.DATA),
+            ((ToolCallStartEvent, ToolCallDeltaEvent, ToolCallEndEvent), ChunkEnum.TOOL_CALL),
+            (
+                (ToolResultStartEvent, ToolResultTextDeltaEvent, ToolResultDataDeltaEvent, ToolResultEndEvent),
+                ChunkEnum.TOOL_RESULT,
+            ),
         ):
-            if isinstance(event, event_cls):
-                kwargs = {"block_id": event.block_id, "chunk": getattr(event, attr) if attr else ""}
-                if isinstance(event, (DataBlockStartEvent, DataBlockDeltaEvent)):
-                    kwargs["media_type"] = event.media_type
-                return cls._chunk(chunk_type, **kwargs)
-
-        if isinstance(event, ToolCallStartEvent):
-            payload = {"name": event.tool_call_name, "id": event.tool_call_id}
-            return cls._chunk(
-                ChunkEnum.TOOL_CALL,
-                tool_call_id=event.tool_call_id,
-                tool_call_name=event.tool_call_name,
-                chunk=json.dumps(payload),
-            )
-        if isinstance(event, ToolCallDeltaEvent):
-            return cls._chunk(ChunkEnum.TOOL_CALL, tool_call_id=event.tool_call_id, chunk=event.delta)
-        if isinstance(event, ToolCallEndEvent):
-            return cls._chunk(ChunkEnum.TOOL_CALL, tool_call_id=event.tool_call_id, chunk="")
-        if isinstance(event, ToolResultStartEvent):
-            return cls._chunk(
-                ChunkEnum.TOOL_RESULT,
-                tool_call_id=event.tool_call_id,
-                tool_call_name=event.tool_call_name,
-                chunk="",
-            )
-        if isinstance(event, ToolResultTextDeltaEvent):
-            return cls._chunk(ChunkEnum.TOOL_RESULT, tool_call_id=event.tool_call_id, chunk=event.delta)
-        if isinstance(event, ToolResultDataDeltaEvent):
-            return cls._chunk(
-                ChunkEnum.TOOL_RESULT,
-                tool_call_id=event.tool_call_id,
-                chunk=event.data,
-                media_type=event.media_type,
-                metadata={"url": event.url} if event.url else {},
-            )
-        if isinstance(event, ToolResultEndEvent):
-            return cls._chunk(
-                ChunkEnum.TOOL_RESULT,
-                tool_call_id=event.tool_call_id,
-                chunk="",
-                metadata={"state": str(event.state)},
-            )
+            if isinstance(event, classes):
+                common["chunk"] = getattr(event, "delta", getattr(event, "text", getattr(event, "data", None)))
+                if getattr(event, "url", None):
+                    common["chunk"] = {"url": event.url}
+                return cls._chunk(
+                    chunk_type,
+                    **common,
+                    block_id=getattr(event, "block_id", None),
+                    tool_call_id=getattr(event, "tool_call_id", None),
+                    tool_call_name=getattr(event, "tool_call_name", None),
+                    media_type=getattr(event, "media_type", None),
+                    status=stream_status(getattr(event, "state", None)),
+                )
         if isinstance(event, ModelCallStartEvent):
-            return cls._chunk(ChunkEnum.USAGE, chunk="", metadata={"model_name": getattr(event, "model_name", None)})
+            return cls._chunk(ChunkEnum.USAGE, **common)
         if isinstance(event, ModelCallEndEvent):
             usage = TokenUsage(input_tokens=event.input_tokens, output_tokens=event.output_tokens)
+            common["chunk"] = usage.model_dump()
+            metadata["usage"] = usage.model_dump()
             return cls._chunk(
                 ChunkEnum.USAGE,
-                chunk=json.dumps(usage.model_dump()),
+                **common,
                 input_tokens=usage.input_tokens,
                 output_tokens=usage.output_tokens,
-                metadata={
-                    "model_name": getattr(event, "model_name", None),
-                    "usage": usage.model_dump(),
-                },
             )
         if isinstance(event, ExceedMaxItersEvent):
-            return cls._chunk(ChunkEnum.ERROR, chunk="Exceeded max iterations")
-        return None
+            common["chunk"] = "Exceeded max iterations"
+            return cls._chunk(ChunkEnum.ERROR, **common)
+        common["chunk"] = native
+        common["event"] = "end"
+        approval = str(event.type) in {"REQUIRE_USER_CONFIRM", "REQUIRE_EXTERNAL_EXECUTION"}
+        return cls._chunk(
+            ChunkEnum.APPROVAL if approval else ChunkEnum.DATA,
+            **common,
+            status="waiting" if approval else None,
+        )
 
     async def reply_stream(self, inputs: Any, **kwargs) -> AsyncGenerator[StreamChunk, None]:
-        """Stream agent events as unified StreamChunk objects."""
-        kwargs = self._merged_stream_kwargs(kwargs)
+        """Execute once, streaming native events followed by the complete outcome."""
+        kwargs = self._merged_kwargs(kwargs)
         agent, inputs = await self._build_agent(inputs, **kwargs)
-
-        async for event in agent.reply_stream(inputs):
-            chunk = self._event_to_chunk(event)
-            if chunk is not None:
-                chunk.session_id = chunk.session_id or agent.state.session_id
-                yield chunk
-
-        await self._dump_state(agent.state)
+        last_msg, terminal = None, None
+        model_usages = []
+        finishing = False
+        try:
+            async with aclosing(agent.reply_stream(inputs, yield_final_msg=True)) as stream:
+                async for event in stream:
+                    if isinstance(event, Msg):
+                        last_msg = event
+                        continue
+                    if isinstance(event, ModelCallEndEvent):
+                        model_usages.append(self._agentscope_usage(event))
+                    chunk = self._event_to_chunk(event)
+                    chunk.session_id = chunk.session_id or agent.state.session_id
+                    if isinstance(event, ReplyEndEvent):
+                        terminal = chunk
+                    else:
+                        yield chunk
+            if last_msg is None:
+                raise RuntimeError("AgentScope final message not received")
+            if terminal is None:
+                if last_msg.finished_reason is not None:
+                    raise RuntimeError("AgentScope reply_end not received")
+                terminal = self._chunk(
+                    ChunkEnum.REPLY_END,
+                    event="end",
+                    chunk=None,
+                    session_id=agent.state.session_id,
+                    turn_id=last_msg.id,
+                    status="waiting",
+                )
+            finishing = True
+            result = await self._finish_reply(agent, last_msg, kwargs)
+        finally:
+            if not finishing and model_usages:
+                self._record_token_usage(TokenUsage.combine(model_usages))
+            await self._dump_state(agent.state)
+        terminal.chunk = {key: value for key, value in result.items() if key != "events"}
+        terminal.status = result["status"]
+        terminal.metadata["error"] = result["error"]
+        yield terminal

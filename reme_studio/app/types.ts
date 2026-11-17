@@ -10,8 +10,15 @@ export interface AppConfig {
   daily_dir: string;
   digest_dir: string;
   resource_dir: string;
+  jobs: Record<
+    string,
+    { backend: string; enabled: boolean; enable_serve: boolean }
+  >;
+  service: { jobs?: string[] | null };
   [key: string]: unknown;
 }
+
+export type ChatMode = "chat" | "pa";
 
 export interface ReMeComponentHealth {
   is_started?: boolean;
@@ -90,26 +97,58 @@ export type StreamChunkType =
   | "error"
   | "done";
 
-export type StreamPayload = string | Record<string, unknown> | unknown[];
+export type StreamPayload =
+  | string
+  | number
+  | boolean
+  | Record<string, unknown>
+  | unknown[]
+  | null;
+export type StreamStatus =
+  | "running"
+  | "completed"
+  | "failed"
+  | "interrupted"
+  | "waiting";
 
 export interface StreamChunk {
   chunk_type: StreamChunkType | (string & {});
+  event?: "start" | "delta" | "end";
   chunk: StreamPayload;
   done: boolean;
-  session_id?: string;
-  block_id?: string;
-  tool_call_id?: string;
-  tool_call_name?: string;
-  media_type?: string;
-  input_tokens?: number;
-  output_tokens?: number;
+  status?: StreamStatus | null;
+  session_id?: string | null;
+  turn_id?: string | null;
+  message_id?: string | null;
+  block_id?: string | null;
+  tool_call_id?: string | null;
+  tool_call_name?: string | null;
+  media_type?: string | null;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
   metadata?: Record<string, unknown>;
+}
+
+export interface AgentReply {
+  session_id: string;
+  result: string;
+  structured_output: unknown;
+  usage: {
+    input_tokens: number;
+    output_tokens: number;
+    total_tokens: number;
+  } | null;
+  status: Exclude<StreamStatus, "running">;
+  error: string | null;
+  raw: Record<string, unknown>;
+  events: StreamChunk[];
 }
 
 export interface ContentBlock {
   id: string;
   type: "content";
   text: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface DetailBlock {
@@ -117,7 +156,7 @@ export interface DetailBlock {
   type: "think" | "data" | "approval" | "usage" | "unknown";
   sourceType: string;
   payloads: StreamPayload[];
-  status: "streaming" | "done" | "error";
+  status: "streaming" | "done" | "error" | "interrupted" | "waiting";
   expanded: boolean;
   mediaType?: string;
   inputTokens?: number;
@@ -131,7 +170,7 @@ export interface ToolBlock {
   name: string;
   callPayloads: StreamPayload[];
   resultPayloads: StreamPayload[];
-  status: "calling" | "running" | "done" | "error";
+  status: "calling" | "running" | "done" | "error" | "interrupted" | "waiting";
   expanded: boolean;
   mediaType?: string;
   metadata?: Record<string, unknown>;
@@ -141,6 +180,7 @@ export interface ErrorBlock {
   id: string;
   type: "error";
   text: string;
+  metadata?: Record<string, unknown>;
 }
 
 export type ChatBlock = ContentBlock | DetailBlock | ToolBlock | ErrorBlock;
@@ -150,6 +190,39 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   blocks?: ChatBlock[];
+  events?: StreamChunk[];
+  reply?: Omit<AgentReply, "events">;
+  status?: StreamStatus;
+  turnId?: string;
+  source?: "chat" | "proactive";
+  createdAt?: string | null;
+  localOnly?: boolean;
+}
+
+export interface SessionMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  source: "chat" | "proactive";
+  created_at: string | null;
+  turn_id: string | null;
+  completed: boolean;
+  chunks: StreamChunk[];
+}
+
+export interface PaSession {
+  session_id: string | null;
+  status: "active" | "idle" | "not_loaded" | "error" | null;
+}
+
+export interface SessionSnapshot {
+  session_id: string;
+  state: {
+    session_id: string;
+    status: "active" | "idle" | "not_loaded" | "error";
+    active_flags: string[];
+  };
+  messages: SessionMessage[];
 }
 
 export type WorkspaceTab =
@@ -167,6 +240,7 @@ export type WorkspaceTab =
   | {
       id: string;
       type: "agent";
+      mode: ChatMode;
       title: string;
       sessionId?: string;
       messages: ChatMessage[];

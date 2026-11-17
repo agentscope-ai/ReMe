@@ -1,0 +1,14 @@
+# Evaluate the complement of the source experiment's training IDs in the full dataset.
+# With the default training workspace this selects held-out groups 6-10 (250 cases).
+source_workspace: benchmark/longmemeval/workspaces/home-groups-1-5
+test_workspace: benchmark/longmemeval/workspaces/home-test-held-out
+code_commit: ""  # Required: set a candidate SHA/prefix, or pass --commit.
+exclude_training_cases: true
+benchmark:
+  name: longmemeval
+  source: benchmark/longmemeval/dataset/longmemeval_s_reme_cleaned.json
+  all_cases: true
+evaluation:
+  concurrency: 4
+  timeout_seconds: 7200
+  record_history: false

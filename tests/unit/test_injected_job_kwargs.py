@@ -166,7 +166,7 @@ class _RecordingWrapper(BaseAgentWrapper):
 
     async def reply(self, _inputs, **kwargs) -> dict:
         self.calls.append(kwargs)
-        return {"session_id": "s-1", "last_message": {}, "result": "ok"}
+        return {"session_id": "s-1", "status": "completed", "result": "ok"}
 
 
 async def _auto_memory_step(wrapper) -> AutoMemoryStep:

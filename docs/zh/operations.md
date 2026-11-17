@@ -25,6 +25,37 @@ reme app_config
 - `status`：状态组件的内存估算和进程 RSS；
 - `app_config`：隐藏密钥后的实际生效配置。
 
+## Job 执行状态
+
+在另一个终端查询已运行的服务：
+
+```bash
+reme job_status
+reme job_status name=dream_cron limit=10
+reme job_status status=running
+```
+
+结果为 Job 名到执行记录列表的映射，最新执行在前，每个 Job 最多返回 `limit` 条，默认 20 条。
+每条记录包含应用内递增的 `id`、UTC `started_at`/`finished_at`、`status`、限长的错误摘要 `error`、
+当前 `step_path`、`step_started_at` 和 `failed_step`。状态为 `running`、`succeeded`、`failed`、
+`stopped`（后台收到停止信号后正常退出）或 `cancelled`。即使没有抛出异常，失败的 Response 也会记录为失败。
+终止执行的 ERROR chunk 也会标记为失败；`will_retry=true` 的通知仍允许恢复。
+执行结束后清空当前 Step 路径，失败时保留最内层失败路径。
+
+后台 Job 每次运行及监护重启各记一条；Cron 每次触发记一条，等待调度不算执行。
+开启记录但尚未执行的 Job 返回空列表。Watcher 等待事件时仍为 `running`；处理变更时可显示
+`["watch_changes_step", "update_index_step"]`，处理完成后恢复为 `["watch_changes_step"]`。
+Step 路径表示执行边界，不代表 Step 内部的处理进度。线程池 Job 的记录以执行体真正退出为准，
+外层 Future 被取消时，工作线程可能仍在运行。
+
+Background/cron 默认开启记录，base/stream 通过 `jobs.<name>.track_execution` 按需开启。
+`job_status` 查询自身默认不记录。记录不保存请求参数或完整响应，仅保存在应用内存中，
+默认每个 Job 保留最近 100 条已结束记录。通过 [`job_history_limit`](./configuration.md#application-字段)
+修改保留数量，运行中的记录始终保留。
+
+Python 评测接口 `check_job_count(name, app.context)` 返回累计启动次数，包含失败和取消的调用，
+不受执行记录开关、查询筛选和历史保留数量影响。
+
 ## 日志
 
 `log_to_console` 和 `log_to_file` 控制日志目标。排查启动失败时先查看第一条异常，而不是后续客户端连接错误。

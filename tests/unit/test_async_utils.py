@@ -17,17 +17,17 @@ async def test_complete_in_thread_finishes_before_propagating_result(cancellatio
     """Repeated cancellation waits for success or failure without detaching work."""
     started, release, finished = threading.Event(), threading.Event(), threading.Event()
 
-    def operation():
+    def operation(value, *, suffix):
         started.set()
         try:
             assert release.wait(5)
             if fail:
                 raise RuntimeError("thread failed")
-            return "complete"
+            return value + suffix
         finally:
             finished.set()
 
-    task = asyncio.create_task(complete_in_thread(operation))
+    task = asyncio.create_task(complete_in_thread(operation, "comp", suffix="lete"))
     try:
         assert await asyncio.to_thread(started.wait, 5)
         for _ in range(cancellations):

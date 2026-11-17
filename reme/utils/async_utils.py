@@ -29,6 +29,6 @@ async def finish_cleanup(operation: Awaitable[T]) -> T:
     return task.result()
 
 
-async def complete_in_thread(func: Callable[..., Any], /, *args) -> Any:
+async def complete_in_thread(func: Callable[..., Any], /, *args, **kwargs) -> Any:
     """Finish a side-effecting thread call, including through repeated cancellation."""
-    return await finish_cleanup(asyncio.to_thread(func, *args))
+    return await finish_cleanup(asyncio.to_thread(func, *args, **kwargs))

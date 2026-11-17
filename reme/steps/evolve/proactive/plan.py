@@ -18,7 +18,6 @@ the LLM.
 
 import asyncio
 import json
-import time
 
 from ...base_step import BaseStep
 from .._evolve import agent_reply_result_text, passthrough_response
@@ -128,7 +127,6 @@ class ProactivePlanStep(BaseStep):
         assert self.context is not None
         if self.context.get(self.skip_key):
             return passthrough_response(self, self.skip_key)
-        started = time.monotonic()
         raw_state = self.context.get("proactive")
         if not raw_state:
             self.context.response.success = True
@@ -174,7 +172,6 @@ class ProactivePlanStep(BaseStep):
             cards.append(card)
 
         state.scenario_cards = cards
-        state.duration_ms = state.duration_ms + int((time.monotonic() - started) * 1000)
         self._store(state)
         answer = f"Plan: {len(cards)} scenario card(s), fallback={fallbacks}, llm_calls={state.plan_llm_calls}"
         self.context.response.success = True
@@ -216,6 +213,7 @@ class ProactivePlanStep(BaseStep):
                 wrapper.reply(user_message, system_prompt=system_prompt),
                 timeout=self.llm_timeout_seconds,
             )
+            raw = agent_reply_result_text(result)
         except asyncio.TimeoutError:
             self.logger.warning(f"[{self.name}] LLM reply timed out after {self.llm_timeout_seconds}s")
             return {}
@@ -224,7 +222,6 @@ class ProactivePlanStep(BaseStep):
                 f"[{self.name}] LLM reply failed ({type(e).__name__}: {e}); using fallback cards",
             )
             return {}
-        raw = agent_reply_result_text(result)
         cards_by_id: dict[str, dict] = {}
         for card in parse_plan_reply(raw):
             cid = str(card.get("topic_id") or "").strip()

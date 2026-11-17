@@ -32,7 +32,7 @@ class FakeAgentWrapper(BaseAgentWrapper):
     async def reply(self, inputs, **_kwargs) -> dict:
         """Record and accept one text-processor request."""
         self.inputs = inputs
-        return {"result": "ok"}
+        return self._reply_result(session_id="stub", result="ok", raw={})
 
 
 class FlakyAgentWrapper(BaseAgentWrapper):
@@ -47,7 +47,7 @@ class FlakyAgentWrapper(BaseAgentWrapper):
         self.calls += 1
         if self.calls == 1:
             raise RuntimeError("text provider unavailable")
-        return {"result": "recovered"}
+        return self._reply_result(session_id="stub", result="recovered", raw={})
 
 
 class FakeImageAgentWrapper(AsAgentWrapper):
@@ -76,7 +76,7 @@ class FakeImageAgentWrapper(AsAgentWrapper):
         if self.error is not None:
             raise self.error
         if not self.perform_write:
-            return {"result": str(self.content)}
+            return self._reply_result(session_id="stub", result=str(self.content), raw={})
         assert isinstance(inputs, Msg)
         assert kwargs.get("output_schema") is None
         target = kwargs["injected_job_kwargs"]["_allowed_paths"]
@@ -103,7 +103,7 @@ class FakeImageAgentWrapper(AsAgentWrapper):
         )
         if self.after_write_error is not None:
             raise self.after_write_error
-        return {"result": "Saved image note", "tool_result": response}
+        return self._reply_result(session_id="stub", result="Saved image note", raw={"tool_result": response})
 
 
 class FlakyImageAgentWrapper(FakeImageAgentWrapper):

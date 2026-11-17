@@ -208,12 +208,24 @@ async def call_action(
     """POST to /{action}; return parsed JSON (dict) for JSON endpoints, raw text for SSE."""
     from ..components.client.http_client import HttpClient
 
-    pieces: list[str] = []
+    pieces: dict[str, str] = {}
+    result = None
     async with HttpClient(host=host, port=port, timeout=timeout) as client:
         async for chunk in client.stream_chunks(action, **kwargs):
             payload = chunk.chunk
-            pieces.append(payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False))
-    raw = "".join(pieces)
+            if chunk.chunk_type == "error" and chunk.metadata.get("will_retry") is not True:
+                raise RuntimeError(str(payload))
+            if chunk.chunk_type == "reply_end" and isinstance(payload, dict):
+                if payload["status"] != "completed":
+                    raise RuntimeError(payload["error"] or f"Agent reply ended: {payload['status']}")
+                result = payload["result"]
+                continue
+            if payload is None or chunk.metadata.get("visibility") == "diagnostic":
+                continue
+            key = f"{chunk.chunk_type}:{chunk.block_id}" if chunk.block_id else str(len(pieces))
+            text = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False)
+            pieces[key] = pieces.get(key, "") + text if chunk.event == "delta" else text
+    raw = result if result is not None else "".join(pieces.values())
     try:
         return json.loads(raw)
     except (ValueError, json.JSONDecodeError):

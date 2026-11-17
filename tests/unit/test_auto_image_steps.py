@@ -879,6 +879,52 @@ async def test_auto_image_reports_modified_when_index_refresh_fails_after_write(
     assert (env.workspace / "daily/2026-01-01/red-square.md").is_file()
 
 
+@pytest.mark.asyncio
+async def test_auto_image_reports_unreadable_index_after_note_write(auto_resource_env):
+    """A malformed derived index fails the resource result without losing its note."""
+    env = auto_resource_env
+    source = env.write_binary("resource/2026-01-01/img.png", _png_bytes())
+    index = env.workspace / "daily/2026-01-01.md"
+    damaged = b"---\ntags: [\n---\nold index\n"
+    index.parent.mkdir(parents=True, exist_ok=True)
+    index.write_bytes(damaged)
+    model = _FakeImageAgentWrapper(_caption_fields("red-square", "Red", "A red square."))
+
+    response = await env.run(env.processor(model), [{"change": "added", "path": str(source)}])
+
+    result = response.metadata["results"][0]
+    assert response.success is False
+    assert result["success"] is False
+    assert result["metadata"]["modified"] is True
+    assert result["metadata"]["index"]["changed"] is False
+    assert (env.workspace / "daily/2026-01-01/red-square.md").is_file()
+    assert index.read_bytes() == damaged
+
+
+@pytest.mark.asyncio
+async def test_auto_image_delete_reports_unreadable_index_after_note_delete(auto_resource_env):
+    """A malformed index does not roll back a durable resource-note deletion."""
+    env = auto_resource_env
+    source = env.workspace / "resource/2026-01-01/img.png"
+    note = env.write_note("daily/2026-01-01/red-square.md", "[[resource/2026-01-01/img.png]]")
+    index = env.workspace / "daily/2026-01-01.md"
+    damaged = b"\xff\xfe\xfd\n"
+    index.write_bytes(damaged)
+
+    response = await env.run(
+        env.processor(_FakeImageAgentWrapper()),
+        [{"change": "deleted", "path": str(source)}],
+    )
+
+    result = response.metadata["results"][0]
+    assert response.success is False
+    assert result["success"] is False
+    assert result["metadata"]["action"] == "deleted"
+    assert result["metadata"]["modified"] is True
+    assert not note.exists()
+    assert index.read_bytes() == damaged
+
+
 def test_default_resource_watcher_dispatches_only_the_unified_router():
     """Both init and live resource producers call one auto-resource router."""
     root = Path(__file__).resolve().parents[2]

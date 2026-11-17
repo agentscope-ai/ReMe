@@ -137,6 +137,23 @@ def test_default_config_registers_manual_and_scheduled_proactive_refresh():
     assert manual["steps"] == scheduled["steps"]
 
 
+@pytest.mark.parametrize(
+    "manual,scheduled",
+    [("auto_dream", "dream_cron"), ("proactive_refresh", "proactive_refresh_cron")],
+)
+def test_shared_default_steps_keep_job_overrides_isolated(manual, scheduled):
+    """YAML aliases share definitions without coupling loaded job data or CLI overrides."""
+    jobs = _load_config("default.yaml")["jobs"]
+    original = jobs[scheduled]["steps"][0]["scan_days"]
+    jobs[manual]["steps"][0]["scan_days"] = original + 1
+    assert jobs[scheduled]["steps"][0]["scan_days"] == original
+
+    replacement = [{"backend": "add_step"}]
+    resolved = resolve_app_config(log_config=False, jobs={manual: {"steps": replacement}})["jobs"]
+    assert resolved[manual]["steps"] == replacement
+    assert resolved[scheduled]["steps"] == jobs[scheduled]["steps"]
+
+
 def test_default_config_keeps_frontmatter_chunk_metadata_opt_in():
     """Markdown frontmatter-to-chunk metadata is disabled by default for compatibility."""
     cfg = _load_config("default.yaml")

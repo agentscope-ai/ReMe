@@ -484,8 +484,11 @@ class FaissLocalFileStore(LocalFileStore):
             self.faiss_idmap_path.unlink(missing_ok=True)
             return False
 
+    @BaseFileStore.serialized
     async def _dump_owned_state(self) -> None:
         """Persist chunks and the FAISS sidecar, excluding dependency snapshots."""
+        # Shutdown enters here directly: take maintenance before the FAISS lock,
+        # matching reindex/dump/clear and the serialized parent checkpoint.
         async with self._faiss_dump_lock:
             await super()._dump_owned_state()
             if self._faiss_index is None or self.embedding_store is None:
@@ -531,6 +534,9 @@ class FaissLocalFileStore(LocalFileStore):
         if not files:
             return
         assert self.file_graph is not None
+        # Use the same normalized records the parent publishes, so the snapshot
+        # and the delta below address the paths and handles that were stored.
+        files = self.prepare_upsert_batch(files)
 
         # Snapshot pre-upsert chunk_ids so we can diff against the post-upsert state.
         old_nodes = await self.file_graph.get_nodes([node.path for node, _ in files])
@@ -541,20 +547,25 @@ class FaissLocalFileStore(LocalFileStore):
             for cid in n.chunk_ids
             if (chunk := self.file_chunks.get(cid)) is not None
         }
-        await super().upsert(files)
+        dropped_ids = await self._upsert_canonical_batch(files)
 
         if self._embedding_rebuild_pending or self._faiss_index is None or self.embedding_store is None:
             return
-        self._sync_index_after_upsert(files, old_ids_by_path, old_text_by_id)
+        self._sync_index_after_upsert(files, old_ids_by_path, old_text_by_id, dropped_ids)
 
     def _sync_index_after_upsert(
         self,
         files: list[tuple[FileNode, list[FileChunk]]],
         old_ids_by_path: dict[str, set[str]],
         old_text_by_id: dict[str, str],
+        dropped_ids: list[str],
     ) -> None:
         """Apply add/tombstone deltas to FAISS based on chunk_id set differences."""
         existing = set(self._id_to_row)
+        for cid in dropped_ids:
+            if cid in existing:
+                self._tombstone(cid)
+                existing.discard(cid)
         to_add: list[FileChunk] = []
         for node, _ in files:
             new_ids = set(node.chunk_ids)

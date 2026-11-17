@@ -74,6 +74,7 @@ Keep secrets in `.env` or the process environment, never in committed configurat
 | `plugins` | `[]` | Installed plugins enabled for this Application |
 | `service` | HTTP | Service configuration |
 | `jobs` | default Jobs | Job configurations by name |
+| `job_history_limit` | `100` | Completed executions retained per Job in application memory; running records are always retained |
 | `components` | defaults | Components grouped by type and name |
 
 `session_dir` must remain workspace-relative.
@@ -91,6 +92,11 @@ reme start jobs.dream_cron.enabled=false
 Restart the service to apply the override. The separate `auto_dream` API remains available, and other jobs continue running.
 `enable_serve` independently controls service exposure: `enabled=true, enable_serve=false` keeps a Job available for
 local calls. Background and cron jobs are never service-exposed.
+
+`jobs.<name>.track_execution` defaults to `true` for background/cron Jobs and `false` for base/stream Jobs.
+Set it explicitly to override either default, for example `reme start jobs.chat.track_execution=true`.
+Execution records are memory-only and disappear when the Application is recreated. `job_history_limit=0` retains only
+running executions. See [Job execution status](./operations.md#job-execution-status) for queries and step paths.
 
 ## LLM
 
@@ -112,6 +118,21 @@ Built-in registrations include `openai`, `anthropic`, `dashscope`, `deepseek`, `
 
 File operations, BM25 search, wikilink traversal, and `proactive_read` do not require an LLM. Evolution workflows such
 as `auto_memory`, `auto_resource`, `auto_dream`, and proactive refresh do.
+
+## Web search
+
+With `reme-ai[core]` installed, `dashscope_search` calls `qwen3.8-flash` through the DashScope SDK, independently of LLM settings.
+Set the key and start the service in one terminal:
+
+```bash
+export DASHSCOPE_API_KEY=sk-xxx
+reme start config=default
+```
+
+From another terminal, call `reme dashscope_search query="Latest Qwen models"`.
+A missing key does not prevent service startup; calls to this Job return a failure.
+The result's `search_info.search_results` preserves provider source fields; `content` is separate model-generated text.
+Page bodies and snippets are not guaranteed. See `reme/config/default.yaml` for the model, search strategy, and timeout.
 
 ## Decision Model Configuration
 

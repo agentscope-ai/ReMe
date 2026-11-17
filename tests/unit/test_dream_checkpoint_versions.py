@@ -55,7 +55,7 @@ async def test_dream_reprocesses_concurrent_source_edits_after_restart(tmp_path,
     def agent_for(app, blocked=False):
         async def reply(message, **kwargs):
             if "list_tags" in kwargs["job_tools"]:
-                return {"result": "No tags added by the controlled provider"}
+                return {"status": "completed", "result": "No tags added by the controlled provider"}
             phase = "extract" if kwargs["job_tools"] == ["read"] else "integrate"
             prompt = str(message)
             calls.append((phase, prompt))
@@ -66,11 +66,11 @@ async def test_dream_reprocesses_concurrent_source_edits_after_restart(tmp_path,
                 await release.wait()
             if phase == "extract":
                 unit = {"name": "deployment", "bucket": "wiki", "summary": fact, "paths": [SOURCE]}
-                return {"result": json.dumps({"units": [unit]})}
+                return {"status": "completed", "result": json.dumps({"units": [unit]})}
             action = "CORRECT" if (tmp_path / TARGET).exists() else "CREATE"
             response = await app.run_job("write", path=TARGET, content=fact)
             assert response.success, response.answer
-            return {"result": json.dumps({"action": action, "target_path": TARGET})}
+            return {"status": "completed", "result": json.dumps({"action": action, "target_path": TARGET})}
 
         agent = AsyncMock(spec=BaseAgentWrapper)
         agent.reply.side_effect = reply
@@ -158,16 +158,16 @@ async def test_invalid_integration_preserves_retry_after_restart(tmp_path, older
 
         async def reply(_message, **kwargs):
             if "list_tags" in kwargs["job_tools"]:
-                return {"result": "No tags added by the controlled provider"}
+                return {"status": "completed", "result": "No tags added by the controlled provider"}
             if kwargs["job_tools"] == ["read"]:
                 calls["extract"] += 1
                 unit = {"name": "deployment", "bucket": "wiki", "summary": OLD, "paths": [SOURCE, index]}
-                return {"result": json.dumps({"units": [unit]})}
+                return {"status": "completed", "result": json.dumps({"units": [unit]})}
             calls["integrate"] += 1
             if calls["integrate"] == write_attempt:
                 written = await app.run_job("write", path=TARGET, content=OLD)
                 assert written.success, written.answer
-            return {"result": "{}"}
+            return {"status": "completed", "result": "{}"}
 
         agent = AsyncMock(spec=BaseAgentWrapper)
         agent.reply.side_effect = reply

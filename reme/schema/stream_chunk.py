@@ -1,43 +1,61 @@
 """Stream chunk schema for incremental responses (e.g. LLM streaming)."""
 
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from ..enumeration import ChunkEnum
 
+StreamStatus = Literal["running", "completed", "failed", "interrupted", "waiting"]
+
+
+def stream_status(value: Any) -> StreamStatus | None:
+    """Normalize provider execution states without treating unknown states as success."""
+    return {
+        "inProgress": "running",
+        "running": "running",
+        "started": "running",
+        "completed": "completed",
+        "success": "completed",
+        "succeeded": "completed",
+        "error": "failed",
+        "failed": "failed",
+        "declined": "failed",
+        "denied": "failed",
+        "exceed_max_iters": "failed",
+        "interrupted": "interrupted",
+        "cancelled": "interrupted",
+        "waiting": "waiting",
+    }.get(getattr(value, "value", value))
+
 
 class StreamChunk(BaseModel):
-    """A single chunk in a unified streaming response sequence.
+    """Backend-independent display event, with provider extras in metadata.
 
-    Carries full information from AgentScope, Claude Code SDK, and Codex
-    backends.  Optional fields are ``None`` by default so that simple
-    text-only streams (e.g. plain CONTENT deltas) stay lightweight.
+    ``start`` creates a block, ``delta`` appends content, and ``end`` settles it.
+    A non-null start/end payload is a complete snapshot replacing accumulated
+    content; null means no content update (an empty string is a valid snapshot).
+    Simple text producers use the default ``delta`` operation.
 
-    Fields:
-        chunk_type:   Category of this chunk (see ChunkEnum).
-        chunk:        Payload, typically a text delta, but can be
-                      dict/list for structured data (tool-call JSON,
-                      usage stats, etc.).
-        done:         Terminal marker. True only for the final DONE chunk.
-        session_id:   Backend session identifier (Codex uses its thread id).
-        block_id:     Content-block identifier for matching start/delta/end
-                      sequences (both backends assign block IDs).
-        tool_call_id: Tool-call identifier for correlating call deltas
-                      with their start event and result.
-        tool_call_name: Name of the tool being invoked.
-        media_type:   MIME type for DATA blocks (e.g. ``"image/png"``).
-        input_tokens:  Prompt tokens consumed (populated on USAGE chunks).
-        output_tokens: Completion tokens generated (populated on USAGE chunks).
-        metadata:     Backend-specific extras that don't warrant a dedicated
-                      field.
+    Reply markers delimit one agent invocation, including its tool/model loop.
+    DONE closes the transport and does not imply success. IDs correlate a
+    session, invocation (turn), model message, content block, and tool call.
+    ``reply_end.chunk`` carries the complete outcome (excluding its event trace).
+    ``metadata.native`` preserves complete provider events; ``metadata.kind``
+    distinguishes plans, reasoning summaries, and other display subtypes.
     """
 
+    model_config = ConfigDict(extra="allow")
+
     chunk_type: ChunkEnum = Field(default=ChunkEnum.CONTENT, description="Type of chunk content")
-    chunk: str | dict | list = Field(default="", description="Chunk payload")
+    event: Literal["start", "delta", "end"] = Field(default="delta", description="Block update operation")
+    chunk: JsonValue = Field(default="", description="Delta or complete start/end snapshot")
     done: bool = Field(default=False, description="Whether this is the final chunk")
+    status: StreamStatus | None = Field(default=None, description="Normalized execution state")
 
     session_id: str | None = Field(default=None, description="Session identifier")
+    turn_id: str | None = Field(default=None, description="Agent invocation identifier")
+    message_id: str | None = Field(default=None, description="Model message identifier")
     block_id: str | None = Field(default=None, description="Content block identifier")
     tool_call_id: str | None = Field(default=None, description="Tool call identifier")
     tool_call_name: str | None = Field(default=None, description="Tool call name")

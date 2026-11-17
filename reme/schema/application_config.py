@@ -25,6 +25,10 @@ class JobConfig(ComponentConfig):
     steps: list[ComponentConfig] = Field(default_factory=list, description="Ordered step configs")
     enable_serve: bool = Field(default=True, description="Whether to expose this job through the service layer")
     enabled: bool = Field(default=True, description="Whether to start, serve, and allow execution of this job")
+    track_execution: bool | None = Field(
+        default=None,
+        description="Record execution and step status in memory; defaults on for background/cron, off otherwise",
+    )
 
 
 class ApplicationConfig(BaseModel):
@@ -57,6 +61,7 @@ class ApplicationConfig(BaseModel):
     service: ComponentConfig = Field(default_factory=ComponentConfig, description="Service endpoint config")
     jobs: dict[str, JobConfig] = Field(default_factory=dict, description="Job definitions keyed by job name")
     thread_pool_max_workers: int = Field(default=0, description="Max worker threads; 0 to disable")
+    job_history_limit: int = Field(default=100, ge=0, description="Completed executions retained per job in memory")
     components: dict[str, dict[str, ComponentConfig]] = Field(
         default_factory=dict,
         description="Component registry keyed by type then name",

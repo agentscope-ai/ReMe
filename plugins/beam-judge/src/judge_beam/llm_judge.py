@@ -25,6 +25,7 @@ import numpy as np
 from json_repair import repair_json
 
 from reme.steps.base_step import BaseStep, Ref
+from reme.steps.evolve._evolve import agent_reply_result_text
 from reme.components.as_embedding import BaseAsEmbedding
 from reme.enumeration import ComponentEnum
 
@@ -77,7 +78,7 @@ async def _llm_equivalence(agent_wrapper, reference: str, system: str) -> bool:
     user_prompt = f"First snippet: {reference}\n\nSecond snippet: {system}"
 
     result = await agent_wrapper.reply(user_prompt, system_prompt=system_prompt)
-    raw = (result.get("result") or "").strip().lower()
+    raw = agent_reply_result_text(result).lower()
     return "yes" in raw
 
 
@@ -277,7 +278,7 @@ class BeamRubricJudgeStep(BaseStep):
             prompt = judge_template.replace("<rubric_item>", item).replace("<llm_response>", llm_response)
 
             result = await self.agent_wrapper.reply(prompt)
-            raw = (result.get("result") or "").strip()
+            raw = agent_reply_result_text(result)
 
             try:
                 parsed = _parse_json_response(raw)

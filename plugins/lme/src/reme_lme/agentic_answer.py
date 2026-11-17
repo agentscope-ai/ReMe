@@ -2,7 +2,7 @@
 
 import os
 
-from reme.enumeration import ChunkEnum
+from reme.schema import collect_reply
 from reme.steps.base_step import BaseStep
 from reme.steps.index._dedup import _ToolContextDedupMixin
 from reme.utils.counter import global_counter_inc
@@ -61,16 +61,24 @@ class LmeAgenticAnswerStep(BaseStep):
         if injected_job_kwargs := self._injected_job_kwargs(f"{query}(query time: {query_time})"):
             wrapper_kwargs["injected_job_kwargs"] = injected_job_kwargs
 
-        if self.context.stream:
-            text = await self._stream_reply(query, **wrapper_kwargs)
-        else:
-            result = await self.agent_wrapper.reply(query, **wrapper_kwargs)
-            text = (result.get("result") or "").strip()
+        try:
+            if self.context.stream:
+                result = await collect_reply(
+                    self.agent_wrapper.reply_stream(query, **wrapper_kwargs),
+                    on_chunk=self.context.add_stream_chunk,
+                )
+            else:
+                result = await self.agent_wrapper.reply(query, **wrapper_kwargs)
+        finally:
+            if self.app_context is not None:
+                self.app_context.metadata.get(_ToolContextDedupMixin.TOOL_CONTEXTS_KEY, {}).pop(tool_context_id, None)
+        text = result["result"].strip()
+        self.context.response.metadata.update(result)
 
         self.logger.debug(f"[{self.name}] response: {text!r}")
 
-        self.context.response.success = True
-        self.context.response.answer = text
+        self.context.response.success = result["status"] == "completed" and self.context.stream_error is None
+        self.context.response.answer = result["error"] or text
         self.context.response.metadata.update(
             {
                 "query": query,
@@ -79,23 +87,4 @@ class LmeAgenticAnswerStep(BaseStep):
                 "response": text,
             },
         )
-
-        if self.app_context is not None:
-            self.app_context.metadata.get(_ToolContextDedupMixin.TOOL_CONTEXTS_KEY, {}).pop(tool_context_id, None)
         return self.context.response
-
-    async def _stream_reply(self, query: str, **wrapper_kwargs) -> str:
-        """Stream unified chunks to the context stream queue."""
-        assert self.context is not None
-        text_parts: list[str] = []
-
-        async for chunk in self.agent_wrapper.reply_stream(query, **wrapper_kwargs):
-            await self.context.add_stream_string(chunk.chunk, chunk.chunk_type)
-
-            if chunk.chunk_type == ChunkEnum.CONTENT and isinstance(chunk.chunk, str):
-                text_parts.append(chunk.chunk)
-
-            if chunk.session_id:
-                self.context.response.metadata["session_id"] = chunk.session_id
-
-        return "".join(text_parts).strip()

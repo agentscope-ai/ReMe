@@ -3,9 +3,10 @@
 import datetime
 import zoneinfo
 
+import yaml
 from agentscope.message import Msg
 
-from ...schema import Response
+from ...schema import AgentReply, Response
 
 
 def now(timezone: str | None = None) -> datetime.datetime:
@@ -31,17 +32,12 @@ def format_history(messages: list[Msg], include_timestamp: bool = True) -> str:
     return "\n\n".join(lines) or "(empty)"
 
 
-def agent_reply_result_text(reply_result: dict) -> str:
-    """Return the final user-visible text block from an agent reply result."""
-    last_message = reply_result.get("last_message") or {}
-    content = last_message.get("content") if isinstance(last_message, dict) else None
-    if isinstance(content, list):
-        for block in reversed(content):
-            if isinstance(block, dict) and block.get("type") == "text":
-                text = str(block.get("text") or "").strip()
-                if text:
-                    return text
-    return str(reply_result.get("result") or "").strip()
+def agent_reply_result_text(reply_result: AgentReply) -> str:
+    """Require a completed invocation and return its backend-neutral final text."""
+    status = reply_result["status"]
+    if status != "completed" or reply_result.get("error") is not None:
+        raise RuntimeError(reply_result.get("error") or f"Agent reply ended: {status}")
+    return reply_result["result"].strip()
 
 
 def passthrough_response(step, skip_key: str) -> Response:
@@ -61,3 +57,43 @@ def passthrough_response(step, skip_key: str) -> Response:
     response.answer = f"Skipped: {reason}"
     step.logger.info(f"[{step.name}] short-circuit via {skip_key!r} reason={reason}")
     return response
+
+
+def strip_frontmatter(text: str) -> tuple[dict, str]:
+    """Split leading ``---`` YAML frontmatter blocks from the body.
+
+    Handles files with several consecutive frontmatter blocks; returns
+    ``(merged_meta, body)``. A block is consumed only when it parses to a
+    mapping **and** it is structurally part of the metadata run: the first
+    block may be preceded by leading whitespace, while every later block has
+    to follow the previous block's closing ``---`` with no blank line in
+    between. A blank line is the metadata/body boundary, so whatever follows
+    is kept verbatim as Markdown even when it would itself parse as a mapping
+    (a ``#`` heading is a YAML comment and ``Instruction: ...`` is a valid
+    mapping, so parseability alone cannot tell metadata from body). On
+    parse/construction errors or non-mapping YAML, stop and preserve the
+    remaining text rather than risk discarding Markdown.
+    """
+    meta: dict = {}
+    body = (text or "").lstrip()
+    while body.startswith("---"):
+        rest = body[3:]
+        end = rest.find("\n---")
+        if end < 0:
+            break
+        block = rest[:end]
+        try:
+            data = yaml.safe_load(block)
+        except (yaml.YAMLError, ValueError):
+            break
+        if not isinstance(data, dict):
+            break
+        for key, value in data.items():
+            meta.setdefault(str(key), value)
+        tail = rest[end + 4 :]
+        nxt = tail.lstrip("\n")
+        if len(tail) - len(nxt) > 1 or not nxt.startswith("---"):
+            body = tail
+            break
+        body = nxt
+    return meta, body.strip()

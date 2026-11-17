@@ -42,7 +42,9 @@ system state   -> metadata/
 
 这四层解决的是不同问题。
 
-`session/` 和 `resource/` 保存来源记录。`resource/` 文件保持原路径和原内容；标准 Auto Memory 保留对话消息，但会有意排除
+`session/` 和 `resource/` 保存来源记录。`resource/` 文件保持原路径和原内容；显式启用的
+[资源 TTL](./auto_resource.md#资源保留与-ttl)（如 `config=proactive`）会删除过期日期目录，永久资料应放在 `resource/` 之外。
+标准 Auto Memory 保留对话消息，但会有意排除
 tool-result 和 base64 data block，防止召回结果和二进制负载被误当成用户证据。Agent 运行时生成状态则放在 `mem_session/`。
 
 `daily/` 是浅加工层。它把当天发生的对话和资源整理成更适合阅读的 daily note：什么事情发生了、有哪些结论、留下了哪些后续任务、对应原文在哪里。

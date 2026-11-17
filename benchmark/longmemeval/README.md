@@ -28,6 +28,10 @@ Custom application config paths still work through `reme.config` and can use `ex
 This directory continues to own the runner, evaluation settings, dataset and outputs.
 Model credentials use the environment variables declared by the shared benchmark configuration.
 
+The shared preset keeps `python_execute` private (`enable_serve: false`); in-process benchmark jobs
+remain callable. Python sandbox requirements and credential placement are described in the
+[BEAM benchmark guide](../beam/README.md).
+
 ## 1. Get the Dataset
 
 ReMe uses only the **cleaned-S** split, hosted on HuggingFace:
@@ -108,3 +112,111 @@ agentscope==2.0.4.post1, conda reme env, 32 workers, eval-only (reusing prebuilt
 | single-session-user | 0.986 | 27,433 | 359 | 27,792 | 2.60 |
 | temporal-reasoning | 0.902 | 62,674 | 985 | 63,659 | 4.97 |
 | **OVERALL** | **0.894** | **43,448** | **876** | **44,324** | **3.69** |
+
+
+## Prepare a Home experiment
+
+`run_home.py` prepares the fixed **group_1–group_5** training split (250 cases), the workspace, and committed candidate
+code. It exits after preparation; it does not evaluate cases or start optimization.
+Run from the repository root after obtaining the dataset described above:
+
+```bash
+reme plugins install plugins/home
+python benchmark/longmemeval/run_home.py
+# Optional separate workspace (a successful preparation cannot be repeated):
+python benchmark/longmemeval/run_home.py --workspace-dir /path/to/new-workspace
+```
+
+[config_home.yaml](config_home.yaml) controls the preparation. Its paths are
+repository-relative regardless of the current working directory; `--config`
+accepts an alternative runner YAML file. The default workspace is
+`benchmark/longmemeval/workspaces/home-groups-1-5`. The evaluated runtime loads `lme`;
+the host application loads `home`. `source_ref: HEAD` exports committed source
+only, excluding uncommitted modifications. Preparation failure rolls back its
+outputs; after success, another call fails instead of resetting the experiment.
+
+The top-level `sampling_policy` configures Home evaluation defaults: `max_cases`,
+`max_queries` (null means unlimited), `temperature`, `ewma_alpha` and
+`uniform_exploration`. The runner validates these and passes them to the host
+`home.evaluation` Component. It still only prepares; it does not run evaluations.
+Each evaluation controls `sampling` and `record_history` separately.
+
+The top-level `validation_cycle_time_budget_minutes` configures the host optimizer's
+advisory time between completed formal evaluations. It defaults to 150 minutes;
+set a positive number to change it or null to disable timed reminders.
+
+The top-level `max_evaluations` sets the optimizer's formal-evaluation budget
+(positive integer, default 10). A slot is consumed at first sandbox startup,
+including later failures or cancellations; initial baseline and debug are excluded.
+
+The top-level `memory_limit_mib` sets the host agent sandbox memory limit for
+optimization, diagnosis, case studies and evaluation reviews. Set `memory_limit_mib: 0`
+in the runner YAML to disable the Linux cgroup limit. Null or omission keeps platform
+defaults (4096 MiB on Linux); macOS does not enforce memory limits.
+
+After preparation, run local one-shot optimization with the same configuration:
+
+```bash
+python benchmark/longmemeval/run_home.py --optimize
+# Use the same --config and --workspace-dir overrides as preparation, if supplied.
+python benchmark/longmemeval/run_home.py --optimize --instruction "Improve retrieval quality"
+```
+
+This starts a fresh application, applies both budgets and the sampling policy,
+runs `home_optimize`, and closes the application. It does not repeat preparation.
+Python callers can use `await optimize(config_path, workspace_dir=...)` from the
+same module. The default `run()` and CLI behavior remain preparation only.
+
+Python callers can use the same lifecycle:
+
+```python
+from benchmark.longmemeval.run_home import run
+
+result = await run(workspace_dir="/path/to/new-workspace")
+```
+
+The 250 `benchmark.case_ids` in [config_home.yaml](config_home.yaml) are copied
+in order from groups 1–5 of `dataset/groups.json` at `dev_meta` commit
+`b53048e44833937df80a52fccceea78d054790e8`. The original splitter used seed 42
+and type-stratified allocation into ten 50-case groups; groups 6–10 remain held
+out. The runner reads the IDs directly from YAML without loading group files.
+[home_evidence_sessions.jsonl](home_evidence_sessions.jsonl) is a byte-for-byte
+copy of that revision's `dataset/longmemeval_evidence_sessions.jsonl`;
+reviewed evidence-session annotations are preserved during normalization.
+
+
+## Evaluate a candidate on an independent test set
+
+The default excludes the source experiment's actual training IDs from the full dataset. With the default
+250-case training workspace this selects held-out groups 6–10. For an explicit selection, set
+`exclude_training_cases: false` and replace `all_cases: true` with `case_ids: [...]` in
+[config_home_eval.yaml](config_home_eval.yaml). An empty held-out selection fails before preparation.
+
+The entry point imports a full candidate SHA or unambiguous hexadecimal prefix from an existing Home
+optimization workspace and copies its prepared fixed runtime. It does not require the original ReMe source
+repository or change the optimizer's checkout. Paths in the configuration are repository-relative.
+
+Prepare first, then use the service from two terminals (replace `CANDIDATE_SHA`):
+
+```bash
+python benchmark/longmemeval/run_home_eval.py --commit CANDIDATE_SHA --prepare-only
+# Terminal 1:
+reme start workspace_dir=benchmark/longmemeval/workspaces/home-test-held-out 'plugins=["home","lme-judge"]'
+# Terminal 2:
+reme home_evaluate workspace_dir=benchmark/longmemeval/workspaces/home-test-held-out record_history=false
+```
+
+### Local one-shot test evaluation
+
+```bash
+python benchmark/longmemeval/run_home_eval.py --commit CANDIDATE_SHA
+# Optional overrides: --config /path/to/test.yaml --source-workspace /path/to/search --test-workspace /path/to/test
+```
+
+Python callers can use `await benchmark.longmemeval.run_home_eval.run(commit="CANDIDATE_SHA")`.
+The runner rebuilds construction and scores every selected query with sampling and history recording disabled.
+It uses the existing Docker evaluation runtime and host judge configuration; model credentials are required
+for evaluation. Results stay in the test workspace's `home/evaluations/`, with original candidate provenance
+in each manifest's `test_evaluation`. The exported snapshot has its own local `evaluation_commit_sha`.
+Rerunning the same request reopens unchanged prepared inputs and creates another evaluation result. Use a
+new test workspace for another candidate or selection. Source and test workspaces must not overlap.

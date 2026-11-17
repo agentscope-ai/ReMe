@@ -47,6 +47,8 @@ system state   -> metadata/
 Each layer solves a different problem.
 
 `session/` and `resource/` preserve source records. Files under `resource/` remain unchanged at their original path.
+Explicitly enabled [resource TTL](./auto_resource.md#resource-retention-and-ttl), such as `config=proactive`, deletes
+expired date directories; keep permanent material outside `resource/`.
 Standard Auto Memory records retain conversation messages while intentionally omitting tool-result and base64 data
 blocks; this keeps recalled output and binary payloads from masquerading as user-provided evidence. Generated Agent
 runtime state instead lives under `mem_session/`.

@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import time
 
 from ...base_step import BaseStep
 from .._evolve import agent_reply_result_text, passthrough_response
@@ -58,7 +57,6 @@ class ProactiveExtractStep(BaseStep):
         assert self.context is not None
         if self.context.get(self.skip_key):
             return passthrough_response(self, self.skip_key)
-        started = time.monotonic()
         day = today(self, str(self.context.get("date", "") or ""))
         ws = workspace_dir(self)
         daily = daily_dir(self)
@@ -114,7 +112,7 @@ class ProactiveExtractStep(BaseStep):
         # 4) Zero-consumption early exit (A4 row 1).
         if not state.changed_paths:
             state.early_exit = "no_new_evidence"
-            return self._finish(state, started, "Skipped: no new evidence; 0 LLM calls")
+            return self._finish(state, "Skipped: no new evidence; 0 LLM calls")
 
         # 5) LLM channel (F4.4): structurally one reply per round plus at most
         # one parse-failure retry, so no persistent budget is needed (v5 R5).
@@ -122,7 +120,7 @@ class ProactiveExtractStep(BaseStep):
         if wrapper is None:
             state.early_exit = "no_agent_wrapper"
             self.logger.warning(f"[{self.name}] no agent_wrapper available; skipping round")
-            return self._finish(state, started, "Skipped: no agent_wrapper configured")
+            return self._finish(state, "Skipped: no agent_wrapper configured")
 
         # 6) One LLM call with sectioned output (A3); retry once on parse failure.
         # meta is None when this round must NOT checkpoint (timeout, or two
@@ -138,7 +136,7 @@ class ProactiveExtractStep(BaseStep):
             f"Extracted {len(state.follow_ups)} follow_up(s), {len(state.extends)} extend(s), "
             f"{len(state.updates)} update(s) from {len(state.changed_paths)} changed file(s)"
         )
-        return self._finish(state, started, answer)
+        return self._finish(state, answer)
 
     def _build_messages(self, state: ProactiveState, ws, day: str, daily: str, material_blob: str) -> tuple[str, str]:
         carry_forward_json = json.dumps(
@@ -257,8 +255,7 @@ class ProactiveExtractStep(BaseStep):
         self.context["proactive"] = data
         self.context.response.metadata["proactive"] = data
 
-    def _finish(self, state: ProactiveState, started: float, answer: str):
-        state.duration_ms = int((time.monotonic() - started) * 1000)
+    def _finish(self, state: ProactiveState, answer: str):
         self._store(state)
         self.context.response.success = True
         self.context.response.answer = answer

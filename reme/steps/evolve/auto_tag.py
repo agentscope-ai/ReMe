@@ -120,6 +120,7 @@ class AutoTagStep(BaseStep):
             job_tools=self.tools,
             injected_job_kwargs=tool_context,
         )
+        text = agent_reply_result_text(result)
 
         path = self.workspace_path / target.path
         metadata = dict(frontmatter.loads(path.read_text(encoding="utf-8")).metadata or {})
@@ -139,7 +140,7 @@ class AutoTagStep(BaseStep):
             )
             if not response.success:
                 raise RuntimeError(str(response.answer))
-        return agent_reply_result_text(result)
+        return text
 
     async def execute(self):
         assert self.context is not None

@@ -4,6 +4,8 @@
 记忆与回答 Job 仅接收原始文本和图像，不接收数据集摘要、caption、标准答案、证据标注或题型。
 官方 `multi_visual_reasoning` 不被重命名，也不纳入这个评测范围。
 
+[评测报告](docs/zh/evaluation.md)汇总 Qwen、Kimi、DeepSeek 结果、固定 1,333 题口径与历史实验设置。
+
 ## 运行
 
 安装两个插件，并按原目录结构解压官方图片：

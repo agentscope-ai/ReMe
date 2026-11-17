@@ -10,15 +10,15 @@ import pytest
 
 from reme.enumeration import ComponentEnum
 from reme.application import Application
+from reme.components import ApplicationContext
 from reme.components.base_component import BaseComponent
-from reme.components.component_registry import ComponentRegistry
+from reme.components.component_registry import ComponentRegistry, R
 from reme.components.job.background_job import BackgroundJob
 from reme.components.job.base_job import BaseJob
 from reme.components.job.cron_job import CronJob
 from reme.components.job.stream_job import StreamJob
 from reme.components.job import cron_job as cron_job_module
 from reme.schema import ComponentConfig
-from reme.utils import global_counter_get
 
 # -- helpers ------------------------------------------------------------------
 
@@ -156,50 +156,54 @@ def test_stream_job_merges_config_kwargs_into_context():
 # -- Job call counters -------------------------------------------------------
 
 
-def test_base_job_records_calls_by_name():
+def test_base_job_records_calls_by_name(tmp_path):
     async def run():
-        app_context = SimpleNamespace(metadata={})
+        app_context = ApplicationContext(workspace_dir=str(tmp_path))
         job = BaseJob(name="search", app_context=app_context)
+        app_context.jobs[job.name] = job
 
         await job()
         await job()
 
-        assert global_counter_get(app_context.metadata, ["__job_counter", "search"]) == 2
+        assert app_context.get_job_count("search") == 2
 
     asyncio.run(run())
 
 
-def test_stream_job_subclass_records_calls_by_job_name():
+def test_stream_job_subclass_records_calls_by_job_name(tmp_path):
     async def run():
         class ProjectStreamJob(StreamJob):
             pass
 
-        app_context = SimpleNamespace(metadata={})
+        app_context = ApplicationContext(workspace_dir=str(tmp_path))
         job = ProjectStreamJob(name="chat", app_context=app_context)
+        app_context.jobs[job.name] = job
 
         await job(stream_queue=asyncio.Queue())
 
-        assert global_counter_get(app_context.metadata, ["__job_counter", "chat"]) == 1
+        assert app_context.get_job_count("chat") == 1
 
     asyncio.run(run())
 
 
-def test_background_job_records_calls_by_name():
+def test_background_job_records_calls_by_name(tmp_path):
     async def run():
-        app_context = SimpleNamespace(metadata={})
+        app_context = ApplicationContext(workspace_dir=str(tmp_path))
         job = BackgroundJob(name="watch", app_context=app_context)
+        app_context.jobs[job.name] = job
 
         await job()
 
-        assert global_counter_get(app_context.metadata, ["__job_counter", "watch"]) == 1
+        assert app_context.get_job_count("watch") == 1
 
     asyncio.run(run())
 
 
-def test_cron_job_records_each_triggered_execution():
+def test_cron_job_records_each_triggered_execution(tmp_path):
     async def run():
-        app_context = SimpleNamespace(metadata={})
+        app_context = ApplicationContext(workspace_dir=str(tmp_path))
         job = CronJob(name="nightly", cron="* * * * *", app_context=app_context)
+        app_context.jobs[job.name] = job
         job._stop_event = asyncio.Event()
         waits = 0
 
@@ -215,7 +219,7 @@ def test_cron_job_records_each_triggered_execution():
 
         await job()
 
-        assert global_counter_get(app_context.metadata, ["__job_counter", "nightly"]) == 1
+        assert app_context.get_job_count("nightly") == 1
 
     asyncio.run(run())
 
@@ -489,3 +493,122 @@ def test_application_start_failure_propagates_and_closes_started_components():
         assert not app._started_components
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("cancel_count", [1, 2])
+@pytest.mark.parametrize("close_error", [None, RuntimeError, asyncio.CancelledError])
+def test_cancelled_application_close_finishes_remaining_cleanup(tmp_path, cancel_count, close_error):
+    """Even repeated cancellation waits for the current component before its peers."""
+
+    async def run():
+        closing = asyncio.Event()
+        release = asyncio.Event()
+        closed = []
+
+        class ShutdownComponent(BaseComponent):
+            component_type = ComponentEnum.FILE_CHUNKER
+
+            async def _close(self):
+                if self.name == "b":
+                    closing.set()
+                    await release.wait()
+                closed.append(self.name)
+                if self.name == "b" and close_error is not None:
+                    raise close_error("component close failed")
+
+        with R.preserve(allow_mutation=True):
+            R.register(ShutdownComponent, "test_shutdown")
+            app = Application(
+                workspace_dir=str(tmp_path),
+                enable_logo=False,
+                log_to_console=False,
+                log_to_file=False,
+                thread_pool_max_workers=1,
+                service={"backend": "cli"},
+                components={"file_chunker": {name: {"backend": "test_shutdown"} for name in ("a", "b")}},
+            )
+
+        await app.start()
+        pool = app.context.thread_pool
+        assert pool is not None
+        close_task = asyncio.create_task(app.close())
+        try:
+            await asyncio.wait_for(closing.wait(), timeout=5)
+            for attempt in range(cancel_count):
+                close_task.cancel(f"cancel {attempt}")
+                await asyncio.sleep(0)
+            assert not close_task.done()
+            assert not closed
+            assert app.is_started
+            release.set()
+            with pytest.raises(asyncio.CancelledError, match="cancel 0"):
+                await close_task
+
+            assert closed == ["b", "a"]
+            assert all(not component.is_started for component in app.context.components["file_chunker"].values())
+            assert not app.is_started
+            assert app.context.thread_pool is None
+            with pytest.raises(RuntimeError, match="cannot schedule new futures after shutdown"):
+                pool.submit(lambda: None)
+        finally:
+            release.set()
+            close_task.cancel()
+            await asyncio.gather(close_task, return_exceptions=True)
+            for component in app.context.components["file_chunker"].values():
+                await component.close()
+            pool.shutdown(wait=True)
+
+    asyncio.run(run())
+
+
+@pytest.mark.asyncio
+async def test_job_error_metadata_preserves_status_and_causes_without_request_data(tmp_path):
+    import httpx
+
+    request = httpx.Request("POST", "https://example.test", headers={"Authorization": "secret"})
+    response = httpx.Response(429, request=request, text="private response body")
+
+    async def failing_step(context):
+        context.response.metadata["earlier_step"] = "preserved"
+        try:
+            raise httpx.HTTPStatusError("provider unavailable", request=request, response=response)
+        except httpx.HTTPStatusError as error:
+            raise RuntimeError("wrapped") from error
+
+    app_context = ApplicationContext(workspace_dir=str(tmp_path))
+    job = BaseJob(name="structured-error", app_context=app_context, track_execution=True)
+    app_context.jobs[job.name] = job
+    job._build_steps = lambda: [failing_step]
+    result = await job()
+    details = result.metadata["reme.job_error"]
+    assert not result.success
+    assert result.answer.startswith("RuntimeError: wrapped <- HTTPStatusError:")
+    assert details["type"] == "RuntimeError"
+    assert details["causes"] == [{"type": "HTTPStatusError", "module": "httpx", "status_code": 429}]
+    assert result.metadata["earlier_step"] == "preserved"
+    assert "secret" not in str(details) and "private response body" not in str(details)
+    result.model_dump_json()
+    record = app_context.get_job_status()[job.name][0]
+    assert record["status"] == "failed"
+    assert record["error"] == result.answer
+
+    job._build_steps = list
+    following = await job()
+    assert following.success
+    assert "reme.job_error" not in following.metadata
+    assert app_context.get_job_status()[job.name][0]["status"] == "succeeded"
+    assert app_context.get_job_count(job.name) == 2
+
+
+def test_job_error_metadata_handles_cyclic_and_suppressed_causes():
+    from reme.components.job.base_job import _exception_details
+
+    error = RuntimeError("outer")
+    cause = TimeoutError("inner")
+    error.__cause__ = cause
+    cause.__cause__ = error
+    assert _exception_details(error)["causes"] == [{"type": "TimeoutError", "module": "builtins"}]
+    error.__cause__ = None
+    error.__context__ = cause
+    error.__suppress_context__ = True
+    assert _exception_details(error)["causes"] == []

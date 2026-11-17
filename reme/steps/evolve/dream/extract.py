@@ -99,9 +99,12 @@ class DreamExtractStep(BaseStep):
             f"[{self.name}] start date={day} dates={','.join(dates)} scan_days={scan_days} "
             f"max_units={max_units} hint={bool(hint)}",
         )
+        index_errors = []
         for scan_day in dates:
             self.logger.info(f"[{self.name}] refresh index start date={scan_day} daily_dir={daily}")
-            await refresh_day_index(self.file_store, scan_day, daily)
+            index_payload = await refresh_day_index(self.file_store, scan_day, daily)
+            if "error" in index_payload:
+                index_errors.append(f"{scan_day}: {index_payload['error']}")
             self.logger.info(f"[{self.name}] refresh index done date={scan_day}")
 
         existing = self._existing(
@@ -154,14 +157,18 @@ class DreamExtractStep(BaseStep):
             existing=existing,
             indexed=indexed,
         )
+        state.errors.extend(f"daily index refresh failed: {error}" for error in index_errors)
         if not changed:
             self.logger.info(f"[{self.name}] skip no changed input dates={','.join(dates)}")
-            return self._finish(state, True, f"No changed dream input for {', '.join(dates)}")
+            answer = f"No changed dream input for {', '.join(dates)}"
+            if state.errors:
+                answer = f"{answer}; {'; '.join(state.errors)}"
+            return self._finish(state, not state.errors, answer)
         if not llm_available(self):
             state.errors.append("no llm configured; dream extract requires an LLM")
             state.failed_paths = list(changed)
             self.logger.warning(f"[{self.name}] skip no llm changed={len(changed)}")
-            return self._finish(state, False, state.errors[-1])
+            return self._finish(state, False, "; ".join(state.errors))
 
         self.logger.info(f"[{self.name}] agent start changed={len(changed)} dates={len(dates)}")
         output_schema = DreamExtractOutput.model_json_schema()
@@ -203,6 +210,8 @@ class DreamExtractStep(BaseStep):
             f"failed_paths={len(state.failed_paths)} errors={len(state.errors)}",
         )
         answer = f"Extracted {len(state.units)} unit(s) from {len(changed)} changed file(s) across {len(dates)} day(s)"
+        if state.errors:
+            answer = f"{answer}; {'; '.join(state.errors)}"
         return self._finish(state, not state.errors, answer)
 
     async def _extract_batch(

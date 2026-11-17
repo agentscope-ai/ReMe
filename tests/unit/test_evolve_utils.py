@@ -12,11 +12,12 @@ from reme.steps.evolve._evolve import agent_reply_result_text, format_history
 from reme.steps.evolve.auto_memory import AutoMemoryStep, _sanitize_msg_for_save
 
 
-def test_agent_reply_result_text_uses_last_text_block():
-    """Agent reply text should be the last text block in the final message."""
+def test_agent_reply_result_text_uses_portable_result():
+    """Callers use final text selected by the wrapper, without inspecting native data."""
     reply = {
-        "result": "intermediate text\nfinal text",
-        "last_message": {
+        "result": "final text",
+        "status": "completed",
+        "raw": {
             "content": [
                 {"type": "thinking", "thinking": "hidden"},
                 {"type": "text", "text": "intermediate text"},
@@ -29,11 +30,24 @@ def test_agent_reply_result_text_uses_last_text_block():
     assert agent_reply_result_text(reply) == "final text"
 
 
-def test_agent_reply_result_text_falls_back_to_result():
-    """Agent reply text falls back to result when no text block exists."""
-    reply = {"result": " fallback text \n", "last_message": {"content": [{"type": "thinking"}]}}
+def test_agent_reply_result_text_trims_result():
+    """Text formatting does not depend on the presence of native content blocks."""
+    reply = {"result": " fallback text \n", "status": "completed", "raw": {}}
 
     assert agent_reply_result_text(reply) == "fallback text"
+
+
+@pytest.mark.parametrize("status", ["failed", "interrupted", "waiting"])
+def test_agent_reply_result_text_rejects_incomplete_replies(status):
+    """Partial text must not turn an incomplete invocation into a success."""
+    with pytest.raises(RuntimeError, match=status):
+        agent_reply_result_text({"result": "partial text", "status": status, "error": None})
+
+
+def test_agent_reply_result_text_preserves_error_message():
+    """Provider failures remain actionable to the caller."""
+    with pytest.raises(RuntimeError, match="rate limit"):
+        agent_reply_result_text({"result": "", "status": "failed", "error": "rate limit"})
 
 
 def test_sanitize_msg_for_save_drops_tool_results_and_base64_data():

@@ -24,7 +24,8 @@ async def find_reme(host: str, port: int) -> str:
         return "reme"
     except Exception:
         pass
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+    family = socket.AF_INET6 if ":" in host else socket.AF_INET
+    with socket.socket(family, socket.SOCK_STREAM) as s:
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             s.bind((host, port))

@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from reme.components.job import BaseJob, StreamJob
+from reme.components import ApplicationContext
 from reme.utils import global_counter_add
 from reme.utils.evaluation_interface import (
     check_agent_token_count,
@@ -16,11 +17,11 @@ from reme.utils.evaluation_interface import (
 )
 
 
-def test_check_job_count_reads_registered_base_job_count():
-    """check_job_count returns the number of completed BaseJob invocations."""
+def test_check_job_count_reads_registered_base_job_count(tmp_path):
+    """check_job_count returns the number of started BaseJob invocations."""
 
     async def run():
-        app_context = SimpleNamespace(metadata={}, jobs={})
+        app_context = ApplicationContext(workspace_dir=str(tmp_path))
         job = BaseJob(name="search", app_context=app_context)
         app_context.jobs[job.name] = job
 
@@ -32,14 +33,14 @@ def test_check_job_count_reads_registered_base_job_count():
     asyncio.run(run())
 
 
-def test_check_job_count_reads_custom_job_by_name():
+def test_check_job_count_reads_custom_job_by_name(tmp_path):
     """check_job_count reads subclassed job counters without depending on inheritance."""
 
     async def run():
         class ProjectStreamJob(StreamJob):
             """Project-specific StreamJob subclass used to exercise MRO lookup."""
 
-        app_context = SimpleNamespace(metadata={}, jobs={})
+        app_context = ApplicationContext(workspace_dir=str(tmp_path))
         job = ProjectStreamJob(name="chat", app_context=app_context)
         app_context.jobs[job.name] = job
 
@@ -50,19 +51,19 @@ def test_check_job_count_reads_custom_job_by_name():
     asyncio.run(run())
 
 
-def test_check_job_count_rejects_unknown_job_name():
+def test_check_job_count_rejects_unknown_job_name(tmp_path):
     """Unknown job names raise KeyError, matching Application.run_job."""
-    app_context = SimpleNamespace(metadata={}, jobs={})
+    app_context = ApplicationContext(workspace_dir=str(tmp_path))
 
     with pytest.raises(KeyError, match="Job 'missing' not found"):
         check_job_count("missing", app_context)
 
 
-def test_track_job_counts_returns_calls_made_inside_context():
+def test_track_job_counts_returns_calls_made_inside_context(tmp_path):
     """The context manager reports only the calls made in its body."""
 
     async def run():
-        app_context = SimpleNamespace(metadata={}, jobs={})
+        app_context = ApplicationContext(workspace_dir=str(tmp_path))
         search = BaseJob(name="search", app_context=app_context)
         app_context.jobs[search.name] = search
 
@@ -76,11 +77,11 @@ def test_track_job_counts_returns_calls_made_inside_context():
     asyncio.run(run())
 
 
-def test_track_job_counts_updates_results_when_body_raises():
+def test_track_job_counts_updates_results_when_body_raises(tmp_path):
     """Calls made before an exception are still included in the delta."""
 
     async def run():
-        app_context = SimpleNamespace(metadata={}, jobs={})
+        app_context = ApplicationContext(workspace_dir=str(tmp_path))
         search = BaseJob(name="search", app_context=app_context)
         app_context.jobs[search.name] = search
         counts = {}

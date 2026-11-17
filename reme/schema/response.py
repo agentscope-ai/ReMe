@@ -10,6 +10,8 @@ class Response(BaseModel):
 
     ``answer`` is the primary tool result and must be sufficient for the next LLM action.
     ``metadata`` is auxiliary request context for programmatic clients and diagnostics.
+    Base jobs record caught exception types, modules, HTTP status codes and causes
+    under ``metadata["reme.job_error"]`` while retaining their error text in ``answer``.
     """
 
     model_config = ConfigDict(extra="allow")

@@ -49,7 +49,7 @@ proactive_refresh_cron:
   steps: *proactive_refresh_steps
 ```
 
-The anchor above is only a compact illustration; `default.yaml` spells out both step lists explicitly. The read job is:
+`default.yaml` shares this step list through the same YAML anchor. The read job is:
 
 ```yaml
 proactive_read:
@@ -85,6 +85,9 @@ Parameters:
 | `min_confidence`  | Minimum topic confidence to return. Defaults to `0.4`; legacy topics use `0.5`.                      |
 
 ### Refresh cost, files, and opt-out
+
+`metadata.proactive.duration_ms` has been removed. While the service is running, use
+`reme job_status name=proactive_refresh_cron` from another terminal to inspect the whole Job's start and finish times.
 
 When no daily Markdown note changed, refresh exits before calling an LLM and does not create a new exposure file. With
 changed material, extraction normally makes one LLM call and may retry once after an unusable reply. If push candidates

@@ -1,0 +1,574 @@
+"""Home evaluation orchestration using the shared Docker pool and a host judge."""
+
+import asyncio
+import os
+import shutil
+import traceback
+from contextlib import nullcontext
+
+from deploy.benchmark_docker import BenchmarkDockerPool, CasePlan, DockerReMeSandboxFactory, SourceCandidate
+
+from reme.components.base_component import BaseComponent
+from reme.utils.async_utils import complete_in_thread as blocking
+from reme.utils.async_utils import finish_cleanup
+
+from ..preparation.data.models import utc_now
+from .adapters import accepts_build, build_jobs, evaluation_query
+from .artifacts import (
+    contained,
+    file_sha256,
+    inspect_archive,
+    read_json,
+    summarize,
+    write_json,
+    construction_exception,
+    answer_exception,
+    failure_kind,
+)
+from .inputs import EvaluationSpec, load_inputs, reuse_inputs, snapshot_code, replay_sampling_eligibility
+from .compaction import compact_construction, compact_query
+from ..judge import HomeJudge
+from ..workspace import HomeWorkspace, _initialization_lock, _validate_directory
+from ..sampling import SamplingPolicy, create_sampling_plan
+from .history import HomeEvaluationHistory
+from .budget import validation_budget_status
+from .repetition import previous_candidate_result
+from .reuse import automatic_reuse, construction_fingerprints, reuse_context
+
+
+class HomeEvaluation(BaseComponent):
+    """Own evaluation tasks; the application owns the host judge Job lifecycle."""
+
+    component_type = "home.evaluation"
+
+    def __init__(self, sampling_policy: dict | None = None, **kwargs):
+        from ..agent.wrapper import BoundedAgentWrapper
+
+        if "sampling" in kwargs:
+            raise ValueError("Use sampling_policy for Component defaults; sampling is a Job boolean")
+        super().__init__(**kwargs)
+        self.workspace = self.bind("default", HomeWorkspace, optional=False)
+        self.judge = self.bind("default", HomeJudge, optional=False)
+        self.history = self.bind("default", HomeEvaluationHistory, optional=False)
+        self.candidate_gate = self.bind("home_candidate_gate", BoundedAgentWrapper, optional=False)
+        self.construction_equivalence = self.bind("home_construction_equivalence", BoundedAgentWrapper, optional=False)
+        self._pending: set[asyncio.Task] = set()
+        self.sampling_policy = SamplingPolicy.model_validate(sampling_policy if sampling_policy is not None else {})
+
+    async def _close(self):
+        if self._pending:
+            await asyncio.gather(*self._pending, return_exceptions=True)
+
+    async def evaluate(self, **kwargs) -> dict:
+        """Run through the component lifecycle, including cancellation cleanup."""
+        if not self.is_started:
+            raise RuntimeError("Start the Home application before evaluation")
+        spec = EvaluationSpec.model_validate(kwargs)
+        override = spec.sampling_policy.model_dump(exclude_unset=True) if spec.sampling_policy is not None else {}
+        policy = SamplingPolicy.model_validate({**self.sampling_policy.model_dump(), **override})
+        spec = spec.model_copy(update={"sampling_policy": policy})
+        task = asyncio.create_task(self._serialized_evaluate(spec))
+        self._pending.add(task)
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            task.cancel()
+            try:
+                await finish_cleanup(asyncio.gather(task, return_exceptions=True))
+            except asyncio.CancelledError:
+                pass
+            raise
+        finally:
+            self._pending.discard(task)
+
+    async def _serialized_evaluate(self, spec):
+        """Match dev_meta's serialized formal validations; debug never owns sampling state."""
+        _validate_directory(self.workspace_path.resolve(), self.workspace.state_path)
+        lock = nullcontext() if spec.debug else _initialization_lock(self.workspace.state_path / "validation.lock")
+        with lock:
+            budgeted = spec.max_evaluations is not None and not spec.debug
+            if budgeted:
+                budget = await blocking(validation_budget_status, self.workspace.home_path, spec.max_evaluations)
+                if budget["remaining_validations"] < 1:
+                    return {
+                        "status": "rejected",
+                        "error_code": "VALIDATION_BUDGET_EXHAUSTED",
+                        "error": "Optimizer validation budget is exhausted; no sandbox was started.",
+                        "validation_budget": budget,
+                        "result_dir": None,
+                    }
+            admission = None
+            if budgeted and budget["used_validations"] < budget["gated_validation_count"]:
+                from ..agent.candidate_gate import admission_context, review_candidate
+
+                with _initialization_lock(self.workspace.state_path / "workspace.lock"):
+                    context = await blocking(admission_context, self.workspace.home_path)
+                if context is not None:
+                    admission = await review_candidate(
+                        self.candidate_gate,
+                        self.workspace.home_path,
+                        context,
+                        budget,
+                        memory_limit_mib=self.kwargs.get("candidate_gate_memory_limit_mib"),
+                    )
+                    if admission["decision"] == "reject":
+                        return {
+                            "status": "rejected",
+                            "error_code": "CANDIDATE_GATE_REJECTED",
+                            "error": admission["reason"],
+                            "candidate_gate": admission,
+                            "validation_budget": budget,
+                            "result_dir": None,
+                        }
+            reuse = None
+            if not spec.debug and spec.reuse_construction_from is None and (spec.sampling or budgeted):
+                environment = {**os.environ, **self.app_context.app_config.environment}
+                with _initialization_lock(self.workspace.state_path / "workspace.lock"):
+                    prepared = await blocking(reuse_context, self.workspace.home_path, spec, environment)
+                reuse = await automatic_reuse(
+                    self.construction_equivalence,
+                    self.workspace.home_path,
+                    prepared,
+                    memory_limit_mib=self.kwargs.get("construction_equivalence_memory_limit_mib"),
+                )
+            result = await self._evaluate(spec, admission, reuse)
+            if budgeted:
+                result["validation_budget"] = await blocking(
+                    validation_budget_status,
+                    self.workspace.home_path,
+                    spec.max_evaluations,
+                )
+            return result
+
+    def _prepare(self, spec, environment, admission=None, reuse=None):
+        home = self.workspace.home_path
+        recovery_plan = None
+        _validate_directory(self.workspace_path.resolve(), self.workspace.state_path)
+        with _initialization_lock(self.workspace.state_path / "workspace.lock"):
+            if reuse is not None and reuse["selected"]:
+                spec = spec.model_copy(update={"reuse_construction_from": reuse["source_validation"]})
+            record, dataset, cases = load_inputs(home, spec)
+            snapshot, commit, branch = snapshot_code(home, record)
+            if admission is not None and (commit, branch) != (
+                admission["candidate_commit"],
+                admission["branch_name"],
+            ):
+                raise ValueError("Candidate changed during admission review; retry evaluation on the reviewed commit")
+            if reuse is not None and (commit, branch) != (reuse["candidate_commit"], reuse["branch_name"]):
+                raise ValueError("Candidate changed during equivalence review; retry evaluation on the reviewed commit")
+            previous = None if spec.debug else previous_candidate_result(home, commit)
+            if previous is not None:
+                manifest = read_json(contained(home, previous / "manifest.json"))
+                recovery_spec = EvaluationSpec.model_validate(
+                    {
+                        **spec.model_dump(),
+                        "sampling": False,
+                        "case_ids": manifest["case_ids"],
+                        "query_ids": manifest["query_ids"],
+                    },
+                )
+                if (
+                    recovery_spec.case_ids is None
+                    or recovery_spec.query_ids is None
+                    or set(recovery_spec.query_ids) != set(recovery_spec.case_ids)
+                ):
+                    raise ValueError("Recovery requires saved case IDs and query IDs for every case")
+                # Validate saved IDs against the prepared dataset, including queries
+                # outside the caller's new selection. Never silently drop a case.
+                record, dataset, cases = load_inputs(home, recovery_spec)
+                recovery_plan = {
+                    "mode": "explicit",
+                    "case_ids": manifest["case_ids"],
+                    "query_ids": manifest["query_ids"],
+                    "policy": spec.sampling_policy.model_dump(),
+                    "recovery_from": previous.relative_to(home).as_posix(),
+                }
+        sampling_state = (
+            self.history.sampling_state() if spec.sampling and not spec.debug and previous is None else None
+        )
+        with _initialization_lock(self.workspace.state_path / "workspace.lock"):
+            plan = recovery_plan
+            if spec.sampling and not spec.debug and previous is None:
+                eligibility = replay_sampling_eligibility(home, spec, cases)
+                plan = create_sampling_plan(
+                    cases,
+                    sampling_state,
+                    spec.sampling_policy,
+                    eligible_query_ids=eligibility,
+                )
+                selected = {case.case_id: case for case in cases}
+                cases = []
+                for key in plan["case_ids"]:
+                    case = selected[key]
+                    queries = {query.query_id: query for query in case.queries}
+                    cases.append(
+                        case.model_copy(
+                            update={
+                                "queries": [queries[query_id] for query_id in plan["query_ids"][key]],
+                            },
+                        ),
+                    )
+            fingerprints = construction_fingerprints(record, dataset, spec, environment)
+            source, archives = reuse_inputs(home, spec, cases, fingerprints)
+            # Validate adapters before allocating results or starting containers.
+            jobs = {case.case_id: build_jobs(dataset.dataset, case) for case in cases} if source is None else {}
+            for case in cases:
+                for query in case.queries:
+                    if dataset.dataset == "beam" and spec.dataset_kind == "training-set":
+                        rubric = query.metadata.get("rubric", query.golden_answer)
+                        if not isinstance(rubric, list) or not rubric:
+                            raise ValueError(f"BEAM query {query.query_id} has no scoring rubric")
+                    evaluation_query(dataset.dataset, query)
+            return record, dataset, cases, snapshot, commit, branch, fingerprints, source, archives, jobs, plan
+
+    def _sampling_started(self, run, manifest, plan, policy=None, *, record_history=True):
+        """The factory invokes this only after a real sandbox successfully initializes."""
+        if not record_history:
+            manifest["sandbox_started_at"] = utc_now().isoformat()
+            if plan is not None:
+                # Keep draw evidence local without claiming a started-history round.
+                manifest["selection_plan"] = plan
+            write_json(run / "manifest.json", manifest)
+            return
+        try:
+            self.history.record_started(run, policy if policy is not None else self.sampling_policy, plan)
+        finally:
+            # Cache publication can fail after the durable start was written.
+            # Preserve those fields when the caller later saves failure status.
+            manifest.update(read_json(run / "manifest.json"))
+
+    def _allocate(self, branch, commit, manifest):
+        """Allocate ascending IDs under a collision-safe commit prefix."""
+        home = self.workspace.home_path
+        with _initialization_lock(self.workspace.state_path / "workspace.lock"):
+            parent = contained(home, f"evaluations/{branch}", directory=True)
+            parent.mkdir(parents=True, exist_ok=True)
+            width = 7
+            while True:
+                folder = contained(parent, commit[:width], directory=True)
+                prior = list(folder.glob("*/manifest.json")) if folder.exists() else []
+                if all(read_json(path).get("commit_sha") == commit for path in prior):
+                    break
+                width += 1
+                if width > len(commit):
+                    raise ValueError("Invalid evaluation commit directory")
+            folder.mkdir(exist_ok=True)
+            numbers = [int(path.name) for path in folder.iterdir() if path.name.isdigit()]
+            run = folder / str(max(numbers, default=0) + 1)
+            run.mkdir()
+            manifest["validation_id"] = run.name
+            write_json(run / "manifest.json", manifest)
+            return run
+
+    async def _evaluate(self, spec, admission=None, reuse=None):
+        environment = {**os.environ, **self.app_context.app_config.environment}
+        prepared = await blocking(self._prepare, spec, environment, admission, reuse)
+        record, dataset, cases, snapshot, commit, branch, fingerprints, source, archives, jobs, sampling_plan = prepared
+        judge = None if spec.debug else self.judge
+        run = None
+        try:
+            manifest = {
+                "branch_name": branch,
+                "commit_sha": commit,
+                "case_ids": [case.case_id for case in cases],
+                "query_ids": {case.case_id: [q.query_id for q in case.queries] for case in cases},
+                "dataset": dataset.dataset,
+                "dataset_kind": spec.dataset_kind,
+                "mode": "debug" if judge is None else "scored",
+                "execution_mode": "query_only_replay" if source else "full_validation",
+                "fingerprints": fingerprints,
+                "options": spec.model_dump(
+                    mode="json",
+                    exclude={"case_ids", "query_ids", "reuse_construction_from", "debug", "sampling_policy"},
+                ),
+                "judge": self.judge.identity(dataset.dataset),
+                "status": "running",
+                "started_at": utc_now().isoformat(),
+            }
+            if source is not None:
+                manifest["construction_source"] = source
+            if "test_evaluation" in record:
+                manifest["test_evaluation"] = record["test_evaluation"]
+            if admission is not None:
+                manifest["candidate_gate"] = admission
+            if reuse is not None:
+                manifest["automatic_construction_reuse"] = reuse
+            run = self._allocate(branch, commit, manifest)
+            plans = []
+            for case in cases:
+                folder = run / "cases" / case.case_id
+                memory = folder / "memory_construction"
+                memory.mkdir(parents=True)
+                if source:
+                    # Retain an independent pre-query snapshot and inherited log.
+                    archive, expected_sha = archives[case.case_id]
+                    await blocking(shutil.copyfile, archive, memory / "reme_workspace.tar.gz")
+                    actual_sha = await blocking(file_sha256, memory / "reme_workspace.tar.gz")
+                    if actual_sha != expected_sha:
+                        raise ValueError(f"Construction source changed after preflight: {case.case_id}")
+                    log = contained(archive.parent, "build.log")
+                    if log.is_file():
+                        await blocking(shutil.copyfile, log, memory / "build.log")
+                    write_json(
+                        memory / "result.json",
+                        {
+                            "success": True,
+                            "status": "reused",
+                            "source": source,
+                            "workspace_sha256": actual_sha,
+                            "jobs": [],
+                        },
+                    )
+                plans.append(
+                    CasePlan(
+                        case_id=case.case_id,
+                        build_jobs=jobs.get(case.case_id, ()),
+                        queries=tuple(evaluation_query(dataset.dataset, q) for q in case.queries),
+                        workspace_source=memory / "reme_workspace.tar.gz" if source else None,
+                        export_workspace_to=None if source else memory / "reme_workspace.tar.gz",
+                        export_build_log_to=None if source else memory / "build.log",
+                        export_evaluation_to=folder / "evaluation.tar.gz",
+                        export_diagnostics_to=folder / "full.tar.gz",
+                    ),
+                )
+            factory = DockerReMeSandboxFactory(
+                SourceCandidate(
+                    snapshot,
+                    base_image=spec.base_image,
+                    install_projects=tuple(record["code"]["install_projects"]),
+                ),
+                config=record["code"]["config"],
+                plugins=tuple(record["code"]["plugins"]),
+                command_timeout=spec.timeout_seconds,
+                env=environment,
+                on_sandbox_started=(
+                    None
+                    if spec.debug
+                    else lambda: blocking(
+                        self._sampling_started,
+                        run,
+                        manifest,
+                        sampling_plan,
+                        spec.sampling_policy,
+                        record_history=spec.record_history,
+                    )
+                ),
+            )
+            semaphore = asyncio.Semaphore(spec.concurrency)
+            by_id = {case.case_id: case for case in cases}
+
+            async def completed(plan, result):
+                try:
+                    await self._persist_case(run, by_id[plan.case_id], result, source, spec)
+                except Exception as error:
+                    result.error = (
+                        result.error + "; " if result.error else ""
+                    ) + f"artifact persistence failed: {error}"
+                    write_json(
+                        run / "cases" / plan.case_id / "failure.json",
+                        {"stage": "artifacts", "error": result.error, "failure_kind": "infra_error"},
+                    )
+                await self._score_case(
+                    run,
+                    by_id[plan.case_id],
+                    dataset.dataset,
+                    judge,
+                    semaphore,
+                    spec,
+                    (result.queries or {}).get("queries", []),
+                )
+
+            results = await BenchmarkDockerPool(factory, concurrency=spec.concurrency).run(
+                plans,
+                on_case_finished=completed,
+                fail_fast=spec.fail_fast,
+                accept_build=lambda build: accepts_build(build, spec.max_construction_failure_rate),
+            )
+            # Pool teardown can attach late cleanup failures after callbacks.
+            for result in results:
+                if result.error:
+                    failure = run / "cases" / result.case_id / "failure.json"
+                    if not failure.exists():
+                        write_json(failure, {"stage": "cleanup", "error": result.error, "failure_kind": "infra_error"})
+                    else:
+                        previous = read_json(failure)
+                        if previous.get("error") != result.error:
+                            previous.update(cleanup_error=result.error, failure_kind="infra_error")
+                            write_json(failure, previous)
+            summary = summarize(run, cases, scoring_required=not spec.debug)
+            manifest.update(
+                status="completed",
+                success=summary["case_status_counts"]["infra_error"] == 0,
+                finished_at=utc_now().isoformat(),
+            )
+            if not spec.debug and spec.record_history:
+                await blocking(self.history.publish_completed, run, manifest, summary)
+            else:
+                write_json(run / "manifest.json", manifest)
+                write_json(run / "summary.json", summary, compact_leaf_containers=True)
+            return {
+                "result_dir": str(run),
+                "commit_sha": commit,
+                "execution_mode": manifest["execution_mode"],
+                "record_history": spec.record_history and not spec.debug,
+                "status": "completed",
+                **({"candidate_gate": admission} if admission is not None else {}),
+                **({"automatic_construction_reuse": reuse} if reuse is not None else {}),
+                **{key: value for key, value in summary.items() if key != "cases"},
+            }
+        except BaseException as error:
+            # A full summary is the durable completion boundary. Bookkeeping
+            # errors or cancellation must not demote an already completed run.
+            completed = run is not None and manifest.get("status") == "completed" and (run / "summary.json").is_file()
+            if completed:
+                raise
+            if run is not None:
+                manifest.update(
+                    status="cancelled" if isinstance(error, asyncio.CancelledError) else "failed",
+                    success=False,
+                    finished_at=utc_now().isoformat(),
+                )
+                write_json(run / "manifest.json", manifest)
+                write_json(
+                    run / "failure.json",
+                    {
+                        "stage": "evaluation",
+                        "error": f"{type(error).__name__}: {error}",
+                        "traceback": traceback.format_exc(),
+                        "failed_at": utc_now().isoformat(),
+                    },
+                )
+                partial = summarize(
+                    run,
+                    cases,
+                    scoring_required=not spec.debug,
+                )
+                write_json(run / "partial_summary.json", partial, compact_leaf_containers=True)
+            if isinstance(error, asyncio.CancelledError) or run is None:
+                raise
+            raise RuntimeError(f"Evaluation failed; artifacts: {run}: {error}") from error
+
+    @staticmethod
+    async def _persist_case(run, case, result, source, spec):
+        folder = run / "cases" / case.case_id
+        memory = folder / "memory_construction"
+        # Freeze every returned answer in the sole authoritative query file
+        # before extraction or judging can fail. Unjudged answers stay present.
+        by_id = {row.get("query_id"): row for row in (result.queries or {}).get("queries", [])}
+        rows = [
+            compact_query(
+                {
+                    **by_id[query.query_id],
+                    "query_id": query.query_id,
+                    "question": query.question,
+                    "golden_answer": query.golden_answer,
+                    "question_type": query.metadata.get("question_type"),
+                    "score": None,
+                    "judge_result": None,
+                },
+            )
+            for query in case.queries
+            if query.query_id in by_id
+        ]
+        write_json(folder / "queries/result.json", {"queries": rows}, compact_leaf_containers=True)
+        if result.error:
+            stage = result.failure_stage or "execution"
+            exception = result.exception
+            if exception is None:
+                exception = (
+                    answer_exception(result.queries or {})
+                    if stage == "answer"
+                    else construction_exception(result.build or {})
+                )
+            write_json(
+                folder / "failure.json",
+                {
+                    "stage": stage,
+                    "error": result.error,
+                    "exception": exception,
+                    "failure_kind": failure_kind(exception, stage),
+                },
+            )
+        if source is None:
+            build = result.build or {"success": False, "error": result.error, "jobs": []}
+            accepted = accepts_build(build, spec.max_construction_failure_rate)
+            construction = {
+                **build,
+                "status": "success" if build.get("success") else "partial_success" if accepted else "failure",
+            }
+            archive = memory / "reme_workspace.tar.gz"
+            if archive.is_file():
+                construction["workspace_sha256"] = await blocking(file_sha256, archive)
+            write_json(memory / "result.json", compact_construction(construction), compact_leaf_containers=True)
+        archive = memory / "reme_workspace.tar.gz"
+        if archive.is_file():
+            await blocking(inspect_archive, archive, spec.max_artifact_bytes, memory / "reme_workspace")
+        evaluation = folder / "evaluation.tar.gz"
+        if evaluation.is_file():
+            extracted = folder / "exported"
+            await blocking(inspect_archive, evaluation, spec.max_artifact_bytes, extracted)
+            # Keep per-query logs beside host authoritative results. Container
+            # query scores are intentionally ignored; judging happens outside it.
+            for query in case.queries:
+                log = extracted / "queries" / query.query_id / "answer.log"
+                if log.is_file():
+                    target = folder / "queries" / query.query_id / "answer.log"
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    await blocking(shutil.copyfile, log, target)
+            # Container results cannot overwrite host-frozen answers or scores.
+            await blocking(shutil.rmtree, extracted)
+            evaluation.unlink()
+
+    @staticmethod
+    async def _score_case(run, case, dataset, judge, semaphore, spec, answers):
+        folder = run / "cases" / case.case_id
+        by_id = {row.get("query_id"): row for row in answers}
+        rows = read_json(folder / "queries/result.json").get("queries", [])
+        positions = {row["query_id"]: index for index, row in enumerate(rows)}
+        case_failure = read_json(folder / "failure.json") if (folder / "failure.json").exists() else {}
+        for query in case.queries:
+            raw = by_id.get(query.query_id, {})
+            if not raw and case_failure:
+                continue  # Construction failures leave queries unassessed.
+            row = {
+                **raw,
+                "query_id": query.query_id,
+                "question": query.question,
+                "golden_answer": query.golden_answer,
+                "question_type": query.metadata.get("question_type"),
+                "score": None,
+                "judge_result": None,
+            }
+            if not isinstance(row.get("answer"), str) or not row["answer"].strip() or row.get("error") is not None:
+                row["error"] = row.get("error") or "No successful answer (construction or execution failed)"
+                row["failure_stage"] = "answer"
+                row["failure_kind"] = (
+                    failure_kind(row["exception"], "answer")
+                    if row.get("exception")
+                    else case_failure.get("failure_kind")
+                    or ("candidate_failure" if raw and not raw.get("error") else failure_kind(None, "answer"))
+                )
+                row["infrastructure_error"] = row["failure_kind"] == "infra_error"
+            elif judge is not None:
+                try:
+                    async with semaphore:
+                        row["judge_result"], row["score"] = await judge.evaluate(dataset, query, row["answer"])
+                except Exception as error:
+                    row.update(
+                        error=f"{type(error).__name__}: {error}",
+                        judge_result=getattr(error, "result", None),
+                        failure_stage="judge",
+                        failure_kind="infra_error",
+                        infrastructure_error=True,
+                    )
+            compact = compact_query(row)
+            if query.query_id in positions:
+                rows[positions[query.query_id]] = compact
+            else:
+                rows.append(compact)
+            # Publish each score; a later judge failure cannot erase frozen answers.
+            write_json(folder / "queries/result.json", {"queries": rows}, compact_leaf_containers=True)
+            if row.get("error") is not None:
+                write_json(folder / "queries" / query.query_id / "failure.json", compact, compact_leaf_containers=True)
+                if spec.fail_fast:
+                    raise RuntimeError(f"Query {case.case_id}/{query.query_id} failed: {row['error']}")

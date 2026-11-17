@@ -32,13 +32,18 @@ class CronJob(BackgroundJob):
         from croniter import croniter
 
         nxt = croniter(self.cron_expr, now).get_next(datetime.datetime)
-        return max(0.0, (nxt - now).total_seconds())
+        # croniter may reset fold on naive local times, so retain their wall-clock arithmetic.
+        delay = nxt.timestamp() - now.timestamp() if tz_name else (nxt - now).total_seconds()
+        return max(0.0, delay)
 
     async def _execute_steps(self) -> Response:
-        context = RuntimeContext(**self.kwargs)
-        for step in self._build_steps():
-            await step(context)
-        return context.response
+        context = RuntimeContext(stop_event=self._stop_event, **self.kwargs)
+        with self._execution(context):
+            return await self._run_steps(context)
+
+    async def _run_once(self) -> None:
+        # The scheduler waits between executions; only individual triggers are recorded.
+        await self()
 
     async def __call__(self, **kwargs) -> Response:
         self.check_enabled()
@@ -48,7 +53,6 @@ class CronJob(BackgroundJob):
             if self._stop_event.is_set():
                 break
             try:
-                self._record_call()
                 await self._execute_steps()
             except Exception as exc:
                 self.logger.exception(f"Cron job '{self.name}' failed: {exc}")

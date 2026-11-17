@@ -19,6 +19,7 @@ from reme_home.auto_bash import AutoBash, AutoBashStep
 from reme.utils.local_backend import LocalProcessBackend
 
 from reme.utils.file_sandbox.path_bubble_backend import PathBubbleBackend
+from reme.utils.file_sandbox.path_seatbelt_backend import PathSeatbeltBackend
 from reme.components.application_context import ApplicationContext
 from reme.config.config_parser import _load_config
 from reme.enumeration import ComponentEnum
@@ -32,10 +33,43 @@ def linux_backend_selection(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def sandbox_process_boundary(monkeypatch):
+    """Use real local pipes for command tests; policy tests inspect the selected sandbox."""
+
+    async def local_exec(_self, command, *, cwd=None, timeout=None):
+        return await LocalProcessBackend().exec_shell(command, cwd=cwd, timeout=timeout)
+
+    monkeypatch.setattr(PathBubbleBackend, "exec_shell", local_exec)
+
+
+@pytest.fixture(autouse=True)
 def isolated_git_config(tmp_path, monkeypatch):
     """Keep Git tests independent of the developer's global and system config."""
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "global.gitconfig"))
     monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("platform", ["linux", "darwin"])
+async def test_direct_auto_bash_defaults_to_read_only_sandbox(tmp_path, monkeypatch, platform):
+    """Direct tool construction has the same default grants as the job."""
+    monkeypatch.setattr("reme.utils.file_sandbox.sys.platform", platform)
+    tool = AutoBash(cwd=tmp_path, is_read_only=False)
+    backend = tool._backend  # pylint: disable=protected-access
+    if platform == "linux":
+        assert isinstance(backend, PathBubbleBackend)
+        argv = backend._bwrap_argv(["/bin/sh", "-c", "echo ok"], str(tmp_path))  # pylint: disable=protected-access
+        assert argv[argv.index(str(tmp_path)) - 1] == "--ro-bind"
+        assert "--bind" not in argv
+    else:
+        assert isinstance(backend, PathSeatbeltBackend)
+        profile = backend._profile(str(tmp_path / "temporary"))  # pylint: disable=protected-access
+        assert f'(allow file-read* (subpath "{tmp_path}"))' in profile
+        assert f'(allow file-write* (subpath "{tmp_path}"))' not in profile
+
+    monkeypatch.setattr("reme.utils.file_sandbox.sys.platform", "unsupported")
+    with pytest.raises(RuntimeError, match="No file sandbox backend"):
+        AutoBash(cwd=tmp_path, is_read_only=False)
 
 
 @pytest.mark.asyncio
@@ -212,8 +246,12 @@ async def test_step_returns_permission_error(tmp_path):
 
 @pytest.mark.asyncio
 async def test_step_can_run_unrestricted_commands(tmp_path):
-    """Job input can disable the guard for commands that write files."""
-    step = AutoBashStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
+    """Trusted Step grants allow writes when command validation is disabled."""
+    step = AutoBashStep(
+        app_context=ApplicationContext(workspace_dir=str(tmp_path)),
+        read_only_paths=[],
+        writable_paths=[str(tmp_path)],
+    )
 
     response = await step(command="echo hello > written.txt", is_read_only=False)
 
@@ -222,34 +260,66 @@ async def test_step_can_run_unrestricted_commands(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_unsupported_platform_runs_without_paths_but_rejects_path_policy(tmp_path, monkeypatch):
-    """AutoBash never drops an explicitly requested sandbox on unsupported systems."""
+async def test_unsupported_platform_never_runs_on_host(tmp_path, monkeypatch):
+    """AutoBash requires isolation even without an explicit path policy."""
     monkeypatch.setattr("reme.utils.file_sandbox.sys.platform", "unsupported")
     step = AutoBashStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
 
-    plain = await step(command="echo host", is_read_only=False)
-    assert plain.success is True
-    assert plain.answer.strip() == "host"
-
-    restricted = await step(command="echo blocked", is_read_only=False, read_only_paths=[])
-    assert restricted.success is False
-    assert restricted.answer == "No file sandbox backend for unsupported"
+    result = await step(command="touch host-marker", is_read_only=False)
+    assert result.success is False
+    assert result.answer == "No file sandbox backend for unsupported"
+    assert not (tmp_path / "host-marker").exists()
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("limit", [0, 1, -1])
-async def test_step_rejects_memory_limit_without_path_policy(tmp_path, limit):
-    """An explicitly supplied limit cannot be ignored by host execution."""
+@pytest.mark.parametrize("limit", [None, 0, 1, -1])
+@pytest.mark.parametrize("is_read_only", [False, True])
+async def test_step_defaults_to_read_only_workspace(tmp_path, monkeypatch, limit, is_read_only):
+    """Sandbox grants and limits apply independently of command validation."""
+    seen = []
+
+    async def inspect_exec(backend, command, *, cwd=None, timeout=None):
+        assert timeout == 60
+        seen.append(backend._bwrap_argv(command, cwd))  # pylint: disable=protected-access
+        assert backend._memory_limit_mib == (4096 if limit is None else limit)  # pylint: disable=protected-access
+        return ExecResult(exit_code=0, stdout=b"ok", stderr=b"")
+
+    monkeypatch.setattr(PathBubbleBackend, "exec_shell", inspect_exec)
     step = AutoBashStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
-    response = await step(command="echo should-not-run", is_read_only=False, memory_limit_mib=limit)
+    response = await step(command="echo ok", is_read_only=is_read_only, memory_limit_mib=limit)
+    if limit == -1:
+        assert response.success is False
+        assert response.answer == "memory_limit_mib must be a non-negative integer"
+        assert not seen
+    else:
+        assert response.success is True
+        argv = seen[0]
+        mount = argv.index(str(tmp_path))
+        assert argv[mount - 1] == "--ro-bind"
+        assert "--bind" not in argv
+        assert "--clearenv" in argv
+        assert "--unshare-all" in argv
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", ["read_only_paths", "writable_paths"])
+@pytest.mark.parametrize("value", [None, [], ["/"]])
+async def test_step_rejects_request_path_grants(tmp_path, name, value):
+    """Request payloads cannot widen or replace trusted sandbox grants."""
+    step = AutoBashStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
+    response = await step(command="echo blocked", **{name: value})
     assert response.success is False
-    assert response.answer == "memory_limit_mib requires read_only_paths or writable_paths to enable the sandbox"
+    assert response.answer == f"{name} must be configured on the Step, not supplied by the caller"
 
 
 @pytest.mark.asyncio
 async def test_step_configuration_can_disable_read_only(tmp_path):
     """Step configuration applies when the job does not supply the flag."""
-    step = AutoBashStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)), is_read_only=False)
+    step = AutoBashStep(
+        app_context=ApplicationContext(workspace_dir=str(tmp_path)),
+        is_read_only=False,
+        writable_paths=[str(tmp_path)],
+    )
 
     response = await step(command="touch written.txt")
 
@@ -341,14 +411,20 @@ async def test_auto_bash_uses_path_backend_when_paths_supplied(tmp_path, monkeyp
         return ExecResult(exit_code=0, stdout=b"ok", stderr=b"")
 
     monkeypatch.setattr(PathBubbleBackend, "exec_shell", fake_exec)
-    step = AutoBashStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
-    response = await step(command="printf ok", is_read_only=False, read_only_paths=[], writable_paths=[str(tmp_path)])
+    step = AutoBashStep(
+        app_context=ApplicationContext(workspace_dir=str(tmp_path)),
+        read_only_paths=[],
+        writable_paths=[str(tmp_path)],
+    )
+    response = await step(command="printf ok", is_read_only=False)
 
     assert response.success is True
     assert response.answer == "ok"
     assert seen["command"] == ["/bin/sh", "-c", "printf ok"]
     assert seen["cwd"] == str(tmp_path)
     assert seen["timeout"] == 60
+    argv = seen["backend"]._bwrap_argv(seen["command"], seen["cwd"])  # pylint: disable=protected-access
+    assert argv[argv.index(str(tmp_path)) - 1] == "--bind"
 
 
 @pytest.mark.asyncio
@@ -358,12 +434,13 @@ async def test_sandbox_start_failure_does_not_run_on_host(tmp_path, monkeypatch)
     async def unavailable(*_args, **_kwargs):
         raise RuntimeError("bwrap unavailable")
 
-    monkeypatch.setattr(PathBubbleBackend, "_start_process", unavailable)
+    monkeypatch.setattr(PathBubbleBackend, "exec_shell", unavailable)
     step = AutoBashStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
-    result = await step(command="printf host", is_read_only=False, read_only_paths=[])
+    result = await step(command="touch host-marker", is_read_only=False)
 
     assert result.success is False
     assert "bwrap unavailable" in result.answer
+    assert not (tmp_path / "host-marker").exists()
 
 
 def test_home_manifest_declares_step_and_job():
@@ -377,8 +454,8 @@ def test_home_manifest_declares_step_and_job():
     assert AutoBash.input_schema["properties"]["timeout"]["default"] == 60000
     assert job["parameters"]["properties"]["timeout"]["default"] == 60000
     assert job["parameters"]["properties"]["is_read_only"]["default"] is True
-    assert job["parameters"]["properties"]["read_only_paths"]["type"] == "array"
-    assert job["parameters"]["properties"]["writable_paths"]["type"] == "array"
+    assert "read_only_paths" not in job["parameters"]["properties"]
+    assert "writable_paths" not in job["parameters"]["properties"]
     assert job["parameters"]["properties"]["memory_limit_mib"]["minimum"] == 0
 
 
