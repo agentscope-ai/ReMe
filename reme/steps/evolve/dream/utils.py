@@ -210,37 +210,98 @@ def previous_dates(day: str, n_days: int) -> list[str]:
 
 def parse_structured_reply(text: str, *, strict: bool = False) -> dict:
     """Parse a JSON/YAML object; strict mode rejects lossy fallbacks with diagnostics."""
-    candidates = [text.strip()]
-    candidates.extend(m.group(1).strip() for m in re.finditer(r"```(?:json|ya?ml)?\s*(.*?)```", text, re.S | re.I))
+    # Parse complete documents before envelope recovery so YAML flow mappings and
+    # literal reasoning tags in string values retain their original structure.
+    candidates = [text]
     error = "expected a JSON/YAML object"
     for raw in candidates:
-        raw = _strip_reasoning_tags(raw).strip()
-        if not raw:
-            continue
-        data = _largest_json_object(raw)
-        if data is not None:
-            return data
         try:
             data = yaml.safe_load(raw)
         except yaml.YAMLError as exc:
             error = f"{type(exc).__name__}: {exc}"
-            if strict:
-                continue
-            data = _parse_scalar_mapping(raw)
-        if isinstance(data, dict) and (data or strict):
+        else:
+            if isinstance(data, dict):
+                return data
+            if isinstance(data, list):
+                if strict:
+                    raise ValueError(f"Invalid structured reply: {error}")
+                return {}
+
+    cleaned = _strip_reasoning_tags(text)
+    candidates = [cleaned]
+    fenced = [m.group(1) for m in re.finditer(r"```(?:json|ya?ml)?\s*(.*?)```", cleaned, re.S | re.I)]
+    candidates.extend(reversed(fenced))
+    # Preserve complete fenced YAML roots before recovering nested JSON spans.
+    # Later fences are answers, not earlier draft examples.
+    for raw in candidates:
+        if not raw:
+            continue
+        try:
+            data = yaml.safe_load(raw)
+        except yaml.YAMLError as exc:
+            error = f"{type(exc).__name__}: {exc}"
+        else:
+            if isinstance(data, dict):
+                return data
+            if isinstance(data, list):
+                if strict:
+                    raise ValueError("Invalid structured reply: expected a JSON/YAML object")
+                return {}
+    for raw in candidates:
+        data = _final_json_object(raw)
+        if data is not None:
             return data
-    if strict:
-        raise ValueError(f"Invalid structured reply: {error}")
-    return {}
+    if not strict:
+        for raw in candidates:
+            data = _parse_scalar_mapping(raw)
+            if data:
+                break
+        return data
+    raise ValueError(f"Invalid structured reply: {error}")
 
 
 def _strip_reasoning_tags(raw: str) -> str:
-    """Remove paired or orphan reasoning markers without depending on their attributes."""
-    return re.sub(r"<\s*/?\s*(?:think|thought)\b[^>]*>", "", raw, flags=re.I)
+    """Drop paired reasoning contents; preserve quoted payloads and orphan answers."""
+    # Fences and JSON strings are opaque to the envelope scanner. Attributes
+    # may themselves be quoted; a fence inside a reasoning block is still removed.
+    tokens = re.finditer(r'```.*?```|"(?:\\.|[^"\\])*"|<\s*(/?)\s*(think|thought)\b[^>]*>', raw, re.I | re.S)
+    removed: list[tuple[int, int]] = []
+    opened: list[tuple[str, int, int]] = []
+    for token in tokens:
+        if token.group(1) is None:
+            continue
+        if not token.group(1):
+            opened.append((token.group(2).lower(), token.start(), token.end()))
+        elif opened and opened[-1][0] == token.group(2).lower():
+            _, start, _ = opened.pop()
+            removed.append((start, token.end()))
+        else:
+            # A lone closing marker separates a reasoning prefix from its answer.
+            removed.append((0, token.end()))
+        if token.group(1) and not opened:
+            # Once an envelope ends, preserve a complete YAML/JSON answer,
+            # including unquoted or block-scalar examples of reasoning tags.
+            try:
+                answer = yaml.safe_load(raw[token.end() :])
+            except yaml.YAMLError:
+                pass
+            else:
+                if isinstance(answer, (dict, list)):
+                    break
+    # Some providers omit the closing marker but still append the final answer.
+    removed.extend((start, end) for _, start, end in opened)
+    result = []
+    cursor = 0
+    for start, end in sorted(removed):
+        if start >= cursor:
+            result.append(raw[cursor:start])
+        cursor = max(cursor, end)
+    result.append(raw[cursor:])
+    return "".join(result)
 
 
-def _largest_json_object(raw: str) -> dict | None:
-    """Return the largest valid JSON object enclosed in balanced braces/brackets."""
+def _final_json_object(raw: str) -> dict | None:
+    """Return the final top-level JSON object outside reasoning envelopes."""
     spans: list[tuple[int, int, str]] = []
     stack: list[tuple[str, int]] = []
     opening_for = {"}": "{", "]": "["}
@@ -286,8 +347,8 @@ def _largest_json_object(raw: str) -> dict | None:
             for outer in decoded_spans
         )
     ]
-    objects = [candidate for candidate in top_level if isinstance(candidate[2], dict)]
-    return max(objects, key=lambda item: item[1] - item[0])[2] if objects else None
+    final = max(top_level, key=lambda item: item[1])[2] if top_level else None
+    return final if isinstance(final, dict) else None
 
 
 def _parse_scalar_mapping(raw: str) -> dict:
