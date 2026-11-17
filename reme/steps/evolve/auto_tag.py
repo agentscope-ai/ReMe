@@ -16,6 +16,9 @@ from ...components import R
 from ...constants import DEFAULT_MAX_MEMORY_TAG_LENGTH, DEFAULT_MAX_MEMORY_TAGS
 
 _SUPPORTED_CHANGES = {"added", "modified"}
+# Scripts that are written without spaces between words. Their characters become
+# separate evidence tokens so a name can still be found inside a sentence.
+_CJK_CHAR = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 
 
 @dataclass(frozen=True)
@@ -129,14 +132,34 @@ class AutoTagStep(BaseStep):
 
     @staticmethod
     def _evidence_key(text: str) -> str:
-        """Casefold text into space-separated alphanumeric tokens.
+        """Casefold text into space-separated tokens.
 
         Separators become single spaces so that a check cannot run across a word
         boundary: ``openai`` must not be found inside ``open air``. Underscores
         and spaces are treated as equivalent because tag normalization turns
         spaces into underscores.
+
+        Scripts written without spaces have no word boundaries to anchor on, so
+        every CJK character becomes its own token. ``宁德时代`` then matches inside
+        ``宁德时代发布新产品`` while a Latin name still needs a boundary.
         """
-        return " ".join(re.findall(r"[^\W_]+", text.casefold().replace("_", " ")))
+        tokens: list[str] = []
+        for run in re.findall(r"[^\W_]+", text.casefold().replace("_", " ")):
+            if not _CJK_CHAR.search(run):
+                tokens.append(run)
+                continue
+            buffer: list[str] = []
+            for char in run:
+                if _CJK_CHAR.match(char):
+                    if buffer:
+                        tokens.append("".join(buffer))
+                        buffer = []
+                    tokens.append(char)
+                else:
+                    buffer.append(char)
+            if buffer:
+                tokens.append("".join(buffer))
+        return " ".join(tokens)
 
     @staticmethod
     def _contains_key(haystack: str, needle: str) -> bool:
@@ -233,6 +256,12 @@ class AutoTagStep(BaseStep):
         )
         if str(content.get("entity_type") or "").strip().lower() == "none":
             return []
+        if not normalized:
+            # The model named an entity but every tag it returned was filtered
+            # out. Treating that as an empty result would clear the tags already
+            # stored on the file, so fail the target and keep the frontmatter.
+            self.logger.warning(f"[{self.name}] rejected tag response without usable tags path={target.path}")
+            raise RuntimeError(f"Auto-tag response for {target.path} has no usable tag")
         evidence = str(content.get("evidence") or "").strip()
         body_without_headings = "\n".join(
             line for line in post.content.splitlines() if not line.lstrip().startswith("#")
