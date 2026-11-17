@@ -27,12 +27,18 @@ class LiveTurn:
             chunk.chunk_type == ChunkEnum.THINK and chunk.metadata.get("kind") not in {"reasoning_summary", "plan"}
         ):
             return
-        self.version += 1
         key = (
             chunk.chunk_type,
-            chunk.block_id or chunk.tool_call_id or chunk.message_id,
+            chunk.tool_call_id or chunk.block_id or chunk.message_id,
         )
         previous = self.blocks.get(key)
+        completed_tool = self.blocks.get((ChunkEnum.TOOL_RESULT, key[1]))
+        terminal = previous
+        if chunk.chunk_type == ChunkEnum.TOOL_CALL and completed_tool is not None:
+            terminal = completed_tool
+        if chunk.event != "end" and (self.completed or (terminal is not None and terminal.event == "end")):
+            return
+        self.version += 1
         value = chunk.model_copy(deep=True)
         if previous is not None:
             value.metadata = {**previous.metadata, **value.metadata}

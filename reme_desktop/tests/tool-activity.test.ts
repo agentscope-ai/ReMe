@@ -68,6 +68,79 @@ test("output deltas retain action targets and completed snapshots replace their 
   );
 });
 
+test("native command history restores the same input and output as live execution", () => {
+  for (const aggregatedOutput of ["Complete output", null, ""]) {
+    const final = {
+      chunk_type: "tool_result",
+      tool_call_id: "call",
+      tool_call_name: "commandExecution",
+      event: "end",
+      status: "completed",
+      chunk: { ...command, aggregatedOutput },
+    } as const;
+    const history = readReply([final]);
+    const live = readReply([
+      {
+        ...final,
+        chunk_type: "tool_call",
+        event: "start",
+        status: "running",
+        chunk: command,
+      },
+      {
+        chunk_type: "tool_result",
+        tool_call_id: "call",
+        event: "delta",
+        chunk: "Partial output",
+      },
+      final,
+    ]);
+    assert.deepEqual(history, live);
+    const tool = history.items[0];
+    assert.equal(tool.type, "tool");
+    if (tool.type !== "tool") return;
+    assert.equal(tool.input, command.command);
+    assert.equal(tool.output, aggregatedOutput ?? "");
+  }
+});
+
+test("native tool snapshots expose arguments and patches without their transport envelope", () => {
+  const read = readReply([
+    {
+      chunk_type: "tool_result",
+      tool_call_id: "read",
+      tool_call_name: "read_file",
+      event: "end",
+      chunk: {
+        type: "mcpToolCall",
+        arguments: { path: "note.md" },
+        result: null,
+        error: null,
+      },
+    },
+  ]).items[0];
+  assert.equal(read.type, "tool");
+  if (read.type !== "tool") return;
+  assert.equal(read.input, JSON.stringify({ path: "note.md" }, null, 2));
+  assert.equal(read.output, "");
+  const edit = readReply([
+    {
+      chunk_type: "tool_result",
+      tool_call_id: "edit",
+      tool_call_name: "fileChange",
+      event: "end",
+      chunk: {
+        type: "fileChange",
+        changes: [{ path: "note.md", diff: "+ Updated" }],
+      },
+    },
+  ]).items[0];
+  assert.equal(edit.type, "tool");
+  if (edit.type !== "tool") return;
+  assert.equal(edit.input, "note.md\n+ Updated");
+  assert.equal(edit.output, "");
+});
+
 test("named tools normalize image views and structured arguments without guessing shell semantics", () => {
   assert.deepEqual(
     toolActions("functions.view_image", { path: "resource/chart.png" }),

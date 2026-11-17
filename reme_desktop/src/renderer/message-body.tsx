@@ -1,13 +1,14 @@
 import { memo } from "react";
 import { LoaderCircle, Paperclip } from "lucide-react";
 import type { Language } from "../shared/i18n.ts";
+import { translator } from "../shared/i18n.ts";
 import type {
   DisplayMessage,
   SummaryItem,
   TranscriptItem,
 } from "../shared/protocol.ts";
 import { previewContent, replyText } from "../shared/surface.ts";
-import { Activity, Completion } from "./activity.tsx";
+import { Activity } from "./activity.tsx";
 import type { ProcessItem } from "./activity.tsx";
 import MarkdownText from "./markdown.tsx";
 
@@ -67,7 +68,6 @@ export default memo(function MessageBody({
               <Activity
                 key={item.id}
                 items={item.items}
-                streaming={message.streaming && item === entries.at(-1)}
                 language={language}
                 onLink={onLink}
               />
@@ -111,15 +111,9 @@ export default memo(function MessageBody({
         </div>
       ) : null}
       {complete && (
-        <Completion
-          items={items.filter(
-            (item): item is ProcessItem =>
-              item.type === "tool" ||
-              (item.type === "summary" && item.kind === "reasoning"),
-          )}
-          language={language}
-          onLink={onLink}
-        />
+        <div className="turn-completion">
+          {translator(language)("completed")}
+        </div>
       )}
       {!complete &&
         message.status &&

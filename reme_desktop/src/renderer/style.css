@@ -631,7 +631,6 @@ button {
   font-size: 13px;
 }
 .activity-group > summary,
-.turn-completion > summary,
 .reasoning-details > summary {
   display: flex;
   align-items: center;
@@ -641,7 +640,6 @@ button {
   width: fit-content;
 }
 .activity-group > summary::-webkit-details-marker,
-.turn-completion > summary::-webkit-details-marker,
 .reasoning-details > summary::-webkit-details-marker {
   display: none;
 }
@@ -680,7 +678,9 @@ details[open] > summary > .activity-chevron {
 }
 .action-label {
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .action-target {
   display: inline;
@@ -706,6 +706,12 @@ button.action-target:hover {
   display: flex;
   justify-content: space-between;
   gap: 16px;
+}
+.tool-detail h4 {
+  margin: 12px 0 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
 }
 .tool-detail[data-status="failed"],
 .tool-detail[data-status="interrupted"] {

@@ -49,6 +49,15 @@ export function reduceReply(
     chunk.chunk_type;
   const index = next.items.findIndex((item) => item.id === id);
   const current = next.items[index];
+  if (
+    current &&
+    settled(current.status) &&
+    chunk.event !== "end" &&
+    ["content", "think", "tool_call", "tool_result", "data"].includes(
+      chunk.chunk_type,
+    )
+  )
+    return previous;
   const status =
     chunk.status ?? (chunk.event === "end" ? "completed" : "running");
   let item: TranscriptItem | undefined;
@@ -110,12 +119,24 @@ export function reduceReply(
       Boolean(payload.error) ||
       (typeof (payload.exitCode ?? payload.exit_code) === "number" &&
         (payload.exitCode ?? payload.exit_code) !== 0);
-    const content = result
-      ? (payload.aggregatedOutput ??
-        payload.result ??
-        payload.content ??
-        chunk.chunk)
-      : (payload.arguments ?? payload.input ?? payload.command ?? chunk.chunk);
+    const input =
+      payload.type === "fileChange" && Array.isArray(payload.changes)
+        ? payload.changes
+            .map((change) => {
+              const { path, diff } = record(change);
+              return [path, diff]
+                .filter((value) => typeof value === "string")
+                .join("\n");
+            })
+            .join("\n\n")
+        : (payload.arguments ?? payload.input ?? payload.command);
+    const output =
+      payload.type === "commandExecution" || payload.type === "fileChange"
+        ? (payload.aggregatedOutput ?? payload.error ?? "")
+        : payload.type === "mcpToolCall"
+          ? (payload.error ?? payload.result ?? "")
+          : (payload.result ?? payload.content ?? chunk.chunk);
+    const content = result ? output : (input ?? chunk.chunk);
     const field = result ? "output" : "input";
     const name =
       chunk.tool_call_name ??
@@ -127,6 +148,7 @@ export function reduceReply(
     item = {
       ...tool,
       name,
+      ...(input !== undefined ? { input: printable(input) } : {}),
       actions:
         (!result && chunk.event !== "delta") ||
         !tool.actions.length ||

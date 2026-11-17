@@ -120,6 +120,41 @@ test("snapshots are idempotent and preserve phases and only public summaries", (
   assert.equal(JSON.stringify(reply).includes("private chain"), false);
 });
 
+test("late deltas and starts cannot overwrite completed text or tool output", () => {
+  const reply = readReply([
+    text("answer", "Final", "end"),
+    {
+      chunk_type: "tool_result",
+      tool_call_id: "call",
+      tool_call_name: "commandExecution",
+      event: "end",
+      status: "completed",
+      chunk: {
+        type: "commandExecution",
+        command: "pwd",
+        aggregatedOutput: "/workspace",
+      },
+    },
+  ]);
+  for (const event of ["start", "delta"] as const) {
+    assert.deepEqual(reduceReply(reply, text("answer", "Stale", event)), reply);
+    assert.deepEqual(
+      reduceReply(reply, {
+        chunk_type: "tool_result",
+        tool_call_id: "call",
+        event,
+        status: "running",
+        chunk: "Stale output",
+      }),
+      reply,
+    );
+  }
+  assert.equal(
+    reduceReply(reply, text("answer", "Corrected", "end")).text,
+    "Corrected",
+  );
+});
+
 test("tool errors are distinct from the turn outcome and unresolved tools never become successful", () => {
   const reply = readReply([
     {

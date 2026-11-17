@@ -186,6 +186,52 @@ def test_live_media_type_survives_a_null_block_end():
     assert image["chunk"] == "aGVsbG8="
 
 
+@pytest.mark.parametrize("event", ["start", "delta"])
+@pytest.mark.parametrize("chunk_type", ["content", "tool_result"])
+def test_completed_live_blocks_ignore_late_starts_and_deltas(event, chunk_type):
+    turn = LiveTurn("session", "Check")
+    chunk = StreamChunk(
+        turn_id="turn",
+        block_id="block",
+        tool_call_id="call" if chunk_type == "tool_result" else None,
+        chunk_type=chunk_type,
+        chunk="Final",
+        event="end",
+        status="completed",
+    )
+    turn.update(chunk)
+    before = turn.messages()
+    turn.update(chunk.model_copy(update={"chunk": "Stale", "event": event, "status": "running"}))
+    assert turn.messages() == before
+
+
+def test_tool_call_identity_wins_over_event_specific_block_ids():
+    turn = LiveTurn("session", "Check")
+    turn.update(
+        StreamChunk(
+            turn_id="turn",
+            block_id="output",
+            tool_call_id="call",
+            chunk_type="tool_result",
+            chunk="Final output",
+            event="end",
+        ),
+    )
+    before = turn.messages()
+    for chunk_type in ("tool_call", "tool_result"):
+        turn.update(
+            StreamChunk(
+                turn_id="turn",
+                block_id="call",
+                tool_call_id="call",
+                chunk_type=chunk_type,
+                chunk="Late",
+                event="start",
+            ),
+        )
+    assert turn.messages() == before
+
+
 def test_native_handoff_waits_for_tool_results_even_if_the_call_id_is_present():
     live = LiveTurns()
     with live.observe("chat", "session", "Check") as publish:

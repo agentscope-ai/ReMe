@@ -188,33 +188,27 @@ const ExecutionDetails = memo(function ExecutionDetails({
   const t = translator(language);
   return (
     <div className="activity-details">
-      {items
-        .filter((item): item is ToolItem => item.type === "tool")
-        .map((tool) => (
+      {items.map((item) =>
+        item.type === "tool" ? (
           <ToolDetail
-            key={tool.id}
-            tool={tool}
+            key={item.id}
+            tool={item}
             language={language}
             onLink={onLink}
           />
-        ))}
-      {items.some((item) => item.type === "summary") && (
-        <details className="reasoning-details">
-          <summary>
-            {t("activityReasoning")}
-            <ChevronRight size={13} className="activity-chevron" />
-          </summary>
-          {items
-            .filter((item): item is SummaryItem => item.type === "summary")
-            .map((item) => (
-              <MarkdownText
-                key={item.id}
-                text={item.text}
-                completed={item.status !== "running"}
-                onLink={onLink}
-              />
-            ))}
-        </details>
+        ) : (
+          <details key={item.id} className="reasoning-details">
+            <summary>
+              {t("activityReasoning")}
+              <ChevronRight size={13} className="activity-chevron" />
+            </summary>
+            <MarkdownText
+              text={item.text}
+              completed={item.status !== "running"}
+              onLink={onLink}
+            />
+          </details>
+        ),
       )}
     </div>
   );
@@ -256,11 +250,21 @@ const ToolDetail = memo(function ToolDetail({
       {expanded && (
         <div>
           <header>
-            <code>{tool.name}</code>
+            <span>{t("executionDetails")}</span>
             <span>{t(tool.status)}</span>
           </header>
-          {tool.input && <ToolOutput text={tool.input} language={language} />}
-          {tool.output && <ToolOutput text={tool.output} language={language} />}
+          {tool.input && (
+            <section aria-label={t("toolInput")}>
+              <h4>{t("toolInput")}</h4>
+              <ToolOutput text={tool.input} language={language} />
+            </section>
+          )}
+          {tool.output && (
+            <section aria-label={t("toolOutput")}>
+              <h4>{t("toolOutput")}</h4>
+              <ToolOutput text={tool.output} language={language} />
+            </section>
+          )}
         </div>
       )}
       {["failed", "interrupted", "waiting", "unknown"].includes(
@@ -274,19 +278,15 @@ export const Activity = memo(function Activity({
   items,
   language,
   onLink,
-  streaming,
 }: {
   items: ProcessItem[];
   language: Language;
   onLink: (url: string) => void;
-  streaming: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const t = translator(language);
   const tools = items.filter((item): item is ToolItem => item.type === "tool");
-  const running =
-    tools.some((tool) => tool.status === "running") ||
-    (streaming && items.at(-1)?.type === "summary");
+  const running = items.some((item) => item.status === "running");
   const groups = new Map<ToolAction["kind"], boolean>();
   for (const tool of tools)
     for (const action of tool.actions) {
@@ -298,7 +298,7 @@ export const Activity = memo(function Activity({
           : action.kind;
       groups.set(kind, Boolean(groups.get(kind)) || tool.status === "running");
     }
-  if (!tools.length && !running) return null;
+  if (!items.length) return null;
   const Icon = running
     ? LoaderCircle
     : kinds[groups.keys().next().value ?? "tool"].icon;
@@ -310,7 +310,7 @@ export const Activity = memo(function Activity({
     ? [...groups]
         .map(([kind, running]) => t(kinds[kind][running ? "running" : "past"]))
         .join(t("activitySeparator"))
-    : t("thinking");
+    : t(running ? "thinking" : "activityReasoning");
   return (
     <details
       className={`activity-group ${failed ? "activity-failed" : ""}`}
@@ -328,32 +328,3 @@ export const Activity = memo(function Activity({
     </details>
   );
 });
-
-export function Completion({
-  items,
-  language,
-  onLink,
-}: {
-  items: ProcessItem[];
-  language: Language;
-  onLink: (url: string) => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const t = translator(language);
-  return items.length ? (
-    <details
-      className="turn-completion"
-      onToggle={(event) => setExpanded(event.currentTarget.open)}
-    >
-      <summary>
-        {t("completed")}
-        <ChevronRight size={13} className="activity-chevron" />
-      </summary>
-      {expanded && (
-        <ExecutionDetails items={items} language={language} onLink={onLink} />
-      )}
-    </details>
-  ) : (
-    <div className="turn-completion">{t("completed")}</div>
-  );
-}
