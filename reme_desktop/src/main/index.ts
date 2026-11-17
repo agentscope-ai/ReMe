@@ -488,6 +488,9 @@ else {
           case "settings.update":
             return controller!.settings({
               ...(action.theme !== undefined ? { theme: action.theme } : {}),
+              ...(action.transparentBackground !== undefined
+                ? { transparentBackground: action.transparentBackground }
+                : {}),
               ...(action.language !== undefined
                 ? { language: action.language }
                 : {}),

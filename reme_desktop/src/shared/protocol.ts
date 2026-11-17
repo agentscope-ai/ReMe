@@ -215,6 +215,7 @@ export const sleepDurations: readonly number[] = [5, 15, 30, 0];
 export interface Settings {
   language: Language;
   theme: "system" | "light" | "dark";
+  transparentBackground: boolean;
   endpoint: string;
   scale: number;
   activityLevel: (typeof activityLevels)[number];

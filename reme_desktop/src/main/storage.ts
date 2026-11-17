@@ -7,6 +7,7 @@ import { activityLevels, sleepDurations } from "../shared/protocol.ts";
 export const defaultSettings: Settings = {
   language: defaultLanguage,
   theme: "system",
+  transparentBackground: false,
   endpoint: "http://127.0.0.1:2333",
   scale: 1,
   activityLevel: "normal",
@@ -73,6 +74,7 @@ export class Storage {
         settings.theme === "light" || settings.theme === "dark"
           ? settings.theme
           : "system",
+      transparentBackground: settings.transparentBackground === true,
       endpoint: normalizeEndpoint(
         settings.endpoint ?? defaultSettings.endpoint,
       ),

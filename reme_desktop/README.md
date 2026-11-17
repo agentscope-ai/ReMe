@@ -49,6 +49,7 @@ npm run dev
 ```
 
 Desktop defaults to `http://127.0.0.1:2333`; change it in Settings. The backend and Desktop are independent processes.
+The workspace background is opaque by default. Settings → Appearance → Transparent background restores the macOS glass effect immediately and remembers your choice.
 Closing the workspace hides the window; use the character or tray to reopen it. Quit through the tray to stop Desktop.
 
 ## Service contract

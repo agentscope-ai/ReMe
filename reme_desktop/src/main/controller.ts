@@ -1079,6 +1079,11 @@ export class DesktopController {
       !["system", "light", "dark"].includes(update.theme)
     )
       throw new UiError("invalidTheme");
+    if (
+      update.transparentBackground !== undefined &&
+      typeof update.transparentBackground !== "boolean"
+    )
+      throw new UiError("invalidTransparency");
     if (update.language !== undefined && !languages.includes(update.language))
       throw new UiError("invalidLanguage");
     if (

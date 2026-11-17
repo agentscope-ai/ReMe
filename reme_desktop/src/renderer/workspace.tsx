@@ -68,6 +68,7 @@ export default function Workspace(bootstrap: Bootstrap) {
       value={state.activePage}
       onValueChange={(value) => select(value as DesktopPage)}
       className="workspace-shell"
+      data-transparent-background={state.settings.transparentBackground}
     >
       <header
         className="workspace-titlebar"
@@ -98,7 +99,11 @@ export default function Workspace(bootstrap: Bootstrap) {
             Remy<span className="brand-subtitle">ReMe</span>
           </span>
         </div>
-        <Tabs.List className="workspace-tabs" aria-label={t("navigation")}>
+        <Tabs.List
+          className="workspace-tabs"
+          aria-label={t("navigation")}
+          data-page={settingsOpen ? lastPage.current : state.activePage}
+        >
           <Tabs.Trigger value="remy">
             <Sparkles size={15} />
             Remy{state.unread > 0 && <i className="tab-dot" />}

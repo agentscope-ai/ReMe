@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile, mkdtemp, rm } from "node:fs/promises";
+import { readFile, writeFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -12,6 +12,7 @@ import type {
   AgentView,
   SessionMessage,
   StreamChunk,
+  SettingsUpdate,
 } from "../src/shared/protocol.ts";
 
 const agents: AgentView[] = ["chat", "monitor"].map((agent_id) => ({
@@ -49,6 +50,50 @@ const snapshot = (
     },
     messages,
   },
+});
+
+test("background transparency defaults off, persists both choices and rejects invalid updates", async (t) => {
+  const directory = await mkdtemp(path.join(tmpdir(), "reme-appearance-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  await writeFile(
+    path.join(directory, "settings.json"),
+    JSON.stringify({ language: "en", theme: "dark" }),
+  );
+  const storage = new Storage(directory);
+  assert.equal(storage.settings.transparentBackground, false);
+  await storage.load();
+  assert.equal(storage.settings.transparentBackground, false);
+  const manifest = JSON.parse(
+    await readFile(
+      new URL("../assets/remy/manifest.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  const controller = new DesktopController(storage, () => {}, manifest);
+  t.after(() => controller.close());
+  for (const transparentBackground of [true, false]) {
+    await controller.settings({ transparentBackground });
+    assert.equal(
+      controller.state.settings.transparentBackground,
+      transparentBackground,
+    );
+    const restored = new Storage(directory);
+    await restored.load();
+    assert.equal(
+      restored.settings.transparentBackground,
+      transparentBackground,
+    );
+    assert.equal(restored.settings.theme, "dark");
+    assert.equal(restored.settings.language, "en");
+  }
+  await assert.rejects(
+    controller.settings({
+      transparentBackground: "true",
+    } as unknown as SettingsUpdate),
+    (error: unknown) =>
+      error instanceof UiError && error.key === "invalidTransparency",
+  );
+  assert.equal(controller.state.settings.transparentBackground, false);
 });
 
 test("authoritative subscriptions reconcile replies and endpoint changes respect child turns", async (t) => {

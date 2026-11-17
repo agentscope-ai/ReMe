@@ -167,6 +167,11 @@ export const messages = {
     "Choose how Remy shares new discoveries.",
   ],
   theme: ["显示模式", "Theme"],
+  transparentBackground: ["背景透明", "Transparent background"],
+  transparentBackgroundHint: [
+    "让窗口背景透出桌面，默认关闭。",
+    "Let the desktop show through the window. Off by default.",
+  ],
   systemTheme: ["跟随系统", "System"],
   lightTheme: ["浅色", "Light"],
   darkTheme: ["深色", "Dark"],
@@ -237,6 +242,10 @@ export const messages = {
     "Invalid document request or path.",
   ],
   invalidTheme: ["无效的显示模式。", "Invalid theme."],
+  invalidTransparency: [
+    "无效的背景透明设置。",
+    "Invalid background transparency setting.",
+  ],
   tagFilterUnavailable: [
     "标签筛选未生效，请检查标签索引后重试。",
     "The tag filter could not be applied. Check the tag index and retry.",
