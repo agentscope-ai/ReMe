@@ -50,7 +50,11 @@ class InboxChatStep(BaseChatAgentStep):
                 return self.context.response
         async with runtime.notifications.turn(session_id, request.priority, request.msg_ids) as turn:
             reply = await runtime.agent_wrapper.reply(
-                self.prompt_format("hint", urgent=request.priority == "P0"),
+                self.prompt_format(
+                    "hint",
+                    urgent=request.priority == "P0",
+                    sleep_reminder_rule=self.get_prompt("sleep_reminder_rule"),
+                ),
                 **{
                     **options,
                     **self.web_options(False),

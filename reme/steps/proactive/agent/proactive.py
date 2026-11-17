@@ -1,4 +1,4 @@
-"""Consume one event batch through a resumed agent and durable completion receipt."""
+"""Consume one event batch in a fresh session and persist a durable completion receipt."""
 
 import asyncio
 from datetime import timedelta
@@ -53,8 +53,10 @@ class ProactiveAgentStep(BaseAgentStep):
 
     def _options(self, agent):
         """Scheduled tasks have web access; event monitoring stays offline."""
+        options = self.web_options(agent.trigger_type == "cron")
+        options["config"]["skills.include_instructions"] = False
         return {
-            **self.web_options(agent.trigger_type == "cron"),
+            **options,
             "injected_job_kwargs": {"_agent_id": agent.agent_id},
             "sandbox": "workspace-write",
             "approval_mode": "deny_all",
@@ -69,6 +71,7 @@ class ProactiveAgentStep(BaseAgentStep):
             agent_id=agent.agent_id,
             app_timezone=self.app_context.app_config.timezone or str(now.tzinfo),
             reminder_policy=self.get_prompt("reminder_policy"),
+            sleep_reminder_rule=self.get_prompt("sleep_reminder_rule"),
             event=agent.trigger_type == "event",
             cron=agent.trigger_type == "cron",
         )
@@ -76,6 +79,7 @@ class ProactiveAgentStep(BaseAgentStep):
 
     def _query(self, agent, events, paths, now):
         cron = agent.trigger_type == "cron"
+        same_day = paths["summary_path"].exists()
         files = self.agent_runtime.files
         inputs = []
         for number, event in enumerate(events, 1):
@@ -98,6 +102,8 @@ class ProactiveAgentStep(BaseAgentStep):
             input_content="\n\n".join(inputs),
             event=not cron,
             cron=cron,
+            new_day=not same_day,
+            same_day=same_day,
         )
 
     def _read_artifacts(self, reply, paths, summary_mtime):
@@ -132,7 +138,8 @@ class ProactiveAgentStep(BaseAgentStep):
         if set(arguments) != {"agent_id"}:
             raise ValueError("proactive_agent_step requires only agent_id")
         self.require_paths(self.workspace_path)
-        self.context.response.answer = await self.agent_runtime.run(arguments["agent_id"], self._execute)
+        async with asyncio.timeout(self.timeout_seconds):
+            self.context.response.answer = await self.agent_runtime.run(arguments["agent_id"], self._execute)
         return self.context.response
 
     async def _execute(self, agent, events):
@@ -149,6 +156,7 @@ class ProactiveAgentStep(BaseAgentStep):
             runtime.agent_wrapper,
             options,
             now,
+            new=True,
         )
         query = self._query(agent, events, paths, now)
 
@@ -156,17 +164,16 @@ class ProactiveAgentStep(BaseAgentStep):
             publish(chunk)
 
         with runtime.live_turns.observe(agent.agent_id, session_id, query) as publish:
-            async with asyncio.timeout(self.timeout_seconds):
-                reply = await collect_reply(
-                    runtime.agent_wrapper.reply_stream(
-                        query,
-                        resume=session_id,
-                        activity_source="proactive",
-                        activity_task_id=agent.agent_id,
-                        **options,
-                    ),
-                    on_chunk=observe,
-                )
+            reply = await collect_reply(
+                runtime.agent_wrapper.reply_stream(
+                    query,
+                    resume=session_id,
+                    activity_source="proactive",
+                    activity_task_id=agent.agent_id,
+                    **options,
+                ),
+                on_chunk=observe,
+            )
         result = await asyncio.to_thread(self._read_artifacts, reply, paths, summary_mtime)
         return result, reply["session_id"]
 

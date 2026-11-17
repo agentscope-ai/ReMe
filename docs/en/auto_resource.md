@@ -94,8 +94,13 @@ Cancellation waits for synchronous capture cleanup. macOS requires Screen Record
 headless or unavailable displays fail the round. Collection does not call an LLM; the receiving Proactive Agent interprets
 the event separately.
 
-Screenshots compare all display images and monitor layouts with the latest saved group. An unchanged group produces
-no resource package or event; a changed group retains every display for context. Work observations use the same rule.
+Screenshots compare each display with the latest saved group, measuring similarity as the fraction of pixels with
+identical RGB values. A screenshot package and event are skipped when layouts and image sizes match and every display
+has more than 99% identical pixels. Otherwise, every display is retained for context. Exactly 99% is retained;
+skipped captures do not update the comparison baseline. The Step parameter is `screenshot_similarity_threshold` for work
+observations and `similarity_threshold` for standalone capture, both defaulting to `0.99`. Set it to `1` to skip only
+identical images. Local changes affecting less than 1% of pixels, including small text changes, may be filtered.
+Filtering screenshots does not prevent delivery of new Codex dialogue.
 Codex dialogue resumes from saved offsets and deduplicates session/message IDs across batches and restarts. An idle
 scan writes no new progress record; tool-only changes still advance offsets without producing dialogue events.
 
@@ -103,13 +108,13 @@ scan writes no new progress record; tool-only changes still advance offsets with
 
 `config=proactive` enables three collection jobs: `finance_news_cron` fetches new CLS news every five minutes, and
 `stock_quotes_cron` collects Xiaomi (01810.HK), Alibaba (09988.HK), Tencent (00700.HK), Apple (AAPL), Amazon (AMZN)
-and Meta (META) every minute during their market sessions. Install `reme-ai[finance]` for the trading calendars;
+and Meta (META) every five minutes during their market sessions. Install `reme-ai[finance]` for the trading calendars;
 this extra is included in `[core]`. Calendars account for holidays, half-days, lunch breaks and US daylight saving time.
 Quotes may be delayed; records retain quote and collection times. Collection stops at market close. Pending batches
 wait until all markets represented in the batch reopen. Only changed symbols are saved, comparing trading date,
 price and previous close with each symbol's latest saved quote; older quote timestamps are ignored.
 
-`btc_quotes_cron` independently collects BTC/USDT spot statistics every minute, 24/7, from Binance's public
+`btc_quotes_cron` independently collects BTC/USDT spot statistics every five minutes, 24/7, from Binance's public
 [market-data-only API](https://developers.binance.com/en/docs/products/spot/faqs/market_data_only), without an API key.
 BTC uses the rolling 24-hour percentage change, with the statistics window and collection time saved explicitly;
 its USDT prices and percentage basis are distinct from stock quotes. Stock holidays and collection failures do not stop BTC.

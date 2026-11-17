@@ -156,7 +156,10 @@ class WorkObservationStep(_WorkObservationBase):
             screenshot = self._resource_directory("screenshot", now, package_id)
             directories["screenshot"] = screenshot
             try:
-                capture = ScreenCaptureStep(app_context=self.app_context)
+                capture = ScreenCaptureStep(
+                    app_context=self.app_context,
+                    similarity_threshold=self.kwargs.get("screenshot_similarity_threshold", 0.99),
+                )
                 capture.context = self.context
                 entries = capture.collect(screenshot)
                 if not isinstance(entries, list):

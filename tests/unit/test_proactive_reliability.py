@@ -223,21 +223,34 @@ def test_native_memory_updates_use_standard_workspace_permissions(tmp_path):
     assert wrapper._turn_options(arguments)["sandbox"].value == "workspace-write"
 
 
+@pytest.mark.parametrize("phase", ["session_setup", "inference"])
 @pytest.mark.asyncio
-async def test_proactive_timeout_releases_claim_and_preserves_inputs(tmp_path):
+async def test_proactive_timeout_releases_claim_and_preserves_inputs(tmp_path, phase):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
+        runtime.files.write(tmp_path / "daily" / runtime.now().date().isoformat() / "monitor.md", "# Progress\n")
 
         async def never_finish(*_args, **_kwargs):
             yield StreamChunk(chunk_type=ChunkEnum.CONTENT, chunk="Working")
             await asyncio.Event().wait()
 
-        wrapper.reply_stream = never_finish
+        if phase == "session_setup":
+            create_session = wrapper.create_session
+
+            async def delayed_session(**kwargs):
+                await asyncio.sleep(0.05)
+                return await create_session(**kwargs)
+
+            wrapper.create_session = delayed_session
+        else:
+            wrapper.reply_stream = never_finish
         with pytest.raises(TimeoutError):
             await ProactiveAgentStep(app_context=context, timeout_seconds=0.01)(agent_id="monitor")
         snapshot = await runtime.inbox.snapshot("monitor")
         assert snapshot["pending_count"] == 1 and snapshot["in_flight_count"] == 0
         assert not runtime.workers
+        if phase == "session_setup":
+            assert not wrapper.turns
 
 
 @pytest.mark.asyncio

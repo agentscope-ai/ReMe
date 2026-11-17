@@ -236,7 +236,8 @@ async def test_repeated_message_ids_are_skipped_across_appends_and_restarts(tmp_
     async with runtime(tmp_path) as (context, _, _):
         result = await WorkObservationStep(**options(context, home))()
         assert result.answer["dialogue_messages"] == 1
-        assert [item["message_id"] for item in messages(context)] == ["same-id", "new-id"]
+        # Package names contain random suffixes, so directory order is not message order.
+        assert sorted(item["message_id"] for item in messages(context)) == ["new-id", "same-id"]
 
 
 @pytest.mark.asyncio
@@ -262,6 +263,27 @@ async def test_unchanged_screens_and_idle_dialogue_produce_no_events_or_progress
         await WorkObservationStep(**options(context, home))()
         assert progress(context).read_bytes() == advanced
         assert (await inbox.snapshot("work"))["pending_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_filtered_screenshot_keeps_new_dialogue_and_uses_the_configured_threshold(tmp_path, source, monkeypatch):
+    home, path = source
+    thresholds = []
+
+    def filtered_capture(step, _directory):
+        thresholds.append(step.similarity_threshold)
+        return []
+
+    monkeypatch.setattr(ScreenCaptureStep, "collect", filtered_capture)
+    async with runtime(tmp_path) as (context, inbox, delivery):
+        await WorkObservationInitStep(**options(context, home))()
+        append(path, record("UserMessage", "new project progress"))
+        result = await WorkObservationStep(**options(context, home, screenshot_similarity_threshold=0.98))()
+        assert result.success and result.answer["dialogue_messages"] == 1
+        assert thresholds == [0.98]
+        assert [event["source"] for event in delivery.await_args.kwargs["events"]] == ["codex_dialogue"]
+        assert (await inbox.snapshot("work"))["pending_count"] == 1
+        assert not list(workspace(context).glob("resource/screenshot/*/*"))
 
 
 @pytest.mark.asyncio
@@ -776,6 +798,8 @@ def test_config_initializes_on_startup_and_collects_both_sources_every_five_minu
     assert jobs["work_observation_cron"]["cron"] == "*/5 * * * *"
     assert jobs["screen_capture_cron"]["cron"] == "*/5 * * * *"
     assert not jobs["screen_capture_cron"]["enabled"]
+    assert jobs["screen_capture_cron"]["steps"][0]["similarity_threshold"] == 0.99
+    assert jobs["work_observation_cron"]["steps"][0]["screenshot_similarity_threshold"] == 0.99
     for name, cls in (
         ("work_observation_init", WorkObservationInitStep),
         ("work_observation_cron", WorkObservationStep),

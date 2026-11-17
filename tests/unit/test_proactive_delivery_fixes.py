@@ -2,13 +2,17 @@
 
 # pylint: disable=missing-function-docstring,protected-access
 
+import asyncio
+from datetime import timedelta
 from unittest.mock import AsyncMock
 
 import frontmatter
 import pytest
 
-from reme.schema.proactive_agent import ProactiveAgentConfig
-from reme.steps.proactive.agent import ProactiveAgentStep
+from reme.components import RuntimeContext
+from reme.schema import Response
+from reme.schema.proactive_agent import ProactiveAgentConfig, ProactiveRunResult
+from reme.steps.proactive.agent import AgentChatStep, ProactiveAgentStep
 from .test_agent_runtime import completed_result, create_agent, running_runtime
 
 
@@ -35,6 +39,96 @@ async def test_failed_batch_does_not_grow_when_new_observations_arrive(tmp_path)
 def test_event_batch_size_rejects_invalid_values(size):
     with pytest.raises(ValueError):
         ProactiveAgentConfig(name="monitor", trigger_type="event", max_batch_events=size)
+
+
+@pytest.mark.parametrize("trigger_type", ["event", "cron"])
+@pytest.mark.asyncio
+async def test_automatic_rounds_start_fresh_sessions_while_user_followups_resume(tmp_path, monkeypatch, trigger_type):
+    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+        values = {"name": "monitor", "description": "Monitor", "trigger_type": trigger_type}
+        if trigger_type == "cron":
+            values["cron"] = "0 * * * *"
+        await runtime.create(values)
+        summary = tmp_path / "daily" / runtime.now().date().isoformat() / "monitor.md"
+        original_reply = wrapper.reply_stream
+
+        async def reply(query, **kwargs):
+            runtime.files.write(summary, "# Current progress\n")
+            async for chunk in original_reply(query, **kwargs):
+                yield chunk
+
+        monkeypatch.setattr(wrapper, "reply_stream", reply)
+        sessions = []
+        for number in range(2):
+            await runtime.append(
+                "monitor",
+                {"id": f"event-{number}", "event_ts": runtime.now(), "source": "test", "description": "Next"},
+            )
+            response = await ProactiveAgentStep(app_context=context)(agent_id="monitor")
+            assert response.success
+            sessions.append(wrapper.turns[-1][1]["resume"])
+            if number == 0:
+                response = await AgentChatStep(app_context=context)(
+                    RuntimeContext(stream_queue=asyncio.Queue()),
+                    agent_id="monitor",
+                    query="Explain this result",
+                )
+                assert response.success
+                assert wrapper.turns[-1][1]["resume"] == sessions[0]
+
+        assert sessions[0] != sessions[1]
+        assert len(wrapper.created) == 2
+        assert all(not {"resume", "fork_session"} & options.keys() for options in wrapper.created)
+        assert (await runtime.sessions.current("monitor")).session_id == sessions[1]
+        assert (await runtime.sessions.list("monitor"))["total"] == 2
+
+
+@pytest.mark.asyncio
+async def test_event_cooldown_accumulates_inputs_and_respects_batch_limit(tmp_path, monkeypatch):
+    async with running_runtime(tmp_path) as (runtime, _, _):
+        await create_agent(runtime)
+        await runtime.update("monitor", {"min_trigger_interval_seconds": 10, "max_batch_events": 20})
+        clock = [runtime.now()]
+        monkeypatch.setattr(runtime, "now", lambda: clock[0])
+        await runtime.append(
+            "monitor",
+            [
+                {"id": f"event-{number}", "event_ts": runtime.now(), "source": "test", "description": "Next"}
+                for number in range(2, 22)
+            ],
+        )
+        batches = []
+        completed = asyncio.Event()
+
+        async def execute(_agent, events):
+            batches.append([event["id"] for event in events])
+            return ProactiveRunResult(notifications=[]), f"session-{len(batches)}"
+
+        async def run_job(_name, **kwargs):
+            answer = await runtime.run(kwargs["agent_id"], execute)
+            completed.set()
+            return Response(success=True, answer=answer)
+
+        await runtime.tick(run_job)
+        await asyncio.wait_for(completed.wait(), timeout=5)
+        assert batches == [[f"event-{number}" for number in range(1, 21)]]
+        snapshot = await runtime.inbox.snapshot("monitor")
+        assert snapshot["pending_count"] == 1
+        completed.clear()
+        clock[0] = snapshot["receipt"].consume_ts + timedelta(seconds=9)
+        await runtime.append(
+            "monitor",
+            {"id": "event-22", "event_ts": runtime.now(), "source": "test", "description": "During cooldown"},
+        )
+        await runtime.tick(run_job)
+        assert "monitor" not in runtime.workers
+        assert not completed.is_set()
+        assert (await runtime.inbox.snapshot("monitor"))["pending_count"] == 2
+        clock[0] += timedelta(seconds=1)
+        await runtime.tick(run_job)
+        await asyncio.wait_for(completed.wait(), timeout=5)
+        assert batches[-1] == ["event-21", "event-22"]
+        assert (await runtime.inbox.snapshot("monitor"))["pending_count"] == 0
 
 
 @pytest.mark.asyncio

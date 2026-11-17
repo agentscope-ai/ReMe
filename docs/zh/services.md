@@ -119,6 +119,7 @@ Chat 的初始记忆通过 `components.agent_runtime.default.chat.description` �
 同样用 `description` 初始化 MEMORY。启动只创建缺失身份，重启不覆盖已修改的记忆或配置，也不恢复已删除任务；
 默认启用两个事件任务：`finance` 分析采集的新闻和行情；`work` 根据新观察资料跟踪主人正在做的项目，
 整理各项目的进度、进展、难点和待讨论问题。工作观察每五分钟采集截图和新增 Codex 对话；独立截图采集器默认关闭。
+同时默认启用定时任务 `科技早报`，每天按应用时区 08:00 整理过去 24 小时的重要科技新闻并在完成后提醒。
 
 单个 Proactive Runtime 消费事件、基于工作区文件重建上下文，再将保存的提醒经 Outbox 投递到 Chat Inbox。
 下图以工作场景中的潜在问题和待办提醒为例；Claude Code 轨迹可通过事件 API 接入，提醒消息仅作示意。
@@ -132,7 +133,7 @@ Chat 的初始记忆通过 `components.agent_runtime.default.chat.description` �
 
 `event` 通过 `append_event(agent_id, events)` 接收观察，每条包含 `event_ts`、`source`、`description`，
 可附工作区相对 `paths`、`id` 和 `metadata`。`cron` 要求 cron 表达式，到点执行完整任务，不接收外部观察。
-两类使用应用时区，每个 Agent 串行执行；事件任务可用 `max_batch_events` 限制每轮领取量（默认 20），进程内失败重试保持原批次，新输入留待后续轮次。`source=cron` 保留给框架。事件任务可设置 `min_trigger_interval_seconds`。
+两类使用应用时区，每个 Agent 串行执行；事件任务可用 `max_batch_events` 限制每轮领取量（默认 20），进程内失败重试保持原批次，新输入留待后续轮次。`source=cron` 保留给框架。事件任务可设置 `min_trigger_interval_seconds`，从上一轮成功完成时开始计时，冷却期间的输入保留在队列中。内置 finance 任务冷却 10 秒，每轮最多领取 20 个事件。
 
 Chat 和 cron Agent 开启原生 `web_search`、`web_extract` 和命令网络访问，event Agent 保持离线。
 已有任务配置和创建参数中的旧字段 `enable_web` 需要删除。
@@ -185,7 +186,7 @@ Chat 的旧 Inbox 日志在启动时从提醒 Markdown 重建；任务输入日�
 
 `agent_session` 和 `agent_events` 对 Chat 返回完整对话，对事件与定时 Agent 仅返回最近一个原生轮次，
 包含该轮输入及全部助手进度和最终消息。任务订阅每次通过 `snapshot` 整体替换视图，`heartbeat` 不含消息。
-历史轮次仍保存在原生会话中，并继续用于模型上下文。主动任务的 `proactive_agent_step` 默认总超时为 1200 秒，原生上下文自动压缩沿用 Codex App Server 的全局设置。每日摘要用于交接当前状态，逐轮过程与完整证据保存在明细文件。
+事件与定时任务的每轮自动执行都新建原生会话，通过任务记忆和今昨总结重建上下文；历史会话保留执行过程，用户主动对话继续使用当前会话。主动任务的 `proactive_agent_step` 默认总超时为 1200 秒，原生上下文自动压缩沿用 Codex App Server 的全局设置。每日摘要用于交接当前状态，逐轮过程与完整证据保存在明细文件。
 
 `proactive_run`、`proactive_query`、`inbox_chat` 为服务私有 Job。采集器默认关闭，配置 `jobs.screen_capture_cron.agent_id`
 并启用任务后，完整资源包才会转成观察事件；本流程不使用资源 watcher 或自动 TTL 删除。

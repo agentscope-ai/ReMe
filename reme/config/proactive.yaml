@@ -105,6 +105,7 @@ jobs:
     agent_id: work
     steps:
       - backend: screen_capture_step
+        similarity_threshold: 0.99
       - backend: resource_event_step
 
   work_observation_init:
@@ -122,6 +123,7 @@ jobs:
       - backend: work_observation_step
         agent_id: work
         codex_home: *work_codex_home
+        screenshot_similarity_threshold: 0.99
 
   finance_news_cron:
     backend: cron
@@ -132,7 +134,7 @@ jobs:
 
   stock_quotes_cron:
     backend: cron
-    cron: "* * * * *"
+    cron: "*/5 * * * *"
     # The collector checks each market's trading calendar and skips closed sessions.
     steps:
       - backend: stock_quotes_step
@@ -140,7 +142,7 @@ jobs:
 
   btc_quotes_cron:
     backend: cron
-    cron: "* * * * *"
+    cron: "*/5 * * * *"
     # BTC trades continuously; stock trading calendars do not apply.
     steps:
       - backend: btc_quotes_step
@@ -619,19 +621,24 @@ components:
         - name: finance
           enabled: true
           trigger_type: event
+          min_trigger_interval_seconds: 10
+          max_batch_events: 20
           description: |
-            结合收到的财联社新闻和行情，仅在出现 AI 领域重大新闻，或下列跟踪标的日内波动超过 5% 时生成提醒，说明事实、影响和来源；其他内容正常处理、记录，不生成提醒。
-            跟踪小米（01810.HK）、阿里巴巴（09988.HK）、腾讯（00700.HK）、苹果（AAPL）、亚马逊（AMZN）和 Meta（META）的日内波动。
-            同时跟踪 BTC/USDT 现货行情的日内波动：按应用时区的自然日，用当日快照最高价与最低价之差除以当日首条快照价格；股票使用当日最高价与最低价之差除以昨收。
-            数据覆盖不足时说明缺口；相对开盘价的涨跌幅与滚动 24 小时涨跌幅仅作背景，不能代替上述振幅。
-            行情可能延迟，按报价时间判断新鲜度；结合相关新闻分析重要变化，区分事实与推测，避免重复提醒。
+            帮我关注 AI 领域的大新闻，以及小米、阿里巴巴、腾讯、苹果、亚马逊、Meta 和 BTC/USDT 的行情。
+            出现重大 AI 新闻，或这些标的日内振幅超过 5% 时提醒我，结合财联社新闻简单说明发生了什么、可能的影响和来源。
+            其他信息正常记录，不用提醒。同一件事避免重复提醒，数据有延迟或不完整时请注明。
         - name: work
           max_batch_events: 2
           enabled: true
           trigger_type: event
           description: |
-            关注主人现在正在做哪些项目，逐个跟踪项目的进度、新进展和难点，梳理需要进一步讨论的问题。
-            根据收到的资料持续更新项目情况，区分已确认的信息和待确认的问题。
+            帮我梳理目前在做的项目，跟进各个项目的进展和难点，整理需要进一步讨论的问题。
+        - name: 科技早报
+          enabled: true
+          trigger_type: cron
+          cron: "0 8 * * *"
+          description: |
+            每天早上8点帮我整理一份科技早报，汇总过去24小时的重要科技新闻，简要说明要点和影响，并附上来源链接。整理好后提醒我查看。
 
   codex_app_server:
     default:
@@ -643,6 +650,8 @@ components:
       supports_websockets: false
       experimental_api: true
       config_overrides:
+        # Disable automatic repository AGENTS.md loading for every Agent on this server.
+        - project_doc_max_bytes=0
         # Keep the configured input budget; put safety headroom in the compaction threshold.
         # At 95% usable context, 600000 leaves 334435 tokens below Codex's hard cap.
         # Budget 128 KiB of new text at one token/byte, not Codex's byte/4 estimate of 32768.

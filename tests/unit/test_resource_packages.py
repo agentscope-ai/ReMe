@@ -76,6 +76,98 @@ async def test_concurrent_screen_capture_publishes_identical_pixels_once(tmp_pat
     assert displays.grab.call_count == 2
 
 
+@pytest.mark.parametrize("threshold", [True, "0.99", None, -0.01, 1.01, float("nan"), float("inf")])
+def test_screen_similarity_rejects_invalid_thresholds(threshold):
+    with pytest.raises(ValueError, match="similarity_threshold"):
+        ScreenCaptureStep(similarity_threshold=threshold)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "changed_pixels,threshold,skipped",
+    [(1, 0.99, True), (2, 0.99, False), (3, 0.99, False), (3, 0.98, True), (1, 1, False), (0, 1, True)],
+)
+async def test_screen_similarity_uses_all_rgb_channels_and_a_strict_threshold(
+    tmp_path,
+    displays,
+    changed_pixels,
+    threshold,
+    skipped,
+):
+    context = ApplicationContext(workspace_dir=str(tmp_path))
+    displays.monitors[1].update(width=20, height=10)
+    displays.grab.return_value = SimpleNamespace(rgb=b"\x00\x00\x00" * 200, size=(20, 10))
+    await ScreenCaptureStep(app_context=context, similarity_threshold=threshold)()
+    displays.grab.return_value = SimpleNamespace(
+        rgb=b"\x00\x00\x01" * changed_pixels + b"\x00\x00\x00" * (200 - changed_pixels),
+        size=(20, 10),
+    )
+    response = await ScreenCaptureStep(app_context=context, similarity_threshold=threshold)()
+    assert (response.answer == {"skipped": "no_new_data"}) is skipped
+    assert len(list(tmp_path.glob("resource/screenshot/*/*"))) == (1 if skipped else 2)
+
+
+@pytest.mark.asyncio
+async def test_screen_similarity_compares_with_the_last_saved_group(tmp_path, displays):
+    context = ApplicationContext(workspace_dir=str(tmp_path))
+    displays.monitors[1].update(width=20, height=10)
+    for changed_pixels, skipped in ((0, False), (1, True), (2, False)):
+        displays.grab.return_value = SimpleNamespace(
+            rgb=b"\xff\xff\xff" * changed_pixels + b"\x00\x00\x00" * (200 - changed_pixels),
+            size=(20, 10),
+        )
+        response = await ScreenCaptureStep(app_context=context)()
+        assert (response.answer == {"skipped": "no_new_data"}) is skipped
+    assert len(list(tmp_path.glob("resource/screenshot/*/*"))) == 2
+
+
+@pytest.mark.asyncio
+async def test_changed_small_display_is_not_diluted_by_a_large_unchanged_display(tmp_path, displays):
+    context = ApplicationContext(workspace_dir=str(tmp_path))
+    displays.monitors = [
+        {},
+        {"left": 0, "top": 0, "width": 100, "height": 100},
+        {"left": 100, "top": 0, "width": 1, "height": 1},
+    ]
+    large = SimpleNamespace(rgb=b"\x00\x00\x00" * 10000, size=(100, 100))
+    displays.grab.side_effect = [
+        large,
+        SimpleNamespace(rgb=b"\x00\x00\x00", size=(1, 1)),
+        large,
+        SimpleNamespace(rgb=b"\xff\xff\xff", size=(1, 1)),
+    ]
+    await ScreenCaptureStep(app_context=context)()
+    response = await ScreenCaptureStep(app_context=context)()
+    assert [entry["path"] for entry in response.answer["files"]] == ["1.png", "2.png"]
+    assert len(list(tmp_path.glob("resource/screenshot/*/*"))) == 2
+
+
+@pytest.mark.asyncio
+async def test_screen_similarity_preserves_image_size_changes(tmp_path, displays):
+    context = ApplicationContext(workspace_dir=str(tmp_path))
+    displays.grab.return_value = SimpleNamespace(rgb=b"\x00\x00\x00" * 200, size=(20, 10))
+    await ScreenCaptureStep(app_context=context)()
+    displays.grab.return_value = SimpleNamespace(rgb=b"\x00\x00\x00" * 200, size=(10, 20))
+    response = await ScreenCaptureStep(app_context=context)()
+    assert "path" in response.answer
+
+
+@pytest.mark.asyncio
+async def test_screen_similarity_rejects_symlinked_history_and_cleans_new_capture(tmp_path, displays):
+    context = ApplicationContext(workspace_dir=str(tmp_path))
+    response = await ScreenCaptureStep(app_context=context)()
+    previous = tmp_path / response.answer["path"]
+    image = previous.parent / "1.png"
+    target = tmp_path / "other.png"
+    image.rename(target)
+    image.symlink_to(target)
+    with pytest.raises(ValueError, match="without symlinks"):
+        await ScreenCaptureStep(app_context=context)()
+    assert previous.is_file() and target.is_file()
+    assert len(list(tmp_path.glob("resource/screenshot/*/*"))) == 1
+    assert displays.grab.call_count == 2
+
+
 @pytest.mark.asyncio
 async def test_empty_collection_skips_publication_and_the_following_event_step(tmp_path):
     context = ApplicationContext(workspace_dir=str(tmp_path))

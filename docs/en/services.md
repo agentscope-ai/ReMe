@@ -120,6 +120,8 @@ or settings, or restore deleted tasks. Two event tasks are enabled by default: `
 and the event-driven `work` tracks the user's current projects, progress, difficulties and discussion points from
 incoming observations. Work observations capture screens and new Codex dialogue every five minutes. The separate
 standalone screen-capture collector is disabled by default.
+The default scheduled task `科技早报` also runs daily at 08:00 in the application timezone, summarizes important
+technology news from the past 24 hours and sends a reminder when ready.
 
 An individual Proactive Runtime consumes events, reconstructs context from workspace files and delivers saved reminders
 through the Outbox to the Chat Inbox. The work example below illustrates possible issues and TODOs;
@@ -135,7 +137,9 @@ Agent `config.json` files and API calls; the old key is no longer accepted.
 An `event` Agent accepts observations through `append_event(agent_id, events)`, with `event_ts`, `source`, `description`
 and optional workspace-relative `paths`, `id` and `metadata`. A `cron` Agent requires a cron expression and executes
 its full task at the scheduled time. Both use the application timezone and a serial executor per Agent.
-`source=cron` is reserved. Event tasks may set `min_trigger_interval_seconds`.
+`source=cron` is reserved. Event tasks may set `min_trigger_interval_seconds`, measured from the previous successful
+completion. Inputs remain queued during this cooldown. The built-in finance task waits 10 seconds and claims at most
+20 events per run.
 
 Chat and cron Agents enable native `web_search`, `web_extract` and command network access; event Agents stay offline.
 Remove the obsolete `enable_web` field from existing task configurations and creation calls. `web_extract` saves complete
@@ -191,7 +195,9 @@ Chat Inbox entries include a resolved `reminder` view from the canonical Markdow
 
 `agent_session` and `agent_events` expose full Chat history, but only the latest native turn for event/cron Agents,
 including its input and all partial/final assistant messages. Task subscriptions replace the whole view with each
-`snapshot`; `heartbeat` carries no messages. Persisted sessions and model context retain earlier turns.
+`snapshot`; `heartbeat` carries no messages. Each automatic event or cron run starts a fresh native session and rebuilds
+context from task memory and daily summaries. Earlier sessions remain available as history; user conversations continue
+their current session.
 
 Event tasks accept `max_batch_events` (default 20); retries within the same process keep the original batch and leave new inputs for later rounds. `proactive_agent_step` defaults to a 1200-second total timeout; native automatic compaction inherits the global Codex App Server settings. Daily summaries carry current state; per-round details retain chronology and evidence.
 

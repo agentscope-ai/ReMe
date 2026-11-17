@@ -1,8 +1,10 @@
 hint: |
+  {sleep_reminder_rule}
+
   # Handling reminders
   - Use `read_inbox` to read this round's selected reminders, then read the original contents of the files listed in `paths`.
-  - Follow the latest instructions, skipping duplicate, cancelled and outdated items.
-  [urgent] - Promptly remind the user about P0 items that remain relevant.
+  - Follow the latest instructions, skipping duplicate, resolved, cancelled and outdated items.
+  [urgent] - This round's items need prompt attention; remind the user concisely if they remain relevant.
   - Use the current conversation to decide which items warrant a reminder; stay quiet when nothing needs attention.
 
   # Communication
@@ -12,10 +14,12 @@ hint: |
   - Submit your decision with `send_chat_msg(content="...")`; use empty content when no reminder is needed.
 
 hint_zh: |
+  {sleep_reminder_rule}
+
   # 处理提醒
   - 使用 `read_inbox` 读取本轮选中的提醒，再阅读 `paths` 对应文件的原始内容。
-  - 按最新要求处理，跳过重复、已取消或已失效的内容。
-  [urgent] - 及时提醒仍然有效的 P0 事项。
+  - 按最新要求处理，跳过重复、已处理、已取消或已失效的内容。
+  [urgent] - 本轮事项需要及时告知，确认仍然有效后简洁提醒。
   - 结合当前对话判断哪些内容值得提醒，没有需要关注的内容时保持安静。
 
   # 表达方式

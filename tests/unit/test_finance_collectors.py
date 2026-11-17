@@ -722,8 +722,8 @@ def test_proactive_configuration_connects_both_crons_to_existing_finance_agent()
     jobs = config["jobs"]
     for name, interval, step in (
         ("finance_news_cron", "*/5 * * * *", FinanceNewsStep),
-        ("stock_quotes_cron", "* * * * *", StockQuotesStep),
-        ("btc_quotes_cron", "* * * * *", BtcQuotesStep),
+        ("stock_quotes_cron", "*/5 * * * *", StockQuotesStep),
+        ("btc_quotes_cron", "*/5 * * * *", BtcQuotesStep),
     ):
         assert jobs[name]["backend"] == "cron" and jobs[name]["cron"] == interval
         assert jobs[name].get("enabled", True)

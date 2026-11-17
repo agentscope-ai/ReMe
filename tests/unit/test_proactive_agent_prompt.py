@@ -56,8 +56,14 @@ async def test_round_paths_keep_both_calendar_summaries_and_paired_filenames(tmp
 
 @pytest.mark.parametrize("language", ["en", "zh"])
 @pytest.mark.parametrize("trigger_type", ["cron", "event"])
+@pytest.mark.parametrize("has_today_summary", [False, True])
 @pytest.mark.asyncio
-async def test_round_query_renders_path_aliases_and_trigger_specific_inputs(tmp_path, language, trigger_type):
+async def test_round_query_renders_path_aliases_and_trigger_specific_inputs(
+    tmp_path,
+    language,
+    trigger_type,
+    has_today_summary,
+):
     async with running_runtime(tmp_path, language=language) as (runtime, context, _):
         values = {"name": "monitor", "description": "Monitor", "trigger_type": trigger_type}
         if trigger_type == "cron":
@@ -67,7 +73,8 @@ async def test_round_query_renders_path_aliases_and_trigger_specific_inputs(tmp_
         step = ProactiveAgentStep(app_context=context)
         now = runtime.now()
         paths = step._paths(agent, now)
-        runtime.files.write(paths["summary_path"], "# Today\n")
+        if has_today_summary:
+            runtime.files.write(paths["summary_path"], "# Today\n")
         runtime.files.write(paths["yesterday_summary_path"], "# Yesterday\n")
         events = [
             {
@@ -90,7 +97,10 @@ async def test_round_query_renders_path_aliases_and_trigger_specific_inputs(tmp_
             assert f"`{alias}`" in query
             assert query.count(f"`{paths[key]}`") == 1
         assert re.findall(r"^(\d+)\. ", query, re.MULTILINE) == [str(number) for number in range(1, 9)]
-        assert not re.search(r"\{[a-z_]+\}|\[(?:cron|event)\]", query)
+        summary_read = re.search(r"^2\. (.*)$", query, re.MULTILINE).group(1)
+        assert "`YESTERDAY_SUMMARY`" in summary_read
+        assert ("`TODAY_SUMMARY`" in summary_read) is has_today_summary
+        assert not re.search(r"\{[a-z_]+\}|\[(?:cron|event|new_day|same_day)\]", query)
         for event in events:
             assert event["event_ts"] in query
             if trigger_type == "event":

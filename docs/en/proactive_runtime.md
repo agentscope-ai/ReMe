@@ -19,7 +19,11 @@ Five parts support the workflow:
 - **Permissions:** the framework and Harness control file access, tools, and network access. Event tasks currently analyze incoming files offline; scheduled tasks can search the web and extract pages.
 - **Outbox:** publishes reminder references after the reminder has been saved and input completion has been committed. Failed delivery can be retried independently of task execution.
 
-Users own the workspace files and can inspect or edit them. Tasks reuse their native sessions, with context compaction configured separately from the durable memory and progress files.
+Users own the workspace files and can inspect or edit them. Each automatic event or scheduled run starts a fresh native session and rebuilds context from task memory and daily summaries. Earlier sessions remain available as history; user conversations continue their current session.
+
+The default `proactive` configuration sets `project_doc_max_bytes=0` on the shared Codex app-server, disabling automatic
+repository `AGENTS.md` loading for all Agents. Event and scheduled task execution sessions do not automatically inject
+skill instructions; the main Chat Agent retains skills. Global instructions under `CODEX_HOME` load independently of this setting.
 
 ## Personal Runtime
 

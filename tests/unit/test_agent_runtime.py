@@ -214,19 +214,29 @@ def test_agent_configuration_rejects_legacy_type(trigger_type):
 
 @pytest.mark.parametrize("trigger_type", ["cron", "event"])
 @pytest.mark.asyncio
-async def test_trigger_controls_tools_and_network(tmp_path, trigger_type):
+async def test_trigger_controls_tools_network_and_task_context(tmp_path, trigger_type):
+    config = resolve_app_config(config="proactive", log_config=False)
+    assert "project_doc_max_bytes=0" in config["components"]["codex_app_server"]["default"]["config_overrides"]
     async with running_runtime(tmp_path) as (runtime, context, _):
         values = {"name": "monitor", "description": "Monitor", "trigger_type": trigger_type}
         if trigger_type == "cron":
             values["cron"] = "0 * * * *"
         await runtime.create(values)
         agent = await runtime.definition("monitor")
-        options = ProactiveAgentStep(app_context=context)._options(agent)
+        options = ProactiveAgentStep(app_context=context).session_options(agent)
         online = trigger_type == "cron"
         assert options["job_tools"] == (["web_extract"] if online else [])
-        assert "read_only_paths" not in ProactiveAgentStep(app_context=context).session_options(agent)
+        assert "read_only_paths" not in options
+        assert options["sandbox"] == "workspace-write"
+        assert options["approval_mode"] == "deny_all"
         assert options["config"]["web_search"] == ("live" if online else "disabled")
         assert options["config"]["sandbox_workspace_write"]["network_access"] is online
+        assert options["config"]["skills.include_instructions"] is False
+        assert "project_doc_max_bytes" not in options["config"]
+        chat = ChatAgentStep(app_context=context).session_options()
+        assert "skills.include_instructions" not in chat["config"]
+        assert "project_doc_max_bytes" not in chat["config"]
+        assert chat["config"]["sandbox_workspace_write"]["network_access"] is True
 
 
 def test_network_policy_has_no_per_agent_override():

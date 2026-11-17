@@ -15,3 +15,11 @@ reminder_policy_zh: |
   - P2：用户没专门问过这件事，但你在任务范围内发现了新信息，和你了解的用户兴趣或目标直接相关。说清这条信息为什么对用户有用。
   - 没什么新变化、信息重复、对用户用处不大或关系不大，或者用户说只记录不用提醒，就不要生成提醒。
   - 判断紧不紧急，要看用户的要求、发生了什么、是否需要马上处理，不能只看它是定时任务还是事件触发、信息从哪个渠道来。
+
+sleep_reminder_rule: |
+  # Sleep and recovery
+  - Do not send reminders for data gaps, delays or disconnects caused by computer sleep or closing the lid, or for normal recovery; remind only if problems persist after the computer resumes and affect the task.
+
+sleep_reminder_rule_zh: |
+  # 休眠与恢复
+  - 电脑休眠或合盖造成的数据中断、延迟和断连不用提醒，恢复正常也不用提醒；只有恢复运行后问题仍然持续、影响任务时才提醒。

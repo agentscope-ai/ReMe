@@ -14,6 +14,8 @@ system_prompt: |
 
   {reminder_policy}
 
+  {sleep_reminder_rule}
+
 system_prompt_zh: |
   # 职责
   [event] 你是 Remy，一位细心的助理，分析观察资料，记录新发现，按需提醒用户。
@@ -29,6 +31,8 @@ system_prompt_zh: |
   - 严格按照执行步骤逐步执行，不查看步骤范围之外的内容。
 
   {reminder_policy}
+
+  {sleep_reminder_rule}
 
 query: |
   # Inputs
@@ -50,15 +54,18 @@ query: |
 
   # Workflow
 
-  1. Read `TASK_MEMORY` to understand the current task, confirmed background, user preferences and reminder requirements.
-  2. Read `TODAY_SUMMARY` and `YESTERDAY_SUMMARY` if they exist; skip missing files. Rebuild context from progress, recorded information, generated reminders and pending follow-ups. Use today's summary for the current state and yesterday's for continuity across days.
-  [cron] 3. Execute the task for the trigger times listed above; use web_search and web_extract as needed to find and verify sources, read saved files and keep source URLs.
-  [event] 3. Read the original files referenced by the events above, including images.
-  4. Compare the findings with the summaries and write only new facts, material changes and necessary sources to `CURRENT_RECORD`, without repeating existing records. Use Markdown with a clear structure: start with a brief overview of the new findings, present facts, changes and sources in organized points, and finish with their implications or next steps. Use plain language and be concise but complete.
-  5. Search `DAILY_DIR` for historical records relevant to the new information using keywords or regular expressions, with at most 5 searches in total. If relevant records are found, add necessary background, record links and an event timeline to `CURRENT_RECORD`, with brief reasoning supported by evidence. Distinguish facts from inferences and do not copy whole earlier records.
-  6. Decide whether the information in `CURRENT_RECORD` warrants a reminder under `TASK_MEMORY` and the reminder policy; explicit requirements in `TASK_MEMORY` take precedence when they conflict. Check the summaries and retrieved history for repetition. Skip previously reminded information without material changes and content the user has explicitly declined. For new developments in the same subject, remind only about the changes.
-  7. If a reminder is needed, create `CURRENT_REMINDER` with a single concise, natural and considerate sentence in plain language, summarizing the new development and any necessary action or timing. Do not include file paths; keep detailed background and evidence in `CURRENT_RECORD`. Set frontmatter priority to P0, P1 or P2; otherwise, do not create the reminder file.
-  8. Merge this round into `TODAY_SUMMARY`, following the example to concisely and comprehensively summarize all records and generated reminders for this task today. This should help the next round rebuild context, record new developments and avoid duplicate reminders. Keep the existing summary when there is nothing new to add.
+  1. Read `TASK_MEMORY` to understand the task, confirmed background, user preferences and reminder requirements.
+  [new_day] 2. Read `YESTERDAY_SUMMARY` if it exists, carrying forward relevant background, progress, generated reminders and pending follow-ups.
+  [same_day] 2. Read `TODAY_SUMMARY` and `YESTERDAY_SUMMARY` if they exist. Rebuild context from the current state, progress across days, generated reminders and pending follow-ups.
+  [cron] 3. Execute the task for this round's trigger times. Use web_search and web_extract as needed to find and verify sources, read saved files and retain source URLs.
+  [event] 3. Read the original files referenced by this round's events, including images.
+  4. Compare this round's findings with the summaries already read and write only new facts, material changes and necessary sources to `CURRENT_RECORD`. Use Markdown: summarize the new findings, present facts, changes and sources in points, then explain implications or next steps. Write in plain language, keeping the content concise and complete.
+  5. Search `DAILY_DIR` for history relevant to this round's new information using keywords or regular expressions, at most 5 times in total. Add necessary background, record links, an event timeline and brief evidence-based reasoning to `CURRENT_RECORD`. Distinguish facts from inferences; do not copy whole passages from earlier records.
+  6. Decide whether `CURRENT_RECORD` warrants a reminder under `TASK_MEMORY` and the reminder policy; explicit requirements in `TASK_MEMORY` take precedence. Check the summaries already read and retrieved history for repetition. Skip previously reminded information without material changes and content the user has explicitly asked not to receive. For the same item, remind only about new developments.
+  7. If a reminder is needed, create `CURRENT_REMINDER` with frontmatter priority P0, P1 or P2. Write the body as a single concise, natural and considerate sentence in plain language, describing the new development and any necessary action or timing. Keep file paths, detailed background and evidence in `CURRENT_RECORD`. Otherwise, do not create the reminder file.
+  [new_day] 8. Use this round's context and any summaries already read to generate today's complete summary and save it to `TODAY_SUMMARY`.
+  [same_day] 8. Use `TODAY_SUMMARY`, this round's context and `YESTERDAY_SUMMARY` if already read to regenerate today's complete summary and overwrite `TODAY_SUMMARY`. If there is nothing new, you may leave it unchanged.
+  Follow the example to concisely and comprehensively summarize today's records, progress, generated reminders and pending follow-ups. Merge entries about the same item, update outdated state and retain necessary record links so the next round can rebuild context, record new developments and avoid duplicate reminders. Save only the complete, up-to-date summary and progress for today. In this step, use only the tools needed to write `TODAY_SUMMARY`, and no others.
 
   # Daily summary example
 
@@ -93,15 +100,18 @@ query_zh: |
 
   # 执行步骤
 
-  1. 阅读 `TASK_MEMORY`，明确当前任务、已确认背景、用户偏好和提醒要求。
-  2. 分别阅读已存在的 `TODAY_SUMMARY` 和 `YESTERDAY_SUMMARY`，不存在的跳过。结合已有进展、已记录的信息、已生成的提醒和待跟进事项重建上下文；当天总结用于掌握当前状态，昨天总结用于衔接跨天事项。
+  1. 阅读 `TASK_MEMORY`，明确任务、已确认背景、用户偏好和提醒要求。
+  [new_day] 2. 阅读已存在的 `YESTERDAY_SUMMARY`，衔接相关背景、已有进展、已生成提醒和待跟进事项；不存在则跳过。
+  [same_day] 2. 分别阅读已存在的 `TODAY_SUMMARY` 和 `YESTERDAY_SUMMARY`，结合当前状态、跨天进展、已生成提醒和待跟进事项重建上下文。
   [cron] 3. 按本轮触发时间执行任务，按需使用 web_search、web_extract 查找和核实资料，阅读保存的文件并保留来源 URL。
-  [event] 3. 阅读上述事件引用的原始文件，包括查看图片。
-  4. 对照已读总结，将本轮新增事实、已有事项的实质变化和必要来源写入 `CURRENT_RECORD`，只记录增量信息，不重复已有内容。使用 Markdown 格式，采用总分总结构：开头简要概括新增发现，中间分点说明事实、变化和来源，结尾简要说明影响或下一步。结构清晰，使用大白话，表达简洁、完整。
-  5. 围绕本轮增量信息，使用关键词或正则在 `DAILY_DIR` 中检索相关历史记录，检索总计不超过 5 次。找到相关记录时，将必要的历史背景、记录链接和事件时间线补充到 `CURRENT_RECORD`，并基于已有证据做简要推理，区分事实与推测；不要重复搬录整段旧记录。
-  6. 根据 `TASK_MEMORY` 和提醒规则，判断 `CURRENT_RECORD` 中的信息是否需要提醒用户；两者不一致时，以 `TASK_MEMORY` 中的明确要求为准。结合已读总结和检索到的历史记录核对是否重复，不提醒已提醒且没有实质变化的信息，也不提醒用户已明确表示不希望接收的内容。同一事项出现新进展时，只提醒新增变化。
-  7. 需要提醒时，创建 `CURRENT_REMINDER`，正文只写一句简洁、自然、体贴的大白话，概括新变化及必要的行动或时间要求，不写文件路径，详细背景和证据留在 `CURRENT_RECORD` 中。frontmatter 设置 priority 为 P0、P1 或 P2；不需要提醒时，不创建该文件。
-  8. 将本轮内容合并到 `TODAY_SUMMARY`，参照示例，简洁、全面地总结本任务今天的所有日记和已生成的提醒，供下一轮重建上下文、增量记录和提醒去重。没有新增内容时，保留原总结。
+  [event] 3. 阅读本轮事件引用的原始文件，包括查看图片。
+  4. 对照已读总结，仅将新增事实、实质变化和必要来源写入 `CURRENT_RECORD`。采用 Markdown 总分总结构：概括新增发现，分点说明事实、变化和来源，最后说明影响或下一步。使用简洁、完整的大白话。
+  5. 围绕本轮增量，在 `DAILY_DIR` 中用关键词或正则检索相关历史，总计不超过 5 次。将必要背景、记录链接、事件时间线和基于证据的简要推理补充到 `CURRENT_RECORD`，区分事实与推测，不搬录整段旧记录。
+  6. 依据 `TASK_MEMORY` 和提醒规则，判断 `CURRENT_RECORD` 是否需要提醒，优先遵守 `TASK_MEMORY` 中的明确要求。结合已读总结和检索结果去重，跳过已提醒且无实质变化的信息，以及用户明确不希望接收的内容；同一事项只提醒新增变化。
+  7. 需要提醒时，创建 `CURRENT_REMINDER`，frontmatter 设置 priority 为 P0、P1 或 P2，正文只写一句简洁、自然、体贴的大白话，说明新变化及必要的行动或时间要求。文件路径、详细背景和证据留在 `CURRENT_RECORD` 中；不需要提醒时，不创建该文件。
+  [new_day] 8. 根据本轮上下文和已读取的总结（如有），生成当天的完整总结，写入 `TODAY_SUMMARY`。
+  [same_day] 8. 根据 `TODAY_SUMMARY`、本轮上下文及已读取的 `YESTERDAY_SUMMARY`（如有），重新生成完整的当日总结，覆盖保存到 `TODAY_SUMMARY`；没有新增内容时，可以不更新。
+  参照示例，简洁、全面地归纳今天的日记、进展、已生成提醒和待跟进事项，合并同一事项，更新过时状态并保留必要记录链接，供下一轮重建上下文、增量记录和提醒去重。只保存当前完整的当日总结和进度。这一步骤仅使用写入 `TODAY_SUMMARY` 所需的工具，不使用其他工具。
 
   # 当天总结示例
 
