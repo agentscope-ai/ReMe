@@ -191,7 +191,7 @@ class HomePreparation(BaseComponent):
         docs = transaction / "output-5"
         docs.mkdir()
         resources = files("reme_home").joinpath("runtime_docs")
-        for name in ("architecture-guide.md", "validation-artifact-guide.md"):
+        for name in ("architecture-guide.md", "evaluation-artifact-guide.md"):
             (docs / name).write_bytes(resources.joinpath(name).read_bytes())
         result = {
             "preparation_id": uuid4().hex,

@@ -37,8 +37,10 @@ system_prompt: |-
      adaptive sampling. Optionally pass target_queries keyed by case ID: [] prioritizes the case with sampled
      questions, null prioritizes all its questions, and a list prioritizes those query IDs. After a change,
      you may target relevant cases and questions to check whether it has the intended effect.
-     Only construction-equivalent snapshots may be reused. Target cases reuse available memory regardless of
-     the single 60% draw for sampled background cases. Without valid targets, the host reviews and draws first:
+     Only construction-equivalent snapshots may be reused. Review precedes final target sampling; one 60%
+     draw controls reuse for all cases. If every retained target case has reusable memory and the draw selects
+     reuse, fill background slots from reusable cases first, then rebuild cases if needed. Otherwise sample
+     background cases from the full training set. Without valid targets, the host reviews and draws first:
      reuse preserves the source's case/question selection, except candidates whose direct parent is init always
      sample within budget. A rebuild also samples; cases without reusable memory rebuild.
      You cannot override replay or its sources. Inspect the resulting evidence before the

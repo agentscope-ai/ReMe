@@ -48,7 +48,7 @@ ws_prompt: |-
     per-query outcomes, and memory construction checkpoints. {home}/sampling
     contains host-owned adaptive sampling state and evaluation plans.
   - **Runtime documentation**: {docs}/architecture-guide.md describes the runtime
-    and candidate interfaces; {docs}/validation-artifact-guide.md explains
+    and candidate interfaces; {docs}/evaluation-artifact-guide.md explains
     evaluation artifacts and inspection workflows. Current code and schemas
     take precedence over documentation.
   - **Scratch**: {scratch} is disposable space for helper scripts and analysis.

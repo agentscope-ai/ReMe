@@ -171,7 +171,7 @@ async def test_partial_reuse_preserves_targets_and_recovers_frozen_plan(app, pre
     assert recovered.answer["selection"]["invalid_case_count"] == 1
     assert recovered.answer["selection"]["invalid_query_count"] == 1
     assert any("Restored" in message for message in recovered.answer["selection"]["notices"])
-    assert len(allow_reuse[0]) == 1 and not allow_reuse[1]
+    assert len(allow_reuse[0]) == len(allow_reuse[1]) == 1
     verify_evaluation(prepared, run, manifest["commit_sha"])
     before = read_state(prepared)
     assert rebuild_sampling_state(prepared) == before
@@ -203,7 +203,7 @@ async def test_multiple_sources_reuse_every_available_selected_case(app, prepare
     assert manifest["execution_mode"] == "query_only_replay"
     assert manifest["construction_sources"]["1"]["result_dir"] == first.answer["result_dir"]
     assert manifest["construction_sources"]["2"]["result_dir"] == second.answer["result_dir"]
-    assert len(allow_reuse[0]) == 2 and not allow_reuse[1]
+    assert len(allow_reuse[0]) == 2 and len(allow_reuse[1]) == 1
     assert all(event[1] != "build" for event in FakeFactory.instances[-1].events)
     verify_evaluation(prepared, run, manifest["commit_sha"])
 
@@ -349,7 +349,7 @@ async def test_init_child_sampling_can_select_an_uncovered_case(app, prepared, a
 @pytest.mark.asyncio
 @pytest.mark.parametrize("selected", [True, False])
 @pytest.mark.parametrize("target", [[], None, ["fact:1"], ["invalid"]])
-async def test_targets_reuse_even_when_background_draw_misses(
+async def test_targets_share_one_draw_with_background(
     app,
     prepared,
     allow_reuse,
@@ -374,14 +374,15 @@ async def test_targets_reuse_even_when_background_draw_misses(
     )
     assert response.success, response.answer
     decision = response.answer["automatic_construction_reuse"]
-    assert decision["selected"] is True and decision["probability_selected"] is selected
-    assert set(decision["case_sources"]) == ({"1", "2"} if selected else {"1"})
-    assert decision["reuse_reasons"]["1"] == "target_case"
+    assert decision["selected"] is selected and decision["probability_selected"] is selected
+    assert set(decision["case_sources"]) == ({"1", "2"} if selected else set())
+    if selected:
+        assert decision["reuse_reasons"]["1"] == "60_percent_policy"
     assert len(draws) == 1
-    assert response.answer["execution_mode"] == ("query_only_replay" if selected else "mixed_validation")
+    assert response.answer["execution_mode"] == ("query_only_replay" if selected else "full_validation")
     run = Path(response.answer["result_dir"])
     verify_evaluation(prepared, run, response.answer["commit_sha"])
-    if not selected:
+    if selected:
         path = run / "manifest.json"
         manifest = read_json(path)
         manifest["automatic_construction_reuse"]["target_case_ids"] = []
@@ -414,3 +415,101 @@ async def test_oversized_replay_source_falls_back_to_sampling(
     assert response.answer["case_count"] == 1
     assert response.answer["execution_mode"] == "full_validation"
     assert not allow_reuse[0]
+
+
+@pytest.mark.parametrize(
+    "targets,reusable,limit,preferred",
+    [
+        ({"1": []}, {"1", "3", "4"}, 3, True),
+        ({"1": []}, {"1", "3"}, 4, True),
+        ({"1": [], "2": []}, {"1", "3"}, 3, False),
+        ({"1": [], "2": []}, {"1", "2", "3", "4"}, 1, True),
+    ],
+)
+def test_background_prefers_memory_only_when_all_retained_targets_are_reusable(
+    monkeypatch,
+    targets,
+    reusable,
+    limit,
+    preferred,
+):
+    monkeypatch.setattr(sampling.time, "time_ns", lambda: 42)
+    plan = sampling.create_sampling_plan(
+        cases(),
+        {},
+        sampling.SamplingPolicy(max_cases=limit, max_queries=limit),
+        target_queries=targets,
+        reusable_case_ids=reusable,
+    )
+    assert plan["prefer_reusable_background"] is preferred
+    assert len(plan["case_ids"]) == limit
+    if preferred:
+        assert len(set(plan["case_ids"]) & reusable) == min(len(reusable), limit)
+    else:
+        ordinary = sampling.create_sampling_plan(
+            cases(),
+            {},
+            sampling.SamplingPolicy(max_cases=limit, max_queries=limit),
+            target_queries=targets,
+        )
+        assert plan["case_ids"] == ordinary["case_ids"]
+        assert plan["query_ids"] == ordinary["query_ids"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("target_id", ["1", "2"])
+async def test_target_review_precedes_sampling_and_uncovered_cases_rebuild(
+    app,
+    prepared,
+    allow_reuse,
+    monkeypatch,
+    target_id,
+):
+    from reme_home.evaluation import component
+
+    assert (await app.run_job("home_evaluate", case_ids=["1"])).success
+    commit_candidate(prepared)
+    sample = component.create_sampling_plan
+
+    def tracked_sample(*args, **kwargs):
+        assert len(allow_reuse[0]) == len(allow_reuse[1]) == 1
+        assert kwargs["reusable_case_ids"] == {"1"}
+        return sample(*args, **kwargs)
+
+    monkeypatch.setattr(component, "create_sampling_plan", tracked_sample)
+    response = await app.run_job(
+        "home_evaluate",
+        sampling=True,
+        target_queries={target_id: ["fact:1"]},
+        sampling_policy={"max_cases": 2, "max_queries": 2},
+    )
+    assert response.success, response.answer
+    assert response.answer["execution_mode"] == "mixed_validation"
+    run = Path(response.answer["result_dir"])
+    manifest = read_json(run / "manifest.json")
+    plan = read_json(prepared / manifest["sampling"]["plan_path"])
+    assert plan["prefer_reusable_background"] is (target_id == "1")
+    assert set(manifest["construction_sources"]) == {"1"}
+    events = FakeFactory.instances[-1].events
+    assert ("1", "upload") in events
+    assert not any(event[:2] == ("1", "build") for event in events)
+    assert any(event[:2] == ("2", "build") for event in events)
+    verify_evaluation(prepared, run, manifest["commit_sha"])
+
+
+def test_discarded_uncovered_target_does_not_disable_memory_preference(monkeypatch):
+    monkeypatch.setattr(sampling.time, "time_ns", lambda: 42)
+    policy = sampling.SamplingPolicy(max_cases=1, max_queries=1)
+    targets = {"1": [], "2": []}
+    ordinary = sampling.create_sampling_plan(cases(), {}, policy, target_queries=targets)
+    retained = set(ordinary["targets"]["retained_case_ids"])
+    plan = sampling.create_sampling_plan(
+        cases(),
+        {},
+        policy,
+        target_queries=targets,
+        reusable_case_ids=retained,
+    )
+    assert plan["prefer_reusable_background"] is True
+    assert plan["case_ids"] == ordinary["case_ids"]
+    assert len(plan["targets"]["trimmed_case_ids"]) == 1

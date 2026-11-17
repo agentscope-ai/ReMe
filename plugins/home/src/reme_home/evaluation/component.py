@@ -81,6 +81,19 @@ def selected_cases(cases, plan):
     return result
 
 
+def retain_sampled_reuse(reuse, cases, plan):
+    """Keep reviewed provenance only for the final selection, without another draw."""
+    reuse["target_case_ids"] = plan.get("targets", {}).get("retained_case_ids", [])
+    had_sources = bool(reuse.get("case_sources"))
+    retained = {case.case_id for case in cases}
+    for field in ("case_sources", "rebuild_reasons", "reuse_reasons"):
+        if field in reuse:
+            reuse[field] = {key: value for key, value in reuse[field].items() if key in retained}
+    reuse["selected"] = bool(reuse.get("case_sources"))
+    if had_sources and not reuse["selected"]:
+        reuse["reason"] = "no_reusable_snapshot_for_sampled_cases"
+
+
 class HomeEvaluation(BaseComponent):
     """Own evaluation tasks; the application owns the host judge Job lifecycle."""
 
@@ -218,10 +231,8 @@ class HomeEvaluation(BaseComponent):
                 }
                 if "target_selection" in manifest:
                     recovery_plan["targets"] = manifest["target_selection"]
-        # With no valid targets, review/draw precedes sampling. A selected
-        # non-init-parent replay supplies its historical question set instead.
-        valid_targets = set(spec.target_queries or {}) & {case.case_id for case in cases}
-        defer_sampling = spec.reuse_construction_from is None and not valid_targets
+        # Automatic reuse reviews all available cases before final sampling.
+        defer_sampling = spec.reuse_construction_from is None
         sampling_state = (
             self.history.sampling_state()
             if spec.sampling and not spec.debug and previous is None and not defer_sampling
@@ -358,7 +369,8 @@ class HomeEvaluation(BaseComponent):
                     spec,
                     environment,
                     cases,
-                    replay_selection=deferred_sampling,
+                    replay_selection=deferred_sampling
+                    and not (set(spec.target_queries or {}) & {case.case_id for case in cases}),
                 )
             if context is not None:
                 identity = context.get("context", context)
@@ -397,17 +409,11 @@ class HomeEvaluation(BaseComponent):
                         await blocking(self.history.sampling_state),
                         spec.sampling_policy,
                         target_queries=spec.target_queries,
+                        reusable_case_ids=set(reuse["case_sources"]) if reuse and reuse["selected"] else None,
                     )
                 cases = selected_cases(cases, sampling_plan)
                 if reuse is not None:
-                    had_sources = bool(reuse.get("case_sources"))
-                    retained = {case.case_id for case in cases}
-                    for field in ("case_sources", "rebuild_reasons", "reuse_reasons"):
-                        if field in reuse:
-                            reuse[field] = {key: value for key, value in reuse[field].items() if key in retained}
-                    reuse["selected"] = bool(reuse.get("case_sources"))
-                    if had_sources and not reuse["selected"]:
-                        reuse["reason"] = "no_reusable_snapshot_for_sampled_cases"
+                    retain_sampled_reuse(reuse, cases, sampling_plan)
             if reuse is not None and reuse["selected"]:
                 sources, archives = await blocking(
                     case_reuse_inputs,

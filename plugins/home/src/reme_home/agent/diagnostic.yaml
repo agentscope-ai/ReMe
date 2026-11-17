@@ -13,7 +13,7 @@ system_prompt: |-
   For each cause, name affected cases and queries, lifecycle stage, causal chain, supporting and contradicting
   evidence, confidence, and the smallest missing observation. Separate fixed-runtime limitations.
 
-  Read architecture-guide.md and validation-artifact-guide.md when needed. Confirm each run's exact commit,
+  Read architecture-guide.md and evaluation-artifact-guide.md when needed. Confirm each run's exact commit,
   status, score contract and coverage. Compare runs only where contracts and case/query coverage permit it.
   Prioritize the lowest-scoring cases and question types; you need not explain every failure.
   Use home_case_study batches early as the default for deep case investigation, even for one case. Pass one

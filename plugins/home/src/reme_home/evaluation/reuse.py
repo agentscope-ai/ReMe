@@ -210,8 +210,10 @@ def verify_case_reuse(home, run, manifest, commit):
         raise ValueError("Reused evidence requires host-selected per-case construction sources")
     if "probability_selected" in reuse:
         targets = set(manifest.get("target_selection", {}).get("retained_case_ids", []))
+        # Legacy manifests allowed reviewed targets to bypass the draw.
+        requires_draw = set(sources) if reuse.get("probability_scope") == "all_cases" else set(sources) - targets
         if targets != set(reuse.get("target_case_ids", [])) or (
-            set(sources) - targets and reuse["probability_selected"] is not True
+            requires_draw and reuse["probability_selected"] is not True
         ):
             raise ValueError("Reused cases require target priority or a successful host probability draw")
     for case_id, source in sources.items():
@@ -315,7 +317,7 @@ async def _review_source(wrapper, home, prepared, *, memory_limit_mib=None):
 
 
 async def automatic_reuse(wrapper, home, prepared, *, memory_limit_mib=None, target_case_ids=()):
-    """Always reuse authorized targets; draw once for other authorized cases."""
+    """Review all available sources, then draw once for all authorized cases."""
     if prepared is None:
         return None
     if "recovery" in prepared:
@@ -330,7 +332,7 @@ async def automatic_reuse(wrapper, home, prepared, *, memory_limit_mib=None, tar
         "source_reviews": {},
         "case_sources": {},
         "target_case_ids": sorted(target_case_ids),
-        "probability_scope": "untargeted_cases" if target_case_ids else "all_cases",
+        "probability_scope": "all_cases",
         "probability_selected": None,
     }
     pending = {case.case_id: case for case in prepared.get("requested_cases", prepared["cases"])}
@@ -373,23 +375,16 @@ async def automatic_reuse(wrapper, home, prepared, *, memory_limit_mib=None, tar
                 selection["replay_selection"] = group["replay_selection"]
                 break
     if approved:
-        targets = set(target_case_ids)
-        selection["case_sources"] = {key: source for key, source in approved.items() if key in targets}
-        if set(approved) - targets:
-            draw = select_query_only()
-            selection.update({key: value for key, value in draw.items() if key != "selected"})
-            selection["probability_selected"] = draw["selected"]
-            if draw["selected"]:
-                selection["case_sources"].update(approved)
+        draw = select_query_only()
+        selection.update({key: value for key, value in draw.items() if key != "selected"})
+        selection["probability_selected"] = draw["selected"]
+        if draw["selected"]:
+            selection["case_sources"].update(approved)
         selection["selected"] = bool(selection["case_sources"])
         selection["reason"] = (
-            "target_cases_reused"
-            if selection["case_sources"] and targets
-            else (
-                "query_only_selected_by_60_percent_policy"
-                if selection["selected"]
-                else "full_validation_selected_by_60_percent_policy"
-            )
+            "query_only_selected_by_60_percent_policy"
+            if selection["selected"]
+            else "full_validation_selected_by_60_percent_policy"
         )
     else:
         selection["reason"] = "construction_not_equivalent"
@@ -402,7 +397,5 @@ async def automatic_reuse(wrapper, home, prepared, *, memory_limit_mib=None, tar
         for case in prepared.get("requested_cases", prepared["cases"])
         if case.case_id not in selection["case_sources"]
     }
-    selection["reuse_reasons"] = {
-        key: "target_case" if key in target_case_ids else "60_percent_policy" for key in selection["case_sources"]
-    }
+    selection["reuse_reasons"] = {key: "60_percent_policy" for key in selection["case_sources"]}
     return selection

@@ -165,7 +165,7 @@ All prepared outputs live under `workspace_dir/home/` (paths below are relative 
   repository. See the [workspace and modification boundary](src/reme_home/runtime_docs/architecture-guide.md#workspace-and-modification-boundary)
   for their roles and editable scope. Source exports exclude uncommitted edits;
   `install_projects` paths are relative to the assembled evaluation tree.
-- `docs/architecture-guide.md` and `docs/validation-artifact-guide.md`: guides
+- `docs/architecture-guide.md` and `docs/evaluation-artifact-guide.md`: guides
   shipped with the installed Home plugin, covering candidate development and
   investigation of evaluation artifacts.
 - `metadata/preparation.json`: completion record, config/data/code
@@ -249,9 +249,9 @@ equivalence. Automatic sampled/budgeted selection instead invokes the host's
 equivalence reviewer and 60% replay policy. Runs record both commits.
 
 Results use `home/evaluations/<branch>/<commit-prefix>/<ascending-run-id>/`.
-The [artifact guide](src/reme_home/runtime_docs/validation-artifact-guide.md#saved-files)
+The [artifact guide](src/reme_home/runtime_docs/evaluation-artifact-guide.md#inspecting-a-result)
 is the reference for saved files, authoritative query records, compaction and
-failure evidence. Its [summary reference](src/reme_home/runtime_docs/validation-artifact-guide.md#summary-fields)
+failure evidence. Its [summary reference](src/reme_home/runtime_docs/evaluation-artifact-guide.md#evaluation-outputs)
 covers score denominators, token accounting, debug fields and summary rebuilding.
 Before comparing runs, verify completed scored execution, infrastructure outcomes,
 candidate code and complete case/query coverage.
@@ -261,7 +261,7 @@ preserving its structured answer and result directory; candidate failures remain
 ordinary evaluation observations. Successful Jobs returning empty answers count
 as candidate failures. Construction failure-rate tolerance applies only to
 candidate errors; infrastructure or unclassified failures always reject construction.
-See [failure interpretation](src/reme_home/runtime_docs/validation-artifact-guide.md#investigating-a-result)
+See [failure interpretation](src/reme_home/runtime_docs/evaluation-artifact-guide.md#inspecting-a-result)
 for structured error classification.
 
 Run/case/query `failure.json` files preserve diagnostics. Interrupted/fail-fast
@@ -285,7 +285,7 @@ returns `success=false` for candidate failures as well as infrastructure failure
 It cannot reuse construction. Case/query selections refer to the selected mode's
 dataset; omitted selections run all its cases/queries.
 Debug results retain execution counts and artifacts, with null mean scores.
-See the [summary reference](src/reme_home/runtime_docs/validation-artifact-guide.md#summary-fields)
+See the [summary reference](src/reme_home/runtime_docs/evaluation-artifact-guide.md#evaluation-outputs)
 for coverage fields and manifest mode.
 
 The former `dataset_kind` input is rejected; use `debug` instead. Debug results
@@ -566,7 +566,7 @@ checksum checks. A later full rebuild considers the full training set again.
 The `home.evaluation_history` Component discovers successful scored training
 results and rebuilds sampling observations from saved evidence. Low scores remain
 valid observations; infrastructure failures, debug and incomplete runs are excluded.
-See [history and sampling evidence](src/reme_home/runtime_docs/validation-artifact-guide.md#evaluation-history-and-adaptive-sampling-evidence)
+See [history and sampling evidence](src/reme_home/runtime_docs/evaluation-artifact-guide.md#evaluation-inputs)
 for eligibility, started/successful rounds, saved plans and cache recovery.
 The full summary is the durable completion boundary: cancellation during later
 history bookkeeping does not relabel the completed evaluation. Failed registration
@@ -612,9 +612,9 @@ reme home_compare_memory validation_path=evaluations/candidate/abcdef0/1 target_
 ```
 
 `validation_path` is absolute or relative to `home/`. See
-[read-only evaluation inspection](src/reme_home/runtime_docs/validation-artifact-guide.md#read-only-evaluation-inspection)
+[read-only evaluation inspection](src/reme_home/runtime_docs/evaluation-artifact-guide.md#inspecting-a-result)
 for pagination, commit-prefix resolution, previews and source pointers, and
-[memory checkpoint tools](src/reme_home/runtime_docs/validation-artifact-guide.md#memory-checkpoint-tools)
+[memory checkpoint tools](src/reme_home/runtime_docs/evaluation-artifact-guide.md#memory-evidence-tools)
 for evidence provenance, missing-history states, comparison references and limits.
 
 Host callers use the same Jobs through `app.run_job()`. For case-scoped agent
@@ -671,7 +671,7 @@ still return a text report with per-case metadata. Do not supply both path names
 or both case selectors. Other inspection Jobs retain their `validation_path` argument.
 
 The case-study toolkit and mandatory read-only OS sandbox are described in the
-[artifact guide](src/reme_home/runtime_docs/validation-artifact-guide.md#single-case-diagnostic-agent).
+[artifact guide](src/reme_home/runtime_docs/evaluation-artifact-guide.md#focused-case-studies).
 The host pins case/evaluation selectors and code revision. Direct code reads can
 see current worktree changes; use revision-pinned Jobs to establish evaluated behavior.
 
@@ -773,10 +773,13 @@ current budget. Candidates whose direct parent is init always sample within budg
 even when reusing memory; this applies to every child of init, not just the first
 formal evaluation. A rebuild decision or lack of a compatible source also samples.
 
-Targeted formal evaluations first fix their question selection, then find reusable
-construction snapshots in completed scored ancestor runs. Authorized target cases
-always reuse memory; one 60% draw controls reuse for background cases only. No draw
-is needed when no background case has an authorized snapshot. Budgeted unsampled
+Targeted formal evaluations review construction equivalence before final sampling.
+One 60% draw controls reuse for all authorized cases, including targets. When the
+draw selects reuse and every retained target case has an authorized snapshot,
+remaining case slots prefer other authorized cases; if these run out, sampling
+fills from cases requiring reconstruction. Otherwise, background cases are sampled
+from the full training set. Target cases exceeding the budget are sampled down
+before checking coverage; target questions still take priority within the budget. Budgeted unsampled
 host calls retain their exact selection and apply the draw to reusable cases.
 The host checks dataset/runtime/config/model fingerprints, archive integrity,
 successful source answers per case. Missing or invalid snapshots do not disqualify

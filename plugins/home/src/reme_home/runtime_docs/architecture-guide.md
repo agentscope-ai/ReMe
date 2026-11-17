@@ -75,7 +75,7 @@ valid donor tar; missing cases cause a preflight error. There is no `eval_only`
 flag. Host-installed benchmark judge plugins score answers outside Docker and
 outside the candidate repository.
 
-See `validation-artifact-guide.md` for saved evidence and score interpretation.
+See `evaluation-artifact-guide.md` for saved evidence and score interpretation.
 
 ## Candidate versions
 

@@ -152,7 +152,7 @@ async def test_python_job_prepares_once(app, inputs):
     assert not (root / "home/datasets/debug-cases/derivation.json").exists()
     docs = root / "home/docs"
     resources = resource_files("reme_home").joinpath("runtime_docs")
-    assert sorted(path.name for path in docs.iterdir()) == ["architecture-guide.md", "validation-artifact-guide.md"]
+    assert sorted(path.name for path in docs.iterdir()) == ["architecture-guide.md", "evaluation-artifact-guide.md"]
     for path in docs.iterdir():
         assert path.read_bytes() == resources.joinpath(path.name).read_bytes()
     assert command(root / "home/code/repo", "branch", "--show-current") == "init"
@@ -284,7 +284,7 @@ async def test_failures_restore_original_workspace_and_allow_retry(app, inputs, 
             original_read = Path.read_bytes
 
             def read_bytes(path):
-                if path.name == "validation-artifact-guide.md":
+                if path.name == "evaluation-artifact-guide.md":
                     raise FileNotFoundError("missing packaged document")
                 return original_read(path)
 

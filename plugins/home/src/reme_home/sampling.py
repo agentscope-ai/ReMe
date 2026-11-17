@@ -35,10 +35,11 @@ def create_sampling_plan(
     *,
     eligible_query_ids: Mapping[str, list[str]] | None = None,
     target_queries: Mapping[str, list[str] | None] | None = None,
+    reusable_case_ids: set[str] | None = None,
 ) -> dict:
     """Draw without replacement, without advancing state or writing an attempted plan."""
     if target_queries:
-        return _targeted_plan(cases, state, policy, target_queries, eligible_query_ids)
+        return _targeted_plan(cases, state, policy, target_queries, eligible_query_ids, reusable_case_ids)
     if eligible_query_ids is not None:
         cases = [case for case in cases if case.case_id in eligible_query_ids]
     if not cases:
@@ -102,7 +103,7 @@ def create_sampling_plan(
     }
 
 
-def _targeted_plan(cases, state, policy, requested, eligibility):
+def _targeted_plan(cases, state, policy, requested, eligibility, reusable_case_ids=None):
     """Prioritize valid targets, trim within limits, then fill without replacement."""
     available = {
         case.case_id: [
@@ -186,7 +187,12 @@ def _targeted_plan(cases, state, policy, requested, eligibility):
 
     retained_queries = {key: [qid for qid in selected[key] if qid in targets[key]] for key in retained}
     background = [key for key in available if key not in selected]
-    for key in _weighted_order(background, case_weights, rng, lambda value: value):
+    ordered_background = _weighted_order(background, case_weights, rng, lambda value: value)
+    prefer_reusable = reusable_case_ids is not None and set(retained) <= reusable_case_ids
+    if prefer_reusable:
+        # Preserve weighted order within each pool; rebuild only when reusable cases run out.
+        ordered_background.sort(key=lambda key: key not in reusable_case_ids)
+    for key in ordered_background:
         if len(selected) >= case_limit or remaining == 0:
             break
         selected[key] = []
@@ -226,6 +232,7 @@ def _targeted_plan(cases, state, policy, requested, eligibility):
         "targets": details,
         "case_draw_weights": case_weights,
         "target_case_draw_weights": target_weights,
+        "prefer_reusable_background": prefer_reusable,
         "query_draw_weights": query_weights,
         "eligibility": dict(eligibility) if eligibility is not None else None,
     }
