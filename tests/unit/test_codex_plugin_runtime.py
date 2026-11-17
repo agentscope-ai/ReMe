@@ -18,7 +18,9 @@ PLUGIN = Path(__file__).resolve().parents[2] / "integrations/codex/plugins/reme"
 def runtime(tmp_path, monkeypatch):
     monkeypatch.syspath_prepend(str(PLUGIN))
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))
-    return importlib.import_module("reme_runtime"), importlib.import_module("reme_config")
+    config = importlib.import_module("reme_config")
+    monkeypatch.setattr(config, "MCP_CONNECTION", {"command": "python3"})
+    return importlib.import_module("reme_runtime"), config
 
 
 @pytest.mark.parametrize(
