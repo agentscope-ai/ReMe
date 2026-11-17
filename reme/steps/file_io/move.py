@@ -192,9 +192,21 @@ def _retarget_write_guard(workspace_dir: Path, allowed_paths):
     passed to ``retarget_links`` for both the dry-run precheck and the real
     rewrite pass, so the constraint is re-evaluated on the files the rewrite
     actually touches — not just on the snapshot the precheck saw.
+
+    The gate authorizes the same literal file identity the writer uses:
+    ``retarget_links`` reads and writes ``workspace_dir / rel`` verbatim,
+    while ``resolve_path`` strips surrounding whitespace before resolving.
+    Authorizing the trimmed form would vet a different file than the one
+    modified — a graph-registered ``" allowed/ref.md"`` (sibling directory
+    named with a leading space, distinct from ``allowed/``) would pass as
+    the trimmed, in-scope ``allowed/ref.md``. Paths whose identity would
+    change under trimming are therefore denied outright (fail closed), so
+    the vetted path and the written path always coincide.
     """
 
     def guard(rel: str) -> str | None:
+        if rel != rel.strip():
+            return f"no permission to retarget links in {rel!r}: path identity would change under trimming"
         resolved, err = resolve_path(workspace_dir, rel)
         if err or resolved is None or not _check_path_permission(workspace_dir, resolved, allowed_paths):
             return f"no permission to retarget links in {rel}"

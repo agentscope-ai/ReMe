@@ -367,6 +367,46 @@ async def test_move_scope_rechecks_permission_when_link_appears_after_precheck()
 
 
 @pytest.mark.asyncio
+async def test_move_scope_rejects_retarget_paths_that_change_under_trimming():
+    """The guard vets the literal path retargeting writes, not a trimmed form.
+
+    ``resolve_path`` strips surrounding whitespace, while ``retarget_links``
+    reads and writes ``workspace_dir / rel`` verbatim. A graph-registered
+    ``" allowed/ref.md"`` — a sibling directory named with a leading space,
+    distinct from ``allowed/`` — used to be permission-checked as the trimmed,
+    in-scope ``allowed/ref.md`` while the writer modified the literal,
+    out-of-scope file. A graph path whose identity would change under
+    trimming now fails closed: the move is rejected and the out-of-scope
+    note is untouched.
+    """
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        workspace = Path(tmp)
+        note_body = "target\n"
+        padded_rel = " allowed/ref.md"
+        padded_body = "See [[allowed/note.md]]\n"
+        note_abs = _seed(workspace, "allowed/note.md", note_body)
+        padded_abs = _seed(workspace, padded_rel, padded_body)
+        store = await _make_store()
+        await _register_in_graph(store, workspace, "allowed/note.md", note_body)
+        await _register_in_graph(store, workspace, padded_rel, padded_body)
+        scope = {"_allowed_paths": ["allowed"]}
+
+        resp = await _run(MoveStep, store, src_path="allowed/note.md", dst_path="allowed/renamed.md", **scope)
+        assert resp.success is False
+        assert "no permission" in str(resp.answer).lower()
+        # The literal " allowed/ref.md" was never rewritten: its link still
+        # points at the original path.
+        assert padded_abs.read_text(encoding="utf-8") == padded_body
+        assert "[[allowed/renamed.md]]" not in padded_abs.read_text(encoding="utf-8")
+        # Rejected before any mutation: the dry-run precheck vets the same
+        # guard, so the source is intact and no destination copy exists.
+        assert note_abs.read_text(encoding="utf-8") == note_body
+        assert not (workspace / "allowed/renamed.md").exists()
+        assert resp.metadata.get("retarget_blocked_path") == padded_rel
+        await store.close()
+
+
+@pytest.mark.asyncio
 async def test_frontmatter_delete_scope_rejects_outside_note():
     """Exact-file scope denies removing frontmatter keys from another note."""
     with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
