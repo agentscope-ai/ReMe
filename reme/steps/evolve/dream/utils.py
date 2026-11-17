@@ -6,7 +6,7 @@ from pathlib import Path
 
 import yaml
 
-from .._evolve import now
+from .._evolve import now, strip_frontmatter
 from ...base_step import BaseStep
 from ....schema import DreamState
 
@@ -86,6 +86,8 @@ def pack_paths(
 ) -> str:
     """Pack paths into a single string.
 
+    YAML front matter is stripped from each file; only the body is packed.
+
     With ``max_total_chars`` set, blocks are packed in the given order until
     the accumulated size would exceed the budget; the first file is always
     kept and a trailer records how many files were omitted.
@@ -98,10 +100,15 @@ def pack_paths(
             block = f"### {rel}\n(file not found)\n"
         else:
             try:
-                text = target.read_text(encoding="utf-8")
+                raw = target.read_text(encoding="utf-8")
             except Exception as e:  # noqa: BLE001
                 block = f"### {rel}\n(error reading: {type(e).__name__}: {e})\n"
             else:
+                # Daily notes carry YAML front matter (``name``/``description``/``tags``).
+                # Packing it verbatim makes the extraction model mimic that shape and emit
+                # units without ``bucket``/``summary``, which then fail DreamUnit validation
+                # (issue #730). Only the body is relevant material.
+                text = strip_frontmatter(raw)[1]
                 suffix = "\n\n[truncated]\n" if len(text) > limit_per_file else ""
                 block = f"### {rel}\n{text[:limit_per_file]}{suffix}\n"
         if max_total_chars is not None and index > 0 and total + len(block) > max_total_chars:

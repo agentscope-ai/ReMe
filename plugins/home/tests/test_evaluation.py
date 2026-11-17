@@ -3,10 +3,12 @@
 # pylint: disable=missing-function-docstring,missing-class-docstring,unused-argument,protected-access
 
 import asyncio
+from contextlib import contextmanager
 import io
 import json
 from pathlib import Path
 import shutil
+import socket
 import sys
 import tarfile
 from unittest.mock import AsyncMock
@@ -48,6 +50,24 @@ def os_sandbox_available():
         return
     if shutil.which(executable) is None:
         pytest.skip(f"Sandbox boundary test requires {executable} on PATH")
+
+
+@contextmanager
+def host_network_command():
+    """Keep a reachable host listener alive for the sandbox network check."""
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        address = listener.getsockname()
+        with socket.create_connection(address, timeout=1):
+            pass
+        yield [
+            sys.executable,
+            "-I",
+            "-B",
+            "-c",
+            f"import socket; socket.create_connection({address!r}, timeout=1).close()",
+        ]
 
 
 def archive(path, files):

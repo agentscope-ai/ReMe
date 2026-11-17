@@ -21,7 +21,7 @@ from ....schema import ProactiveStateFile, ProactiveTopic
 from ....schema.proactive import clamp_confidence
 from ....utils import get_logger
 from ...file_io._file_io import get_path_lock
-from .._evolve import now
+from .._evolve import now, strip_frontmatter
 from ..dream.utils import clean_paths, recent_dates, scan_day_files
 
 logger = get_logger(log_to_file=False)
@@ -531,34 +531,6 @@ def parse_extract_reply(text: str) -> dict:
         if isinstance(data, dict) and data and any(isinstance(data.get(key), list) for key in EXTRACT_SECTIONS):
             return data
     return {}
-
-
-def strip_frontmatter(text: str) -> tuple[dict, str]:
-    """Split leading ``---`` YAML frontmatter blocks from the body.
-
-    Handles files with several consecutive frontmatter blocks; returns
-    ``(merged_meta, body)``. Parse failures degrade to empty meta.
-    """
-    meta: dict = {}
-    body = text or ""
-    while True:
-        stripped = body.lstrip()
-        if not stripped.startswith("---"):
-            break
-        rest = stripped[3:]
-        end = rest.find("\n---")
-        if end < 0:
-            break
-        block = rest[:end]
-        body = rest[end + 4 :]
-        try:
-            data = yaml.safe_load(block)
-        except yaml.YAMLError:
-            data = None
-        if isinstance(data, dict):
-            for key, value in data.items():
-                meta.setdefault(str(key), value)
-    return meta, body.strip()
 
 
 def _contained_workspace_path(ws: Path, rel_path: str) -> Path | None:
