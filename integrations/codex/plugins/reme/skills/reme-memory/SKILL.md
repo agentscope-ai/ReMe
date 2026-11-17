@@ -30,6 +30,12 @@ Settings are edited in that directory's `config.json`. After changing `mcpUrl`, 
 `integrations/configure_mcp.py codex --transport http`, reinstall the plugin from the generated source, and restart Codex
 so the native connection and Hooks use the same address.
 
+A same-machine HTTP service may expose `reme_settings_read` and `reme_settings_update` directly
+when started with `service.codex_settings_file` pointing at this profile's JSON file. The native
+form then edits the same file read by Hooks and server-side search. Only change settings at the
+user's request. Connection addresses and service scheduling remain outside this HTTP form.
+HTTP recall and explicit search use server defaults when `limit` and `min_score` are omitted.
+
 In stdio mode, use `reme_status` for connection health, queued turns, recent
 recall/write activity, the daily schedule, next run, and last consolidation result. Local queue
 information remains available when ReMe is offline. The native **ReMe status** action opens a

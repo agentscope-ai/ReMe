@@ -328,14 +328,13 @@ def recall(config: dict, payload: dict) -> dict:
     query = payload.get("prompt")
     if not config["auto_recall"] or not isinstance(query, str) or not query.strip():
         return {}
+    arguments = {"query": query.strip()}
+    if "url" not in MCP_CONNECTION:
+        arguments.update(limit=config["recall_limit"], min_score=config["recall_min_score"])
     result = call(
         config,
         "search",
-        {
-            "query": query.strip(),
-            "limit": config["recall_limit"],
-            "min_score": config["recall_min_score"],
-        },
+        arguments,
         config["recall_timeout"],
     )
     answer = result.get("answer")

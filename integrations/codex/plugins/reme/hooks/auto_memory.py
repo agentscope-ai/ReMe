@@ -257,10 +257,13 @@ def recall(config: dict, payload: dict) -> dict:
     context = memory_guidance(config)
     if config["autoRecall"]:
         try:
+            arguments = {"query": query.strip()}
+            if "url" not in reme_config.MCP_CONNECTION:
+                arguments.update(limit=config["searchLimit"], min_score=config["recallMinScore"])
             result = call(
                 config,
                 "search",
-                {"query": query.strip(), "limit": config["searchLimit"], "min_score": config["recallMinScore"]},
+                arguments,
                 config["requestTimeoutMs"] / 1000,
             )
             answer = result.get("answer")

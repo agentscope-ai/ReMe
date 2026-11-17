@@ -170,6 +170,69 @@ def _chunk(
     )
 
 
+@pytest.mark.asyncio
+async def test_direct_mcp_search_and_gui_use_the_same_profile_file(tmp_path, monkeypatch):
+    """A GUI save changes omitted defaults on another connection, while explicit arguments still win."""
+    from types import SimpleNamespace
+
+    from fastmcp import Client
+    from integrations.codex.plugins.reme import reme_config
+    from reme.components.service import HttpService
+
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))
+    path = reme_config.data_dir() / "config.json"
+    reme_config.write_json(path, {"searchLimit": 1, "recallMinScore": 0.5})
+    store = FakeSearchStore(
+        keyword_results=[
+            _chunk("a", "daily/a.md", "first", "keyword", 2.0),
+            _chunk("b", "daily/b.md", "second", "keyword", 0.2),
+        ]
+    )
+    context = ApplicationContext(
+        workspace_dir=str(tmp_path / "workspace"), service={"backend": "http", "codex_settings_file": str(path)}
+    )
+
+    class SearchJob:
+        """Invoke the real search Step through the shared HTTP service's MCP registration."""
+
+        name = "search"
+        description = "Search workspace"
+        parameters = {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "limit": {"type": "integer", "default": 5},
+                "min_score": {"type": "number", "default": 0.0},
+            },
+        }
+
+        async def __call__(self, **kwargs):
+            return await SearchStep(app_context=context, file_store=store, expand_links=False)(RuntimeContext(**kwargs))
+
+    async def lifecycle():
+        pass
+
+    service = HttpService(codex_settings_file=str(path))
+    service.build_service(SimpleNamespace(config=SimpleNamespace(app_name="test"), start=lifecycle, close=lifecycle))
+    service.add_job(SearchJob())
+    async with Client(service.mcp_server) as gui, Client(service.mcp_server) as model:
+        tools = {tool.name: tool for tool in await model.list_tools()}
+        schema = getattr(tools["search"], "input_schema", None) or getattr(tools["search"], "inputSchema")
+        assert "default" not in schema["properties"]["limit"]
+        assert set(tools) == {"search", "reme_settings_read", "reme_settings_update"}
+        first = await model.call_tool("search", {"query": "fact"})
+        assert "daily/a.md" in str(first.content) and "daily/b.md" not in str(first.content)
+        await gui.call_tool("reme_settings_update", {"set": {"searchLimit": 2, "recallMinScore": 0}})
+        assert reme_config.load_config()["searchLimit"] == 2
+        second = await model.call_tool("search", {"query": "fact"})
+        assert "daily/b.md" in str(second.content)
+        explicit = await model.call_tool("search", {"query": "fact", "limit": 1})
+        assert "daily/b.md" not in str(explicit.content)
+        await gui.call_tool("reme_settings_update", {"set": {"recallMinScore": 0.5}})
+        override = await model.call_tool("search", {"query": "fact", "min_score": 0})
+        assert "daily/b.md" in str(override.content)
+
+
 @pytest.mark.parametrize("step_cls", _HYBRID_SEARCH_STEPS)
 @pytest.mark.asyncio
 async def test_search_rrf_merges_vector_and_keyword_by_chunk_id(step_cls):

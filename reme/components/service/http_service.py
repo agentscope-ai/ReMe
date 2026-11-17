@@ -1,6 +1,8 @@
 """HTTP service: expose jobs through JSON/SSE endpoints and MCP tools."""
 
 import asyncio
+from copy import deepcopy
+from ipaddress import ip_address
 import warnings
 from collections.abc import AsyncGenerator
 from pathlib import Path
@@ -19,7 +21,7 @@ from ..job import BaseJob, StreamJob
 from ...constants import REME_DEFAULT_HOST, REME_DEFAULT_PORT
 from ...schema import Request, Response
 from ...utils import execute_stream_task, resolve_web_static_dir
-from .mcp_tools import add_mcp_job
+from .mcp_tools import make_mcp_job_tool
 
 if TYPE_CHECKING:
     from ...application import Application
@@ -46,6 +48,7 @@ class HttpService(BaseService):
         mcp_enabled: bool = True,
         mcp_path: str = "/mcp",
         mcp_stateless_http: bool = False,
+        codex_settings_file: str | None = None,
         injected_job_kwargs: dict[str, Any] | None = None,
         tool_error_on_failure: bool = False,
         **kwargs,
@@ -58,6 +61,12 @@ class HttpService(BaseService):
         self.mcp_enabled = mcp_enabled
         self.mcp_path = self._validate_mcp_path(mcp_path)
         self.mcp_stateless_http = mcp_stateless_http
+        self.codex_settings_file = Path(codex_settings_file).expanduser().resolve() if codex_settings_file else None
+        if self.codex_settings_file:
+            # These tools edit a local host profile, not a remote caller's settings.
+            loopback = host == "localhost" or ip_address(host).is_loopback
+            if not mcp_enabled or not loopback:
+                raise ValueError("codex_settings_file requires MCP on a loopback listener")
         self.injected_job_kwargs = dict(injected_job_kwargs or {})
         self.tool_error_on_failure = tool_error_on_failure
         self.mcp_server = None
@@ -77,7 +86,18 @@ class HttpService(BaseService):
         if self.mcp_enabled:
             from fastmcp import FastMCP
 
-            self.mcp_server = FastMCP(name=app.config.app_name)
+            capabilities = {}
+            if self.codex_settings_file:
+                from integrations.codex.plugins.reme import reme_config, reme_settings
+
+                reme_config.load_config(self.codex_settings_file, check_connection=False)
+                capabilities["openai/settings"] = {
+                    "readTool": reme_settings.SETTINGS_READ,
+                    "updateTool": reme_settings.SETTINGS_UPDATE,
+                }
+            self.mcp_server = FastMCP(name=app.config.app_name, experimental_capabilities=capabilities)
+            if self.codex_settings_file:
+                reme_settings.register_settings(self.mcp_server, reme_config, path=self.codex_settings_file)
             self.mcp_app = self.mcp_server.http_app(
                 path=self.mcp_path,
                 transport="streamable-http",
@@ -125,12 +145,15 @@ class HttpService(BaseService):
                 if job.enabled
                 and job.enable_serve
                 and (self.jobs is None or name in self.jobs)
-                and f"/{job.name}" == self.mcp_path
+                and (
+                    f"/{job.name}" == self.mcp_path
+                    or (self.codex_settings_file and job.name in {"reme_settings_read", "reme_settings_update"})
+                )
             )
             if conflicts:
                 names = ", ".join(conflicts)
                 raise ValueError(
-                    f"Job name conflicts with the MCP endpoint {self.mcp_path!r}: {names}",
+                    f"Job name conflicts with the MCP endpoint or native settings tools {self.mcp_path!r}: {names}",
                 )
         super().add_jobs(app)
 
@@ -145,12 +168,19 @@ class HttpService(BaseService):
         else:
             self._add_json_job(job)
             if self.mcp_server is not None:
-                add_mcp_job(
-                    self.mcp_server,
+                tool = make_mcp_job_tool(
                     job,
                     injected_job_kwargs=self.injected_job_kwargs,
                     tool_error_on_failure=self.tool_error_on_failure,
                 )
+                if self.codex_settings_file and job.name == "search":
+                    # A schema literal must not advertise a stale value after the settings file changes.
+                    tool.parameters = deepcopy(tool.parameters)
+                    for name in ("limit", "min_score"):
+                        parameter = tool.parameters.get("properties", {}).get(name, {})
+                        parameter.pop("default", None)
+                        parameter["description"] = parameter.get("description", "") + " Omit to use shared settings."
+                self.mcp_server.add_tool(tool)
         return True
 
     def start_service(self, app: "Application") -> None:

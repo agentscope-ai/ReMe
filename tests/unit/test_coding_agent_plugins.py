@@ -63,6 +63,18 @@ def host_settings(adapter, values):
     }
 
 
+def test_http_recall_leaves_search_defaults_to_the_server(adapter, monkeypatch):
+    """Explicit and automatic searches use the same server-side defaults in native HTTP mode."""
+    if adapter.HOST not in {"codex", "claude-code"}:
+        pytest.skip("This transport migration concerns Claude Code and Codex")
+    config_module = adapter.reme_config if adapter.HOST == "codex" else adapter
+    monkeypatch.setattr(config_module, "MCP_CONNECTION", {"url": "http://127.0.0.1:2333/mcp"})
+    call = Mock(return_value={"answer": "daily/fact.md"})
+    monkeypatch.setattr(adapter, "call", call)
+    adapter.recall(adapter.load_config(), {"prompt": "fact"})
+    assert call.call_args.args[1:3] == ("search", {"query": "fact"})
+
+
 def write_config(adapter, values):
     adapter.write_json(adapter.data_dir() / "config.json", host_settings(adapter, values))
 

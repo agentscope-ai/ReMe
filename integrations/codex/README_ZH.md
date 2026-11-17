@@ -38,7 +38,7 @@ codex plugin add reme@reme-codex
 可要求 Codex 使用 `health_check` 检查连接、`search` 检索记忆；只有用户明确要求整理时调用 `auto_dream`。
 通过 `reme/hooks.log`、本机队列和服务端每日笔记验证自动记录，连接健康不代表某轮对话已经保存。
 HTTP 模式由服务端 `dream_cron` 管理整理计划；插件的 `autoDreamEnabled`、`dreamCron`、`dreamHint`
-只用于 stdio 模式。HTTP 显式搜索使用服务端工具默认值；插件的 `searchLimit`、`recallMinScore` 仍用于自动召回。
+只用于 stdio 模式。HTTP 显式搜索和自动召回统一使用服务端默认值；本地 `searchLimit`、`recallMinScore` 仅用于 stdio 模式。
 
 | 连接方式 | 显式工具 | 设置和本机诊断 | 每日整理 |
 | --- | --- | --- | --- |
@@ -47,6 +47,25 @@ HTTP 模式由服务端 `dream_cron` 管理整理计划；插件的 `autoDreamEn
 
 要使用现有 stdio 实现，在相同配置命令上加 `--transport stdio`，重新安装插件后重启 Codex。
 该模式仍通过 Python 代理连接共享 HTTP 服务。下面保留完整使用指南和截图。
+
+## 无代理的原生设置（同机配置）
+
+ReMe 和 Codex 在同一台机器上时，共享 HTTP MCP 可以直接提供 Codex 设置表单。
+启动时指定 Hook 使用的同一个 JSON 文件：
+
+```bash
+reme start config=default workspace_dir=/absolute/path/to/reme-workspace \
+  service.codex_settings_file=/absolute/path/to/codex-home/reme/config.json
+```
+
+保持默认 HTTP 连接，从 ReMe 的 MCP 卡片打开 **Open MCP settings**。表单校验并原子更新文件；
+Hook 在下次调用时读取，服务端 `search` 每次读取 `searchLimit`、`recallMinScore`。
+显式搜索参数优先。Claude Code 和 Codex 的 HTTP 自动召回不再传入本地搜索默认值，统一使用服务端配置。
+此功能仅支持回环监听和共享的本地配置文件；远程服务不能编辑客户端本地文件。
+不启动代理或额外守护进程。连接地址和原生工具超时由宿主配置，整理计划由 ReMe 服务管理。
+HTTP 表单提供 Hook 和搜索设置，不包含 stdio 状态卡片或插件调度器控件。
+
+远程服务可用现有 `jobs.search.limit`、`jobs.search.min_score` 配置搜索默认值；HTTP Hook 不再覆盖它们。
 
 <details>
 <summary>可选 stdio 模式：原生设置、状态卡片和插件调度器</summary>

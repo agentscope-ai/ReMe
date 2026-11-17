@@ -113,6 +113,8 @@ def test_studio_packages_have_independent_identity() -> None:
         "reme.*",
         "deploy",
         "deploy.*",
+        "integrations.codex.plugins.reme",
+        "integrations.codex.plugins.reme.*",
     ]
     assert "reme_studio*" in main_config["tool"]["setuptools"]["packages"]["find"]["exclude"]
 

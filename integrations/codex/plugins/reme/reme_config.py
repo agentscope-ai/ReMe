@@ -39,12 +39,12 @@ def data_dir() -> Path:
     return Path(os.environ.get(HOME_ENV) or HOME_DEFAULT).expanduser() / "reme"
 
 
-def load_config() -> dict:
+def load_config(path: Path | None = None, *, check_connection: bool = True) -> dict:
     """Read the persistent settings shared by the MCP server and lifecycle hooks."""
-    path = data_dir() / "config.json"
+    path = path if path is not None else data_dir() / "config.json"
     values = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     config = validate_config(values)
-    if "url" in MCP_CONNECTION and validate_url(MCP_CONNECTION["url"]) != config["mcpUrl"]:
+    if check_connection and "url" in MCP_CONNECTION and validate_url(MCP_CONNECTION["url"]) != config["mcpUrl"]:
         raise ValueError("Regenerate and reinstall the HTTP plugin after changing mcpUrl")
     return config
 
@@ -172,15 +172,16 @@ def settings_values(config: dict) -> dict:
     return {key: config[key] for key in DEFAULTS}
 
 
-def update_settings(changes: dict) -> dict:
+def update_settings(changes: dict, path: Path | None = None, *, check_connection: bool = True) -> dict:
     """Validate and merge a UI patch under the same cross-process lock as other editors."""
     if not isinstance(changes, dict) or not changes or changes.keys() - DEFAULTS.keys():
         raise ValueError("Provide at least one supported ReMe setting")
-    with lock(data_dir() / "config.lock") as acquired:
+    path = path if path is not None else data_dir() / "config.json"
+    with lock(path.with_name("config.lock")) as acquired:
         if not acquired:
             raise RuntimeError("Another settings update is in progress; please retry")
-        current = settings_values(load_config())
+        current = settings_values(load_config(path, check_connection=check_connection))
         config = validate_config({**current, **changes})
         values = settings_values(config)
-        write_json(data_dir() / "config.json", values)
+        write_json(path, values)
     return values

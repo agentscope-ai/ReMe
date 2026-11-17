@@ -3,6 +3,7 @@
 import asyncio
 import datetime
 import os
+from pathlib import Path
 from typing import Final
 
 from ._source_format import ALL_RETURNED_MESSAGE, NO_RESULTS_MESSAGE
@@ -50,6 +51,16 @@ class SearchStep(_ToolContextMixin, BaseStep):
     ):
         super().__init__(*args, **kwargs)
         self.seen_ttl_hours = seen_ttl_hours
+
+    def _search_defaults(self) -> dict:
+        """Read the shared local profile on each call, so GUI edits need no server restart."""
+        service_config = getattr(getattr(self.app_context, "app_config", None), "service", None)
+        settings_file = getattr(service_config, "codex_settings_file", None)
+        if not settings_file:
+            return {}
+        from integrations.codex.plugins.reme.reme_config import load_config
+
+        return load_config(Path(settings_file).expanduser(), check_connection=False)
 
     @staticmethod
     def _rrf_merge(
@@ -199,8 +210,11 @@ class SearchStep(_ToolContextMixin, BaseStep):
         self.context.response.metadata.pop("empty_result", None)
         raw_query = self.context.get("query")
         query: str = "" if raw_query is None else str(raw_query).strip()
-        limit: int = int(self.context.get("limit") or _default_limit())
-        min_score: float = float(self.context.get("min_score") or 0.0)
+        settings = self._search_defaults()
+        raw_limit = self.context.get("limit")
+        raw_min_score = self.context.get("min_score")
+        limit: int = int(raw_limit or settings.get("searchLimit", _default_limit()))
+        min_score: float = float(raw_min_score if raw_min_score is not None else settings.get("recallMinScore", 0.0))
         # vector_weight: prefer agent-supplied context value; fallback to YAML kwargs / default 0.7.
         # Convertible numeric inputs are clipped to [0.0, 1.0]; non-numeric inputs are silently ignored.
         raw_vw = self.context.get("vector_weight")

@@ -12,6 +12,9 @@
 启动 ReMe 服务 → 安装 ReMe 插件 → 在 Claude Code 中使用记忆
 ```
 
+HTTP 自动召回与未指定参数的手动搜索一致，不传 `limit` 和 `min_score`，使用 ReMe 服务端默认值。
+本地 `recall_limit`、`recall_min_score` 仅适用于 stdio 模式。同机共享配置参见 [Codex 指南](../codex/README_ZH.md)。
+
 ## 环境要求
 
 - 宿主环境中有 Python 3.11+，可通过 `python3` 执行；可选 stdio 模式还需要 `fastmcp>=4.1.4,<5`。

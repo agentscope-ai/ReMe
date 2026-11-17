@@ -45,8 +45,8 @@ Ask Codex to use `health_check` to check the connection, `search` to recall memo
 for explicitly requested consolidation. Check `reme/hooks.log`, the local queue, and the service's
 daily notes to verify automatic delivery; a successful health check does not prove a turn was saved.
 HTTP mode uses the service's `dream_cron` schedule; the plugin's `autoDreamEnabled`, `dreamCron`,
-and `dreamHint` settings apply to stdio mode only. HTTP search uses the service tool's defaults;
-the plugin's `searchLimit` and `recallMinScore` still control automatic recall.
+and `dreamHint` settings apply to stdio mode only. HTTP searches, including automatic recall, use
+the service's defaults. Local `searchLimit` and `recallMinScore` are only sent by the optional stdio adapter.
 
 | Connection | Explicit tools | Settings and local diagnostics | Daily consolidation |
 | --- | --- | --- | --- |
@@ -56,6 +56,31 @@ the plugin's `searchLimit` and `recallMinScore` still control automatic recall.
 To select the existing stdio implementation, run the same configuration command with
 `--transport stdio`, then reinstall the plugin and restart Codex. It still connects to the shared
 HTTP service through its Python proxy. The following guide and screenshots describe that mode.
+
+## Native settings without a proxy (same-machine profiles)
+
+For a ReMe service and Codex profile on the same machine, the shared HTTP MCP server can expose
+Codex's native settings form directly. Point it at the exact JSON file used by the profile's Hooks:
+
+```bash
+reme start config=default workspace_dir=/absolute/path/to/reme-workspace \
+  service.codex_settings_file=/absolute/path/to/codex-home/reme/config.json
+```
+
+Keep the plugin's default HTTP connection. Open **ReMe → reme MCP server → Open MCP settings**.
+The form validates and atomically updates that file. Hooks read it on their next invocation;
+server-side `search` rereads `searchLimit` and `recallMinScore` for every call. Explicit search
+arguments take precedence. Both Claude Code and Codex HTTP recall omit these arguments, so all
+clients use the same defaults. The MCP schema does not advertise a separate, stale default.
+
+This opt-in feature requires a loopback listener and a shared local profile file. A remote service
+cannot edit a client's local configuration. No proxy, generated settings snapshot, or extra daemon
+is started. Connection addresses and native tool-call timeouts remain in the harness configuration;
+consolidation uses ReMe's service schedule. The HTTP form edits Hook options and search defaults;
+the stdio-only status card and scheduler controls are not added to it.
+
+For a remote service, configure search defaults through its existing `jobs.search.limit` and
+`jobs.search.min_score` options. Local HTTP Hook search defaults no longer override them.
 
 <details>
 <summary>Optional stdio mode: native settings, status card, and plugin scheduler</summary>

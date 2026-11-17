@@ -12,7 +12,7 @@ memory consolidation. Use this skill for focused recall or connection troublesho
 ## Recall
 
 Use the ReMe MCP tools exposed by the host; discover the actual tool names instead of assuming a
-fixed namespace. Search with the user's question and `limit=5`, then `read` useful results by their
+fixed namespace. Search with the user's question; omit `limit` and `min_score` to use server defaults, then `read` useful results by their
 workspace-relative `path`. Cite those paths. Prefer `digest/` for consolidated knowledge;
 `daily/` contains recent notes and `resource/` holds external materials.
 

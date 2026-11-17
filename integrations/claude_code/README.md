@@ -131,6 +131,10 @@ Optional stdio mode uses a host-managed process to forward MCP. Start the host w
 environment containing FastMCP. If ReMe runs on another machine or in another Python environment,
 run `python3 -m pip install "fastmcp>=4.1.4,<5"` in the host environment. Hooks use only the standard library.
 
+In HTTP mode, automatic recall omits `limit` and `min_score`, just like an explicit search
+without overrides. ReMe owns those defaults. The local `recall_limit` and `recall_min_score` options
+apply only to stdio mode. For a same-machine shared settings file, see the [Codex guide](../codex/README.md#native-settings-without-a-proxy-same-machine-profiles).
+
 ## Lifecycle and failure behavior
 
 - `UserPromptSubmit` calls `search` synchronously with a short timeout. Results are bounded and
