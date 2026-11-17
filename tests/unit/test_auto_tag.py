@@ -397,11 +397,12 @@ async def test_auto_tag_direct_llm_accepts_chinese_evidence_without_spaces(tmp_p
     note = tmp_path / "memory/note.md"
     note.parent.mkdir(parents=True, exist_ok=True)
     note.write_text(
-        "---\n"
-        "name: note\n"
-        "description: 宁德时代发布新产品。\n"
-        "---\n"
-        "宁德时代发布新产品。市场反馈良好。\n",
+        """---
+name: note
+description: 宁德时代发布新产品。
+---
+宁德时代发布新产品。市场反馈良好。
+""",
         encoding="utf-8",
     )
 
@@ -422,7 +423,7 @@ async def test_auto_tag_direct_llm_accepts_chinese_evidence_without_spaces(tmp_p
         file_store=_file_store(),
     )
 
-    async def update_frontmatter(name, /, **kwargs):
+    async def update_frontmatter(_name, /, **kwargs):
         post = frontmatter.loads(note.read_text(encoding="utf-8"))
         post.metadata.update(kwargs["metadata"])
         note.write_text(frontmatter.dumps(post), encoding="utf-8")
@@ -442,11 +443,12 @@ async def test_auto_tag_direct_llm_accepts_mixed_chinese_and_english_evidence(tm
     note = tmp_path / "memory/note.md"
     note.parent.mkdir(parents=True, exist_ok=True)
     note.write_text(
-        "---\n"
-        "name: note\n"
-        "description: OpenAI 发布了通义千问新模型。\n"
-        "---\n"
-        "OpenAI 发布了通义千问新模型。用户反馈良好。\n",
+        """---
+name: note
+description: OpenAI 发布了通义千问新模型。
+---
+OpenAI 发布了通义千问新模型。用户反馈良好。
+""",
         encoding="utf-8",
     )
 
@@ -467,7 +469,7 @@ async def test_auto_tag_direct_llm_accepts_mixed_chinese_and_english_evidence(tm
         file_store=_file_store(),
     )
 
-    async def update_frontmatter(name, /, **kwargs):
+    async def update_frontmatter(_name, /, **kwargs):
         post = frontmatter.loads(note.read_text(encoding="utf-8"))
         post.metadata.update(kwargs["metadata"])
         note.write_text(frontmatter.dumps(post), encoding="utf-8")
