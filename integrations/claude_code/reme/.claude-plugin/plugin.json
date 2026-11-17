@@ -1,6 +1,6 @@
 {
   "name": "reme",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Automatic recall, background conversation recording, and explicit MCP memory tools for Claude Code.",
   "author": {
     "name": "EconML team of Alibaba Tongyi Lab",

@@ -13,6 +13,8 @@ from zoneinfo import ZoneInfo
 
 HOME_ENV = "CODEX_HOME"
 HOME_DEFAULT = "~/.codex"
+# Keep the active connection snapshot available if the host removes an old installation cache.
+MCP_CONNECTION = json.loads(Path(__file__).with_name(".mcp.json").read_text(encoding="utf-8"))["mcpServers"]["reme"]
 DEFAULTS = {
     "mcpUrl": "http://127.0.0.1:2333/mcp",
     "autoRecall": True,
@@ -41,7 +43,10 @@ def load_config() -> dict:
     """Read the persistent settings shared by the MCP server and lifecycle hooks."""
     path = data_dir() / "config.json"
     values = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    return validate_config(values)
+    config = validate_config(values)
+    if "url" in MCP_CONNECTION and validate_url(MCP_CONNECTION["url"]) != config["mcpUrl"]:
+        raise ValueError("Regenerate and reinstall the HTTP plugin after changing mcpUrl")
+    return config
 
 
 def validate_config(values: dict) -> dict:

@@ -28,6 +28,11 @@ def adapter(request, tmp_path, monkeypatch):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     monkeypatch.setenv(module.HOME_ENV, str(tmp_path / "host"))
+    # These shared behavior tests exercise the retained stdio adapter; HTTP synchronization has separate coverage.
+    if request.param in {"codex", "claude-code"}:
+        config_module = module.reme_config if request.param == "codex" else module
+        connection = json.loads((root / ".mcp.stdio.json").read_text())["mcpServers"]["reme"]
+        monkeypatch.setattr(config_module, "MCP_CONNECTION", connection)
     monkeypatch.setattr(module, "CAPTURE_WAIT_SECONDS", 0)
     monkeypatch.setattr(module, "CAPTURE_SETTLE_SECONDS", 0, raising=False)
     return module
@@ -231,6 +236,10 @@ def test_native_manifests_resolve_within_their_own_plugin():
         assert (root / ".mcp.json").is_file()
         assert (root / "skills/reme-memory/SKILL.md").is_file()
         mcp = json.loads((root / ".mcp.json").read_text())["mcpServers"]["reme"]
+        if host in {"codex", "claude-code"}:
+            assert mcp["type"] == "http" and mcp["url"] == "http://127.0.0.1:2333/mcp"
+            assert "command" not in mcp and "args" not in mcp
+            mcp = json.loads((root / ".mcp.stdio.json").read_text())["mcpServers"]["reme"]
         assert mcp["command"] == "python3"
         if host == "claude-code":
             assert mcp["args"] == ["${CLAUDE_PLUGIN_ROOT}/hooks/mcp_bridge.py"]
