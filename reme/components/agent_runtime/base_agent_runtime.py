@@ -74,7 +74,7 @@ class BaseAgentRuntime(BaseComponent):
 
     @abstractmethod
     async def append(self, agent_id: str, events) -> dict:
-        """Persist new task inputs before scheduling work."""
+        """Persist external observations for an event Agent; cron inputs belong to the scheduler."""
 
     @abstractmethod
     async def status(self, agent_id: str) -> dict:

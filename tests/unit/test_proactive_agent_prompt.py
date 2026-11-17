@@ -56,13 +56,15 @@ async def test_round_paths_keep_both_calendar_summaries_and_paired_filenames(tmp
 
 @pytest.mark.parametrize("language", ["en", "zh"])
 @pytest.mark.parametrize("trigger_type", ["cron", "event"])
-@pytest.mark.parametrize("has_today_summary", [False, True])
+@pytest.mark.parametrize("today_summary", [None, "", "  \n", "# Today\n"])
+@pytest.mark.parametrize("has_yesterday_summary", [False, True])
 @pytest.mark.asyncio
 async def test_round_query_renders_path_aliases_and_trigger_specific_inputs(
     tmp_path,
     language,
     trigger_type,
-    has_today_summary,
+    today_summary,
+    has_yesterday_summary,
 ):
     async with running_runtime(tmp_path, language=language) as (runtime, context, _):
         values = {"name": "monitor", "description": "Monitor", "trigger_type": trigger_type}
@@ -73,15 +75,18 @@ async def test_round_query_renders_path_aliases_and_trigger_specific_inputs(
         step = ProactiveAgentStep(app_context=context)
         now = runtime.now()
         paths = step._paths(agent, now)
-        if has_today_summary:
-            runtime.files.write(paths["summary_path"], "# Today\n")
-        runtime.files.write(paths["yesterday_summary_path"], "# Yesterday\n")
+        if today_summary is not None:
+            runtime.files.write(paths["summary_path"], today_summary)
+        if has_yesterday_summary:
+            runtime.files.write(paths["yesterday_summary_path"], "# Yesterday\n")
         events = [
             {
                 "event_ts": (now - timedelta(minutes=number)).isoformat(),
                 "source": "test_event_source",
                 "description": f"Observation {number}",
-                "paths": [f"resource/observation_{number}.md", f"resource/screenshot_{number}.png"],
+                "paths": (
+                    [f"resource/observation_{number}.md", f"resource/screenshot_{number}.png"] if number == 2 else []
+                ),
             }
             for number in (2, 1)
         ]
@@ -99,8 +104,8 @@ async def test_round_query_renders_path_aliases_and_trigger_specific_inputs(
         assert re.findall(r"^(\d+)\. ", query, re.MULTILINE) == [str(number) for number in range(1, 9)]
         summary_read = re.search(r"^2\. (.*)$", query, re.MULTILINE).group(1)
         assert "`YESTERDAY_SUMMARY`" in summary_read
-        assert ("`TODAY_SUMMARY`" in summary_read) is has_today_summary
-        assert not re.search(r"\{[a-z_]+\}|\[(?:cron|event|new_day|same_day)\]", query)
+        assert ("`TODAY_SUMMARY`" in summary_read) is bool(today_summary and today_summary.strip())
+        assert not re.search(r"\{[a-z_]+\}|\[(?:cron|event|new_day|same_day|has_files|no_files)\]", query)
         for event in events:
             assert event["event_ts"] in query
             if trigger_type == "event":
@@ -111,3 +116,6 @@ async def test_round_query_renders_path_aliases_and_trigger_specific_inputs(
                 assert event["source"] not in query and event["description"] not in query
         assert ("web_search" in query) is (trigger_type == "cron")
         assert ("web_extract" in query) is (trigger_type == "cron")
+        if trigger_type == "event":
+            assert query.count("- File paths:" if language == "en" else "- 文件路径：") == 1
+            assert ("No attached files" if language == "en" else "无附件") in query

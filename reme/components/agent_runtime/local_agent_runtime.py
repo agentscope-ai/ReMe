@@ -225,15 +225,19 @@ class LocalAgentRuntime(BaseAgentRuntime):
         """Store reception time separately from observation time; duplicate inputs do not renew idle life."""
         async with self.management_lock:
             agent = await self.definition(agent_id)
-            return await self._append(agent, events)
+            if agent.trigger_type != "event":
+                raise ValueError("external observations require an event agent")
+            values = events if isinstance(events, list) else [events]
+            values = [Event.model_validate(value) for value in values]
+            if any(value.source == "cron" for value in values):
+                raise ValueError("cron is a reserved framework source")
+            return await self._append(agent, values)
 
-    async def _append(self, agent, events):
+    async def _append(self, agent, events: list[Event]):
         await self.prepare(agent)
-        values = events if isinstance(events, list) else [events]
         received = self.now().isoformat()
-        values = [Event.model_validate(value) for value in values]
         values = [
-            value.model_copy(update={"metadata": {**value.metadata, "_received_at": received}}) for value in values
+            value.model_copy(update={"metadata": {**value.metadata, "_received_at": received}}) for value in events
         ]
         identifiers = await self.inbox.append(agent.agent_id, values)
         self.changed.set()
@@ -482,13 +486,15 @@ class LocalAgentRuntime(BaseAgentRuntime):
             return
         await self._append(
             agent,
-            Event(
-                id=f"cron-{agent.agent_id}-{int(scheduled.timestamp())}",
-                event_ts=scheduled,
-                source="cron",
-                description=f"Scheduled trigger: {scheduled.isoformat()}",
-                metadata={"scheduled_at": scheduled.isoformat()},
-            ),
+            [
+                Event(
+                    id=f"cron-{agent.agent_id}-{int(scheduled.timestamp())}",
+                    event_ts=scheduled,
+                    source="cron",
+                    description=f"Scheduled trigger: {scheduled.isoformat()}",
+                    metadata={"scheduled_at": scheduled.isoformat()},
+                ),
+            ],
         )
         self.cron[agent.agent_id] = (signature, next_fire)
 

@@ -1318,9 +1318,10 @@ async def test_desktop_views_are_cold_and_include_main_and_task_files(tmp_path):
         assert value["snapshot"] is None
 
 
+@pytest.mark.parametrize("language", ["en", "zh"])
 @pytest.mark.asyncio
-async def test_agent_chat_continues_primary_session_without_consuming_events(tmp_path):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+async def test_agent_chat_continues_primary_session_without_consuming_events(tmp_path, language):
+    async with running_runtime(tmp_path, language=language) as (runtime, context, wrapper):
         await create_agent(runtime)
         for query in ["Hello", "Continue"]:
             response = await AgentChatStep(app_context=context)(
@@ -1330,6 +1331,7 @@ async def test_agent_chat_continues_primary_session_without_consuming_events(tmp
             )
             assert response.success
         assert len(wrapper.created) == 1
+        assert f"`{runtime.agents.path('monitor') / 'MEMORY.md'}`" in wrapper.created[0]["system_prompt"]
         assert wrapper.turns[0][1]["resume"] == wrapper.turns[1][1]["resume"]
         assert (await runtime.status("monitor"))["pending_events"] == 1
         assert not list((runtime.agents.path("monitor") / "reminder").rglob("*.md"))

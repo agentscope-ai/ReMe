@@ -69,6 +69,7 @@ class ProactiveAgentStep(BaseAgentStep):
             "system_prompt",
             workspace_dir=self.workspace_path,
             agent_id=agent.agent_id,
+            memory_path=self.agent_runtime.agents.directory_for(agent) / "MEMORY.md",
             app_timezone=self.app_context.app_config.timezone or str(now.tzinfo),
             reminder_policy=self.get_prompt("reminder_policy"),
             sleep_reminder_rule=self.get_prompt("sleep_reminder_rule"),
@@ -79,8 +80,11 @@ class ProactiveAgentStep(BaseAgentStep):
 
     def _query(self, agent, events, paths, now):
         cron = agent.trigger_type == "cron"
-        same_day = paths["summary_path"].exists()
         files = self.agent_runtime.files
+        try:
+            same_day = bool(files.read(paths["summary_path"]).strip())
+        except FileNotFoundError:
+            same_day = False
         inputs = []
         for number, event in enumerate(events, 1):
             if cron:
@@ -93,6 +97,8 @@ class ProactiveAgentStep(BaseAgentStep):
                     source=event["source"],
                     description=event["description"],
                     paths="\n".join(f"  - `{files.path(path)}`" for path in event["paths"]),
+                    has_files=bool(event["paths"]),
+                    no_files=not event["paths"],
                 )
             inputs.append(content)
         return self.prompt_format(
@@ -158,7 +164,7 @@ class ProactiveAgentStep(BaseAgentStep):
             now,
             new=True,
         )
-        query = self._query(agent, events, paths, now)
+        query = await asyncio.to_thread(self._query, agent, events, paths, now)
 
         async def observe(chunk):
             publish(chunk)

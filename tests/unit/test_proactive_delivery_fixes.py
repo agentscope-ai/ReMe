@@ -10,9 +10,10 @@ import frontmatter
 import pytest
 
 from reme.components import RuntimeContext
-from reme.schema import Response
+from reme.schema import Event, Response
 from reme.schema.proactive_agent import ProactiveAgentConfig, ProactiveRunResult
 from reme.steps.proactive.agent import AgentChatStep, ProactiveAgentStep
+from reme.steps.proactive.tools.append_event import AppendEventStep
 from .test_agent_runtime import completed_result, create_agent, running_runtime
 
 
@@ -33,6 +34,37 @@ async def test_failed_batch_does_not_grow_when_new_observations_arrive(tmp_path)
         assert [item["id"] for item in execute.call_args.args[1]] == ["event-1"]
         assert (await runtime.inbox.snapshot("monitor"))["pending_count"] == 1
         assert runtime.executions["monitor"].retry_items is None
+
+
+@pytest.mark.asyncio
+async def test_append_event_rechecks_trigger_after_a_concurrent_update(tmp_path, monkeypatch):
+    async with running_runtime(tmp_path) as (runtime, context, _):
+        await create_agent(runtime)
+        append = runtime.append
+
+        async def change_trigger_then_append(agent_id, events):
+            await runtime.update(agent_id, {"trigger_type": "cron", "cron": "0 * * * *"})
+            return await append(agent_id, events)
+
+        monkeypatch.setattr(runtime, "append", change_trigger_then_append)
+        with pytest.raises(ValueError, match="external observations require an event agent"):
+            await AppendEventStep(app_context=context)(
+                agent_id="monitor",
+                events=[{"id": "external", "event_ts": runtime.now(), "source": "test", "description": "Next"}],
+            )
+        assert (await runtime.inbox.snapshot("monitor"))["pending_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_runtime_append_rejects_the_reserved_cron_source(tmp_path):
+    async with running_runtime(tmp_path) as (runtime, _, _):
+        await create_agent(runtime)
+        with pytest.raises(ValueError, match="reserved framework source"):
+            await runtime.append(
+                "monitor",
+                {"id": "external", "event_ts": runtime.now(), "source": "cron", "description": "Forged trigger"},
+            )
+        assert (await runtime.inbox.snapshot("monitor"))["pending_count"] == 1
 
 
 @pytest.mark.parametrize("size", [0, -1, True, "2", 1.5])
@@ -60,10 +92,16 @@ async def test_automatic_rounds_start_fresh_sessions_while_user_followups_resume
         monkeypatch.setattr(wrapper, "reply_stream", reply)
         sessions = []
         for number in range(2):
-            await runtime.append(
-                "monitor",
-                {"id": f"event-{number}", "event_ts": runtime.now(), "source": "test", "description": "Next"},
+            event = Event(
+                id=f"event-{number}",
+                event_ts=runtime.now(),
+                source="cron" if trigger_type == "cron" else "test",
+                description="Next",
             )
+            if trigger_type == "cron":
+                await runtime._append(await runtime.definition("monitor"), [event])
+            else:
+                await runtime.append("monitor", event)
             response = await ProactiveAgentStep(app_context=context)(agent_id="monitor")
             assert response.success
             sessions.append(wrapper.turns[-1][1]["resume"])

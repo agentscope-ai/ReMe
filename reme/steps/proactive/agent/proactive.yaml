@@ -7,10 +7,11 @@ system_prompt: |
   # Environment
   Workspace: {workspace_dir}
   Timezone: {app_timezone}
+  Task memory: `{memory_path}`
 
   # Notes
   - If a collected file contains sensitive information, you may delete it; do not write sensitive values into daily records, memory or reminders.
-  - Follow the workflow strictly, step by step, and do not inspect content outside its scope.
+  - For questions about this task, read task memory as needed. When a workflow is provided, follow it step by step and do not inspect content outside its scope.
 
   {reminder_policy}
 
@@ -25,10 +26,11 @@ system_prompt_zh: |
   # 工作环境
   工作区：{workspace_dir}
   时区：{app_timezone}
+  任务记忆：`{memory_path}`
 
   # 注意事项
   - 采集文件包含敏感信息时，可删除该文件，也不要将敏感值写入日记、记忆或提醒。
-  - 严格按照执行步骤逐步执行，不查看步骤范围之外的内容。
+  - 回答任务相关问题时，按需读取任务记忆；提供了执行步骤时，严格逐步执行，不查看步骤范围之外的内容。
 
   {reminder_policy}
 
@@ -58,7 +60,7 @@ query: |
   [new_day] 2. Read `YESTERDAY_SUMMARY` if it exists, carrying forward relevant background, progress, generated reminders and pending follow-ups.
   [same_day] 2. Read `TODAY_SUMMARY` and `YESTERDAY_SUMMARY` if they exist. Rebuild context from the current state, progress across days, generated reminders and pending follow-ups.
   [cron] 3. Execute the task for this round's trigger times. Use web_search and web_extract as needed to find and verify sources, read saved files and retain source URLs.
-  [event] 3. Read the original files referenced by this round's events, including images.
+  [event] 3. Read the available original files referenced by this round's events, including images. Without available files, use the event descriptions and remaining information.
   4. Compare this round's findings with the summaries already read and write only new facts, material changes and necessary sources to `CURRENT_RECORD`. Use Markdown: summarize the new findings, present facts, changes and sources in points, then explain implications or next steps. Write in plain language, keeping the content concise and complete.
   5. Search `DAILY_DIR` for history relevant to this round's new information using keywords or regular expressions, at most 5 times in total. Add necessary background, record links, an event timeline and brief evidence-based reasoning to `CURRENT_RECORD`. Distinguish facts from inferences; do not copy whole passages from earlier records.
   6. Decide whether `CURRENT_RECORD` warrants a reminder under `TASK_MEMORY` and the reminder policy; explicit requirements in `TASK_MEMORY` take precedence. Check the summaries already read and retrieved history for repetition. Skip previously reminded information without material changes and content the user has explicitly asked not to receive. For the same item, remind only about new developments.
@@ -104,7 +106,7 @@ query_zh: |
   [new_day] 2. 阅读已存在的 `YESTERDAY_SUMMARY`，衔接相关背景、已有进展、已生成提醒和待跟进事项；不存在则跳过。
   [same_day] 2. 分别阅读已存在的 `TODAY_SUMMARY` 和 `YESTERDAY_SUMMARY`，结合当前状态、跨天进展、已生成提醒和待跟进事项重建上下文。
   [cron] 3. 按本轮触发时间执行任务，按需使用 web_search、web_extract 查找和核实资料，阅读保存的文件并保留来源 URL。
-  [event] 3. 阅读本轮事件引用的原始文件，包括查看图片。
+  [event] 3. 阅读本轮事件引用的可用原始文件，包括查看图片；无可用文件时，依据事件描述和现有信息处理。
   4. 对照已读总结，仅将新增事实、实质变化和必要来源写入 `CURRENT_RECORD`。采用 Markdown 总分总结构：概括新增发现，分点说明事实、变化和来源，最后说明影响或下一步。使用简洁、完整的大白话。
   5. 围绕本轮增量，在 `DAILY_DIR` 中用关键词或正则检索相关历史，总计不超过 5 次。将必要背景、记录链接、事件时间线和基于证据的简要推理补充到 `CURRENT_RECORD`，区分事实与推测，不搬录整段旧记录。
   6. 依据 `TASK_MEMORY` 和提醒规则，判断 `CURRENT_RECORD` 是否需要提醒，优先遵守 `TASK_MEMORY` 中的明确要求。结合已读总结和检索结果去重，跳过已提醒且无实质变化的信息，以及用户明确不希望接收的内容；同一事项只提醒新增变化。
@@ -132,8 +134,9 @@ event_input: |
   - Time: {event_ts}
   - Source: {source}
   - Description: {description}
-  - File paths:
-  {paths}
+  [has_files] - File paths:
+  [has_files] {paths}
+  [no_files] - No attached files; use the event description as input.
 
 event_input_zh: |
   ## 事件 {number}
@@ -141,8 +144,9 @@ event_input_zh: |
   - 时间：{event_ts}
   - 来源：{source}
   - 描述：{description}
-  - 文件路径：
-  {paths}
+  [has_files] - 文件路径：
+  [has_files] {paths}
+  [no_files] - 无附件，以事件描述作为输入。
 
 cron_input: |
   - Trigger time: {event_ts}
