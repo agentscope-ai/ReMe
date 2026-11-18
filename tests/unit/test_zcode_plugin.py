@@ -491,7 +491,7 @@ def test_old_endpoint_worker_leaves_new_endpoint_queue_for_its_own_worker(adapte
     monkeypatch.setattr(adapter, "spawn_worker", spawn)
     delivered: list[str] = []
 
-    def call(config, _action, payload, _timeout):
+    def call(config, _action, _payload, _timeout):
         delivered.append(config["endpoint"])
         if len(delivered) == 1:
             # A turn for another endpoint is captured while this endpoint's worker

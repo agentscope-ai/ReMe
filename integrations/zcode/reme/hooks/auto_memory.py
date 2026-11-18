@@ -88,7 +88,7 @@ def validate_config(values: dict) -> dict:
     except (ZoneInfoNotFoundError, ValueError) as exc:
         if not timezone_data_available():
             raise ValueError(
-                "Timezone data is not installed; install the tzdata package on hosts without an IANA database"
+                "Timezone data is not installed; install the tzdata package on hosts without an IANA database",
             ) from exc
         raise ValueError("timezone must be an IANA timezone") from exc
     config["mcp_url"] = validate_url(config["mcp_url"])
