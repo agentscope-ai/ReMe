@@ -84,7 +84,7 @@ export class DesktopWindows {
       frame: process.platform === "darwin",
       titleBarStyle: process.platform === "darwin" ? "hiddenInset" : undefined,
       trafficLightPosition:
-        process.platform === "darwin" ? { x: 20, y: 18 } : undefined,
+        process.platform === "darwin" ? { x: 20, y: 22 } : undefined,
       transparent: process.platform === "darwin",
       backgroundColor: process.platform === "darwin" ? "#00000000" : "#f4f5f7",
       visualEffectState: "followWindow",

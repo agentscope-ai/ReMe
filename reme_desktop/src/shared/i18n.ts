@@ -603,9 +603,10 @@ export const messages = {
   openStatus: ["打开对话查看状态", "Open chat to view status"],
   opening: ["正在打开 Remy…", "Opening Remy…"],
   chatActions: ["对话操作", "Conversation actions"],
-  clearConversation: [
-    "开始新对话，保留记忆",
-    "Start a new conversation, keeping memory",
+  clearConversation: ["清空对话", "Clear conversation"],
+  clearConversationHint: [
+    "清空当前对话，保留记忆",
+    "Clear the current conversation, keeping memory",
   ],
   closeChat: ["收起聊天", "Hide chat"],
   desktopSettings: ["桌面设置", "Desktop settings"],

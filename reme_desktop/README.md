@@ -16,7 +16,8 @@ deleting stops it and retains history. Event-driven tasks still need an event so
 - Remy's sidebar lists the Chat Agent as **Remy** (`agent_name=Remy`) and each named Cron or Proactive/event Agent.
 - Selecting an Agent opens its latest session snapshot. Remy continues the main Chat conversation; task questions
   run in temporary read-only forks and leave the task's current execution session unchanged. A task needs an existing
-  session before it can answer questions. Only Remy exposes the new-session action.
+  session before it can answer questions. Only Remy offers **Clear conversation**, through its toolbar or `/clear`,
+  while retaining personal memory and the backend's conversation history.
 - Each Agent has a conversation, Memory and a mailbox. Task Agents also expose Events. Task workspaces show the latest
   native execution turn; query replies are displayed separately. Related links open original workspace files.
 - Each task executes one automatic run at a time. A query can inspect the current task session while it runs on a backend

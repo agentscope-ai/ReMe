@@ -243,6 +243,8 @@ jobs:
     steps:
       - backend: proactive_agent_step
         timeout_seconds: 1200
+        max_web_lookup_calls: 5
+        max_local_search_calls: 10
         sandbox: null  # Use the selected wrapper's sandbox setting.
 
   query_proactive_agent:

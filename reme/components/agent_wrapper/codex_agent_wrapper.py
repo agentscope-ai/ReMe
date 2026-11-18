@@ -279,6 +279,17 @@ class CodexAgentWrapper(BaseAgentWrapper):
         """Release a superseded empty thread; regular turns already release their leases."""
         await self.app_server.release_session(session_id)
 
+    async def get_tool_calls(self, session_id: str, turn_id: str | None = None) -> list[dict[str, Any]] | None:
+        """Use the original rollout to include calls missing from SDK notifications."""
+        async with self._session_request():
+            path = await self.app_server.get_session_path(session_id)
+            return await asyncio.to_thread(
+                codex_session_history.read_tool_calls,
+                path,
+                self.app_server.session_path,
+                turn_id,
+            )
+
     async def compact_session(self, session_id: str) -> None:
         """Hold the conversation lock until native compaction has finished."""
         async with self._session({"session_id": session_id}, compact=True) as thread:

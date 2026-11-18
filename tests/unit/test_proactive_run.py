@@ -482,7 +482,7 @@ async def test_invalid_or_cancelled_round_restores_history_before_retry(
         await create_agent(runtime)
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)
-        step = ProactiveAgentStep(app_context=context, timeout_seconds=0.1)
+        step = ProactiveAgentStep(app_context=context, timeout_seconds=0.1 if failure == "timeout" else 1200)
         paths = step._paths(await runtime.definition("monitor"), now)
         if existing_summary:
             runtime.files.write(paths["today_summary_path"], "# Previous confirmed summary\n")
@@ -523,6 +523,7 @@ async def test_invalid_or_cancelled_round_restores_history_before_retry(
         assert not paths["record_path"].exists() and not paths["reminder_path"].exists()
         assert (await runtime.status("monitor"))["pending_events"] == 1
         install_round(runtime, wrapper, monkeypatch, paths)
+        step.timeout_seconds = 1200
         assert (await step(agent_name="monitor")).success
         await runtime.outbox.sync()
         assert (await runtime.status("monitor"))["pending_events"] == 0

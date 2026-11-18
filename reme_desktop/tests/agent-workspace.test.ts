@@ -80,5 +80,9 @@ test("main Chat and task workspaces expose their scoped pages and current conver
       ),
     );
     assert.doesNotMatch(html, /class="agent-sections"/);
+    if (agentName === "Remy") {
+      assert.match(html, /aria-label="清空对话"/);
+      assert.match(html, /title="清空当前对话，保留记忆"/);
+    } else assert.doesNotMatch(html, /aria-label="清空对话"/);
   }
 });

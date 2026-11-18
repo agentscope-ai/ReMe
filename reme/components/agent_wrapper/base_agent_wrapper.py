@@ -320,6 +320,9 @@ class BaseAgentWrapper(BaseComponent):
         """
         raise NotImplementedError(f"{type(self).__name__} does not support session path lookup")
 
+    async def get_tool_calls(self, session_id: str, turn_id: str | None = None) -> list[dict[str, Any]] | None:
+        """Read saved calls for a turn, or None when only live events are available."""
+
     async def read_session(self, session_id: str) -> SessionSnapshot:
         """Read display history without waiting for the session to become idle."""
         raise NotImplementedError(f"{type(self).__name__} does not support session reading")

@@ -19,15 +19,16 @@ system_prompt: |
   - `REMINDER_PATH`: {reminder_path}
 
   # Looking up information
-  - Web searches, opening webpages, local searches and reading historical records share a limit of 10 tool calls per run. A batch counts as one call.
-  - Reading the task, today's and yesterday's summaries and this round's original materials, and writing results, do not count toward this limit.
+  [cron] - Use web_search and web_extract at most {max_web_lookup_calls} times combined.
+  - Use rg/grep for local keyword or regex searches, at most {max_local_search_calls} times.
+  - A batch counts as one call. Ordinary file reads, image viewing and writing results do not count as searches.
   - Look up history by file modification time, newest first, and prefer recent relevant records.
-  - Once there is enough information or the limit is reached, stop looking up more material and finish the remaining steps using what is available. Omit or mark anything unverified.
+  - Once there is enough information or a search limit is reached, stop that kind of search and finish with what you have. Omit or mark unverified information.
 
   # Notes
   - Do not write sensitive information into files in `DAILY_DIR`, `TASK_PATH` or `REMINDER_PATH`.
   - When editing an existing file, update its contents directly. Do not delete and re-add the same file in one patch. To rewrite the entire file, overwrite it directly.
-  - Separate facts from guesses. Say when something is unconfirmed.
+  - If a result is not visible, say “unconfirmed” in records, reminders and summaries. Do not turn it into “not done” or “passed”.
   - When writing tool scripts, keep only the final code; remove unused drafts.
 
   [proactive] {sleep_reminder_rule}
@@ -53,15 +54,16 @@ system_prompt_zh: |
   - `REMINDER_PATH`：{reminder_path}
 
   # 资料查找
-  - 本轮联网搜索、打开网页、本地检索和读取历史记录，合计最多调用 10 次，批量调用算 1 次。
-  - 阅读任务、今昨总结和本轮原始资料、写入结果不计入上限。
+  [cron] - 本轮 web_search 和 web_extract 合计最多 {max_web_lookup_calls} 次。
+  - 本地用 rg/grep 做关键词或正则检索，最多 {max_local_search_calls} 次。
+  - 批量调用算 1 次；普通读文件、看图和写入结果不算检索。
   - 查历史时，按文件修改时间从新到旧，优先看最近的相关记录。
-  - 资料够用或达到上限就停止查找，用已有资料完成后续步骤，未核实的内容略去或注明。
+  - 资料够用或某类检索达到上限，就停止这类检索，用已有资料完成任务，未核实的内容略去或注明。
 
   # 注意事项
   - 不要把敏感信息写入 `DAILY_DIR` 中的文件、`TASK_PATH` 或 `REMINDER_PATH`。
   - 修改已有文件时，直接更新内容，不要在同一个补丁里先删除、再新建同一个文件。需要整篇重写时，直接覆盖写入。
-  - 分清事实和推测；没确认的事就写“尚未确认”。
+  - 没看到结果就写“尚未确认”，记录、提醒、总结都一样，别改成“没做”或“已通过”。
   - 写工具脚本时，只保留要执行的代码，删掉没用的草稿。
 
   [proactive] {sleep_reminder_rule}
@@ -98,7 +100,7 @@ proactive_query: |
     - Whether or not a reminder is generated, continue to update today's summary.
 
   5. Update today's summary
-    - Merge this round's new information into “Today's records” in `TODAY_SUMMARY_PATH`. Update existing items and retain necessary background, times and record links.
+    - Merge this round's new information into “Today's records” in `TODAY_SUMMARY_PATH`. Update existing items, keeping key points, times and record links.
     - Preserve earlier entries in “Today's reminders”. Add this round's reminder as “Sent to inbox: ...” for future duplicate checks.
 
     ```markdown
@@ -142,7 +144,7 @@ proactive_query_zh: |
     - 无论是否提醒，都继续更新当天总结。
 
   5. 更新当天总结
-    - 将本轮新增内容合并到 `TODAY_SUMMARY_PATH` 的“今日记录”，更新已有事项，保留必要背景、时间和记录链接。
+    - 将本轮新增内容合并到 `TODAY_SUMMARY_PATH` 的“今日记录”，更新已有事项，只留要点、时间和记录链接。
     - 保留“今日提醒”已有内容；本轮发了什么，就记“已发送到收件箱：xxx”，供后续去重。
 
     ```markdown
@@ -166,7 +168,7 @@ cron_query: |
 
   3. Record what happened
     - Write this run's execution record to `RECORD_PATH`, setting `action: write` in the frontmatter.
-    - Describe what you did and the result in concise, complete, plain language. Record unchanged results, insufficient information or unfinished work honestly. Retain source URLs and Markdown links to related files.
+    - Record what you did and the key results, keeping necessary sources and links. Report unchanged results, insufficient information or unfinished work honestly; do not copy the full briefing here.
 
   4. Report the result
     - Write a report to `REMINDER_PATH` on every run, setting `action: write` and `priority: P0` in the frontmatter.
@@ -174,7 +176,7 @@ cron_query: |
 
   5. Update today's summary
     - Update `TODAY_SUMMARY_PATH`: merge the result into “Today's records” and add the report to “Today's reminders” as “Sent to inbox: ...”.
-    - Preserve earlier content, merge related items and update outdated information. Retain necessary background, times and record links.
+    - Preserve earlier content and update related items. Keep only key points, times, record links and the information sent; do not repeat the full report.
 
     ```markdown
     ## Today's records
@@ -196,7 +198,7 @@ cron_query_zh: |
 
   3. 记录执行情况
     - 将本次执行记录写入 `RECORD_PATH`，在 frontmatter 中设置 `action: write`。
-    - 正文用简洁、完整的大白话说明做了什么、结果如何。结果没有变化、资料不足或任务未完成，都如实记录，保留来源 URL 和相关文件的 Markdown 链接。
+    - 记录做了什么和关键结果，保留必要来源和链接。结果没变化、资料不足或任务未完成，都如实说明，不重复整篇简报。
 
   4. 汇报本次结果
     - 每次都将汇报写入 `REMINDER_PATH`，在 frontmatter 中设置 `action: write` 和 `priority: P0`。
@@ -204,7 +206,7 @@ cron_query_zh: |
 
   5. 更新当天总结
     - 更新 `TODAY_SUMMARY_PATH`：执行结果合并到“今日记录”，汇报记入“今日提醒”，写“已发送到收件箱：xxx”。
-    - 保留此前内容，合并同一事项、更新过时状态，保留必要背景、时间和记录链接。
+    - 保留此前内容，合并同一事项、更新状态，只留要点、时间、记录链接和已发送的内容，不再重复整篇汇报。
 
     ```markdown
     ## 今日记录

@@ -1,4 +1,4 @@
-"""Recover ReMe-authored messages from Codex's native rollout, without message copies."""
+"""Read append provenance and tool calls from Codex's native rollout."""
 
 import json
 from pathlib import Path
@@ -99,6 +99,83 @@ def read_appends(path: str | None, home: Path) -> list[SessionMessage]:
             raise ValueError("Codex append ID belongs to different content or role")
         messages.setdefault(message.id, message)
     return list(messages.values())
+
+
+def read_tool_calls(path: Path | None, home: Path, turn_id: str | None = None) -> list[dict] | None:
+    """Include native calls rejected before the SDK emits a tool item."""
+    if path is None:
+        return None
+    home = home.resolve()
+    path = path.resolve()
+    if not path.is_relative_to(home):
+        raise ValueError("Codex session path is outside its configured home")
+    if not path.exists():
+        return None
+    current_turn, calls, details = None, {}, {}
+    for entry in _entries(path, home, set()):
+        payload = entry.get("payload", {})
+        if entry.get("type") == "turn_context":
+            current_turn = payload.get("turn_id")
+        if turn_id is not None and current_turn != turn_id:
+            continue
+        kind = payload.get("type", "")
+        if entry.get("type") == "response_item" and kind in {
+            "function_call",
+            "custom_tool_call",
+            "web_search_call",
+            "image_generation_call",
+        }:
+            identifier = payload.get("call_id") or payload.get("id")
+            if not identifier:
+                continue
+            arguments = payload.get("arguments", payload.get("input", payload.get("action", {})))
+            if isinstance(arguments, str):
+                try:
+                    arguments = json.loads(arguments)
+                except json.JSONDecodeError:
+                    pass
+            calls[(current_turn, identifier)] = {
+                "id": identifier,
+                "turn_id": current_turn,
+                "name": payload.get("name") or kind.removesuffix("_call"),
+                "arguments": arguments,
+            }
+        elif entry.get("type") == "event_msg" and kind == "item_completed":
+            item = payload.get("item", {})
+            details[item.get("id")] = item
+            native_kind = item.get("type", "")
+            if native_kind.lower() in {
+                "commandexecution",
+                "filechange",
+                "mcptoolcall",
+                "dynamictoolcall",
+                "collabagenttoolcall",
+                "websearch",
+                "imageview",
+                "imagegeneration",
+                "clock",
+                "sleep",
+            }:
+                identifier = item["id"]
+                calls.setdefault(
+                    (current_turn, identifier),
+                    {
+                        "id": identifier,
+                        "turn_id": current_turn,
+                        "name": item.get("tool")
+                        or (
+                            "webSearch"
+                            if native_kind.lower() == "websearch"
+                            else native_kind[:1].lower() + native_kind[1:]
+                        ),
+                        "arguments": item,
+                    },
+                )
+    for call in calls.values():
+        item = details.get(call["id"], {})
+        call["actions"] = item.get("parsed_cmd", [])
+        call["cwd"] = item.get("cwd")
+    return list(calls.values())
 
 
 def merge_appends(snapshot: SessionSnapshot, messages: list[SessionMessage]) -> SessionSnapshot:

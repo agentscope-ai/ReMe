@@ -349,6 +349,27 @@ async def test_wrapper_locates_an_empty_session_before_its_rollout_exists(system
 
 
 @pytest.mark.asyncio
+async def test_tool_statistics_use_the_sdk_reported_rollout_path(system, monkeypatch):
+    first, _, server, _ = system
+    session_id = await first.create_session(job_tools=[])
+    path = server.session_path / "sessions" / "native-tool-history.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    records = [
+        {"type": "turn_context", "payload": {"turn_id": "current"}},
+        {
+            "type": "response_item",
+            "payload": {"type": "function_call", "call_id": "search", "name": "web_search"},
+        },
+    ]
+    path.write_text("".join(json.dumps(record) + "\n" for record in records))
+    read = AsyncMock(return_value=SimpleNamespace(thread=SimpleNamespace(path=str(path))))
+    monkeypatch.setattr(_Codex.instances[0]._client, "thread_read", read)
+    calls = await first.get_tool_calls(session_id, "current")
+    assert [call["id"] for call in calls] == ["search"]
+    read.assert_awaited_once_with(session_id, include_turns=False)
+
+
+@pytest.mark.asyncio
 async def test_releasing_a_superseded_empty_session_keeps_other_threads(system):
     first, _, server, _ = system
     previous = await first.create_session(job_tools=[])

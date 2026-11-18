@@ -20,6 +20,8 @@ export default function Chat({
   active,
   onSettings,
   onExplain,
+  clearing,
+  onClear,
   draft,
   onDraft,
   embedded = false,
@@ -31,6 +33,8 @@ export default function Chat({
   active: boolean;
   onSettings: () => void;
   onExplain: (message: DisplayMessage) => void;
+  clearing: boolean;
+  onClear: () => Promise<boolean>;
 }) {
   const language = state.settings.language;
   const t = translator(language);
@@ -119,7 +123,9 @@ export default function Chat({
   const readIds = useRef(new Set<string>());
   readIds.current = new Set(state.readMessageIds);
   const busy =
-    Boolean(state.pending?.streaming) || (isRemy && state.status === "active");
+    clearing ||
+    Boolean(state.pending?.streaming) ||
+    (isRemy && state.status === "active");
   const ready =
     state.connection === "connected" &&
     state.status !== "error" &&
@@ -189,9 +195,10 @@ export default function Chat({
         start: state.messages.length - 80,
       });
   }, [state.messages.length, state.sessionId, historyStart, following]);
+  const focusSession = isRemy ? state.sessionId : null;
   useEffect(() => {
-    if (state.chatVisible && active) input.current?.focus();
-  }, [state.chatVisible, active]);
+    if (state.chatVisible && active && !clearing) input.current?.focus();
+  }, [state.chatVisible, active, focusSession, clearing]);
 
   useEffect(() => {
     const root = history.current;
@@ -251,11 +258,9 @@ export default function Chat({
     setQuery("");
     jumpToLatest();
     if (
-      !(await run(
-        isRemy && value.toLowerCase() === "/clear"
-          ? { type: "session.new" }
-          : { type: "chat.send", query: value },
-      ))
+      !(await (isRemy && value.toLowerCase() === "/clear"
+        ? onClear()
+        : run({ type: "chat.send", query: value })))
     )
       setQuery((current) => current || value);
     sending.current = false;

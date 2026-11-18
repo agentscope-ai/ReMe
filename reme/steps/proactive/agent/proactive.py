@@ -2,7 +2,9 @@
 
 import asyncio
 from datetime import timedelta
+import json
 import math
+import shlex
 from time import monotonic
 
 import frontmatter
@@ -20,11 +22,19 @@ from ....utils.counter import global_counter_add_many
 class ProactiveAgentStep(BaseAgentStep):
     """Restore context, process inputs and publish validated reminder documents."""
 
-    def __init__(self, timeout_seconds=1200, **kwargs):
+    def __init__(self, timeout_seconds=1200, max_web_lookup_calls=5, max_local_search_calls=10, **kwargs):
         super().__init__(**kwargs)
         if type(timeout_seconds) not in (int, float) or not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be a finite positive number")
         self.timeout_seconds = timeout_seconds
+        for name, value in (
+            ("max_web_lookup_calls", max_web_lookup_calls),
+            ("max_local_search_calls", max_local_search_calls),
+        ):
+            if type(value) is not int or value <= 0:
+                raise ValueError(f"{name} must be a positive integer")
+        self.max_web_lookup_calls = max_web_lookup_calls
+        self.max_local_search_calls = max_local_search_calls
         self._round_files = {}
 
     def _paths(self, agent, now):
@@ -66,6 +76,8 @@ class ProactiveAgentStep(BaseAgentStep):
                 sleep_reminder_rule=self.get_prompt("sleep_reminder_rule"),
                 **{key: str(value) for key, value in paths.items()},
                 now=now.isoformat(),
+                max_web_lookup_calls=self.max_web_lookup_calls,
+                max_local_search_calls=self.max_local_search_calls,
                 proactive=agent.agent_type == "proactive",
                 cron=agent.agent_type == "cron",
             ),
@@ -105,6 +117,42 @@ class ProactiveAgentStep(BaseAgentStep):
             return self.agent_runtime.files.read(path)
         except FileNotFoundError:
             return None
+
+    @staticmethod
+    def _lookup_type(call):
+        """Count named tools, native searches and explicit rg/grep shell commands."""
+        name = (call.get("name") or "").rsplit("__", 1)[-1]
+        if name in {"webSearch", "web_search", "web_extract"}:
+            return "web_lookup_calls"
+        if name in {"rg", "grep", "search", "file_search", "search_files"} or any(
+            action.get("type") == "search" for action in call.get("actions", [])
+        ):
+            return "local_search_calls"
+        arguments = call.get("arguments")
+        if isinstance(arguments, str):
+            try:
+                arguments = json.loads(arguments)
+            except json.JSONDecodeError:
+                return None
+        if isinstance(arguments, dict):
+            command = arguments.get("cmd") or arguments.get("command")
+            if isinstance(command, str):
+                lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|()\n")
+                lexer.whitespace, lexer.whitespace_split = " \t\r", True
+                try:
+                    tokens = list(lexer)
+                except ValueError:
+                    return None
+                separators = {";", "&&", "||", "|", "&", "(", ")", "\n", "then", "do"}
+                for index, token in enumerate(tokens):
+                    if token.rsplit("/", 1)[-1] not in {"rg", "grep"} or (
+                        index and tokens[index - 1] not in separators
+                    ):
+                        continue
+                    end = next((i for i in range(index + 1, len(tokens)) if tokens[i] in separators), len(tokens))
+                    if token.rsplit("/", 1)[-1] != "rg" or "--files" not in tokens[index + 1 : end]:
+                        return "local_search_calls"
+        return None
 
     def _read_document(self, path, *, record=False):
         """Require an explicit decision and validate the body."""
@@ -181,7 +229,8 @@ class ProactiveAgentStep(BaseAgentStep):
                     "runs": 1,
                     outcome: 1,
                     "tool_calls": stats["tool_calls"],
-                    "lookup_calls": stats["lookup_calls"],
+                    "web_lookup_calls": stats["web_lookup_calls"],
+                    "local_search_calls": stats["local_search_calls"],
                 }
                 counts["elapsed_ms"] = round(stats["elapsed_seconds"] * 1000)
                 if stats["usage"] is not None:
@@ -215,7 +264,10 @@ class ProactiveAgentStep(BaseAgentStep):
             "model_status": "not_started",
             "usage": None,
             "tool_calls": 0,
-            "lookup_calls": 0,
+            "web_lookup_calls": 0,
+            "local_search_calls": 0,
+            "max_web_lookup_calls": self.max_web_lookup_calls if agent.agent_type == "cron" else None,
+            "max_local_search_calls": self.max_local_search_calls,
         }
         self.context.response.metadata["reme.agent_run"] = stats
         runtime = self.agent_runtime
@@ -235,14 +287,49 @@ class ProactiveAgentStep(BaseAgentStep):
         label = f"Proactive agent={agent.agent_name} agent_type={agent.agent_type}"
         session_id = None
         calls = {}
+        turn_id, warned = None, set()
+        limits = {"local_search_calls": self.max_local_search_calls}
+        if agent.agent_type == "cron":
+            limits["web_lookup_calls"] = self.max_web_lookup_calls
+
+        def update_counts():
+            stats["tool_calls"] = len(calls)
+            kinds = [self._lookup_type(call) for call in calls.values()]
+            for key in ("web_lookup_calls", "local_search_calls"):
+                stats[key] = kinds.count(key)
+            for key, limit in limits.items():
+                if stats[key] > limit and key not in warned:
+                    self.logger.warning(f"{label} {key}={stats[key]} exceeds limit={limit}; continuing")
+                    warned.add(key)
+
         try:
 
             async def observe(chunk):
+                nonlocal turn_id
+                turn_id = chunk.turn_id or turn_id
                 if chunk.chunk_type in {ChunkEnum.TOOL_CALL, ChunkEnum.TOOL_RESULT}:
                     if identifier := chunk.tool_call_id or chunk.block_id or chunk.message_id:
-                        key = (chunk.turn_id, identifier)
-                        if chunk.tool_call_name or key in calls:
-                            calls[key] = chunk.tool_call_name or calls.get(key)
+                        if chunk.tool_call_name or identifier in calls:
+                            call = calls.setdefault(identifier, {})
+                            call["name"] = chunk.tool_call_name or call.get("name")
+                            payload = chunk.chunk
+                            if chunk.chunk_type == ChunkEnum.TOOL_CALL or (
+                                call["name"] == "commandExecution"
+                                and isinstance(payload, dict)
+                                and ("command" in payload or "commandActions" in payload)
+                            ):
+                                if isinstance(payload, dict):
+                                    call["arguments"] = payload
+                                    call["actions"] = payload.get("commandActions") or call.get("actions", [])
+                                elif isinstance(payload, str):
+                                    previous = call.get("arguments")
+                                    call["arguments"] = (
+                                        previous + payload
+                                        if chunk.event == "delta" and isinstance(previous, str)
+                                        else payload
+                                    )
+                            if chunk.event != "delta":
+                                update_counts()
                 elif chunk.chunk_type == ChunkEnum.USAGE and isinstance(chunk.chunk, dict):
                     stats["usage"] = TokenUsage.from_provider(chunk.chunk).model_dump()
                 elif chunk.chunk_type == ChunkEnum.REPLY_END and isinstance(chunk.chunk, dict):
@@ -298,11 +385,22 @@ class ProactiveAgentStep(BaseAgentStep):
             self.logger.error(f"{label} result={outcome} elapsed={monotonic() - started:.2f}s error={exc}")
             raise
         finally:
-            stats.update(
-                session_id=session_id,
-                tool_calls=len(calls),
-                lookup_calls=sum(name in {"webSearch", "web_search", "web_extract"} for name in calls.values()),
-            )
+            if session_id is not None:
+                try:
+                    saved = await runtime.agent_wrapper.get_tool_calls(session_id, turn_id)
+                    if saved is not None:
+                        for call in saved:
+                            previous = calls.get(call["id"], {})
+                            calls[call["id"]] = {
+                                **previous,
+                                **call,
+                                "actions": call.get("actions") or previous.get("actions", []),
+                            }
+                        stats["tool_call_source"] = "native"
+                except Exception as exc:
+                    self.logger.warning(f"{label} could not read saved tool statistics: {exc}")
+            stats["session_id"] = session_id
+            update_counts()
         return result, session_id
 
 

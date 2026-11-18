@@ -90,6 +90,10 @@ def item_chunks(item, *, event="end", session_id=None, turn_id=None) -> list[Str
         "dynamicToolCall",
         "collabAgentToolCall",
         "webSearch",
+        "imageView",
+        "imageGeneration",
+        "clock",
+        "sleep",
     }:
         native_status = getattr(item, "status", None)
         status = (

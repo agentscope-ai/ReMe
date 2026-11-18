@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Info } from "lucide-react";
+import { Eraser, Info } from "lucide-react";
 import type { AgentView, DesktopState } from "../shared/protocol.ts";
 import { errorText, translator } from "../shared/i18n.ts";
 import { action } from "./desktop.ts";
@@ -32,6 +32,8 @@ export default function Remy({
   >({});
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [error, setError] = useState<unknown>(null);
+  const [clearing, setClearing] = useState(false);
+  const clearingRequest = useRef(false);
   const scope = `${state.settings.endpoint}:${state.workspace}`;
   const scopeRef = useRef(scope);
   scopeRef.current = scope;
@@ -47,6 +49,8 @@ export default function Remy({
     setTask(null);
     setTaskBusy(false);
     setCreatedTask(null);
+    clearingRequest.current = false;
+    setClearing(false);
   }, [scope]);
   useEffect(() => {
     if (
@@ -106,6 +110,33 @@ export default function Remy({
   const documentPath =
     agent?.agent_type === "chat" ? agent.memory_path : agent?.task_path;
   const isRemy = selected === "Remy";
+  const clearDisabled =
+    clearing ||
+    !state.workspace ||
+    state.connection !== "connected" ||
+    state.status === "active" ||
+    state.status === "error" ||
+    Boolean(state.pending?.streaming);
+  const clearConversation = async (): Promise<boolean> => {
+    if (!isRemy || clearDisabled || clearingRequest.current) return false;
+    clearingRequest.current = true;
+    setClearing(true);
+    setError(null);
+    try {
+      await action({ type: "session.new" });
+      if (scopeRef.current !== scope) return false;
+      setSections((value) => ({ ...value, Remy: "chat" }));
+      return true;
+    } catch (reason) {
+      if (scopeRef.current === scope) setError(reason);
+      return false;
+    } finally {
+      if (scopeRef.current === scope) {
+        clearingRequest.current = false;
+        setClearing(false);
+      }
+    }
+  };
   const tabs: Array<[AgentSection, TranslationKey]> = isRemy
     ? [
         ["reminders", "reminders"],
@@ -194,7 +225,17 @@ export default function Remy({
                 <i />
                 {status}
               </span>
-              {!isRemy && (
+              {isRemy ? (
+                <button
+                  className="icon-button"
+                  aria-label={t("clearConversation")}
+                  title={t("clearConversationHint")}
+                  disabled={clearDisabled}
+                  onClick={() => void clearConversation()}
+                >
+                  <Eraser size={15} />
+                </button>
+              ) : (
                 <button
                   className="icon-button"
                   aria-label={t("taskDetails")}
@@ -222,6 +263,8 @@ export default function Remy({
                 state={state}
                 embedded
                 active={state.activePage === "remy" && section === "chat"}
+                clearing={isRemy && clearing}
+                onClear={clearConversation}
                 onSettings={onSettings}
                 onExplain={(message) =>
                   void action({

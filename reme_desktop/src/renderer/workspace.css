@@ -22,7 +22,7 @@ html:not([data-platform="darwin"]) .workspace-shell {
   background: var(--glass-opaque);
 }
 .workspace-titlebar {
-  height: 52px;
+  height: 60px;
   flex-shrink: 0;
   display: grid;
   grid-template-columns: 1fr auto 1fr;
@@ -41,7 +41,7 @@ html[data-platform="darwin"] .workspace-titlebar {
   align-items: center;
   gap: 9px;
   white-space: nowrap;
-  font-size: var(--text-body);
+  font-size: var(--text-heading);
   font-weight: var(--weight-medium);
   letter-spacing: -0.3px;
 }
@@ -88,13 +88,13 @@ html[data-platform="darwin"] .workspace-titlebar {
   justify-content: center;
   gap: var(--space-2);
   min-width: 82px;
-  height: 32px;
+  height: 38px;
   padding: 0 var(--space-3);
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--muted);
-  font-size: var(--text-ui);
+  font-size: var(--text-body);
   transition: color 160ms ease;
 }
 .workspace-tabs > button[data-state="active"] {
@@ -1699,7 +1699,7 @@ html[data-platform="darwin"] .workspace-titlebar {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--text-title);
+  font-size: var(--text-heading);
   font-weight: var(--weight-medium);
   letter-spacing: -0.2px;
 }
