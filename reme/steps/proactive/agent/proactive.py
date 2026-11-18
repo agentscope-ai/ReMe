@@ -141,13 +141,15 @@ class ProactiveAgentStep(BaseAgentStep):
                 )
         result = ProactiveRunResult(notifications=notifications)
         summary = self._read_optional(paths["today_summary_path"])
-        if not result.notifications:
-            if summary != summary_before:
-                raise ValueError("a round without a reminder must not change the daily summary")
-        elif not summary or not summary.strip():
-            raise ValueError("a reminder requires a nonempty daily summary")
-        elif summary == summary_before:
-            raise ValueError("a reminder must update its daily summary")
+        if record["action"] == "skip" and summary != summary_before:
+            raise ValueError("a skipped record must not change the daily summary")
+        if result.notifications:
+            if not summary or not summary.strip():
+                raise ValueError("a reminder requires a nonempty daily summary")
+            if summary == summary_before:
+                raise ValueError("a reminder must update its daily summary")
+        elif summary != summary_before and (not summary or not summary.strip()):
+            raise ValueError("an updated daily summary must be nonempty")
         return result
 
     async def execute(self):

@@ -77,11 +77,12 @@ query: |
     - If none matches, do not remind. A scheduled trigger, an event trigger or the information source does not by itself make something urgent.
     - Write the result to `REMINDER_PATH`:
       - If a reminder is needed, set `action: write` and `priority: Px` in the frontmatter, where `Px` is the selected `P0`, `P1` or `P2`. Write one natural, considerate sentence in plain language describing the new development and any necessary action or timing requirements.
-      - If no reminder is needed, set `action: skip`, briefly explain why in the body and end this round.
+      - If no reminder is needed, set `action: skip` and briefly explain why in the body.
 
   5. Update today's summary
     - Combine the existing summary, this round's record and the generated reminder to update `TODAY_SUMMARY_PATH`, organized into “Today's journal” and “Today's reminders”.
     - Merge content about the same item, update outdated information and retain necessary background and record links so the next round can continue from here.
+    - New progress can be added to the journal even when no reminder is generated. Preserve earlier reminder entries and add no reminder entry for this round.
     - Record only reminders actually generated. Generation does not mean the user has received or read a reminder; do not describe it as already communicated.
 
     ```markdown
@@ -124,11 +125,12 @@ query_zh: |
     - 都不符合时，不提醒。定时触发、事件触发或信息来源本身，不代表事情紧急。
     - 将结果写入 `REMINDER_PATH`：
       - 需要提醒时，在 frontmatter 中设置 `action: write` 和 `priority: Px`，其中 `Px` 为选定的 `P0`、`P1` 或 `P2`。正文用一句自然、体贴的大白话，说清新变化及必要的行动或时间要求。
-      - 不需要提醒时，设置 `action: skip`，正文简要说明原因，本轮结束。
+      - 不需要提醒时，设置 `action: skip`，正文简要说明原因。
 
   5. 更新当天总结
     - 结合已有总结、本轮记录和生成的提醒，更新 `TODAY_SUMMARY_PATH`，按“今日日记”和“今日提醒”两个部分整理。
     - 合并同一事项，更新过时状态，保留必要背景和记录链接，让下一轮能接着了解情况。
+    - 不生成提醒时，也可以把新进展纳入日记；保留此前的提醒记录，不新增本轮提醒。
     - 记录实际生成的提醒。生成提醒不代表用户已经收到或读过，不要写成已经告知。
 
     ```markdown

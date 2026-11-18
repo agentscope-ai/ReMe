@@ -203,7 +203,7 @@ async def test_skipped_reminder_preserves_new_record_and_history(tmp_path, monke
 @pytest.mark.parametrize("record", ["write", "skip"])
 @pytest.mark.parametrize("existing_summary", [False, True])
 @pytest.mark.asyncio
-async def test_round_without_reminder_rejects_summary_changes(tmp_path, monkeypatch, record, existing_summary):
+async def test_summary_updates_require_new_information_not_a_reminder(tmp_path, monkeypatch, record, existing_summary):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         now = runtime.now()
@@ -222,11 +222,42 @@ async def test_round_without_reminder_rejects_summary_changes(tmp_path, monkeypa
             hook=lambda: runtime.files.write(paths["today_summary_path"], "# Unexpected update\n"),
         )
 
-        with pytest.raises(ValueError, match="without a reminder must not change"):
-            await step(agent_name="monitor")
-        assert (await runtime.status("monitor"))["pending_events"] == 1
+        if record == "skip":
+            with pytest.raises(ValueError, match="a skipped record must not change"):
+                await step(agent_name="monitor")
+            assert (await runtime.status("monitor"))["pending_events"] == 1
+        else:
+            response = await step(agent_name="monitor")
+            assert response.success and response.answer["notifications"] == []
+            assert runtime.files.read(paths["today_summary_path"]) == "# Unexpected update\n"
+            assert (await runtime.status("monitor"))["pending_events"] == 0
         await runtime.outbox.sync()
         assert not runtime.outbox.committed
+
+
+@pytest.mark.parametrize("before,after", [(None, ""), ("# Previous summary\n", ""), ("# Previous summary\n", None)])
+@pytest.mark.asyncio
+async def test_record_without_reminder_cannot_erase_daily_history(tmp_path, monkeypatch, before, after):
+    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+        await create_agent(runtime)
+        now = runtime.now()
+        monkeypatch.setattr(runtime, "now", lambda: now)
+        step = ProactiveAgentStep(app_context=context)
+        paths = step._paths(await runtime.definition("monitor"), now)
+        if before is not None:
+            runtime.files.write(paths["today_summary_path"], before)
+
+        def erase_summary():
+            if after is None:
+                paths["today_summary_path"].unlink()
+            else:
+                runtime.files.write(paths["today_summary_path"], after)
+
+        install_round(runtime, wrapper, monkeypatch, paths, reminder="skip", hook=erase_summary)
+        with pytest.raises(ValueError, match="updated daily summary must be nonempty"):
+            await step(agent_name="monitor")
+        assert step._read_optional(paths["today_summary_path"]) == before
+        assert (await runtime.status("monitor"))["pending_events"] == 1
 
 
 @pytest.mark.parametrize("key", ["record_path", "reminder_path"])
