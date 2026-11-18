@@ -5,6 +5,7 @@ import importlib.metadata
 import random
 from typing import TYPE_CHECKING
 
+import httpx
 from rich.console import Console, Group
 from rich.panel import Panel
 from rich.table import Table
@@ -19,6 +20,11 @@ from ..constants import (
 if TYPE_CHECKING:
     from ..components.service import BaseService
     from ..schema import ApplicationConfig
+
+
+def _service_url(host: str, port: int, path: str = "") -> str:
+    """Build the advertised service URL, bracketing IPv6 literals such as ``::1``."""
+    return str(httpx.URL(scheme="http", host=normalize_connect_host(host), port=port, path=path))
 
 
 def get_version(package_name: str) -> str:
@@ -82,12 +88,11 @@ def print_logo(app_config: "ApplicationConfig", runtime_service: "BaseService | 
         case "http":
             host = getattr(runtime_service, "host", extra.get("host", REME_DEFAULT_HOST))
             port = getattr(runtime_service, "port", extra.get("port", REME_DEFAULT_PORT))
-            display_host = normalize_connect_host(host)
-            info_table.add_row("🔗", "URL:", f"http://{display_host}:{port}")
+            info_table.add_row("🔗", "URL:", Text(_service_url(host, port)))
             mcp_enabled = getattr(runtime_service, "mcp_enabled", extra.get("mcp_enabled", True))
             if mcp_enabled:
                 mcp_path = getattr(runtime_service, "mcp_path", extra.get("mcp_path", "/mcp"))
-                info_table.add_row("🚌", "MCP:", f"http://{display_host}:{port}{mcp_path}")
+                info_table.add_row("🚌", "MCP:", Text(_service_url(host, port, mcp_path)))
             info_table.add_row("📚", "FastAPI:", Text(get_version("fastapi"), style="dim"))
             if mcp_enabled:
                 info_table.add_row("📚", "FastMCP:", Text(get_version("fastmcp"), style="dim"))
@@ -97,11 +102,7 @@ def print_logo(app_config: "ApplicationConfig", runtime_service: "BaseService | 
             if transport != "stdio":
                 host = getattr(runtime_service, "host", extra.get("host", REME_DEFAULT_HOST))
                 port = getattr(runtime_service, "port", extra.get("port", REME_DEFAULT_PORT))
-                display_host = normalize_connect_host(host)
-                url = f"http://{display_host}:{port}"
-                if transport == "sse":
-                    url += "/sse"
-                info_table.add_row("🔗", "URL:", url)
+                info_table.add_row("🔗", "URL:", Text(_service_url(host, port, "/sse" if transport == "sse" else "")))
             info_table.add_row("📚", "FastMCP:", Text(get_version("fastmcp"), style="dim"))
 
     info_table.add_row("🚀", "ReMe:", Text(get_version("reme-ai"), style="dim"))
