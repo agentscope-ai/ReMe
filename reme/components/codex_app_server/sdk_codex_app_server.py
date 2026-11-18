@@ -582,30 +582,34 @@ class SdkCodexAppServer(BaseCodexAppServer):
                         # A paused/closed consumer can miss usage emitted by native completion.
                         # Recover from the persisted rollout before the next turn starts.
                         state.token_usage = None
-                    try:
-                        async with asyncio.timeout(30 if error is not None else None):
-                            await self.wait_idle(thread)
-                    except Exception as exc:
-                        if isinstance(exc, TransportClosedError) and self._codex is codex:
-                            self._failed = True
-                        self._notify_session(thread.id, None)
-                        if error is None:
-                            raise
-                        self.logger.warning(f"Failed to wait for Codex thread {thread.id}: {exc}")
-                    else:
-                        if state.history_changed:
-                            await finish_cleanup(self._publish_history(thread.id))
-                        from openai_codex.generated.v2_all import ThreadUnsubscribeResponse
 
+                    async def cleanup():
                         try:
-                            if state.pending is None:
-                                await codex._client.request(  # pylint: disable=protected-access
-                                    "thread/unsubscribe",
-                                    {"threadId": thread.id},
-                                    response_model=ThreadUnsubscribeResponse,
-                                )
+                            async with asyncio.timeout(30 if error is not None else None):
+                                await self.wait_idle(thread)
                         except Exception as exc:
-                            self.logger.warning(f"Failed to unsubscribe Codex thread {thread.id}: {exc}")
+                            if isinstance(exc, TransportClosedError) and self._codex is codex:
+                                self._failed = True
+                            self._notify_session(thread.id, None)
+                            if error is None:
+                                raise
+                            self.logger.warning(f"Failed to wait for Codex thread {thread.id}: {exc}")
+                        else:
+                            if state.history_changed:
+                                await self._publish_history(thread.id)
+                            from openai_codex.generated.v2_all import ThreadUnsubscribeResponse
+
+                            try:
+                                if state.pending is None:
+                                    await codex._client.request(  # pylint: disable=protected-access
+                                        "thread/unsubscribe",
+                                        {"threadId": thread.id},
+                                        response_model=ThreadUnsubscribeResponse,
+                                    )
+                            except Exception as exc:
+                                self.logger.warning(f"Failed to unsubscribe Codex thread {thread.id}: {exc}")
+
+                    await finish_cleanup(cleanup())
         except TransportClosedError:
             if codex is not None and self._codex is codex:
                 self._failed = True

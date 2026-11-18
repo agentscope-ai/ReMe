@@ -9,9 +9,11 @@ import frontmatter
 
 from .base import BaseAgentStep
 from ....components import R
+from ....enumeration import ChunkEnum
 from ....schema.proactive_agent import ProactiveRunResult
-from ....schema import collect_reply
+from ....schema import TokenUsage, collect_reply
 from ....utils.async_utils import complete_in_thread
+from ....utils.counter import global_counter_add_many
 
 
 @R.register("proactive_agent_step")
@@ -75,28 +77,26 @@ class ProactiveAgentStep(BaseAgentStep):
         return options
 
     def _query(self, agent, events):
-        cron = agent.agent_type == "cron"
+        if agent.agent_type == "cron":
+            return self.prompt_format("cron_query")
         files = self.agent_runtime.files
         inputs = []
-        if not cron:
-            for number, event in enumerate(events, 1):
-                inputs.append(
-                    self.prompt_format(
-                        "event_input",
-                        number=number,
-                        event_ts=event["event_ts"],
-                        source=event["source"],
-                        description=event["description"],
-                        paths="\n".join(str(files.path(path)) for path in event["paths"]),
-                        has_files=bool(event["paths"]),
-                        no_files=not event["paths"],
-                    ),
-                )
+        for number, event in enumerate(events, 1):
+            inputs.append(
+                self.prompt_format(
+                    "event_input",
+                    number=number,
+                    event_ts=event["event_ts"],
+                    source=event["source"],
+                    description=event["description"],
+                    paths="\n".join(str(files.path(path)) for path in event["paths"]),
+                    has_files=bool(event["paths"]),
+                    no_files=not event["paths"],
+                ),
+            )
         return self.prompt_format(
-            "query",
+            "proactive_query",
             input_content="\n\n".join(inputs),
-            proactive=not cron,
-            cron=cron,
         )
 
     def _read_optional(self, path):
@@ -118,16 +118,20 @@ class ProactiveAgentStep(BaseAgentStep):
             raise ValueError(f"{path}: document body must not be blank")
         return document
 
-    def _read_artifacts(self, paths, summary_before):
+    def _read_artifacts(self, agent, paths, summary_before):
         """Validate the final branch and derive notifications only from saved documents."""
         files = self.agent_runtime.files
         record = self._read_document(paths["record_path"], record=True)
+        if agent.agent_type == "cron" and record["action"] != "write":
+            raise ValueError("a cron task must write its execution record")
         notifications = []
         if record["action"] == "skip":
             if self._read_optional(paths["reminder_path"]) is not None:
                 raise ValueError("a skipped record must not create a reminder")
         else:
             reminder = self._read_document(paths["reminder_path"])
+            if agent.agent_type == "cron" and (reminder["action"] != "write" or reminder.get("priority") != "P0"):
+                raise ValueError("a cron task must write a P0 report")
             if reminder["action"] == "write":
                 notifications.append(
                     {
@@ -141,15 +145,14 @@ class ProactiveAgentStep(BaseAgentStep):
                 )
         result = ProactiveRunResult(notifications=notifications)
         summary = self._read_optional(paths["today_summary_path"])
-        if record["action"] == "skip" and summary != summary_before:
-            raise ValueError("a skipped record must not change the daily summary")
-        if result.notifications:
+        if record["action"] == "skip":
+            if summary != summary_before:
+                raise ValueError("a skipped record must not change the daily summary")
+        else:
             if not summary or not summary.strip():
-                raise ValueError("a reminder requires a nonempty daily summary")
+                raise ValueError("a new record requires a nonempty daily summary")
             if summary == summary_before:
-                raise ValueError("a reminder must update its daily summary")
-        elif summary != summary_before and (not summary or not summary.strip()):
-            raise ValueError("an updated daily summary must be nonempty")
+                raise ValueError("a new record must update its daily summary")
         return result
 
     async def execute(self):
@@ -158,11 +161,35 @@ class ProactiveAgentStep(BaseAgentStep):
             raise ValueError("proactive_agent_step requires only agent_name")
         self.require_paths(self.workspace_path)
         self._round_files = {}
-        self.context.response.answer = await self.agent_runtime.run(
-            arguments["agent_name"],
-            self._execute,
-            on_failure=self._restore_files,
-        )
+        self.context.response.metadata.pop("reme.agent_run", None)
+        started, outcome = monotonic(), "failed"
+        try:
+            self.context.response.answer = await self.agent_runtime.run(
+                arguments["agent_name"],
+                self._execute,
+                on_failure=self._restore_files,
+            )
+            outcome = "completed"
+        except asyncio.CancelledError:
+            outcome = "interrupted"
+            raise
+        finally:
+            if stats := self.context.response.metadata.get("reme.agent_run"):
+                stats.update(result=outcome, elapsed_seconds=monotonic() - started)
+                prefix = ("agent_runs", stats["agent_type"])
+                counts = {
+                    "runs": 1,
+                    outcome: 1,
+                    "tool_calls": stats["tool_calls"],
+                    "lookup_calls": stats["lookup_calls"],
+                }
+                counts["elapsed_ms"] = round(stats["elapsed_seconds"] * 1000)
+                if stats["usage"] is not None:
+                    counts.update(stats["usage"], usage_runs=1)
+                global_counter_add_many(
+                    self.app_context.metadata,
+                    {(*prefix, key): value for key, value in counts.items()},
+                )
         return self.context.response
 
     async def _restore_files(self):
@@ -182,6 +209,15 @@ class ProactiveAgentStep(BaseAgentStep):
 
     async def _execute(self, agent, events):
         """Run the complete workflow in one turn, then validate its saved decisions."""
+        stats = {
+            "agent_type": agent.agent_type,
+            "session_id": None,
+            "model_status": "not_started",
+            "usage": None,
+            "tool_calls": 0,
+            "lookup_calls": 0,
+        }
+        self.context.response.metadata["reme.agent_run"] = stats
         runtime = self.agent_runtime
         now = runtime.now()
         paths = await asyncio.to_thread(self._paths, agent, now)
@@ -196,11 +232,23 @@ class ProactiveAgentStep(BaseAgentStep):
         options = self.session_options(agent, paths, now)
         query = await asyncio.to_thread(self._query, agent, events)
         started = monotonic()
-        label = f"Proactive agent={agent.agent_name}"
+        label = f"Proactive agent={agent.agent_name} agent_type={agent.agent_type}"
         session_id = None
+        calls = {}
         try:
 
             async def observe(chunk):
+                if chunk.chunk_type in {ChunkEnum.TOOL_CALL, ChunkEnum.TOOL_RESULT}:
+                    if identifier := chunk.tool_call_id or chunk.block_id or chunk.message_id:
+                        key = (chunk.turn_id, identifier)
+                        if chunk.tool_call_name or key in calls:
+                            calls[key] = chunk.tool_call_name or calls.get(key)
+                elif chunk.chunk_type == ChunkEnum.USAGE and isinstance(chunk.chunk, dict):
+                    stats["usage"] = TokenUsage.from_provider(chunk.chunk).model_dump()
+                elif chunk.chunk_type == ChunkEnum.REPLY_END and isinstance(chunk.chunk, dict):
+                    stats["model_status"] = chunk.chunk.get("status", "failed")
+                    if chunk.chunk.get("usage") is not None:
+                        stats["usage"] = TokenUsage.from_provider(chunk.chunk["usage"]).model_dump()
                 publish(chunk)
 
             model_error = None
@@ -230,8 +278,9 @@ class ProactiveAgentStep(BaseAgentStep):
                         raise RuntimeError(reply.get("error") or f"Proactive agent {reply['status']}")
             except Exception as exc:
                 model_error = exc
+                stats["model_status"] = "timeout" if isinstance(exc, TimeoutError) else "failed"
             try:
-                result = await asyncio.to_thread(self._read_artifacts, paths, summary_before)
+                result = await asyncio.to_thread(self._read_artifacts, agent, paths, summary_before)
             except Exception as validation_error:
                 if model_error is not None:
                     raise model_error from validation_error
@@ -244,8 +293,16 @@ class ProactiveAgentStep(BaseAgentStep):
             )
         except BaseException as exc:
             outcome = "interrupted" if isinstance(exc, asyncio.CancelledError) else "failed"
+            if outcome == "interrupted":
+                stats["model_status"] = outcome
             self.logger.error(f"{label} result={outcome} elapsed={monotonic() - started:.2f}s error={exc}")
             raise
+        finally:
+            stats.update(
+                session_id=session_id,
+                tool_calls=len(calls),
+                lookup_calls=sum(name in {"webSearch", "web_search", "web_extract"} for name in calls.values()),
+            )
         return result, session_id
 
 

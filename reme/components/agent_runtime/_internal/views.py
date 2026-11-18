@@ -70,6 +70,7 @@ class AgentViews:
             session_id=session.session_id if session else None,
             directory=directory.relative_to(runtime.workspace_path).as_posix(),
             pending_events=facts.get("pending_events", 0),
+            in_flight_events=facts.get("in_flight_events", 0),
             last_started_at=facts.get("last_started_at"),
             last_completed_at=facts.get("last_completed_at"),
             next_trigger_at=facts.get("next_trigger_at"),

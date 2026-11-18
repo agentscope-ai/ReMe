@@ -245,7 +245,7 @@ async def test_early_stream_close_releases_http_response(provider):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("cancel", [False, True])
 async def test_timeout_and_cancellation_close_response(provider, cancel):
-    """Bound the whole audio response and propagate cancellation after cleanup."""
+    """Bound stalled provider reads and propagate cancellation after cleanup."""
     stream = EventStream([event(b"first")], wait=True)
     provider[0].append(sse_response(stream))
     component = DashScopeTTS(timeout=10 if cancel else 0.01)
@@ -256,6 +256,23 @@ async def test_timeout_and_cancellation_close_response(provider, cancel):
             task.cancel()
         with pytest.raises(asyncio.CancelledError if cancel else TimeoutError):
             await task
+        assert stream.closed
+    finally:
+        await component.close()
+
+
+@pytest.mark.asyncio
+async def test_tts_read_timeout_excludes_consumer_playback(provider):
+    """A slow audio consumer cannot cancel itself through the provider timeout."""
+    stream = EventStream([event(b"first"), event(b"second", done=True)])
+    provider[0].append(sse_response(stream))
+    component = DashScopeTTS(timeout=0.01)
+    try:
+        async with aclosing(component.stream("hello")) as chunks:
+            assert (await anext(chunks)).audio == b"first"
+            await asyncio.sleep(0.03)
+            last = await anext(chunks)
+            assert last.audio == b"second" and last.is_last
         assert stream.closed
     finally:
         await component.close()

@@ -66,44 +66,49 @@ class DashScopeTTS(BaseTTS):
         await self.start()
         assert self.transport.client is not None
         request_id, usage = "", {}
-        async with asyncio.timeout(self.transport.options.timeout):
-            async with self.transport.client.stream(
-                "POST",
-                "services/audio/tts/SpeechSynthesizer",
-                headers=headers,
-                json={"model": self.model, "input": inputs},
-            ) as response:
-                await self.transport.check_response(response)
-                if not response.headers.get("content-type", "").startswith("text/event-stream"):
-                    await response.aread()
-                    self.transport.check_error(response.json())
-                    raise RuntimeError("DashScope TTS did not return an audio event stream")
-                async for line in response.aiter_lines():
-                    if not line.startswith("data:"):
-                        continue
-                    data = line[5:].strip()
-                    if not data:
-                        continue
-                    if data == "[DONE]":
-                        break
-                    body = json.loads(data)
-                    self.transport.check_error(body)
-                    request_id = body.get("request_id") or request_id
-                    if body.get("usage"):
-                        usage = body["usage"]
-                    output = body.get("output") or {}
-                    encoded = (output.get("audio") or {}).get("data") or ""
-                    done = output.get("finish_reason") == "stop"
-                    if encoded or done:
-                        yield TTSResult(
-                            audio=base64.b64decode(encoded, validate=True),
-                            format=self.audio_options.format,
-                            sample_rate=self.audio_options.sample_rate,
-                            model=self.model,
-                            request_id=request_id,
-                            usage=usage,
-                            is_last=done,
-                        )
-                    if done:
-                        return
+        async with self.transport.client.stream(
+            "POST",
+            "services/audio/tts/SpeechSynthesizer",
+            headers=headers,
+            json={"model": self.model, "input": inputs},
+        ) as response:
+            await self.transport.check_response(response)
+            if not response.headers.get("content-type", "").startswith("text/event-stream"):
+                await response.aread()
+                self.transport.check_error(response.json())
+                raise RuntimeError("DashScope TTS did not return an audio event stream")
+            lines = response.aiter_lines()
+            while True:
+                try:
+                    async with asyncio.timeout(self.transport.options.timeout):
+                        line = await anext(lines)
+                except StopAsyncIteration:
+                    break
+                if not line.startswith("data:"):
+                    continue
+                data = line[5:].strip()
+                if not data:
+                    continue
+                if data == "[DONE]":
+                    break
+                body = json.loads(data)
+                self.transport.check_error(body)
+                request_id = body.get("request_id") or request_id
+                if body.get("usage"):
+                    usage = body["usage"]
+                output = body.get("output") or {}
+                encoded = (output.get("audio") or {}).get("data") or ""
+                done = output.get("finish_reason") == "stop"
+                if encoded or done:
+                    yield TTSResult(
+                        audio=base64.b64decode(encoded, validate=True),
+                        format=self.audio_options.format,
+                        sample_rate=self.audio_options.sample_rate,
+                        model=self.model,
+                        request_id=request_id,
+                        usage=usage,
+                        is_last=done,
+                    )
+                if done:
+                    return
         raise RuntimeError("DashScope TTS stream ended without completion")

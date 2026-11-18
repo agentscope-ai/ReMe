@@ -604,6 +604,10 @@ class AsAgentWrapper(BaseAgentWrapper):
                 terminal.status = result["status"]
                 terminal.metadata["error"] = result["error"]
             finally:
+                if not inputs_recorded:
+                    accepted = {message.id for message in agent.state.context}
+                    messages = [inputs] if isinstance(inputs, Msg) else inputs if isinstance(inputs, list) else []
+                    record_inputs(session, [msg for msg in messages if isinstance(msg, Msg) and msg.id in accepted])
                 if not finishing and model_usages:
                     self._record_token_usage(TokenUsage.combine(model_usages))
                 if result is None:

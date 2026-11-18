@@ -34,8 +34,13 @@ def _recording_client(seen, output="ok", base=object):
             return None
 
         async def __call__(self, action: str, **kwargs):
-            seen["action"] = action
-            seen["payload"] = kwargs
+            async for chunk in self.call_job(action, kwargs):
+                yield chunk
+
+        async def call_job(self, job_name: str, payload: dict):
+            """Record route and payload separately, including action-bearing jobs."""
+            seen["action"] = job_name
+            seen["payload"] = payload
             yield output
 
     return RecordingClient
@@ -296,6 +301,19 @@ def test_call_server_passes_client_kwargs_to_client(monkeypatch, capsys):
     assert seen["client_kwargs"] == {"host": "127.0.0.2", "port": 2444, "timeout": 1.5}
     assert seen["action"] == "search"
     assert seen["payload"] == {"query": "hello"}
+    assert capsys.readouterr().out == "ok\n"
+
+
+def test_cli_preserves_job_action_argument(monkeypatch, capsys):
+    """The route name and a Todo/Idea action can coexist in one CLI invocation."""
+    seen = {}
+    _set_client_backend(monkeypatch, _recording_client(seen))
+    monkeypatch.setattr(reme_module, "running_app_config", lambda: None)
+    monkeypatch.setattr(reme_module, "load_env", lambda: {})
+    monkeypatch.setattr(sys, "argv", ["reme", "todo", "action=create", "project=ReMe", "text=记录事项"])
+    reme_module.main()
+    assert seen["action"] == "todo"
+    assert seen["payload"] == {"action": "create", "project": "ReMe", "text": "记录事项"}
     assert capsys.readouterr().out == "ok\n"
 
 

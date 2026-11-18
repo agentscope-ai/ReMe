@@ -32,7 +32,7 @@ const snapshot = (turn: string, sessionId = "session"): AgentEvent => ({
   },
 });
 
-test("only authoritative task inputs collapse; ordinary chat and task follow-ups remain visible", () => {
+test("automatic task inputs are distinguished from ordinary chat and task follow-ups", () => {
   const model = new SessionModel();
   model.apply(snapshot("turn"));
   model.messages.unshift({

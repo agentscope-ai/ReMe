@@ -142,6 +142,33 @@ async def test_live_history_and_status_do_not_wait_for_generation(wrapper):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("accepted", [False, True])
+async def test_cancellation_before_first_event_preserves_accepted_inputs(wrapper, monkeypatch, accepted):
+    """Native acceptance can precede the first event visible to the wrapper."""
+    session_id = await wrapper.create_session()
+    entered = asyncio.Event()
+
+    async def accept_then_pause(agent, inputs, **_kwargs):
+        if accepted:
+            await agent._handle_incoming_messages(inputs)
+        entered.set()
+        await asyncio.Event().wait()
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(Agent, "reply_stream", accept_then_pause)
+    task = asyncio.create_task(wrapper.reply("Keep this input", resume=session_id))
+    await asyncio.wait_for(entered.wait(), 2)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    snapshot = await wrapper.read_session(session_id)
+    native = await AsStateHandler(await wrapper.get_session_path(session_id)).load()
+    assert [message.content for message in snapshot.messages] == (["Keep this input"] if accepted else [])
+    assert {message.id for message in snapshot.messages} <= {message.id for message in native.context}
+    assert not wrapper._sessions._runtimes
+
+
+@pytest.mark.asyncio
 async def test_new_live_session_exists_with_uppercase_id_before_first_save(wrapper):
     """UUID spelling must not hide an active session that has no file yet."""
     session_id = str(uuid4())

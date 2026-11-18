@@ -17,7 +17,7 @@ import {
   shell,
   Tray,
 } from "electron";
-import { readFile } from "node:fs/promises";
+import { readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveWorkspaceLink } from "../shared/links.ts";
@@ -417,16 +417,22 @@ else {
             }
           }
           case "chat.send":
+            if (event.sender.id !== windows!.chat.webContents.id)
+              throw new UiError("invalidSender");
             if (typeof action.query !== "string")
               throw new UiError("textRequired");
             return controller!.send(action.query);
           case "chat.stop":
+            if (event.sender.id !== windows!.chat.webContents.id)
+              throw new UiError("invalidSender");
             controller!.stopReply();
             return;
           case "page.select":
             if (
               event.sender.id !== windows!.chat.webContents.id ||
-              !["remy", "knowledge", "settings"].includes(action.page)
+              !["remy", "notebook", "knowledge", "settings"].includes(
+                action.page,
+              )
             )
               throw new UiError("invalidAction");
             controller!.selectPage(action.page);
@@ -453,7 +459,38 @@ else {
               throw new UiError("invalidAction");
             controller!.selectAgent(action.agentName);
             return;
+          case "agent.reveal": {
+            if (event.sender.id !== windows!.chat.webContents.id)
+              throw new UiError("invalidSender");
+            const agent = controller!.state.agents?.find(
+              (item) => item.agent_name === action.agentName,
+            );
+            if (
+              !agent ||
+              agent.agent_type === "chat" ||
+              !controller!.state.workspace
+            )
+              throw new UiError("invalidAction");
+            const root = await realpath(controller!.state.workspace);
+            const directory = await realpath(
+              path.resolve(root, agent.directory),
+            );
+            const relative = path.relative(root, directory);
+            if (
+              !relative ||
+              relative === ".." ||
+              relative.startsWith(`..${path.sep}`) ||
+              path.isAbsolute(relative) ||
+              !(await stat(directory)).isDirectory()
+            )
+              throw new UiError("invalidWorkspaceRequest");
+            const error = await shell.openPath(directory);
+            if (error) throw new Error(error);
+            return;
+          }
           case "session.new":
+            if (event.sender.id !== windows!.chat.webContents.id)
+              throw new UiError("invalidSender");
             return controller!.newSession();
           case "messages.read":
             if (
@@ -486,6 +523,8 @@ else {
             );
             return;
           case "settings.update":
+            if (event.sender.id !== windows!.chat.webContents.id)
+              throw new UiError("invalidSender");
             return controller!.settings({
               ...(action.theme !== undefined ? { theme: action.theme } : {}),
               ...(action.transparentBackground !== undefined

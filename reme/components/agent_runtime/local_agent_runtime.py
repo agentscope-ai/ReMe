@@ -40,6 +40,7 @@ class _Execution:
     error: str | None = None
     retry_at: datetime | None = None
     retry_items: list[str] | None = None
+    retry_delay: float = 0
 
 
 @R.register("local")
@@ -167,7 +168,7 @@ class LocalAgentRuntime(BaseAgentRuntime):
                     break
                 try:
                     await self.outbox.sync()
-                except (OSError, ValueError) as exc:
+                except Exception as exc:
                     self.logger.error(f"Could not reconcile agent files: {exc}")
                 self.changed.set()
 
@@ -581,10 +582,16 @@ class LocalAgentRuntime(BaseAgentRuntime):
             if not response.success:
                 raise RuntimeError(str(response.answer))
             execution.error = execution.retry_at = None
+            execution.retry_delay = 0
         except Exception as exc:
             execution.error = str(exc)[:1000]
-            execution.retry_at = self.now() + timedelta(seconds=self.retry_seconds)
-            self.logger.exception(f"Proactive agent {agent_name} failed: {exc}")
+            delay = min(
+                max(300, self.retry_seconds),
+                execution.retry_delay * 2 if execution.retry_delay else self.retry_seconds,
+            )
+            execution.retry_delay = delay
+            execution.retry_at = self.now() + timedelta(seconds=delay)
+            self.logger.exception(f"Proactive agent {agent_name} failed; retry in {delay:g}s: {exc}")
         finally:
             self.workers.pop(agent_name, None)
             self.changed.set()

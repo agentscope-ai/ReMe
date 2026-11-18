@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import * as Tabs from "@radix-ui/react-tabs";
 import {
   BookOpen,
+  Leaf,
   Settings as SettingsIcon,
   Sparkles,
   Minus,
@@ -16,6 +17,7 @@ import { useSpeechPlayback } from "./speech/playback.ts";
 import Remy from "./remy.tsx";
 import Settings from "./settings.tsx";
 import Knowledge from "./knowledge/index.tsx";
+import Notebook from "./notebook/index.tsx";
 
 export default function Workspace(bootstrap: Bootstrap) {
   const { state, platform, version } = bootstrap;
@@ -25,7 +27,7 @@ export default function Workspace(bootstrap: Bootstrap) {
   >(() => {
     try {
       return Object.fromEntries(
-        (["remy", "knowledge", "settings"] as const).map((page) => [
+        (["remy", "notebook", "knowledge", "settings"] as const).map((page) => [
           page,
           localStorage.getItem(`sidebar:${page}:collapsed`) === "true",
         ]),
@@ -48,10 +50,31 @@ export default function Workspace(bootstrap: Bootstrap) {
     if (state.documentTarget)
       setCollapsed((value) => ({ ...value, knowledge: false }));
   }, [state.documentTarget]);
-  const lastPage = useRef<"remy" | "knowledge">("remy");
+  const lastPage = useRef<Exclude<DesktopPage, "settings">>("remy");
   const settingsOpen = state.activePage === "settings";
   useEffect(() => {
     if (state.activePage !== "settings") lastPage.current = state.activePage;
+  }, [state.activePage]);
+  const tabsRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const tabs = tabsRef.current!;
+    const updateIndicator = () => {
+      const active = tabs.querySelector<HTMLButtonElement>(
+        '[role="tab"][data-state="active"]',
+      );
+      tabs.dataset.active = String(!!active);
+      if (active) {
+        tabs.style.setProperty("--tab-left", `${active.offsetLeft}px`);
+        tabs.style.setProperty("--tab-width", `${active.offsetWidth}px`);
+      }
+    };
+    updateIndicator();
+    const observer = new ResizeObserver(updateIndicator);
+    observer.observe(tabs);
+    tabs
+      .querySelectorAll('[role="tab"]')
+      .forEach((tab) => observer.observe(tab));
+    return () => observer.disconnect();
   }, [state.activePage]);
   useSpeechPlayback(state);
   const select = (page: DesktopPage) =>
@@ -97,10 +120,18 @@ export default function Workspace(bootstrap: Bootstrap) {
           </span>
           <span>ReMe Desktop</span>
         </div>
-        <Tabs.List className="workspace-tabs" aria-label={t("navigation")}>
+        <Tabs.List
+          ref={tabsRef}
+          className="workspace-tabs"
+          aria-label={t("navigation")}
+        >
           <Tabs.Trigger value="remy">
             <Sparkles size={15} />
             Remy{state.unread > 0 && <i className="tab-dot" />}
+          </Tabs.Trigger>
+          <Tabs.Trigger value="notebook">
+            <Leaf size={15} />
+            {t("notebook")}
           </Tabs.Trigger>
           <Tabs.Trigger value="knowledge">
             <BookOpen size={15} />
@@ -155,6 +186,13 @@ export default function Workspace(bootstrap: Bootstrap) {
             state={state}
             collapsed={collapsed.remy}
             onSettings={() => select("settings")}
+          />
+        </Tabs.Content>
+        <Tabs.Content value="notebook" forceMount className="workspace-page">
+          <Notebook
+            key={`${state.settings.endpoint}:${state.workspace}`}
+            state={state}
+            collapsed={collapsed.notebook}
           />
         </Tabs.Content>
         <Tabs.Content value="knowledge" forceMount className="workspace-page">

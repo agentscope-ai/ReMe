@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 
 from .agent_runtime import AgentName, AgentType
 from .agent_session import SessionSnapshot
@@ -23,6 +23,7 @@ class AgentView(BaseModel):
     task_path: str | None = Field(default=None, exclude_if=lambda value: value is None)
     directory: str
     pending_events: int = 0
+    in_flight_events: int = 0
     last_started_at: str | None = None
     last_completed_at: str | None = None
     next_trigger_at: str | None = None
@@ -41,6 +42,27 @@ class AgentChatRequest(AgentRequest):
     """A user message continues Chat or queries a fork of the latest task session."""
 
     query: str = Field(min_length=1, max_length=100000)
+
+
+class AgentTaskRequest(BaseModel):
+    """Read or save a task's original TASK.md without accepting arbitrary paths."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["read", "save"]
+    agent_name: AgentName
+    content: str | None = Field(default=None, min_length=1, max_length=100000)
+    expected_mtime: str | None = Field(default=None, min_length=1, max_length=80)
+
+    @model_validator(mode="after")
+    def validate_action(self):
+        """Require an editor revision for every write and reject irrelevant read inputs."""
+        if self.action == "save":
+            if self.content is None or not self.content.strip() or not self.expected_mtime:
+                raise ValueError("save requires nonblank content and expected_mtime")
+        elif self.model_fields_set & {"content", "expected_mtime"}:
+            raise ValueError("read does not accept content or expected_mtime")
+        return self
 
 
 class AgentSessionView(BaseModel):

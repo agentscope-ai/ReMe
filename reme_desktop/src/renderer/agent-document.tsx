@@ -9,9 +9,13 @@ import DocumentPreview from "./knowledge/DocumentPreview.tsx";
 export default function AgentDocument({
   state,
   path,
+  revision = 0,
+  onEdit,
 }: {
   state: DesktopState;
   path: string;
+  revision?: number;
+  onEdit?: () => void;
 }) {
   const [content, setContent] = useState<string>();
   const [error, setError] = useState<unknown>(null);
@@ -33,11 +37,16 @@ export default function AgentDocument({
     return () => {
       live = false;
     };
-  }, [path, state.workspace, state.settings.endpoint, completed]);
+  }, [path, state.workspace, state.settings.endpoint, completed, revision]);
   return (
     <div className="agent-document document-pane">
       <div className="agent-document-toolbar">
         <span>{path}</span>
+        {onEdit && (
+          <button className="subtle" onClick={onEdit}>
+            {t("taskEdit")}
+          </button>
+        )}
         <button
           className="subtle"
           onClick={() =>

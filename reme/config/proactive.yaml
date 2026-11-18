@@ -11,6 +11,57 @@ service:
   mcp_enabled: true
 
 jobs:
+  todo:
+    backend: base
+    description: >-
+      Manage one-sentence tasks: create/list/get/update. IDs and progress timestamps are generated automatically.
+      Update appends progress_text; done/cancelled archives the task, open/partial restores it.
+      source_idea links an existing idea; create inherits omitted project/text from that idea.
+      Follow the manage-todos-ideas skill for workflows and examples.
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        action: {type: string, enum: [create, list, get, update]}
+        id: &record_id {type: string, minLength: 1, description: "Existing record ID; never supplied on create."}
+        project: &record_project {type: string, description: "Project name. Defaults to 随笔 (Notes in English); blank also means 随笔. Omit on create to inherit the source Idea's project. Omit on update to retain. Exact filter for list; use 随笔 for Notes."}
+        text: &record_text {type: string, minLength: 1, description: "One-sentence content; create/update only."}
+        status: {type: string, enum: [open, partial, done, cancelled], description: "Task state; exact filter for list."}
+        due_date: {type: [string, "null"], format: date, description: "Optional deadline. Update with null to clear; omit to retain."}
+        source_idea: {type: [string, "null"], minLength: 1, description: "Idea ID to link or filter by; null removes the link on update."}
+        progress_text: {type: string, minLength: 1, description: "Append one progress note; create/update only."}
+        progress_time: {type: [string, "null"], format: date-time, description: "Optional explicit progress time with timezone; requires progress_text."}
+        scope: &record_scope {type: string, enum: [active, archive, all], description: "List only; defaults to active."}
+        query: &record_query {type: string, description: "List only; case-insensitive substring search."}
+        offset: &record_offset {type: integer, minimum: 0, description: "List only; defaults to 0."}
+        limit: &record_limit {type: integer, minimum: 1, maximum: 100, description: "List only; defaults to 20."}
+      required: [action]
+    steps:
+      - backend: todo_step
+
+  idea:
+    backend: base
+    description: >-
+      Capture and manage one-sentence ideas: create/list/get/update/archive/restore.
+      IDs are generated automatically; archive retains the idea and its Todo links.
+      Creating or completing a linked Todo does not close the idea.
+      Follow the manage-todos-ideas skill for workflows and examples.
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        action: {type: string, enum: [create, list, get, update, archive, restore]}
+        id: *record_id
+        project: *record_project
+        text: *record_text
+        scope: *record_scope
+        query: *record_query
+        offset: *record_offset
+        limit: *record_limit
+      required: [action]
+    steps:
+      - backend: idea_step
+
   tts:
     backend: base
     description: "Synthesize text; returns Base64 audio, format and sample rate; requires DASHSCOPE_API_KEY."
@@ -44,7 +95,7 @@ jobs:
     enable_serve: false
     steps:
       - backend: inbox_chat_step
-        job_tools: [manage_proactive_agent]
+        job_tools: &chat_tools [manage_proactive_agent, todo, idea]
         timeout_seconds: 120
 
   screen_capture_cron:
@@ -264,6 +315,21 @@ jobs:
     steps:
     - backend: agent_session_step
 
+  agent_task:
+    backend: base
+    description: "Read or save a named task's TASK.md; saving requires the mtime returned by read."
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        action: {type: string, enum: [read, save]}
+        agent_name: *agent_name
+        content: {type: string, minLength: 1, maxLength: 100000}
+        expected_mtime: {type: string, minLength: 1, maxLength: 80}
+      required: [action, agent_name]
+    steps:
+    - backend: agent_task_step
+
   watch_agent_session:
     backend: stream
     parameters: *agent_request
@@ -286,7 +352,7 @@ jobs:
       - query
     steps:
     - backend: agent_chat_step
-      job_tools: [manage_proactive_agent]
+      job_tools: *chat_tools
 
   create_chat_session:
     backend: base
@@ -296,7 +362,7 @@ jobs:
       properties: {}
     steps:
     - backend: agent_new_session_step
-      job_tools: [manage_proactive_agent]
+      job_tools: *chat_tools
 
   list_workspace:
     backend: base
@@ -630,7 +696,7 @@ components:
       app_server: default
       project_path: ..  # Resolve repository skills from the default <project>/.reme workspace.
       cwd: .
-      skills: [manage-proactive-agent]
+      skills: [manage-proactive-agent, manage-todos-ideas]
       model: ${REME_MODEL_NAME:-qwen4-max}
       effort: xhigh
       approval_mode: deny_all  # SDK maps this to approval_policy=never; no approval requests.

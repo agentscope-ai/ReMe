@@ -59,7 +59,7 @@ export default memo(function MessageBody({
     !message.error &&
     (!message.status || message.status.tone === "success");
   const hasContent = content || entries.length;
-  const body = (
+  return (
     <div className="message-body">
       {entries.length ? (
         entries.map((item) => {
@@ -133,13 +133,5 @@ export default memo(function MessageBody({
         <p className="message-error">{message.error}</p>
       )}
     </div>
-  );
-  return message.taskInput ? (
-    <details className="task-input">
-      <summary>{translator(language)("taskInput")}</summary>
-      {body}
-    </details>
-  ) : (
-    body
   );
 });

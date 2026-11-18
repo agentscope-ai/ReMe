@@ -88,7 +88,16 @@ async def test_automatic_rounds_start_fresh_sessions_while_user_followups_resume
 
         async def reply(query, **kwargs):
             if kwargs.get("sandbox") == "workspace-write":
-                runtime.files.write(paths["record_path"], "---\naction: skip\n---\n")
+                if agent_type == "cron":
+                    runtime.files.write(paths["record_path"], "---\naction: write\n---\nNo changes\n")
+                    runtime.files.write(paths["reminder_path"], "---\naction: write\npriority: P0\n---\nNo changes\n")
+                    runtime.files.write(
+                        paths["today_summary_path"],
+                        f"## Today's records\n- [Check]({paths['record_path'].name})\n"
+                        "\n## Today's reminders\n- No changes\n",
+                    )
+                else:
+                    runtime.files.write(paths["record_path"], "---\naction: skip\n---\n")
             async for chunk in original_reply(query, **kwargs):
                 yield chunk
 
@@ -109,6 +118,8 @@ async def test_automatic_rounds_start_fresh_sessions_while_user_followups_resume
             paths = step._paths(await runtime.definition("monitor"), now)
             response = await step(agent_name="monitor")
             assert response.success
+            if agent_type == "cron":
+                assert len(response.answer["notifications"]) == 1
             sessions.append(wrapper.turns[-1][1]["resume"])
             if number == 0:
                 response = await AgentChatStep(app_context=context)(

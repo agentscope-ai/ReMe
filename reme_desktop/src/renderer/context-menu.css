@@ -40,6 +40,12 @@
   width: 14px;
   flex-shrink: 0;
 }
+.context-menu > button[data-danger] {
+  color: var(--error);
+  border-top: 1px solid var(--line);
+  margin-top: 4px;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+}
 .context-menu > button > span:nth-child(2) {
   flex: 1;
 }

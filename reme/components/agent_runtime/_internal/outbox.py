@@ -175,21 +175,31 @@ class AgentOutbox:
                 item = AgentReminder.model_validate({**item.model_dump(), **changes})
                 await complete_in_thread(self._write, path, item)
                 self.cache.pop(path, None)
-            self.records[ref] = item
+            if ref in self.records:
+                self.records[ref] = item
 
     async def publish(self):
         """Stable references make receiver publication safe to repeat after interruption."""
         agents = await asyncio.to_thread(self.runtime.agents.load)
-        for ref in sorted(self.committed, key=lambda item: (self.records[item].created_at, item.id)):
-            item = self.records[ref]
-            agent = agents.get(self.owners[ref])
-            if item.delivered_at is None and agent is not None and agent.enabled:
-                await self.runtime.inbox.append("Remy", self._event(ref))
-                await self.update(ref, delivered_at=self.runtime.now())
-                self.runtime.logger.info(
-                    f"Proactive agent={self.owners[ref]} reminder={ref.id} result=delivered path={ref.file}",
-                )
-                self.runtime.changed.set()
+        async with self.lock:
+            refs = sorted(self.committed, key=lambda ref: (self.records[ref].created_at, ref.id))
+        for ref in refs:
+            async with self.lock:
+                item = self.records.get(ref)
+                owner = self.owners.get(ref)
+                agent = agents.get(owner)
+                if ref not in self.committed or item is None or item.delivered_at is not None:
+                    continue
+                if agent is None or not agent.enabled:
+                    continue
+                event = self._event(ref)
+            # Capacity waits must leave the outbox available to readers and consumers.
+            await self.runtime.inbox.append("Remy", event)
+            await self.update(ref, delivered_at=self.runtime.now())
+            self.runtime.logger.info(
+                f"Proactive agent={owner} reminder={ref.id} result=delivered path={ref.file}",
+            )
+            self.runtime.changed.set()
 
     def references(self, agent_name):
         """Find retained records owned by an identity without storing duplicate sender fields."""

@@ -259,7 +259,7 @@ async def test_formal_agents_inherit_web_search_from_shared_codex_server(tmp_pat
         assert options["config"] == {"skills.include_instructions": False}
         chat_tools = config["jobs"]["ask_agent"]["steps"][0]["job_tools"]
         chat = ChatAgentStep(app_context=context, job_tools=chat_tools).session_options()
-        assert chat["job_tools"] == ["manage_proactive_agent"]
+        assert chat["job_tools"] == ["manage_proactive_agent", "todo", "idea"]
         assert "sandbox" not in chat
         assert "config" not in chat
 

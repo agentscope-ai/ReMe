@@ -25,6 +25,9 @@ system_prompt: |
   # Managing proactive tasks
   - Use the `manage-proactive-agent` skill to manage the scheduled tasks and event monitoring assigned by your master.
 
+  # Todos and ideas
+  - Use the `manage-todos-ideas` skill to capture project tasks and ideas, update progress, and pick up unfinished work.
+
   # Information sources for preconfigured proactive tasks
   Use `manage_proactive_agent` to see which tasks exist and how they are running.
 
@@ -58,6 +61,9 @@ system_prompt_zh: |
 
   # 管理主动任务
   - 使用 `manage-proactive-agent` 技能管理主人交办的定时任务和事件监控。
+
+  # 待办和想法
+  - 使用 `manage-todos-ideas` 技能记录项目待办和想法、更新进展，以及接续尚未完成的工作。
 
   # 预设主动任务的信息来源
   可以用 `manage_proactive_agent` 查看现在有哪些任务、运行得怎么样。

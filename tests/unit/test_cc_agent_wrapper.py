@@ -96,6 +96,18 @@ async def test_file_session_store_conforms_to_latest_sdk(tmp_path):
     await run_session_store_conformance(lambda: CcFileSessionStore(tmp_path / str(next(sequence))))
 
 
+@pytest.mark.asyncio
+async def test_file_session_store_keeps_dotted_subkeys_distinct(tmp_path):
+    """Subkey extensions are part of the native identity, not filename suffixes."""
+    store = CcFileSessionStore(tmp_path)
+    base = {"project_key": "project", "session_id": "session"}
+    for name in ("agent.one", "agent.two"):
+        await store.append({**base, "subpath": name}, [{"uuid": name}])
+    assert set(await store.list_subkeys(base)) == {"agent.one", "agent.two"}
+    assert await store.load({**base, "subpath": "agent.one"}) == [{"uuid": "agent.one"}]
+    assert await store.load({**base, "subpath": "agent.two"}) == [{"uuid": "agent.two"}]
+
+
 def test_ensure_claude_skill_dir_rejects_paths_as_skill_names(tmp_path):
     """Skill selectors cannot escape the project skills directory."""
     (tmp_path / "skills").mkdir()

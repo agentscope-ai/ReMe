@@ -1263,6 +1263,40 @@ async def test_failed_cleanup_preserves_the_original_request_error(system, monke
 
 
 @pytest.mark.asyncio
+async def test_repeated_cancellation_finishes_native_thread_cleanup(system, monkeypatch):
+    """The lease stays held until native idle and unsubscribe have both settled."""
+    first, _, server, _ = system
+    await first.reply("initial")
+    client = _Codex.instances[0]
+    entered, release = asyncio.Event(), asyncio.Event()
+    identities = []
+
+    async def wait_idle(_thread):
+        entered.set()
+        await release.wait()
+
+    async def use_thread():
+        async with server.thread() as thread:
+            identities.append(thread.id)
+
+    monkeypatch.setattr(server, "wait_idle", wait_idle)
+    task = asyncio.create_task(use_thread())
+    await asyncio.wait_for(entered.wait(), 2)
+    try:
+        for _ in range(2):
+            task.cancel()
+            await asyncio.sleep(0)
+            assert not task.done()
+            assert server._threads[identities[0]].lock.locked()
+    finally:
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    assert identities[0] in client.unsubscribed
+    assert server._threads[identities[0]].users == 0
+
+
+@pytest.mark.asyncio
 async def test_cancelled_waiter_keeps_the_running_threads_tool_binding(system):
     first, second, server, _ = system
     binding = {"job_tools": ["search"], "tool_context_id": "one"}

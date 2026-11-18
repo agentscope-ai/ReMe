@@ -10,7 +10,7 @@ import frontmatter
 import pytest
 
 from reme.enumeration import ChunkEnum
-from reme.schema import Event, StreamChunk
+from reme.schema import StreamChunk
 from reme.steps.proactive.agent import ProactiveAgentStep
 from .test_agent_runtime import create_agent, running_runtime
 
@@ -38,7 +38,8 @@ def install_round(
         if record == "write":
             metadata = {"action": reminder}
             if reminder == "write":
-                metadata["priority"] = "P1"
+                agent = await runtime.definition(options["activity_task_id"])
+                metadata["priority"] = "P0" if agent.agent_type == "cron" else "P1"
             runtime.files.write(
                 paths["reminder_path"],
                 frontmatter.dumps(
@@ -48,12 +49,11 @@ def install_round(
                     ),
                 ),
             )
-            if reminder == "write":
-                runtime.files.write(
-                    paths["today_summary_path"],
-                    f"## Today's journal\n- [Progress]({paths['record_path'].name})\n"
-                    "\n## Today's reminders\n- New result\n",
-                )
+            runtime.files.write(
+                paths["today_summary_path"],
+                f"## Today's records\n- [Progress]({paths['record_path'].name})\n"
+                "\n## Today's reminders\n" + ("- New result\n" if reminder == "write" else ""),
+            )
         if hook is not None:
             hook()
         result = {
@@ -102,7 +102,8 @@ async def test_one_turn_saves_artifacts_and_publishes_through_runtime(tmp_path, 
         await runtime.outbox.sync()
         assert len(runtime.outbox.committed) == 1
         item = (await runtime.notifications.read())["items"][0]
-        assert item["message"] == "New result" and item["priority"] == "P1"
+        assert item["message"] == "New result"
+        assert item["priority"] == ("P0" if agent_type == "cron" else "P1")
         assert item["reminder_path"] == paths["reminder_path"].relative_to(tmp_path).as_posix()
         assert item["paths"] == [
             paths[key].relative_to(tmp_path).as_posix() for key in ("reminder_path", "record_path")
@@ -144,33 +145,11 @@ async def test_no_new_information_preserves_empty_decision_without_reminder(tmp_
         assert not runtime.outbox.records and not runtime.outbox.issues
 
 
-@pytest.mark.parametrize("agent_type", ["proactive", "cron"])
 @pytest.mark.parametrize("existing_summary", [False, True])
 @pytest.mark.asyncio
-async def test_skipped_reminder_preserves_new_record_and_history(tmp_path, monkeypatch, agent_type, existing_summary):
+async def test_skipped_reminder_preserves_new_record_and_history(tmp_path, monkeypatch, existing_summary):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
-        if agent_type == "proactive":
-            await create_agent(runtime)
-        else:
-            await runtime.create(
-                {
-                    "agent_name": "monitor",
-                    "agent_type": "cron",
-                    "cron": "0 * * * *",
-                    "task_description": "Monitor experiments",
-                },
-            )
-            await runtime._append(
-                await runtime.definition("monitor"),
-                [
-                    Event(
-                        id="scheduled",
-                        event_ts=runtime.now(),
-                        source="cron",
-                        description="Scheduled run",
-                    ),
-                ],
-            )
+        await create_agent(runtime)
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)
         step = ProactiveAgentStep(app_context=context)
@@ -180,7 +159,6 @@ async def test_skipped_reminder_preserves_new_record_and_history(tmp_path, monke
         if existing_summary:
             runtime.files.write(paths["today_summary_path"], "# Previous summary\n")
         summary_before = step._read_optional(paths["today_summary_path"])
-        summary_mtime = paths["today_summary_path"].stat().st_mtime_ns if existing_summary else None
         calls = install_round(runtime, wrapper, monkeypatch, paths, reminder="skip")
 
         response = await step(agent_name="monitor")
@@ -191,13 +169,56 @@ async def test_skipped_reminder_preserves_new_record_and_history(tmp_path, monke
         reminder = frontmatter.loads(paths["reminder_path"].read_text())
         assert record["action"] == "write" and record.content == "New progress"
         assert reminder["action"] == "skip" and reminder.content == "No reminder needed"
-        assert step._read_optional(paths["today_summary_path"]) == summary_before
-        if existing_summary:
-            assert paths["today_summary_path"].stat().st_mtime_ns == summary_mtime
+        summary = runtime.files.read(paths["today_summary_path"])
+        assert summary != summary_before and paths["record_path"].name in summary
+        assert "New result" not in summary
         assert history.read_text() == "# Earlier progress\n"
         assert (await runtime.status("monitor"))["pending_events"] == 0
         await runtime.outbox.sync()
         assert not runtime.outbox.records and not runtime.outbox.issues
+
+
+@pytest.mark.parametrize("existing_summary", [False, True])
+@pytest.mark.parametrize("defect", ["record_skip", "report_skip", "P1", "P2", "missing_priority"])
+@pytest.mark.asyncio
+async def test_cron_requires_a_record_and_p0_report_before_committing(tmp_path, monkeypatch, existing_summary, defect):
+    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+        await create_agent(runtime)
+        await runtime.update("monitor", {"agent_type": "cron", "cron": "0 * * * *"})
+        now = runtime.now()
+        monkeypatch.setattr(runtime, "now", lambda: now)
+        step = ProactiveAgentStep(app_context=context)
+        paths = step._paths(await runtime.definition("monitor"), now)
+        if existing_summary:
+            runtime.files.write(paths["today_summary_path"], "# Previous confirmed summary\n")
+        before = step._read_optional(paths["today_summary_path"])
+
+        def corrupt_priority():
+            if defect not in ("P1", "P2", "missing_priority"):
+                return
+            document = frontmatter.loads(runtime.files.read(paths["reminder_path"]))
+            if defect == "missing_priority":
+                del document["priority"]
+            else:
+                document["priority"] = defect
+            runtime.files.write(paths["reminder_path"], frontmatter.dumps(document))
+
+        install_round(
+            runtime,
+            wrapper,
+            monkeypatch,
+            paths,
+            record="skip" if defect == "record_skip" else "write",
+            reminder="skip" if defect == "report_skip" else "write",
+            hook=corrupt_priority,
+        )
+        with pytest.raises(ValueError, match="a cron task must write"):
+            await step(agent_name="monitor")
+        assert step._read_optional(paths["today_summary_path"]) == before
+        assert not paths["record_path"].exists() and not paths["reminder_path"].exists()
+        assert (await runtime.status("monitor"))["pending_events"] == 1
+        await runtime.outbox.sync()
+        assert not runtime.outbox.committed
 
 
 @pytest.mark.parametrize("record", ["write", "skip"])
@@ -235,9 +256,19 @@ async def test_summary_updates_require_new_information_not_a_reminder(tmp_path, 
         assert not runtime.outbox.committed
 
 
-@pytest.mark.parametrize("before,after", [(None, ""), ("# Previous summary\n", ""), ("# Previous summary\n", None)])
+@pytest.mark.parametrize(
+    "before,after",
+    [
+        (None, None),
+        (None, ""),
+        (None, " \n"),
+        ("# Previous summary\n", ""),
+        ("# Previous summary\n", None),
+        ("# Previous summary\n", "# Previous summary\n"),
+    ],
+)
 @pytest.mark.asyncio
-async def test_record_without_reminder_cannot_erase_daily_history(tmp_path, monkeypatch, before, after):
+async def test_new_record_requires_an_updated_nonempty_summary_without_reminder(tmp_path, monkeypatch, before, after):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         now = runtime.now()
@@ -247,17 +278,23 @@ async def test_record_without_reminder_cannot_erase_daily_history(tmp_path, monk
         if before is not None:
             runtime.files.write(paths["today_summary_path"], before)
 
-        def erase_summary():
+        def corrupt_summary():
             if after is None:
                 paths["today_summary_path"].unlink()
             else:
                 runtime.files.write(paths["today_summary_path"], after)
 
-        install_round(runtime, wrapper, monkeypatch, paths, reminder="skip", hook=erase_summary)
-        with pytest.raises(ValueError, match="updated daily summary must be nonempty"):
+        install_round(runtime, wrapper, monkeypatch, paths, reminder="skip", hook=corrupt_summary)
+        message = (
+            "requires a nonempty daily summary" if not after or not after.strip() else "must update its daily summary"
+        )
+        with pytest.raises(ValueError, match=message):
             await step(agent_name="monitor")
         assert step._read_optional(paths["today_summary_path"]) == before
+        assert not paths["record_path"].exists() and not paths["reminder_path"].exists()
         assert (await runtime.status("monitor"))["pending_events"] == 1
+        await runtime.outbox.sync()
+        assert not runtime.outbox.committed
 
 
 @pytest.mark.parametrize("key", ["record_path", "reminder_path"])

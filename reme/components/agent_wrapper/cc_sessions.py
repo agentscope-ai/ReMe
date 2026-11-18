@@ -17,6 +17,7 @@ from .session_append import SessionAppends
 
 from ...schema import SessionMessage, SessionStatus, StreamChunk
 from ...utils.async_utils import complete_in_thread
+from ...utils.file_sync import sync_directory, sync_file
 
 
 def native_id(session_id: str, name: str) -> str:
@@ -130,8 +131,12 @@ class CcSessions:
             path.parent.mkdir(parents=True, exist_ok=True)
             temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
             try:
-                temporary.write_text(payload, encoding="utf-8")
+                with temporary.open("w", encoding="utf-8") as stream:
+                    stream.write(payload)
+                    stream.flush()
+                    sync_file(stream.fileno())
                 os.replace(temporary, path)
+                sync_directory(path.parent)
             finally:
                 temporary.unlink(missing_ok=True)
 

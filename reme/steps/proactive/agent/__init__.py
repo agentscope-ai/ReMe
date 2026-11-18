@@ -9,6 +9,7 @@ from .api import (
     AgentOutboxStep,
     AgentReminderStep,
     AgentSessionStep,
+    AgentTaskStep,
 )
 from .base import BaseAgentStep
 from .chat import BaseChatAgentStep, ChatAgentStep, ListChatSessionsStep, NewChatSessionStep
@@ -25,6 +26,7 @@ __all__ = [
     "AgentOutboxStep",
     "AgentReminderStep",
     "AgentSessionStep",
+    "AgentTaskStep",
     "BaseAgentStep",
     "BaseChatAgentStep",
     "ChatAgentStep",

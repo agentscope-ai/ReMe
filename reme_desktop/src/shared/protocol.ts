@@ -233,7 +233,7 @@ export interface Settings {
 }
 
 export type SettingsUpdate = Partial<Omit<Settings, "anchor" | "windowBounds">>;
-export type DesktopPage = "remy" | "knowledge" | "settings";
+export type DesktopPage = "remy" | "notebook" | "knowledge" | "settings";
 
 export interface PendingTurn {
   id: string;
@@ -253,6 +253,7 @@ export type AgentView = {
   session_id: string | null;
   directory: string;
   pending_events: number;
+  in_flight_events: number;
   next_trigger_at: string | null;
   last_completed_at: string | null;
   error: string | null;
@@ -387,6 +388,7 @@ export type DesktopAction =
   | { type: "companion.reset" }
   | { type: "companion.visibility"; visible: boolean }
   | { type: "agent.select"; agentName: string }
+  | { type: "agent.reveal"; agentName: string }
   | { type: "session.new" }
   | { type: "messages.read"; sessionId: string; ids: string[] }
   | { type: "items.read" }
@@ -441,6 +443,7 @@ export interface JobResponse<T = unknown> {
 
 export interface WorkspaceConfig {
   workspace_dir: string;
+  timezone: string | null;
   daily_dir: string;
   digest_dir: string;
   tag_key: string;
@@ -448,6 +451,8 @@ export interface WorkspaceConfig {
 }
 
 export type WorkspaceRequest =
+  | import("./tasks.ts").TaskRequest
+  | import("./notebook.ts").NotebookRequest
   | { type: "config" }
   | {
       type: "outbox";

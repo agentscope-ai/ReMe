@@ -3,7 +3,15 @@
 Electron + React client for ReMe's AgentRuntime. The Python service owns Agents, native sessions and workspace files;
 Desktop connects over JSON/SSE through its sandboxed preload bridge. Credentials remain in the backend environment.
 
-The top bar contains **Remy** and **Knowledge**, with Settings at the right.
+The top bar contains **Remy**, **Tree Hollow** and **Knowledge**, with Settings at the right.
+
+Tree Hollow manages one-sentence Todos and Ideas, including progress notes, deadlines, archives and links from
+Ideas to Todos. It uses the `todo` and `idea` jobs in the `proactive` configuration; workspace JSON files own the records.
+
+Task groups offer a **+** action to create tasks. Each task's **…** button and context menu share editing,
+pause/enable, run details, folder and delete actions. The task panel saves execution settings and `TASK.md`
+separately; description writes detect concurrent file edits. Pausing leaves the current round running, while
+deleting stops it and retains history. Event-driven tasks still need an event source configured separately.
 
 - Remy's sidebar lists the Chat Agent as **Remy** (`agent_name=Remy`) and each named Cron or Proactive/event Agent.
 - Selecting an Agent opens its latest session snapshot. Remy continues the main Chat conversation; task questions
@@ -72,6 +80,8 @@ The client uses the following jobs from the same checkout:
 | `list_workspace`, `load_file`, `read_image`, `list_tags`, `list_tag_files`, `search_workspace` | Read-only Knowledge browsing                                                           |
 | `asr` / `tts`                                                                                  | Voice input and playback                                                               |
 | `get_app_config`                                                                               | Discover backend capabilities and workspace settings                                   |
+| `manage_proactive_agent` / `agent_task`                                                        | Manage task settings and read/save the original task description with revision checks  |
+| `todo` / `idea`                                                                                | Manage Tree Hollow records and progress                                                |
 
 Subscriptions start with an authoritative snapshot and coalesce live updates into replaceable message snapshots.
 Text, tool activity, public reasoning summaries and attachments retain their order within each turn. Repeated updates

@@ -19,6 +19,7 @@ export function Disclosure({
   className,
   triggerClassName,
   summary,
+  actions,
   children,
 }: {
   label: string;
@@ -27,6 +28,7 @@ export function Disclosure({
   className?: string;
   triggerClassName?: string;
   summary?: ReactNode;
+  actions?: ReactNode;
   children: ReactNode;
 }) {
   const id = useId();
@@ -43,6 +45,7 @@ export function Disclosure({
           {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
           {summary}
         </button>
+        {actions}
       </div>
       {open && <div id={id}>{children}</div>}
     </div>

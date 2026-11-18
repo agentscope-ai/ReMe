@@ -214,13 +214,12 @@ The built-in default Chat job reads workspace context. Chat requires a valid Age
 editing, graphs and service inspection do not.
 
 The separate `config=proactive` backend uses the `LocalAgentRuntime` Component with `ChatAgentStep` and
-`ProactiveAgentStep`. It exposes `chat(query)`, `new_chat_session`, `list_chat_sessions`, `manage_proactive_agent`
-and `manage_inbox`. Its Chat receiver is `main`, and native session selection and inbox history survive restarts.
+`ProactiveAgentStep`. Use `ask_agent(agent_name, query)` for conversation and `manage_proactive_agent` for task
+management. Its Chat identity is `Remy`, and native session selection and inbox history survive restarts.
 Prompts live in `reme/steps/proactive/agent/chat.yaml` and `reme/steps/proactive/agent/proactive.yaml` and support `language=zh/en`.
 
-This configuration sets `service.web_enabled=false`; Studio integration is separate. The existing Proactive Chat UI
-expects the removed PA Jobs and is unavailable with this backend. See [Agent Runtime](../docs/en/services.md#agent-runtime)
-for the current service API and notification flow.
+This configuration sets `service.web_enabled=false` and connects to ReMe Desktop. See
+[Agent Runtime](../docs/en/services.md#agent-runtime) for the service API and notification flow.
 
 ### 7. Service status
 

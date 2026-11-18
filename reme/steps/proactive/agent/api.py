@@ -4,6 +4,7 @@ from contextlib import aclosing
 
 from .base import BaseAgentStep
 from .chat import ChatAgentStep, NewChatSessionStep
+from ...file_io import get_path_lock
 from ....components import R
 from ....enumeration import ChunkEnum
 from ....schema import StreamChunk
@@ -13,6 +14,7 @@ from ....schema.agent_view import (
     AgentInboxRequest,
     AgentOutboxRequest,
     AgentReminderRequest,
+    AgentTaskRequest,
 )
 
 
@@ -59,6 +61,38 @@ class AgentSessionStep(_AgentViewStep):
         request = self.request()
         self.context.response.answer = await self.agent_runtime.read_agent(request.agent_name)
         return self.context.response
+
+
+@R.register("agent_task_step")
+class AgentTaskStep(_AgentViewStep):
+    """Reuse contained file operations for a named task's original description."""
+
+    async def execute(self):
+        request = AgentTaskRequest.model_validate(self.parameters())
+        runtime = self.agent_runtime
+        self.require_paths(runtime.agents.directory)
+        agent = await runtime.definition(request.agent_name)
+        target = runtime.agents.task_path(agent)
+        self.require_paths(target)
+        path = target.relative_to(self.workspace_path).as_posix()
+        if request.action == "read":
+            async with await get_path_lock(target):
+                await self.dispatch_steps(["load_step"], path=path)
+        else:
+            await self.dispatch_steps(
+                ["save_step"],
+                path=path,
+                content=request.content,
+                expected_mtime=request.expected_mtime,
+            )
+        response = self.context.response
+        if response.success:
+            response.answer = {
+                "path": path,
+                "mtime": response.metadata["mtime"],
+                **({"content": response.answer} if request.action == "read" else {}),
+            }
+        return response
 
 
 @R.register("agent_events_step")

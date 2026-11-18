@@ -16,7 +16,7 @@ from .agent_runtime import (
     SendChatMessageRequest,
 )
 from .agent_activity import AgentActivity
-from .agent_view import AgentChatRequest, AgentRequest, AgentSessionView, AgentView
+from .agent_view import AgentChatRequest, AgentRequest, AgentSessionView, AgentTaskRequest, AgentView
 from .compaction import CallDecision, CompactionOptions, CompactionRequest, CompactionResult
 from .dream import (
     DreamExtractOutput,
@@ -45,7 +45,9 @@ from .proactive_agent import (
 from .file_chunk import FileChunk
 from .file_front_matter import FileFrontMatter
 from .graph_snapshot import GraphSnapshot, GraphSnapshotEdge, GraphSnapshotNode
+from .idea import Idea
 from .job_execution import JobExecution, JobExecutionStatus
+from .notebook import IdeaRequest, TodoRequest
 from .file_link import FileLink
 from .file_node import FileNode
 from .request import Request
@@ -54,6 +56,7 @@ from .resource_metadata import ResourceFile, ResourceMetadata
 from .stream_chunk import StreamChunk
 from .speech import ASRResult, AudioFormat, TTSResult
 from .token_usage import TokenUsage
+from .todo import Todo, TodoProgress
 from .traverse_graph import TraverseGraph, TraverseGraphEdge, TraverseGraphNode
 
 __all__ = [
@@ -83,6 +86,7 @@ __all__ = [
     "AgentView",
     "AgentRequest",
     "AgentChatRequest",
+    "AgentTaskRequest",
     "AgentSessionView",
     "AgentSession",
     "ChatAgentConfig",
@@ -107,6 +111,8 @@ __all__ = [
     "GraphSnapshot",
     "GraphSnapshotEdge",
     "GraphSnapshotNode",
+    "Idea",
+    "IdeaRequest",
     "IntegrateOutcome",
     "JobConfig",
     "JobExecution",
@@ -124,6 +130,9 @@ __all__ = [
     "SessionStatus",
     "StreamChunk",
     "TokenUsage",
+    "Todo",
+    "TodoProgress",
+    "TodoRequest",
     "TraverseGraph",
     "TraverseGraphEdge",
     "TraverseGraphNode",

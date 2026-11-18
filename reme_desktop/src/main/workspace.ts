@@ -5,6 +5,8 @@ import type {
 } from "../shared/protocol.ts";
 import { UiError } from "../shared/i18n.ts";
 import type { ReMeClient } from "./reme-client.ts";
+import { notebookPayload } from "../shared/notebook.ts";
+import { taskPayload } from "../shared/tasks.ts";
 
 function relativePath(value: unknown): string {
   if (
@@ -21,7 +23,7 @@ function relativePath(value: unknown): string {
   return value;
 }
 
-/** Expose browsing jobs and explicit user-read receipts to the renderer. */
+/** Expose workspace browsing, read receipts and the two notebook jobs. */
 export async function requestWorkspace(
   client: ReMeClient,
   request: WorkspaceRequest,
@@ -32,6 +34,7 @@ export async function requestWorkspace(
   if (request.type === "config") {
     const config = await client.call<{
       workspace_dir: string;
+      timezone?: string | null;
       daily_dir: string;
       digest_dir: string;
       jobs: Record<
@@ -45,6 +48,7 @@ export async function requestWorkspace(
     }>("get_app_config", {}, signal);
     const answer: WorkspaceConfig = {
       workspace_dir: config.workspace_dir,
+      timezone: config.timezone ?? null,
       daily_dir: config.daily_dir ?? "daily",
       digest_dir: config.digest_dir ?? "digest",
       tag_key:
@@ -75,6 +79,23 @@ export async function requestWorkspace(
   let job: string;
   let body: object;
   switch (request.type) {
+    case "task": {
+      try {
+        ({ job, body } = taskPayload(request));
+      } catch {
+        throw new UiError("invalidWorkspaceRequest");
+      }
+      break;
+    }
+    case "todo":
+    case "idea":
+      job = request.type;
+      try {
+        body = notebookPayload(request);
+      } catch {
+        throw new UiError("invalidWorkspaceRequest");
+      }
+      break;
     case "outbox":
     case "inbox": {
       const offset = request.offset ?? 0;

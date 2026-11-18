@@ -328,3 +328,46 @@ async def test_watcher_observes_external_acknowledgements(tmp_path):
             while runtime.notifications.pending:
                 await asyncio.sleep(0.02)
         assert runtime.outbox.records[ref].read_at is not None
+
+
+@pytest.mark.asyncio
+async def test_publication_rechecks_reminders_removed_during_delivery(tmp_path, monkeypatch):
+    async with running_runtime(tmp_path) as (runtime, _, _):
+        await create_agent(runtime)
+        await runtime.run("monitor", AsyncMock(return_value=completed_result(runtime)))
+        await runtime.create({"agent_name": "other", "agent_type": "proactive", "task_description": "Other"})
+        await runtime.append("other", {"event_ts": runtime.now(), "source": "test", "description": "Next"})
+        await runtime.run("other", AsyncMock(return_value=completed_result(runtime, "other")))
+        await runtime.outbox.refresh()
+        refs = sorted(runtime.outbox.committed, key=lambda ref: (runtime.outbox.records[ref].created_at, ref.id))
+        append = runtime.inbox.append
+
+        async def refresh_during_append(name, event):
+            runtime.files.path(refs[1].file).unlink()
+            await runtime.outbox.refresh()
+            return await append(name, event)
+
+        monkeypatch.setattr(runtime.inbox, "append", refresh_during_append)
+        await runtime.outbox.publish()
+        assert refs[0] in runtime.outbox.records and refs[1] not in runtime.outbox.records
+        assert runtime.outbox.records[refs[0]].delivered_at is not None
+        assert set(runtime.outbox.records) == set(runtime.outbox.owners)
+
+
+@pytest.mark.parametrize("error", [TimeoutError("capacity"), RuntimeError("invalidated"), KeyError("changed")])
+@pytest.mark.asyncio
+async def test_watcher_retries_reconciliation_failures(tmp_path, monkeypatch, error):
+    async with running_runtime(tmp_path, watch=True) as (runtime, _, _):
+        recovered = asyncio.Event()
+        original = runtime.outbox.sync
+        errors = [error]
+
+        async def sync():
+            if errors:
+                raise errors.pop()
+            await original()
+            recovered.set()
+
+        monkeypatch.setattr(runtime.outbox, "sync", sync)
+        await asyncio.wait_for(recovered.wait(), 5)
+        assert not runtime.watcher.done()
