@@ -1,7 +1,17 @@
 import { useEffect, useState } from "react";
 import { fromMarkdown } from "mdast-util-from-markdown";
 import type { ResourcePage, WorkspaceRequest } from "../shared/protocol.ts";
-import { deserializeError, type Language } from "../shared/i18n.ts";
+import { deserializeError, translator, type Language } from "../shared/i18n.ts";
+
+export function resourceSource(source: string, language: Language): string {
+  const key =
+    source === "codex_dialogue"
+      ? "sourceConversations"
+      : source === "screenshot"
+        ? "sourceScreenshots"
+        : null;
+  return key ? translator(language)(key) : source;
+}
 
 export async function requestResource<T>(value: WorkspaceRequest): Promise<T> {
   const response = await window.desktop.workspace(value);

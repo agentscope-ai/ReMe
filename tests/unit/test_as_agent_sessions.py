@@ -361,17 +361,11 @@ async def test_explicit_external_session_directory_remains_supported(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_wrappers_share_one_session_owner_and_rebind_tools_per_invocation(wrapper):
-    """Shared storage reuses ownership while each call receives its own instructions."""
+async def test_wrappers_share_one_session_owner(wrapper):
+    """Wrappers using shared storage reuse the same session owner."""
     other = AsAgentWrapper(name="other", as_llm="", app_context=wrapper.app_context)
     other.as_llm = wrapper.as_llm
     assert other._sessions is wrapper._sessions
-    session_id = await wrapper.create_session()
-    await wrapper.reply("memory task", resume=session_id, system_prompt="memory instructions")
-    await other.reply("dream task", resume=session_id, system_prompt="dream instructions")
-    calls = wrapper.as_llm.model.calls
-    assert calls[0]["messages"][0].get_text_content() == "memory instructions"
-    assert calls[1]["messages"][0].get_text_content() == "dream instructions"
 
 
 @pytest.mark.asyncio
@@ -397,9 +391,12 @@ async def test_closed_stream_settles_history_and_releases_its_lease(wrapper):
         {"message_id": "../escape"},
         {"timeout": 0},
         {"timeout": float("nan")},
+        {"timeout": True},
         {"delivery": "unknown"},
+        {"delivery": []},
         {"role": "system"},
         {"role": None},
+        {"role": []},
     ],
 )
 async def test_invalid_append_never_modifies_the_session(wrapper, kwargs):
@@ -428,8 +425,8 @@ async def test_resume_and_fork_validate_before_touching_source_history(wrapper):
 
 
 @pytest.mark.asyncio
-async def test_old_state_history_preserves_media_and_handles_runtime_hints(wrapper):
-    """Legacy snapshots retain attached data while runtime hints remain diagnostic."""
+async def test_native_state_history_preserves_media_and_handles_runtime_hints(wrapper):
+    """Native-only snapshots retain attached data while runtime hints remain diagnostic."""
     session_id = await wrapper.create_session()
     handler = AsStateHandler(await wrapper.get_session_path(session_id))
     state = await handler.load()

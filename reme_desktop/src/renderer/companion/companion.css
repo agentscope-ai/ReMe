@@ -1,8 +1,8 @@
 /* A quiet reading surface, with geometry owned by the main process. */
 .companion .status-notice,
 .companion .message-bubble {
-  --bubble-fill: light-dark(#f5f6f5f5, #292d2bf5);
-  border: 1px solid light-dark(#ffffffc9, #ffffff24);
+  --bubble-fill: var(--floating);
+  border: 1px solid var(--line);
   background: var(--bubble-fill);
   color: var(--ink);
   box-shadow:
@@ -49,8 +49,8 @@
 .companion .status-notice {
   padding: 8px 12px;
   gap: 9px;
-  border-radius: 12px;
-  font-size: 12px;
+  border-radius: var(--radius-md);
+  font-size: var(--text-caption);
   line-height: 18px;
 }
 .status-text {
@@ -73,7 +73,7 @@
   grid-template-rows: 24px minmax(0, 1fr) 28px;
   gap: 8px;
   padding: 12px;
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
 }
 .companion .message-bubble header {
   min-width: 0;
@@ -83,8 +83,8 @@
   align-items: center;
   gap: 6px;
   color: var(--muted);
-  font-size: 11px;
-  font-weight: 500;
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
 }
 .bubble-heading svg {
   color: var(--accent);
@@ -92,13 +92,13 @@
 .companion .message-bubble .icon-button {
   width: 24px;
   height: 24px;
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
 }
 .companion .message-bubble .message-body {
   min-height: 0;
   overflow: hidden;
   overflow-wrap: anywhere;
-  font-size: 13px;
+  font-size: var(--text-ui);
   line-height: 1.6;
 }
 .companion .message-bubble .message-content {
@@ -129,19 +129,19 @@
   gap: 5px;
   height: 28px;
   padding: 4px 8px;
-  border-radius: 8px;
-  font-size: 11px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-caption);
   line-height: 18px;
 }
 .companion .message-bubble footer .primary {
   min-width: 0;
   margin-left: auto;
   overflow: hidden;
-  background: light-dark(#36775f13, #9aceb01c);
+  background: var(--accent-soft);
   color: var(--accent);
 }
 .companion .message-bubble footer .primary:hover {
-  background: light-dark(#36775f20, #9aceb02b);
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface-opaque));
 }
 .companion .message-bubble footer .subtle {
   width: 28px;
@@ -149,7 +149,7 @@
 }
 html[data-platform="win32"] .companion .status-notice,
 html[data-platform="win32"] .companion .message-bubble {
-  --bubble-fill: light-dark(#f5f6f5, #292d2b);
+  --bubble-fill: var(--surface-opaque);
 }
 @keyframes bubble-appear {
   from {
@@ -168,7 +168,7 @@ html[data-platform="win32"] .companion .message-bubble {
 @media (prefers-reduced-transparency: reduce) {
   .companion .status-notice,
   .companion .message-bubble {
-    --bubble-fill: light-dark(#f5f6f5, #292d2b);
+    --bubble-fill: var(--surface-opaque);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }

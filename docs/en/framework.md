@@ -248,8 +248,7 @@ Plugins are enabled explicitly through the application config's `plugins` list o
 Plugin registration therefore stays local to one application;
 duplicate `(component_type, backend)` providers fail during assembly instead of overwriting each other.
 
-The legacy Python `Plugin` descriptor and `reme.configs` entry points remain accepted during migration. Configuration
-files can use `extends` to inherit another built-in, legacy plugin, or file-based configuration. See the independently
+Configuration files can use `extends` to inherit a built-in, installed named, or file-based configuration. See the independently
 packaged [DingTalk](../../plugins/dingtalk/README.md), [Auto Fin](../../plugins/auto-fin/README.md), and
 [Daily Paper](../../plugins/daily_paper/README.md) plugins.
 
@@ -582,8 +581,7 @@ payloads, order, native metadata, or terminal state. Collection fails if the ter
 replay; native session history supplies item snapshots rather than the original stream's deltas.
 Studio reconciles block snapshots, displays structured output and terminal states, and retains live events through
 history refreshes. Raw HTTP `stream_chunks()` includes errors and DONE; CLI/text helpers handle errors separately.
-Migration: replace `last_message`/`turn` with `result`/`raw`, and consume the terminal outcome instead of concatenating
-all stream payloads. Existing text-only producers use the default `delta` operation.
+Text-only producers use the default `delta` operation.
 
 AgentScope wrappers implement the session operations without changing the agent's generation flow. `resume` restores
 model context; an explicit `session_id` starts fresh context under that ID while retaining its display history.
@@ -591,10 +589,10 @@ Each `{mem_session_dir}/agentscope/<UUID>.jsonl` atomically stores the current S
 `agentscope/history/<UUID>.jsonl`. The paired append-only display log records only new or changed message tails;
 completed block snapshots replace their live deltas. Serialization and parsing run off the event loop. Back up both
 files together. Readers ignore uncommitted history tails, and the next writer removes only that uncommitted suffix.
-Legacy inline-history and summary/context files remain readable and migrate on their next save; previously discarded
-history cannot be recovered. Compaction preserves displayed messages. Replies and appends share a session lock; reads do
-not wait behind generation. Appends require an idle session, retain their delivery policy, and are idempotent by
-`message_id` across restarts. Pending approval or external execution is reported as active. Ownership and live status
+Compaction preserves displayed messages. Replies, compaction and idle appends share a session lock; reads and forks do
+not wait behind generation. Immediate appends queue until a safe model-input or reply boundary and return after
+persistence. Appends retain their delivery policy and are idempotent by `message_id` across restarts.
+Pending approval or external execution is reported as active. Ownership and live status
 are scoped to the Application; independent processes must not write the same session concurrently.
 
 Codex wrappers reference `app_server: default` or `app_server: oauth`. Multiple wrappers can share one server while
@@ -603,8 +601,8 @@ keeping their own models, instructions and conversations. Omit `session_id` to s
 
 Pass `fork_session=True` with `resume` or `session_id` to inherit native conversation context.
 Models, instructions, turn settings and job tools come from the current wrapper configuration and call arguments.
-After restart, the application configuration and Steps reconstruct these settings; session snapshots under
-`session/proactive/` are no longer saved or read. An empty source without a native rollout starts an independent
+After restart, the application configuration and Steps reconstruct these settings.
+An empty source without a native rollout starts an independent
 thread with the current configuration. Rejected or cancelled preparation retains the previous live settings and tools.
 
 `create_session()` retains in-process turn settings such as `effort` before the first query.
@@ -678,9 +676,8 @@ not change that reviewer. Native conversation compaction uses the thread's model
 models and the separate `CODEX_OAUTH_MODEL_NAME` override. See [demo configuration](../../reme/config/demo.yaml) for
 the complete API-key setup using `LLM_API_KEY` and `LLM_BASE_URL`.
 
-Migration: move `auth_mode`, `api_key`, `base_url`, `codex_home`, `codex_bin`, `config_overrides` and `experimental_api`
-from wrappers to `components.codex_app_server.<name>` (`backend: sdk`). The default Codex home is
-`{workspace_dir}/.codex`; set `codex_home` to the previous directory to retain its login and saved threads.
+Configure `auth_mode`, `api_key`, `base_url`, `codex_home`, `codex_bin`, `config_overrides` and `experimental_api`
+under `components.codex_app_server.<name>` (`backend: sdk`). The default Codex home is `{workspace_dir}/.codex`.
 Configure separate `codex_home` values when servers need independent account or session storage.
 Remove `mcp_config` and `release_threads`. Job tools run against the current Application through a
 session-scoped MCP endpoint, reusing its plain HTTP listener when available. TLS, CLI and embedded applications use

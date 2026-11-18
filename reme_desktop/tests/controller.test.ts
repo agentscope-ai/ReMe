@@ -17,12 +17,16 @@ import type {
 
 const agents: AgentView[] = ["Remy", "monitor"].map((agent_name) => ({
   agent_name,
-  agent_type: agent_name === "Remy" ? "chat" : "proactive",
+  ...(agent_name === "Remy"
+    ? { agent_type: "chat", memory_path: "reme_agents/Remy/MEMORY.md" }
+    : {
+        agent_type: "proactive",
+        task_path: `reme_agents/${agent_name}/TASK.md`,
+      }),
   enabled: true,
   running: false,
   status: "idle",
   session_id: agent_name + "-session",
-  memory_path: `reme_agents/${agent_name}/MEMORY.md`,
   directory: `reme_agents/${agent_name}`,
   pending_events: 0,
   next_trigger_at: null,

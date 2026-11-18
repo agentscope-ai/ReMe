@@ -10,7 +10,7 @@ import { DesktopController } from "../src/main/controller.ts";
 import { Storage } from "../src/main/storage.ts";
 import type { AgentView } from "../src/shared/protocol.ts";
 
-test("main Chat and task workspaces open their conversation by default", async (t) => {
+test("main Chat and task workspaces expose their scoped pages and current conversation", async (t) => {
   const directory = await mkdtemp(path.join(tmpdir(), "reme-agent-workspace-"));
   const manifest = JSON.parse(
     await readFile(
@@ -38,12 +38,16 @@ test("main Chat and task workspaces open their conversation by default", async (
   for (const agentName of ["Remy", "finance"]) {
     const agent: AgentView = {
       agent_name: agentName,
-      agent_type: agentName === "Remy" ? "chat" : "proactive",
+      ...(agentName === "Remy"
+        ? { agent_type: "chat", memory_path: "reme_agents/Remy/MEMORY.md" }
+        : {
+            agent_type: "proactive",
+            task_path: `reme_agents/${agentName}/TASK.md`,
+          }),
       enabled: true,
       running: false,
       status: "idle",
       session_id: "session",
-      memory_path: `reme_agents/${agentName}/MEMORY.md`,
       directory: `reme_agents/${agentName}`,
       pending_events: 0,
       next_trigger_at: null,
@@ -63,7 +67,18 @@ test("main Chat and task workspaces open their conversation by default", async (
         onSettings: () => {},
       }),
     );
-    assert.match(html, new RegExp(`<h1>${agentName}</h1>`));
+    assert.match(
+      html,
+      new RegExp(`<h1[^>]*><button[^>]*>${agentName}</button></h1>`),
+    );
     assert.match(html, /<textarea\b/);
+    assert.match(html, /class="agent-tabs"/);
+    assert.match(
+      html,
+      new RegExp(
+        `aria-label="${agentName} · ${agentName === "Remy" ? "对话" : "进展"}" aria-current="page"`,
+      ),
+    );
+    assert.doesNotMatch(html, /class="agent-sections"/);
   }
 });

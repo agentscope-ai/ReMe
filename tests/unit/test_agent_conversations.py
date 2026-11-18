@@ -147,7 +147,7 @@ async def test_task_views_keep_only_latest_turn_without_mutating_native_history(
     async with running_runtime(tmp_path) as (runtime, _, wrapper):
         await create_agent(runtime)
         await runtime.create(
-            {"agent_name": "timer", "task_memory": "Daily report", "agent_type": "cron", "cron": "0 8 * * *"},
+            {"agent_name": "timer", "task_description": "Daily report", "agent_type": "cron", "cron": "0 8 * * *"},
         )
         sid = await runtime.sessions.ensure(agent_name, wrapper, {}, runtime.now())
         snapshot = SessionSnapshot(
@@ -188,7 +188,7 @@ async def test_task_subscription_atomically_replaces_turns_and_reconnects_withou
         await runtime.create(
             {
                 "agent_name": "monitor",
-                "task_memory": "Report",
+                "task_description": "Report",
                 "agent_type": agent_type,
                 **({"cron": "0 8 * * *"} if agent_type == "cron" else {}),
             },

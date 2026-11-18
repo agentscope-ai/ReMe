@@ -1,29 +1,15 @@
 import { useState } from "react";
-import {
-  type LucideIcon,
-  Bell,
-  Bot,
-  Clock3,
-  FileText,
-  Inbox,
-  Radio,
-  Send,
-  Sparkles,
-} from "lucide-react";
+import { Sparkles, Clock3, Radio } from "lucide-react";
 import type { AgentView, DesktopState } from "../shared/protocol.ts";
 import { translator } from "../shared/i18n.ts";
 import { Disclosure } from "./ui.tsx";
 
-export type AgentSection = "chat" | "memory" | "reminders" | "outbox" | "inbox";
-
 export default function AgentSidebar({
   state,
-  section,
   onSelect,
 }: {
   state: DesktopState;
-  section: AgentSection;
-  onSelect: (agentName: string, section: AgentSection) => void;
+  onSelect: (agentName: string) => void;
 }) {
   const t = translator(state.settings.language);
   const selected = state.selectedAgentName ?? "Remy";
@@ -39,8 +25,6 @@ export default function AgentSidebar({
     >,
   ) => {
     const isSelected = selected === agent.agent_name;
-    const key = `agent:${agent.agent_name}`;
-    const open = expanded[key] ?? false;
     const status = t(
       agent.error
         ? "agentError"
@@ -52,111 +36,83 @@ export default function AgentSidebar({
     );
     const Icon =
       agent.agent_type === "chat"
-        ? Bot
+        ? Sparkles
         : agent.agent_type === "cron"
           ? Clock3
           : Radio;
-    const sections: Array<[AgentSection, LucideIcon, Parameters<typeof t>[0]]> =
-      agent.agent_type === "chat"
-        ? [
-            ["memory", FileText, "memoryTab"],
-            ["reminders", Bell, "reminders"],
-            ["inbox", Inbox, "inbox"],
-          ]
-        : [
-            ["memory", FileText, "memoryTab"],
-            ["inbox", Inbox, "inbox"],
-            ["outbox", Send, "outbox"],
-          ];
     return (
-      <Disclosure
+      <button
         key={agent.agent_name}
-        label={agent.agent_name}
-        open={open}
-        onOpenChange={(value) => setOpen(key, value)}
-        className={`agent-node ${isSelected ? "active" : ""} ${agent.agent_type === "chat" ? "remy-node" : ""}`}
-        triggerClassName="agent-toggle"
-        action={
-          <button
-            className="agent-row"
-            aria-pressed={isSelected}
-            aria-current={isSelected && section === "chat" ? "page" : undefined}
-            data-agent-name={agent.agent_name}
-            onClick={() => onSelect(agent.agent_name, "chat")}
-          >
-            <span className="agent-avatar">
-              <Icon size={17} />
-            </span>
-            <span className="agent-name">{agent.agent_name}</span>
-            <span
-              className={`agent-status-dot ${agent.error ? "error" : agent.running ? "running" : !agent.enabled ? "disabled" : ""}`}
-              title={status}
-              aria-label={status}
-            />
-          </button>
-        }
+        className="agent-row"
+        aria-current={isSelected ? "page" : undefined}
+        data-agent-name={agent.agent_name}
+        onClick={() => onSelect(agent.agent_name)}
       >
-        <nav className="agent-sections" aria-label={agent.agent_name}>
-          {sections.map(([id, SectionIcon, label]) => (
-            <button
-              key={id}
-              aria-current={isSelected && section === id ? "page" : undefined}
-              onClick={() => onSelect(agent.agent_name, id)}
-            >
-              <SectionIcon size={15} />
-              <span>{t(label)}</span>
-              {id === "reminders" && state.unread > 0 && (
-                <span className="nav-count">{state.unread}</span>
-              )}
-            </button>
-          ))}
-        </nav>
-      </Disclosure>
+        <span className="agent-icon">
+          <Icon size={18} />
+        </span>
+        <span className="agent-name">{agent.agent_name}</span>
+        {(agent.running || agent.error || !agent.enabled) && (
+          <span
+            className={`agent-status-dot ${agent.error ? "error" : agent.running ? "running" : !agent.enabled ? "disabled" : ""}`}
+            title={status}
+            aria-label={status}
+          />
+        )}
+      </button>
     );
   };
   return (
     <nav className="agent-sidebar" aria-label={t("agents")}>
-      <div className="agent-sidebar-heading">
-        <Sparkles size={14} />
-        <span>{t("agents")}</span>
-      </div>
-      {row(
-        chat ?? {
-          agent_name: "Remy",
-          agent_type: "chat",
-          running: false,
-          enabled: true,
-          error: null,
-        },
-      )}
-      {(["proactive", "cron"] as const).map((agentType) => {
-        const items = agents.filter((agent) => agent.agent_type === agentType);
-        const key = `group:${agentType}`;
-        return (
-          <Disclosure
-            key={agentType}
-            label={agentType === "proactive" ? "Proactive" : "Cron"}
-            open={expanded[key] ?? true}
-            onOpenChange={(value) => setOpen(key, value)}
-            className="agent-group"
-            triggerClassName="agent-group-heading"
-            summary={
-              <>
-                <span>{agentType === "proactive" ? "Proactive" : "Cron"}</span>
-                <small>{items.length}</small>
-              </>
-            }
-          >
-            <div className="agent-group-items">
-              {items.length ? (
-                items.map(row)
-              ) : (
-                <p className="agent-group-empty">{t("noAgents")}</p>
+      <div className="agent-navigation">
+        {row(
+          chat ?? {
+            agent_name: "Remy",
+            agent_type: "chat",
+            running: false,
+            enabled: true,
+            error: null,
+          },
+        )}
+        {(["proactive", "cron"] as const).map((agentType) => {
+          const items = agents.filter(
+            (agent) => agent.agent_type === agentType,
+          );
+          const key = `group:${agentType}`;
+          return (
+            <Disclosure
+              key={agentType}
+              label={t(
+                agentType === "proactive" ? "proactiveTasks" : "scheduledTasks",
               )}
-            </div>
-          </Disclosure>
-        );
-      })}
+              open={expanded[key] ?? true}
+              onOpenChange={(value) => setOpen(key, value)}
+              className="agent-group"
+              triggerClassName="agent-group-heading"
+              summary={
+                <>
+                  <span>
+                    {t(
+                      agentType === "proactive"
+                        ? "proactiveTasks"
+                        : "scheduledTasks",
+                    )}
+                  </span>
+                  <small>{items.length}</small>
+                </>
+              }
+            >
+              <div className="agent-group-items">
+                {items.length ? (
+                  items.map(row)
+                ) : (
+                  <p className="agent-group-empty">{t("noAgents")}</p>
+                )}
+              </div>
+            </Disclosure>
+          );
+        })}
+      </div>
       <div className="agent-sidebar-footer">
         <span
           className={`connection-dot ${state.connection === "connected" ? "online" : ""}`}

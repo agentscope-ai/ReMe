@@ -49,6 +49,7 @@ class ComponentEnum(str, Enum):
     AGENT_WRAPPER = "agent_wrapper"
 
     CODEX_APP_SERVER = "codex_app_server"
+    ANTHROPIC_RELAY = "anthropic_relay"
 
     MAIL = "mail"
 

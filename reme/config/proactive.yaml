@@ -1,7 +1,6 @@
-# LocalAgentRuntime with Chat and Proactive Agent steps; Studio integration is separate.
-# Start: reme start config=proactive
-# Then: reme manage_proactive_agent action=list
-# Configure LLM_API_KEY, LLM_BASE_URL and optionally CODEX_MODEL_NAME.
+# LocalAgentRuntime with Chat and Proactive Agent steps.
+# Start with LLM_API_KEY, LLM_BASE_URL and optionally REME_MODEL_NAME.
+# reme start config=proactive
 # Finance and five-minute work observations are enabled. Input files are retained.
 language: zh
 reme_agent_dir: reme_agents
@@ -67,7 +66,7 @@ jobs:
     steps:
       - &chat_step
         backend: chat_agent_step
-        job_tools: [manage_proactive_agent, web_extract]
+        job_tools: [manage_proactive_agent]
 
   inbox_chat:
     backend: base
@@ -153,14 +152,14 @@ jobs:
     description: >-
       Manage tasks by agent_name: list/create/status/update/delete/query. All parameters are top-level.
       Before creating or changing a task, use list/status to inspect relevant tasks and reuse a matching one.
-      Create requires agent_name, task_memory and agent_type; cron tasks also require cron.
+      Create requires agent_name, task_description and agent_type; cron tasks also require cron.
       Status/update/delete/query require agent_name; query also requires question and an existing queryable task session.
-      Task memory initializes MEMORY.md. List, create and status return memory_path. Read the current file before editing, preserve valid information, and read it back after saving.
+      Creation writes task_description to TASK.md. List, create and status return task_path. Read the current file before editing, preserve valid information, and read it back after saving.
       Choose 1-3 simple lowercase English words joined by underscores, describing the task topic or responsibility. Names must be unique regardless of case; Remy and tmp are reserved.
-      Recreating a deleted name restores its existing memory and history; read memory_path to verify the requirements.
-      Update accepts only changed execution settings, not task_memory, agent_name changes or temporary changes.
+      Recreating a deleted name restores its task description and history. Read task_path to verify the requirements.
+      Update accepts changed execution settings. Edit TASK.md to change the task description.
       Optional settings: enabled, cron, min_trigger_interval_seconds for event tasks, notify_window {start,end} in HH:MM.
-      Cron tasks have web access; event tasks use incoming observations and local files.
+      Cron and event tasks can search the web when needed. Event tasks start from incoming observations.
       Temporary is create-only and independent of agent_type; idle temporary tasks are collected after seven days without new inputs.
       Query returns an answer from a temporary read-only fork. Delete retains history; external collectors must be stopped separately.
     parameters:
@@ -174,11 +173,11 @@ jobs:
           maxLength: 80
           pattern: '^[\w-]+$'
           description: "Stable Agent name; for new tasks use 1-3 simple lowercase English words joined by underscores. Remy and tmp are reserved for task creation."
-        task_memory:
+        task_description:
           type: string
           minLength: 1
           maxLength: 100000
-          description: "Create only: initial task memory written verbatim to MEMORY.md."
+          description: "Create only: task description written verbatim to TASK.md."
         agent_type: {type: string, enum: [proactive, cron]}
         enabled: {type: boolean}
         temporary: {type: boolean, description: "Create only: collect the task after seven days without new inputs."}
@@ -195,27 +194,6 @@ jobs:
       required: [action]
     steps:
       - backend: manage_proactive_agent_step
-
-  web_extract:
-    backend: base
-    description: >-
-      Read a known HTTP(S) URL (text or PDF, up to 20 MiB by default). Save complete files under resource_dir;
-      return workspace-relative paths, source metadata and a bounded text preview. Read saved files for full content.
-      HTML source is preserved without executing JavaScript. PDFs are downloaded without text extraction.
-    parameters:
-      type: object
-      additionalProperties: false
-      properties:
-        url: {type: string, minLength: 1, maxLength: 4096, description: "HTTP or HTTPS URL to read"}
-        max_chars:
-          type: integer
-          minimum: 1
-          maximum: 10000
-          default: 3000
-          description: "Preview character limit; also bounded by the tool output budget"
-      required: [url]
-    steps:
-      - backend: web_extract_step
 
   append_event:
     backend: base
@@ -276,6 +254,7 @@ jobs:
     steps:
       - backend: proactive_agent_step
         timeout_seconds: 1200
+        sandbox: null  # Use the selected wrapper's sandbox setting.
 
   proactive_query:
     backend: base
@@ -617,16 +596,16 @@ components:
       agent_wrapper: default
       inbox: default
       chat:
-        task_memory: |
+        initial_memory: |
           主人关注 AI 相关的大新闻，以及当前项目的进度、进展、难点和待讨论问题。
-      # Initial task memories are written verbatim to MEMORY.md; existing tasks and memory are retained on restart.
+      # Initial descriptions are written verbatim to TASK.md when creating tasks.
       agents:
         - agent_name: finance
           enabled: true
           agent_type: proactive
           min_trigger_interval_seconds: 10
           max_batch_events: 20
-          task_memory: |
+          task_description: |
             帮我关注 AI 领域的大新闻，以及小米、阿里巴巴、腾讯、苹果、亚马逊、Meta 和 BTC/USDT 的行情。
             出现重大 AI 新闻，或这些标的日内振幅超过 5% 时提醒我，结合财联社新闻简单说明发生了什么、可能的影响和来源。
             其他信息正常记录，不用提醒。同一件事避免重复提醒，数据有延迟或不完整时请注明。
@@ -634,13 +613,13 @@ components:
           max_batch_events: 2
           enabled: true
           agent_type: proactive
-          task_memory: |
+          task_description: |
             帮我梳理目前在做的项目，跟进各个项目的进展和难点，整理需要进一步讨论的问题。
         - agent_name: tech_news
           enabled: true
           agent_type: cron
           cron: "0 8 * * *"
-          task_memory: |
+          task_description: |
             每天早上8点帮我整理一份科技早报，汇总过去24小时的重要科技新闻，简要说明要点和影响，并附上来源链接。整理好后提醒我查看。
 
   codex_app_server:
@@ -670,22 +649,28 @@ components:
         - tool_output_token_limit=2500
         # Leave compact_prompt / experimental_compact_prompt_file unset to use the built-in prompt.
 
+        - sandbox_workspace_write.network_access=false
+        - 'web_search="live"'
+        # Enable JavaScript tool orchestration and waiting.
+        - features.code_mode=true
+        - features.sleep_tool=true
+
         # Keep review and inherited Agent defaults on the configured Qwen endpoint.
-        - 'model="${CODEX_MODEL_NAME:-qwen4-max}"'
+        - 'model="${REME_MODEL_NAME:-qwen4-max}"'
         - 'model_reasoning_effort="xhigh"'
-        - 'review_model="${CODEX_MODEL_NAME:-qwen4-max}"'
+        - 'review_model="${REME_MODEL_NAME:-qwen4-max}"'
 
         # Long-term memory generation and injection are separate from context compaction.
         - features.memories=true
         - memories.generate_memories=true
         - memories.use_memories=true
-        - 'memories.extract_model="${CODEX_MODEL_NAME:-qwen4-max}"'
-        - 'memories.consolidation_model="${CODEX_MODEL_NAME:-qwen4-max}"'
+        - 'memories.extract_model="${REME_MODEL_NAME:-qwen4-max}"'
+        - 'memories.consolidation_model="${REME_MODEL_NAME:-qwen4-max}"'
 
       # Local Codex capability settings for the configured Qwen model.
       model_catalog:
         models:
-          - slug: ${CODEX_MODEL_NAME:-qwen4-max}
+          - slug: ${REME_MODEL_NAME:-qwen4-max}
             display_name: Qwen4 Max
             description: Work and life assistant with text and image input
             base_instructions: ""
@@ -709,10 +694,11 @@ components:
             supports_parallel_tool_calls: false
             support_verbosity: false
             shell_type: unified_exec
+            apply_patch_tool_type: freeform
             visibility: list
             supported_in_api: true
             priority: 0
-            experimental_supported_tools: []
+            experimental_supported_tools: [clock]
             truncation_policy:
               mode: bytes
               limit: 10000
@@ -727,10 +713,10 @@ components:
       project_path: ..  # Resolve repository skills from the default <project>/.reme workspace.
       cwd: .
       skills: [manage-proactive-agent]
-      model: ${CODEX_MODEL_NAME:-qwen4-max}
+      model: ${REME_MODEL_NAME:-qwen4-max}
       effort: xhigh
       approval_mode: deny_all  # SDK maps this to approval_policy=never; no approval requests.
-      sandbox: full-access
+      sandbox: workspace-write
 
   file_graph:
     default:

@@ -1,4 +1,4 @@
-"""Codex-capable runtime callers use active snapshots and nonblocking P0 delivery."""
+"""All backends share active snapshots and P0 delivery; P1/P2 retain idle scheduling."""
 
 # pylint: disable=missing-function-docstring,protected-access
 
@@ -20,7 +20,6 @@ from .test_inbox_fork import append_message, prepare
 @pytest.mark.parametrize("step_class", [AgentChatStep, ProactiveQueryStep])
 async def test_query_forks_latest_running_session_instead_of_previous_receipt(tmp_path, step_class):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
-        wrapper.supports_active_fork = True
         await create_agent(runtime)
         previous = await runtime.sessions.ensure("monitor", wrapper, {}, runtime.now())
         await runtime.run(
@@ -65,7 +64,6 @@ async def test_query_forks_latest_running_session_instead_of_previous_receipt(tm
 async def test_p0_forks_and_appends_while_foreground_chat_keeps_running(tmp_path):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         arguments = await prepare(runtime, context, priority="P0")
-        wrapper.supports_active_fork = wrapper.supports_active_append = True
         source = (await runtime.sessions.current("Remy")).session_id
         wrapper.get_session_status = AsyncMock(return_value=SessionStatus(session_id=source, status="active"))
         wrapper.read_session = AsyncMock(
@@ -111,12 +109,11 @@ async def test_p0_forks_and_appends_while_foreground_chat_keeps_running(tmp_path
             await task
 
 
-@pytest.mark.parametrize("priority,active_fork", [("P1", True), ("P0", False)])
+@pytest.mark.parametrize("priority", ["P1", "P2"])
 @pytest.mark.asyncio
-async def test_nonurgent_or_unsupported_forks_keep_waiting_for_chat_idle(tmp_path, priority, active_fork):
+async def test_nonurgent_forks_keep_waiting_for_chat_idle(tmp_path, priority):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         arguments = await prepare(runtime, context, priority=priority)
-        wrapper.supports_active_fork = active_fork
         wrapper.reply = AsyncMock()
         async with runtime.chat_lock:
             response = await asyncio.wait_for(InboxChatStep(app_context=context)(**arguments), 1)
@@ -129,7 +126,6 @@ async def test_nonurgent_or_unsupported_forks_keep_waiting_for_chat_idle(tmp_pat
 async def test_p0_defers_when_a_new_user_turn_is_already_queued(tmp_path):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         arguments = await prepare(runtime, context, priority="P0")
-        wrapper.supports_active_fork = True
         source = (await runtime.sessions.current("Remy")).session_id
         wrapper.get_session_status = AsyncMock(return_value=SessionStatus(session_id=source, status="active"))
         wrapper.reply = AsyncMock()

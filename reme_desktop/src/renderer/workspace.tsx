@@ -92,18 +92,12 @@ export default function Workspace(bootstrap: Bootstrap) {
           >
             <PanelLeft size={18} />
           </button>
-          <span className="brand-symbol">
+          <span className="brand-symbol" aria-hidden>
             <Sparkles size={17} />
           </span>
-          <span>
-            Remy<span className="brand-subtitle">ReMe</span>
-          </span>
+          <span>ReMe Desktop</span>
         </div>
-        <Tabs.List
-          className="workspace-tabs"
-          aria-label={t("navigation")}
-          data-page={settingsOpen ? lastPage.current : state.activePage}
-        >
+        <Tabs.List className="workspace-tabs" aria-label={t("navigation")}>
           <Tabs.Trigger value="remy">
             <Sparkles size={15} />
             Remy{state.unread > 0 && <i className="tab-dot" />}

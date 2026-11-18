@@ -7,8 +7,8 @@
   overflow-y: auto;
   padding: 5px;
   border: 1px solid var(--line);
-  border-radius: 12px;
-  background: light-dark(#fafcfaf7, #253029fa);
+  border-radius: var(--radius-md);
+  background: var(--floating);
   color: var(--ink);
   box-shadow:
     0 8px 30px #10241924,
@@ -24,10 +24,10 @@
   min-height: 32px;
   padding: 6px 8px;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: inherit;
-  font-size: 12px;
+  font-size: var(--text-caption);
   text-align: left;
 }
 .context-menu > button:hover:not(:disabled),

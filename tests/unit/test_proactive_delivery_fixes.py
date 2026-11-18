@@ -77,7 +77,7 @@ def test_event_batch_size_rejects_invalid_values(size):
 @pytest.mark.asyncio
 async def test_automatic_rounds_start_fresh_sessions_while_user_followups_resume(tmp_path, monkeypatch, agent_type):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
-        values = {"agent_name": "monitor", "task_memory": "Monitor", "agent_type": agent_type}
+        values = {"agent_name": "monitor", "task_description": "Monitor", "agent_type": agent_type}
         if agent_type == "cron":
             values["cron"] = "0 * * * *"
         await runtime.create(values)
@@ -87,8 +87,8 @@ async def test_automatic_rounds_start_fresh_sessions_while_user_followups_resume
         original_reply = wrapper.reply_stream
 
         async def reply(query, **kwargs):
-            if "Always create CURRENT_RECORD" in query:
-                runtime.files.write(paths["detail_path"], "---\naction: skip\n---\nNo new information.\n")
+            if kwargs.get("sandbox") == "workspace-write":
+                runtime.files.write(paths["record_path"], "---\naction: skip\n---\nNo new information.\n")
             async for chunk in original_reply(query, **kwargs):
                 yield chunk
 
@@ -182,7 +182,7 @@ async def test_chat_read_updates_all_sources_idempotently_and_survives_restart(t
     async with running_runtime(tmp_path) as (runtime, _, _):
         await create_agent(runtime)
         await runtime.run("monitor", AsyncMock(return_value=completed_result(runtime)))
-        await runtime.create({"agent_name": "other", "task_memory": "Other", "agent_type": "proactive"})
+        await runtime.create({"agent_name": "other", "task_description": "Other", "agent_type": "proactive"})
         await runtime.append(
             "other",
             {"id": "other-1", "event_ts": runtime.now(), "source": "test", "description": "New"},
@@ -222,9 +222,9 @@ async def test_read_acknowledgements_do_not_require_retained_reminder_sources(tm
 
 @pytest.mark.parametrize("agent_type", ["proactive", "cron"])
 @pytest.mark.asyncio
-async def test_proactive_sessions_inherit_native_compaction_without_changing_network_policy(tmp_path, agent_type):
+async def test_proactive_sessions_inherit_native_compaction(tmp_path, agent_type):
     async with running_runtime(tmp_path) as (runtime, context, _):
-        values = {"agent_name": "monitor", "task_memory": "Monitor", "agent_type": agent_type}
+        values = {"agent_name": "monitor", "task_description": "Monitor", "agent_type": agent_type}
         if agent_type == "cron":
             values["cron"] = "0 * * * *"
         await runtime.create(values)
@@ -233,9 +233,6 @@ async def test_proactive_sessions_inherit_native_compaction_without_changing_net
         now = runtime.now()
         options = step.session_options(agent, step._paths(agent, now), now)
         assert "model_auto_compact_token_limit" not in options["config"]
-        online = agent_type == "cron"
-        assert options["config"]["sandbox_workspace_write"]["network_access"] is online
-        assert options["config"]["web_search"] == ("live" if online else "disabled")
 
 
 @pytest.mark.asyncio

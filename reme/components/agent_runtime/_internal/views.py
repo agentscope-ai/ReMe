@@ -29,12 +29,14 @@ class AgentViews:
                 "chat",
             )
             directory = runtime.agents.path("Remy")
+            document = {"memory_path": runtime.agents.chat_memory_path().relative_to(runtime.workspace_path).as_posix()}
             running = runtime.chat_lock.locked() or inbox.worker is not None
         else:
             agent = await runtime.definition(agent_name)
             facts = await runtime.status(agent_name)
             config, agent_type = facts["config"], agent.agent_type
             directory = runtime.agents.directory_for(agent)
+            document = {"task_path": facts["task_path"]}
             running = facts["running"]
         session = await runtime.sessions.current(agent_name)
         status, error = "idle", facts.get("error")
@@ -66,13 +68,13 @@ class AgentViews:
             running=running or status == "active",
             status=status,
             session_id=session.session_id if session else None,
-            memory_path=(directory / "MEMORY.md").relative_to(runtime.workspace_path).as_posix(),
             directory=directory.relative_to(runtime.workspace_path).as_posix(),
             pending_events=facts.get("pending_events", 0),
             last_started_at=facts.get("last_started_at"),
             last_completed_at=facts.get("last_completed_at"),
             next_trigger_at=facts.get("next_trigger_at"),
             error=error,
+            **document,
         )
 
     async def list(self):

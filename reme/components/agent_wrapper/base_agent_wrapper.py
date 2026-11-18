@@ -19,20 +19,31 @@ if TYPE_CHECKING:
 
 
 class BaseAgentWrapper(BaseComponent):
-    """Abstract base for agent wrapper components with swappable backends."""
+    """One session contract for Codex, Claude Code and AgentScope.
+
+    Every backend forks current context independently, including during a turn.
+    Immediate append submits without the generation lock; idle append waits.
+    Both return only after durable persistence, with the same retry identity.
+
+    Codex owns its native active-input queue. Claude uses the invocation's live
+    SDK client, since another resumed CLI cannot update its in-memory context.
+    Claude's no-query batches are serialized to prevent queued user frames
+    being merged into another message's durable ID.
+    AgentScope queues observations until model-input/reply boundaries, because
+    concurrent observe() during SDK compression can be overwritten.
+
+    Native ephemeral threads are a Codex feature: they inherit model context,
+    but cannot expose hydrated turns or provide durable append receipts.
+    Claude/AgentScope forks remain file-backed; releasing runtime resources
+    never deletes history.
+    The shared read-only hint restricts builtins in Claude/AgentScope; it is
+    not their OS command sandbox. Native tool/network settings remain specific
+    to each SDK.
+    """
 
     component_type = ComponentEnum.AGENT_WRAPPER
     SDK_PACKAGE: ClassVar[str | None] = None
     TOKEN_COUNTER_PREFIX: ClassVar[str] = "__token_counter"
-    # Capability flags describe the adapter's verified concurrency contract.
-    # Callers must keep idle scheduling for backends which do not advertise it.
-    # True promises an independent context snapshot without waiting for or
-    # interrupting the source turn; running tools are not cloned.
-    supports_active_fork: ClassVar[bool] = False
-    # Active append means immediate delivery can submit to the running session.
-    # Native acceptance alone is not persistence: append_session still waits for
-    # a durable receipt. The queue/receipt lifecycle belongs to the backend.
-    supports_active_append: ClassVar[bool] = False
 
     def __init__(
         self,
@@ -88,8 +99,7 @@ class BaseAgentWrapper(BaseComponent):
 
         A relative configured path resolves from the workspace so applications
         can keep runtime data in a subdirectory such as ``.reme`` while loading
-        project assets from its parent. The workspace remains the default for
-        backward compatibility.
+        project assets from its parent. Defaults to the workspace.
         """
         if not self._project_path:
             return self.workspace_path
@@ -290,8 +300,8 @@ class BaseAgentWrapper(BaseComponent):
         """Create a resumable session without generating a reply.
 
         With resume and fork_session=True, capture source context in an independent
-        session. Only supports_active_fork promises this can happen while the source
-        is running; other adapters may serialize behind the source's execution.
+        session without waiting for or interrupting a running source. Running
+        tools are not cloned; unfinished work is closed only in the branch.
         Subsequent source messages are not automatically copied into the fork.
         """
         raise NotImplementedError(f"{type(self).__name__} does not support session creation")
@@ -333,9 +343,8 @@ class BaseAgentWrapper(BaseComponent):
         """Append a user or assistant message once without generating a reply.
 
         The optional revision guard rejects any changed display content; the turn guard checks only its anchor.
-        Idle delivery waits for generation. Immediate delivery submits during generation
-        only on backends advertising supports_active_append; callers must not infer active
-        delivery support from the presence of the delivery parameter.
+        Idle delivery waits for generation. Immediate delivery submits during
+        generation and may wait until a native processing/SDK event boundary.
 
         Successful return confirms native persistence, not merely input-queue acceptance.
         Acceptance need not interrupt the current model request or start another turn.

@@ -24,19 +24,22 @@ from .test_agent_runtime import running_runtime
         {"action": "list", "agent_name": "task"},
         {"action": "list", "agent_name": None},
         {"action": "create", "agent_name": "task", "agent_type": "proactive"},
-        {"action": "create", "agent_name": "task", "task_memory": " ", "agent_type": "proactive"},
-        {"action": "create", "config": {"agent_name": "task", "task_memory": "Do work", "agent_type": "proactive"}},
+        {"action": "create", "agent_name": "task", "task_description": " ", "agent_type": "proactive"},
+        {
+            "action": "create",
+            "config": {"agent_name": "task", "task_description": "Do work", "agent_type": "proactive"},
+        },
         {"action": "status", "agent_id": "task"},
         {"action": "status", "name": "task"},
-        {"action": "create", "agent_name": "task", "task_memory": "Observe", "agent_type": "event"},
-        {"action": "create", "agent_name": "task", "task_memory": "Observe", "agent_type": "chat"},
+        {"action": "create", "agent_name": "task", "task_description": "Observe", "agent_type": "event"},
+        {"action": "create", "agent_name": "task", "task_description": "Observe", "agent_type": "chat"},
         {"action": "create", "agent_name": "task", "instructions": "Observe", "agent_type": "proactive"},
         {"action": "create", "agent_name": "task", "description": "Observe", "agent_type": "proactive"},
-        {"action": "create", "agent_name": "task", "task_memory": "Observe", "trigger_type": "event"},
+        {"action": "create", "agent_name": "task", "task_description": "Observe", "trigger_type": "event"},
         {"action": "status"},
         {"action": "status", "agent_name": "task", "enabled": True},
         {"action": "update", "agent_name": "task"},
-        {"action": "update", "agent_name": "task", "task_memory": "New work"},
+        {"action": "update", "agent_name": "task", "task_description": "New work"},
         {"action": "update", "agent_name": "task", "temporary": True},
         {"action": "update", "agent_name": "task", "max_batch_events": 10},
         {"action": "update", "agent_name": "task", "min_trigger_interval_seconds": True},
@@ -51,7 +54,7 @@ def test_action_arguments_reject_legacy_and_irrelevant_fields(arguments):
 
 
 @pytest.mark.asyncio
-async def test_all_actions_expose_only_their_results_and_keep_memory_files(tmp_path, monkeypatch):
+async def test_all_actions_expose_only_their_results_and_keep_task_files(tmp_path, monkeypatch):
     async with running_runtime(tmp_path) as (runtime, context, _):
         now = datetime.fromisoformat("2026-11-17T07:00:00+08:00")
         monkeypatch.setattr(runtime, "now", lambda: now)
@@ -59,18 +62,18 @@ async def test_all_actions_expose_only_their_results_and_keep_memory_files(tmp_p
         arguments = {
             "action": "create",
             "agent_name": "tech_news",
-            "task_memory": "每天08:00整理科技新闻。\n保留来源。\n",
+            "task_description": "每天08:00整理科技新闻。\n保留来源。\n",
             "agent_type": "cron",
             "cron": "0 8 * * *",
         }
         created = (await tool(**arguments)).answer
         assert created == {
             "agent_name": "tech_news",
-            "memory_path": "reme_agents/tech_news/MEMORY.md",
+            "task_path": "reme_agents/tech_news/TASK.md",
             "next_trigger_at": "2026-11-17T08:00:00+08:00",
         }
-        memory = tmp_path / created["memory_path"]
-        assert memory.read_text() == arguments["task_memory"]
+        task_file = tmp_path / created["task_path"]
+        assert task_file.read_text() == arguments["task_description"]
         assert not runtime.cron  # Inspecting the next trigger must not schedule or run work.
         assert (await tool(action="list")).answer == {
             "items": [
@@ -79,7 +82,7 @@ async def test_all_actions_expose_only_their_results_and_keep_memory_files(tmp_p
                     "agent_type": "cron",
                     "enabled": True,
                     "cron": "0 8 * * *",
-                    "memory_path": created["memory_path"],
+                    "task_path": created["task_path"],
                 },
             ],
         }
@@ -103,7 +106,7 @@ async def test_all_actions_expose_only_their_results_and_keep_memory_files(tmp_p
         }
         paused = (await tool(action="update", agent_name="tech_news", enabled=False)).answer
         assert paused == {"agent_name": "tech_news", "updated": {"enabled": False}}
-        assert memory.read_text() == arguments["task_memory"]
+        assert task_file.read_text() == arguments["task_description"]
 
         query = AsyncMock(return_value=Response(answer={"agent_name": "tech_news", "answer": "今天的早报已经完成。"}))
         monkeypatch.setattr(tool, "run_job", query)
@@ -119,10 +122,10 @@ async def test_all_actions_expose_only_their_results_and_keep_memory_files(tmp_p
         deleted = (await tool(action="delete", agent_name="tech_news")).answer
         assert deleted == "Deleted task 'tech_news'; history files retained."
         assert (await tool(action="list")).answer == {"items": []}
-        assert memory.read_text() == arguments["task_memory"]
-        restored = (await tool(**{**arguments, "task_memory": "Changed request"})).answer
+        assert task_file.read_text() == arguments["task_description"]
+        restored = (await tool(**{**arguments, "task_description": "Changed request"})).answer
         assert restored == {**created, "restored": True}
-        assert memory.read_text() == arguments["task_memory"]
+        assert task_file.read_text() == arguments["task_description"]
 
 
 @pytest.mark.asyncio
@@ -132,7 +135,7 @@ async def test_trigger_changes_clear_old_settings_without_ignoring_explicit_conf
         await tool(
             action="create",
             agent_name="experiment_watch",
-            task_memory="跟进实验",
+            task_description="跟进实验",
             agent_type="proactive",
             min_trigger_interval_seconds=30,
         )

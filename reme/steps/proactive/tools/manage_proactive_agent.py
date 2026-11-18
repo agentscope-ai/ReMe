@@ -20,14 +20,14 @@ class ManageProactiveAgentStep(BaseAgentStep):
 
     @classmethod
     def _status(cls, value):
-        """Keep execution facts and the original memory path, without memory previews."""
+        """Return execution facts and the workspace-relative task path."""
         result = {
             "agent_name": value["agent_name"],
             **cls._settings(value["config"]),
             **{
                 key: value[key]
                 for key in (
-                    "memory_path",
+                    "task_path",
                     "running",
                     "pending_events",
                     "in_flight_events",
@@ -50,7 +50,7 @@ class ManageProactiveAgentStep(BaseAgentStep):
             self.require_paths(self.workspace_path)
         settings = request.model_dump(
             exclude_unset=True,
-            exclude={"action", "agent_name", "task_memory", "question"},
+            exclude={"action", "agent_name", "task_description", "question"},
         )
         if request.action == "list":
             listing = await runtime.list_agents()
@@ -62,16 +62,16 @@ class ManageProactiveAgentStep(BaseAgentStep):
                             for key in ("agent_name", "agent_type", "enabled", "cron")
                             if item["config"][key] is not None
                         },
-                        "memory_path": item["memory_path"],
+                        "task_path": item["task_path"],
                     }
                     for item in listing["items"]
                 ],
             }
         elif request.action == "create":
             value = await runtime.create(
-                {"agent_name": request.agent_name, "task_memory": request.task_memory, **settings},
+                {"agent_name": request.agent_name, "task_description": request.task_description, **settings},
             )
-            answer = {"agent_name": value["agent_name"], "memory_path": value["memory_path"]}
+            answer = {"agent_name": value["agent_name"], "task_path": value["task_path"]}
             if value["next_trigger_at"] is not None:
                 answer["next_trigger_at"] = value["next_trigger_at"]
             if value["restored"]:

@@ -27,7 +27,7 @@ class NotificationWindow(BaseModel):
 
 
 class ProactiveAgentConfig(BaseModel):
-    """User-owned execution settings; task memory lives in MEMORY.md."""
+    """User-owned execution settings. Task requirements live in TASK.md."""
 
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
@@ -74,14 +74,14 @@ class ProactiveAgentConfig(BaseModel):
 class CreateProactiveAgentConfig(ProactiveAgentConfig):
     """Accept initial task text only when creating an Agent."""
 
-    task_memory: str = Field(min_length=1, max_length=100000)
+    task_description: str = Field(min_length=1, max_length=100000)
 
-    @field_validator("task_memory")
+    @field_validator("task_description")
     @classmethod
-    def nonempty_task_memory(cls, value: str) -> str:
-        """Reject whitespace-only task memory without rewriting its contents."""
+    def nonblank_task_description(cls, value: str) -> str:
+        """Reject blank task descriptions and preserve the original Markdown."""
         if not value.strip():
-            raise ValueError("task_memory must not be blank")
+            raise ValueError("task_description must not be blank")
         return value
 
 
@@ -109,7 +109,7 @@ class ManageProactiveAgentRequest(BaseModel):
 
     action: Literal["list", "create", "status", "update", "delete", "query"]
     agent_name: AgentName | None = None
-    task_memory: str | None = Field(default=None, min_length=1, max_length=100000)
+    task_description: str | None = Field(default=None, min_length=1, max_length=100000)
     agent_type: Literal["proactive", "cron"] | None = None
     enabled: StrictBool = True
     temporary: StrictBool = False
@@ -118,7 +118,7 @@ class ManageProactiveAgentRequest(BaseModel):
     notify_window: NotificationWindow | None = None
     question: str | None = Field(default=None, min_length=1, max_length=100000)
 
-    @field_validator("task_memory", "question")
+    @field_validator("task_description", "question")
     @classmethod
     def nonblank_text(cls, value):
         """Keep task text verbatim while rejecting whitespace-only requests."""
@@ -133,8 +133,8 @@ class ManageProactiveAgentRequest(BaseModel):
         required, allowed = {
             "list": (set(), set()),
             "create": (
-                {"agent_name", "task_memory", "agent_type"},
-                settings | {"agent_name", "task_memory", "temporary"},
+                {"agent_name", "task_description", "agent_type"},
+                settings | {"agent_name", "task_description", "temporary"},
             ),
             "status": ({"agent_name"}, {"agent_name"}),
             "update": ({"agent_name"}, settings | {"agent_name"}),

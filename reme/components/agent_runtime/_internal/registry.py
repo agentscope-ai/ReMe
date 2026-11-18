@@ -66,9 +66,13 @@ class AgentRegistry:
         """Publish one validated definition without rewriting other agents."""
         self.files.write_json(self.directory_for(agent) / "config.json", agent.model_dump(mode="json"))
 
-    def initialize_memory(self, directory: Path, task_memory: str):
-        """Write initial text verbatim once, preserving existing Agent memories."""
-        self.files.write(directory / "MEMORY.md", task_memory, create_only=True)
+    def chat_memory_path(self) -> Path:
+        """Locate Remy's personal memory."""
+        return self.files.checked(self.path("Remy") / "MEMORY.md")
+
+    def task_path(self, agent: ProactiveAgent) -> Path:
+        """Locate the task's editable description."""
+        return self.files.checked(self.directory_for(agent) / "TASK.md")
 
     def create(self, config, now: datetime):
         """Publish the task and report restoration from the same registry snapshot."""
@@ -84,17 +88,17 @@ class AgentRegistry:
             if previous.temporary != config.temporary:
                 raise ValueError("temporary is immutable for an existing agent")
         agent = ProactiveAgent(
-            **config.model_dump(exclude={"task_memory"}),
+            **config.model_dump(exclude={"task_description"}),
             created_at=previous.created_at if previous else now,
         )
         agents[agent.agent_name] = agent
         self._validate_names(list(agents.values()))
-        self.initialize_memory(self.directory_for(agent), config.task_memory)
+        self.files.write(self.task_path(agent), config.task_description, create_only=True)
         self.save(agent)
         return agent, previous is not None
 
     def update(self, agent_name, patch):
-        """Update execution settings while keeping task text in its memory file."""
+        """Update execution settings independently of TASK.md."""
         agent = self.get(agent_name)
         for key, expected in (("agent_name", agent.agent_name), ("temporary", agent.temporary)):
             if key in patch and patch[key] != expected:

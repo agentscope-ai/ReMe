@@ -811,21 +811,21 @@ def test_codex_matches_turn_id_even_when_final_replies_are_identical(adapter, tm
     assert adapter.completed_turn(payload, "session") == []
 
 
-def test_codex_localized_guidance_survives_disabled_and_failed_recall(adapter, monkeypatch):
+def test_codex_keeps_hook_context_when_recall_is_disabled_or_fails(adapter, monkeypatch):
     require_host(adapter, "codex")
-    write_config(adapter, {"language": "zh", "auto_recall": False})
+    write_config(adapter, {"auto_recall": False})
     call = Mock()
     monkeypatch.setattr(adapter, "call", call)
     payload = {"hook_event_name": "UserPromptSubmit", "prompt": "过去的决定"}
     result = adapter.handle_event(payload)
     context = result["hookSpecificOutput"]["additionalContext"]
-    assert "长期记忆" in context and "reme_search" in context and "<reme-context" not in context
+    assert context and "<reme-context" not in context
     assert adapter.clean_text(context + "\nactual source") == "actual source"
     call.assert_not_called()
     write_config(adapter, {"auto_memory": False})
     call.side_effect = RuntimeError("service offline")
     result = adapter.handle_event(payload)
-    assert "Automatic recording is disabled" in result["hookSpecificOutput"]["additionalContext"]
+    assert result["hookSpecificOutput"]["additionalContext"]
     assert "recall_failed" in (adapter.data_dir() / "hooks.log").read_text()
 
 

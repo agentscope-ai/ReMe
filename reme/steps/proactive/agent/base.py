@@ -19,7 +19,7 @@ class BaseAgentStep(BaseStep):
     async def query_reply(self, agent_name, query):
         """Ask a disposable fork without changing task history or live execution state."""
         runtime = self.agent_runtime
-        options = {**self.web_options(False), "sandbox": "read-only", "approval_mode": "deny_all"}
+        options = {"job_tools": [], "sandbox": "read-only", "approval_mode": "deny_all"}
         async with runtime.query_session(agent_name, options) as session_id:
             return await collect_reply(
                 runtime.agent_wrapper.reply_stream(
@@ -73,17 +73,6 @@ class BaseAgentStep(BaseStep):
         response.answer = result["result"]
         response.metadata.update(result, agent_name=agent_name)
         return response
-
-    @staticmethod
-    def web_options(online: bool):
-        """Apply one network policy to search, URL extraction and commands."""
-        return {
-            "job_tools": ["web_extract"] if online else [],
-            "config": {
-                "web_search": "live" if online else "disabled",
-                "sandbox_workspace_write": {"network_access": online},
-            },
-        }
 
     def require_paths(self, *paths):
         """Preserve fail-closed tool bindings before accessing runtime files."""

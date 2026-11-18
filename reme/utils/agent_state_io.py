@@ -132,52 +132,37 @@ class AsStateHandler:
 
     @staticmethod
     def _history_size(metadata: dict) -> int:
-        size = metadata.get("history_bytes", 0)
+        size = metadata["history_bytes"]
         if type(size) is not int or size < 0:
             raise ValueError("Invalid AgentScope history prefix")
         return size
 
     def _load_session(self) -> AsSessionData:
         content = self.path.read_text(encoding="utf-8")
-        lines = content.split("\n") if content else []
-        if not lines:
-            return AsSessionData(AgentState())
-
+        lines = content.split("\n")
         header = Msg.model_validate_json(lines[0])
-        summary: str | list = (
-            list(header.content)
-            if any(getattr(b, "type", None) == "data" for b in header.content)
-            else header.get_text_content() or ""
-        )
-
-        metadata = header.metadata or {}
-        scalars = metadata.get("agent_state") or {
-            k: metadata.get(k, d) for k, d in [("session_id", ""), ("reply_id", ""), ("cur_iter", 0)]
-        }
+        metadata = header.metadata
         state = AgentState.model_validate(
             {
-                **scalars,
-                "summary": scalars.get("summary", summary),
+                **metadata["agent_state"],
                 "context": [Msg.model_validate_json(line) for line in lines[1:] if line.strip()],
             },
         )
-        messages = [SessionMessage.model_validate(message) for message in metadata.get("messages", [])]
-        history = None
-        if "history_bytes" in metadata:
-            history = self.history_path()
-            remaining = self._history_size(metadata)
-            if remaining:
-                with history.open("rb") as stream:
-                    while remaining:
-                        line = stream.readline(remaining)
-                        if not line.endswith(b"\n"):
-                            raise ValueError("Incomplete committed AgentScope history")
-                        remaining -= len(line)
-                        record = json.loads(line)
-                        start = record["start"]
-                        if type(start) is not int or not 0 <= start <= len(messages):
-                            raise ValueError("Invalid AgentScope history offset")
-                        messages[start:] = [SessionMessage.model_validate(item) for item in record["messages"]]
+        messages = []
+        history = self.history_path()
+        remaining = self._history_size(metadata)
+        if remaining:
+            with history.open("rb") as stream:
+                while remaining:
+                    line = stream.readline(remaining)
+                    if not line.endswith(b"\n"):
+                        raise ValueError("Incomplete committed AgentScope history")
+                    remaining -= len(line)
+                    record = json.loads(line)
+                    start = record["start"]
+                    if type(start) is not int or not 0 <= start <= len(messages):
+                        raise ValueError("Invalid AgentScope history offset")
+                    messages[start:] = [SessionMessage.model_validate(item) for item in record["messages"]]
         return AsSessionData(
             state,
             messages,

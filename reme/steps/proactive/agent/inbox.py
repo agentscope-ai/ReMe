@@ -30,7 +30,7 @@ class InboxChatStep(BaseChatAgentStep):
         if not any(identifier in runtime.notifications.pending for identifier in request.msg_ids):
             self.context.response.answer = {"skipped": "already_read"}
             return self.context.response
-        active_fork = request.priority == "P0" and runtime.agent_wrapper.supports_active_fork
+        active_fork = request.priority == "P0"
         if not active_fork and runtime.chat_lock.locked():
             self.context.response.answer = {"skipped": "busy"}
             return self.context.response
@@ -61,19 +61,15 @@ class InboxChatStep(BaseChatAgentStep):
             reply = await runtime.agent_wrapper.reply(
                 self.prompt_format(
                     "hint",
-                    urgent=request.priority == "P0",
                     sleep_reminder_rule=self.get_prompt("sleep_reminder_rule"),
                 ),
-                **{
-                    **options,
-                    **self.web_options(False),
-                    "resume": session_id,
-                    "fork_session": True,
-                    "ephemeral": True,
-                    "sandbox": "read-only",
-                    "job_tools": ["read_inbox", "send_chat_msg"],
-                    "injected_job_kwargs": {"_agent_name": "Remy", "_inbox_turn": turn.id},
-                },
+                system_prompt=options["system_prompt"],
+                job_tools=["read_inbox", "send_chat_msg"],
+                resume=session_id,
+                fork_session=True,
+                ephemeral=True,
+                sandbox="read-only",
+                injected_job_kwargs={"_agent_name": "Remy", "_inbox_turn": turn.id},
             )
             if not turn.done:
                 raise RuntimeError(reply.get("error") or "Inbox fork ended without submitting a reminder decision")

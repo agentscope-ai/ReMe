@@ -35,6 +35,8 @@ class _ThreadState:
     operation_started: bool = False
     token_usage: TokenUsage | None = None
     pending: AsyncThread | None = None
+    pending_has_history: bool = False
+    ephemeral: bool = False
     history_changed: bool = False
     turn_options: dict[str, Any] = field(default_factory=dict)
 
@@ -187,7 +189,9 @@ class SdkCodexAppServer(BaseCodexAppServer):
             state = self._threads.get(session_id)
             response = await codex._client.thread_read(  # pylint: disable=protected-access
                 session_id,
-                include_turns=state is None or state.pending is None,
+                # Ephemeral threads retain model context but reject includeTurns in native thread/read.
+                include_turns=state is None
+                or (not state.ephemeral and (state.pending is None or state.pending_has_history)),
             )
             thread = response.thread
             snapshot = history.session_snapshot(thread)
@@ -530,9 +534,15 @@ class SdkCodexAppServer(BaseCodexAppServer):
                     try:
                         if fork:
                             # Native fork requires a rollout, which an unstarted live thread may not have yet.
-                            source_path = await self.get_session_path(thread_id) if source.pending is not None else None
-                            empty = source.pending is not None and (
-                                source_path is None or not await asyncio.to_thread(source_path.exists)
+                            source_path = (
+                                await self.get_session_path(thread_id)
+                                if source.pending is not None and not source.pending_has_history
+                                else None
+                            )
+                            empty = (
+                                source.pending is not None
+                                and not source.pending_has_history
+                                and (source_path is None or not await asyncio.to_thread(source_path.exists))
                             )
                             if empty:
                                 thread = await codex.thread_start(**options)
@@ -540,6 +550,7 @@ class SdkCodexAppServer(BaseCodexAppServer):
                             else:
                                 state.token_usage = await self.token_usage(thread_id)
                                 thread = await codex.thread_fork(thread_id, **options)
+                                state.pending_has_history = True
                         elif state.pending is not None:
                             thread = state.pending
                         elif thread_id:
@@ -547,8 +558,11 @@ class SdkCodexAppServer(BaseCodexAppServer):
                         else:
                             thread = await codex.thread_start(**options)
                             state.token_usage = TokenUsage()
-                            if keep_empty:
-                                state.pending = thread
+                        if not thread_id or fork:
+                            state.ephemeral = bool(options.get("ephemeral"))
+                        if keep_empty and (not thread_id or fork):
+                            # Ephemeral forks have no rollout to resume after an unsubscribe.
+                            state.pending = thread
                     except BaseException:
                         if token != state.token:
                             self.jobs_mcp.scopes.pop(token, None)

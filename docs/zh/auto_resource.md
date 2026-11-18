@@ -76,7 +76,7 @@ resource/screenshot/YYYY-MM-DD/hhmmss_<uuid4前六位>/
   metadata.json
 ```
 
-目录按采集器 `source`、应用时区日期、时分秒和 UUID4 前六位组织；截图的 source 为 `screenshot`，网页提取为 `web_extract`。
+目录按采集器 `source`、应用时区日期、时分秒和 UUID4 前六位组织。截图的 `source` 为 `screenshot`。
 `metadata.json` 是本次采集的资源清单，通过包内相对路径关联原始文件。事件 ID 由包的工作区相对路径生成。
 旧资源包不移动，已保存的路径引用仍有效。
 
@@ -120,7 +120,7 @@ reme manage_proactive_agent action=update agent_name=finance agent_type=proactiv
 reme manage_proactive_agent action=status agent_name=finance
 ```
 
-按返回的 `memory_path` 更新已有任务和 AI 新闻偏好，重启不会覆盖记忆。
+按返回的 `task_path` 编辑 `TASK.md` 中的任务说明和 AI 新闻偏好，修改在重启后仍然有效。
 启动时可用 `jobs.finance_news_cron.enabled=false`、`jobs.stock_quotes_cron.enabled=false` 或
 `jobs.btc_quotes_cron.enabled=false` 分别关闭采集任务。
 

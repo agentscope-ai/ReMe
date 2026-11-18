@@ -70,6 +70,7 @@ export function displayMessages(
     messages: TranscriptMessage[];
     pending: PendingTurn | null;
     reply?: ReplyProgress;
+    task?: boolean;
   },
   activity: AgentActivity | undefined,
   language: Language,
@@ -93,6 +94,7 @@ export function displayMessages(
       originSessionId:
         message.origin_session_id ?? state.sessionId ?? undefined,
       role: message.role,
+      taskInput: state.task && message.role === "user",
       content: items.some((item) => item.type === "text")
         ? items
             .filter((item) => item.type === "text")

@@ -10,10 +10,10 @@ description: 创建和管理主人交办的定时任务与事件监控，包括�
 ## 任务要求与运行配置
 
 - 创建时必须指定 `agent_type="proactive"`（事件驱动）或 `agent_type="cron"`（定时执行）；定时任务另传 `cron`。系统内置的 `Remy` 是 `chat`，不能通过此工具创建。
-- 创建时用 `task_memory` 写清背景、目标、工作内容、提醒条件、时间和打扰偏好，只把已确认的信息写成要求。
-- `create`、`list`、`status` 返回工作区相对的 `memory_path`。修改任务记忆前，先读取该路径指向的当前文件；根据用户最新要求更新内容，保留仍有效的背景、要求和长期信息，保存后重新读取核对。任务内容以 `MEMORY.md` 为准。
-- 创建后阅读实际记忆，确认符合主人要求。`restored=true` 表示恢复了同名旧任务，原记忆和历史会保留，新传入的 `task_memory` 不覆盖旧记忆。
-- `update` 只传需要修改的运行参数，不能修改 `task_memory`、名称或 `temporary`。修改任务要求时直接编辑记忆；改执行时间时同步修改 `cron` 和记忆中的约定时间。
+- 创建时用 `task_description` 写清背景、目标、工作内容、提醒条件、时间和打扰偏好，只把已确认的信息写成要求。
+- `create`、`list`、`status` 返回工作区相对的 `task_path`。修改任务说明前，先读取该路径指向的当前文件；根据用户最新要求更新内容，保留仍有效的背景、要求和长期信息，保存后重新读取核对。任务内容以 `TASK.md` 为准。
+- 创建后读取任务说明，确认符合主人要求。`restored=true` 表示恢复了同名旧任务，恢复时沿用原任务说明和历史。
+- `update` 只传需要修改的运行参数，不能修改 `task_description`、名称或 `temporary`。修改任务要求时直接编辑 `TASK.md`。改执行时间时同步修改 `cron` 和任务说明中的约定时间。
 - `cron` 使用应用时区；`notify_window` 使用 `{start,end}`，格式为 HH:MM，设为 null 可取消时段限制。事件任务可设置 `min_trigger_interval_seconds` 控制处理间隔，它不等于采集频率。
 - `temporary` 仅在创建时设置，与触发方式独立；临时任务连续七天没有新输入后由框架清理。暂停、删除或结束事件监控时，也要停止该任务的采集作业，保留原始资料，不影响共用采集器。
 
@@ -28,20 +28,20 @@ description: 创建和管理主人交办的定时任务与事件监控，包括�
 ```
 
 ```json
-{"items":[{"agent_name":"tech_news","agent_type":"cron","enabled":true,"cron":"0 8 * * *","memory_path":"reme_agents/tech_news/MEMORY.md"}]}
+{"items":[{"agent_name":"tech_news","agent_type":"cron","enabled":true,"cron":"0 8 * * *","task_path":"reme_agents/tech_news/TASK.md"}]}
 ```
 
 ### create：创建定时任务
 
 ```json
-{"action":"create","agent_name":"tech_news","task_memory":"每天早上整理重要科技新闻，简洁说明事实和影响，保留来源；每天08:00提醒。","agent_type":"cron","cron":"0 8 * * *"}
+{"action":"create","agent_name":"tech_news","task_description":"每天早上整理重要科技新闻，简洁说明事实和影响，保留来源；每天08:00提醒。","agent_type":"cron","cron":"0 8 * * *"}
 ```
 
 ```json
-{"agent_name":"tech_news","memory_path":"reme_agents/tech_news/MEMORY.md","next_trigger_at":"2026-11-18T08:00:00+08:00"}
+{"agent_name":"tech_news","task_path":"reme_agents/tech_news/TASK.md","next_trigger_at":"2026-11-18T08:00:00+08:00"}
 ```
 
-创建成功后核对记忆和执行时间，定时任务由框架触发，无需外部投递事件。
+创建成功后核对任务说明和执行时间，定时任务由框架触发，无需外部投递事件。
 
 ### status：查看配置和执行情况
 
@@ -50,10 +50,10 @@ description: 创建和管理主人交办的定时任务与事件监控，包括�
 ```
 
 ```json
-{"agent_name":"tech_news","agent_type":"cron","enabled":true,"temporary":false,"cron":"0 8 * * *","memory_path":"reme_agents/tech_news/MEMORY.md","running":false,"pending_events":0,"in_flight_events":0,"last_completed_at":"2026-11-17T08:00:05+08:00","next_trigger_at":"2026-11-18T08:00:00+08:00"}
+{"agent_name":"tech_news","agent_type":"cron","enabled":true,"temporary":false,"cron":"0 8 * * *","task_path":"reme_agents/tech_news/TASK.md","running":false,"pending_events":0,"in_flight_events":0,"last_completed_at":"2026-11-17T08:00:05+08:00","next_trigger_at":"2026-11-18T08:00:00+08:00"}
 ```
 
-`last_completed_at=null` 表示没有完成记录；发生错误时会返回 `error`。任务要求和完整背景从 `memory_path` 阅读，返回中不重复附带记忆正文。
+`last_completed_at=null` 表示没有完成记录；发生错误时会返回 `error`。任务要求和完整背景从 `task_path` 阅读，返回中只提供文件路径。
 
 ### update：修改运行配置
 
@@ -77,7 +77,7 @@ description: 创建和管理主人交办的定时任务与事件监控，包括�
 "今天08:00的早报已完成，已整理三条主要消息，没有待处理资料。"
 ```
 
-此操作从最新任务会话创建临时只读分支，沿用原有上下文直接回答。运行中使用当前会话，等待下次触发时使用最近一次会话；查询不替换任务主会话，不执行任务或修改记忆。尚无可查询会话的任务暂不能使用 `query`，先通过 `status` 和记忆文件了解情况。
+此操作从最新任务会话创建临时只读分支，沿用原有上下文直接回答。运行中使用当前会话，等待下次触发时使用最近一次会话；查询不替换任务主会话，不执行任务或修改任务说明。尚无可查询会话的任务暂不能使用 `query`，先通过 `status` 和任务说明了解情况。
 
 ### delete：删除任务
 
@@ -96,19 +96,19 @@ description: 创建和管理主人交办的定时任务与事件监控，包括�
 主人交办“跟进实验日志，异常或结束时通知我”时，先确认实验、日志位置、判断条件和采集频率，再创建事件任务：
 
 ```json
-{"action":"create","agent_name":"experiment_watch","task_memory":"跟进本次实验，分析持续投递的实验日志；确认异常或结束时提醒，说明依据与影响。正常进展只记录，没有新日志不能单独作为结束依据。","agent_type":"proactive","temporary":true}
+{"action":"create","agent_name":"experiment_watch","task_description":"跟进本次实验，分析持续投递的实验日志；确认异常或结束时提醒，说明依据与影响。正常进展只记录，没有新日志不能单独作为结束依据。","agent_type":"proactive","temporary":true}
 ```
 
 ```json
-{"agent_name":"experiment_watch","memory_path":"reme_agents/tmp/experiment_watch/MEMORY.md"}
+{"agent_name":"experiment_watch","task_path":"reme_agents/tmp/experiment_watch/TASK.md"}
 ```
 
 创建任务不等于已经开始监控，还须完成以下工作：
 
 1. 复用当前 HTTP 服务，通过 `POST /app_config`（请求体 `{}`）确认 `workspace_dir`、`resource_dir`，确认输入来源和已有采集宿主。
-2. 在返回的 `memory_path` 所在目录下编写采集代码和运行配置，或复用现有采集器。先将完整资料原子保存到服务工作区，再通过 `POST /append_event` 投递观察；是否异常或结束由任务根据资料判断。
+2. 在返回的 `task_path` 所在目录下编写采集代码和运行配置，或复用现有采集器。先将完整资料原子保存到服务工作区，再通过 `POST /append_event` 投递观察；是否异常或结束由任务根据资料判断。
 3. `paths` 使用规范的工作区相对路径，不含绝对路径或 `..`；远程资料先同步到工作区。按规模选择快照或增量采集，保留原始日志；增量游标只在服务确认接收后推进，日志轮转须保留归档或接入训练回调。
-4. 启动对应宿主配置，记录入口、命令、运行标识、输出日志、重启策略和停止方式，并写入任务记忆；ReMe 内部采集器由 BackgroundJob/Component 管理生命周期。
+4. 启动对应宿主配置，记录入口、命令、运行标识、输出日志、重启策略和停止方式，并写入任务说明；ReMe 内部采集器由 BackgroundJob/Component 管理生命周期。
 5. 用真实资料验证采集和投递，并确认新资料能持续进入。通过 `status` 查看待处理、处理中数量、完成时间和错误，再用 `query` 或日记核对分析结果；提醒条件出现时核对实际提醒，区分已经验证和尚未发生的环节。
 
 采集代码与管理工具统一使用 `agent_name` 指定任务：

@@ -8,9 +8,7 @@ import pytest
 
 from reme.components.agent_wrapper import CodexAgentWrapper
 from reme.components.application_context import ApplicationContext
-from reme.components.job import StreamJob
 from reme.components.runtime_context import RuntimeContext
-from reme.config.config_parser import _load_config
 from reme.enumeration import ChunkEnum
 from reme.schema import StreamChunk
 from reme.steps.common.chat import ChatStep
@@ -147,38 +145,3 @@ async def test_chat_step_streams_rich_chunks_and_resumes_session(tmp_path):
         "traverse",
     ]
     assert agent.reply_kwargs["builtin_tools"] == []
-    assert agent.reply_kwargs["system_prompt"] == ""
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("system_prompt", ["", None, "Custom prompt.\n"])
-async def test_chat_step_passes_system_prompt_override_verbatim(tmp_path, system_prompt):
-    """A caller prompt reaches the wrapper without extra environment text."""
-
-    app_context = ApplicationContext(workspace_dir=str(tmp_path), timezone="Asia/Shanghai")
-    agent = _StreamingAgent(app_context=app_context)
-
-    await ChatStep(agent_wrapper=agent, app_context=app_context)(
-        query="hello",
-        system_prompt=system_prompt,
-        stream_queue=asyncio.Queue(),
-    )
-
-    assert agent.reply_kwargs["system_prompt"] == (system_prompt or "")
-
-
-@pytest.mark.asyncio
-async def test_default_chat_uses_configured_prompt_and_allows_empty_override(tmp_path):
-    """The built-in prompt comes from config and can be explicitly cleared."""
-    config = _load_config("default")
-    app_context = ApplicationContext(workspace_dir=str(tmp_path))
-    agent = _StreamingAgent(app_context=app_context)
-    app_context.components["agent_wrapper"] = {"default": agent}
-    chat = StreamJob(name="chat", app_context=app_context, **config["jobs"]["chat"])
-
-    async with chat:
-        await chat(query="hello", stream_queue=asyncio.Queue())
-        assert agent.reply_kwargs["system_prompt"] == config["jobs"]["chat"]["system_prompt"]
-        assert agent.reply_kwargs["system_prompt"].startswith("You are ReMe Agent")
-        await chat(query="hello", system_prompt="", stream_queue=asyncio.Queue())
-        assert agent.reply_kwargs["system_prompt"] == ""

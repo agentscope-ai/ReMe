@@ -18,7 +18,6 @@ from reme.components.agent_runtime import BaseAgentRuntime
 from reme.components.agent_runtime._internal.files import AgentFiles
 from reme.schema import ResourceMetadata
 from reme.steps.proactive.data_connectors import BaseConnectorStep, ResourceEventStep, ScreenCaptureStep
-from reme.steps.proactive.tools.web_extract import WebExtractStep
 
 
 class PackageConnector(BaseConnectorStep):
@@ -253,7 +252,6 @@ async def test_packages_are_grouped_by_source_and_local_capture_time(tmp_path, m
         assert metadata.source == ScreenCaptureStep.source == "screenshot"
         assert metadata.files[0].path == "1.png"
         assert (manifest.parent / metadata.files[0].path).read_bytes() == b"image"
-    assert WebExtractStep.source == "web_extract"
     assert not list(tmp_path.glob(".reme-resource-*"))
 
 

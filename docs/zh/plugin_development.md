@@ -107,7 +107,6 @@ reme my_action text=hello
 ## Entry-point 契约
 
 插件必须使用 package-only 的 `reme.plugins` entry point，并在 `plugin.yaml` 中声明贡献。
-旧的 `package:object` entry point 需要迁移到此格式才能启用。独立的 `reme.configs` entry point
-仍可提供命名配置预设。插件启用属于具体 Application 配置。
+独立的 `reme.configs` entry point 可提供命名配置预设。插件启用属于具体 Application 配置。
 
 包管理命令、升级与卸载行为见[插件管理](./plugin_management.md)。

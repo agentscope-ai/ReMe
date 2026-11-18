@@ -310,9 +310,15 @@ class AsAgentWrapper(BaseAgentWrapper):
         if "builtin_tools" not in kwargs and bool(kwargs.get("use_builtin_tools", False)):
             builtin_tools = "all"
         tools: list[ToolBase] = []
-        tools.extend(self._builtin_tools(builtin_tools, sequential_tool_calls=sequential_tool_calls))
+        native_tools = self._builtin_tools(builtin_tools, sequential_tool_calls=sequential_tool_calls)
+        read_only = kwargs.get("sandbox") == "read-only"
+        if read_only:
+            # AgentScope has no Codex-style command sandbox; omit write/exec
+            # builtins and retain only the explicitly bound framework tools.
+            native_tools = [tool for tool in native_tools if isinstance(tool, (Read, Glob, Grep))]
+        tools.extend(native_tools)
         tools.extend(self._make_tool(job, tool_context_id, kwargs.get("injected_job_kwargs")) for job in resolved_jobs)
-        toolkit = kwargs.get("toolkit") or Toolkit(
+        toolkit = (None if read_only else kwargs.get("toolkit")) or Toolkit(
             tools=tools,
             skills_or_loaders=skills,
         )
@@ -399,10 +405,12 @@ class AsAgentWrapper(BaseAgentWrapper):
         )
 
     async def create_session(self, **kwargs) -> str:
-        """Persist an empty state so the next turn can resume without calling a model."""
-        kwargs = self._merged_kwargs(kwargs)
-        options = {"session_id": str(uuid4())}
+        """Persist a fresh state or independent live snapshot without calling a model."""
+        kwargs = self._sessions.options(self._merged_kwargs(kwargs))
+        options = {key: kwargs[key] for key in ("session_id", "resume", "fork_session") if key in kwargs}
         async with self._sessions.open(options, PermissionMode(kwargs.get("permission_mode", "bypass"))) as session:
+            if not options.get("resume") and self._sessions.path(session.state.session_id).exists():
+                raise FileExistsError(f"AgentScope session already exists: {session.state.session_id}")
             await self._sessions.save(session)
             return session.state.session_id
 
@@ -450,12 +458,18 @@ class AsAgentWrapper(BaseAgentWrapper):
     async def compact_session(self, session_id: str) -> None:
         """Force compression of an AgentScope session."""
         kwargs = self._sessions.options(self._merged_kwargs({"resume": session_id}))
-        async with self._sessions.open(kwargs, PermissionMode(kwargs.get("permission_mode", "bypass"))) as session:
+        async with self._sessions.open(
+            kwargs,
+            PermissionMode(kwargs.get("permission_mode", "bypass")),
+            active=True,
+        ) as session:
             agent, _ = await self._build_agent(None, state=session.state, **kwargs)
             config = {**(kwargs.get("context_config") or {}), "trigger_ratio": 1e-9}
             try:
                 await agent.compress_context(ContextConfig(**config))
             finally:
+                self._sessions.finish(session)
+                await finish_cleanup(self._sessions.drain(session, agent))
                 await finish_cleanup(self._sessions.save(session))
 
     # ----- StreamChunk conversion -------------------------------------------
@@ -538,7 +552,11 @@ class AsAgentWrapper(BaseAgentWrapper):
     async def reply_stream(self, inputs: Any, **kwargs) -> AsyncGenerator[StreamChunk, None]:
         """Execute once, streaming native events followed by the complete outcome."""
         kwargs = self._sessions.options(self._merged_kwargs(kwargs))
-        async with self._sessions.open(kwargs, PermissionMode(kwargs.get("permission_mode", "bypass"))) as session:
+        async with self._sessions.open(
+            kwargs,
+            PermissionMode(kwargs.get("permission_mode", "bypass")),
+            active=True,
+        ) as session:
             agent, inputs = await self._build_agent(inputs, state=session.state, **kwargs)
             last_msg, terminal = None, None
             turn_id = None
@@ -555,6 +573,8 @@ class AsAgentWrapper(BaseAgentWrapper):
                         if isinstance(event, Msg):
                             last_msg = event
                             continue
+                        if isinstance(event, (ModelCallStartEvent, ReplyEndEvent)):
+                            await finish_cleanup(self._sessions.drain(session, agent))
                         if isinstance(event, ModelCallEndEvent):
                             model_usages.append(self._agentscope_usage(event))
                         chunk = self._event_to_chunk(event)
@@ -596,6 +616,8 @@ class AsAgentWrapper(BaseAgentWrapper):
                         session_id=agent.state.session_id,
                         status="interrupted" if interrupted else "failed",
                     )
+                self._sessions.finish(session)
                 record_end(session, terminal, last_msg)
+                await finish_cleanup(self._sessions.drain(session, agent))
                 await finish_cleanup(self._sessions.save(session))
         yield terminal

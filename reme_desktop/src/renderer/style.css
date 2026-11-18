@@ -2,7 +2,7 @@
   font-family:
     -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
     "Microsoft YaHei", sans-serif;
-  font-size: 14px;
+  font-size: var(--text-body);
   line-height: 1.65;
   color: var(--ink);
   color-scheme: light dark;
@@ -51,10 +51,10 @@ button {
   width: 30px;
   height: 30px;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--muted);
-  font-size: 20px;
+  font-size: var(--text-title);
   line-height: 1;
 }
 .icon-button:hover,
@@ -66,10 +66,10 @@ button {
 .secondary,
 .subtle {
   border: 0;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   padding: 7px 12px;
-  font-size: 12px;
-  font-weight: 500;
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
   white-space: nowrap;
 }
 .primary {
@@ -79,6 +79,14 @@ button {
 .secondary {
   background: var(--soft);
   color: var(--ink);
+}
+.primary:hover:not(:disabled),
+.send-button:hover:not(:disabled),
+.stop-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 90%, var(--ink));
+}
+.secondary:hover:not(:disabled) {
+  background: var(--accent-soft);
 }
 .subtle {
   background: transparent;
@@ -146,15 +154,15 @@ button {
   background: var(--accent);
 }
 .status-notice.waiting .status-light {
-  background: #b67a21;
+  background: var(--warning);
 }
 .status-notice.error .status-light {
-  background: #c36256;
+  background: var(--error);
 }
 .quiet-row small {
   display: block;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-caption);
   margin-top: 3px;
 }
 .message-bubble header {
@@ -164,10 +172,10 @@ button {
   gap: 8px;
 }
 .eyebrow {
-  font-size: 10px;
+  font-size: var(--text-caption);
   letter-spacing: 0.09em;
   color: var(--muted);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 .message-bubble p {
   margin: 0;
@@ -195,7 +203,7 @@ button {
   display: grid;
   place-items: center;
   padding: 0;
-  font-size: 11px;
+  font-size: var(--text-caption);
   box-shadow: 0 2px 8px #10241920;
 }
 .companion-badges .unread {
@@ -203,8 +211,8 @@ button {
   color: var(--accent-ink);
 }
 .offline-dot {
-  background: light-dark(#f4dfb0, #67562a);
-  color: light-dark(#725f2f, #f5dfa6);
+  background: var(--warning-soft);
+  color: var(--warning);
 }
 .companion-error {
   position: absolute;
@@ -213,7 +221,7 @@ button {
   padding: 4px 8px;
   background: var(--surface);
   color: var(--error);
-  font-size: 11px;
+  font-size: var(--text-caption);
 }
 .endpoint-row {
   display: flex;
@@ -226,9 +234,9 @@ button {
   background: var(--page);
   color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: var(--radius-md);
   padding: 7px 9px;
-  font-size: 12px;
+  font-size: var(--text-caption);
 }
 .scale-row > span {
   margin-left: auto;
@@ -244,13 +252,13 @@ button {
   align-items: center;
   justify-content: space-between;
   margin-top: 12px;
-  font-size: 12px;
+  font-size: var(--text-caption);
   color: var(--muted);
 }
 .settings-note,
 .workspace-path {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-caption);
   margin: 10px 0 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -262,14 +270,19 @@ button {
   align-items: flex-start;
   gap: 8px;
   padding: 10px 18px;
-  font-size: 11px;
+  font-size: var(--text-caption);
   background: var(--soft);
   color: var(--muted);
   overflow-wrap: anywhere;
   flex-shrink: 0;
 }
 .action-error {
+  background: var(--error-soft);
   color: var(--error);
+}
+.connection-banner {
+  background: var(--warning-soft);
+  color: var(--warning);
 }
 .connection-banner > span,
 .action-error > span {
@@ -281,7 +294,7 @@ button {
   color: inherit;
   border: 0;
   background: transparent;
-  font-size: 11px;
+  font-size: var(--text-caption);
   text-decoration: underline;
   padding: 0;
 }
@@ -291,6 +304,7 @@ button {
   overflow-y: auto;
   padding: 22px 20px 20px;
   overscroll-behavior: contain;
+  overflow-anchor: none;
 }
 .empty-chat {
   min-height: 100%;
@@ -302,13 +316,13 @@ button {
   text-align: center;
 }
 .empty-chat h2 {
-  font-size: 17px;
-  font-weight: 500;
+  font-size: var(--text-title);
+  font-weight: var(--weight-medium);
   margin: 0 0 6px;
 }
 .empty-chat p {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-caption);
   margin: 0;
 }
 .empty-chat .start-hint {
@@ -318,12 +332,12 @@ button {
 .start-hint code {
   display: block;
   margin-top: 7px;
-  font-size: 11px;
+  font-size: var(--text-caption);
 }
 .message {
   max-width: 100%;
   margin: 0 0 22px;
-  font-size: 13px;
+  font-size: var(--text-body);
   overflow-wrap: anywhere;
 }
 .message.user {
@@ -339,15 +353,9 @@ button {
   display: flex;
   gap: 5px;
   align-items: center;
-  font-size: 10px;
+  font-size: var(--text-caption);
   color: var(--accent);
   margin-bottom: 8px;
-}
-.message-body > :first-child {
-  margin-top: 0;
-}
-.message-body > :last-child {
-  margin-bottom: 0;
 }
 .message-content + .message-content {
   margin-top: 20px;
@@ -364,9 +372,13 @@ button {
 .message-body h1,
 .message-body h2,
 .message-body h3 {
-  font-size: 14px;
+  font-size: var(--text-body);
   margin: 15px 0 7px;
-  font-weight: 600;
+  font-weight: var(--weight-medium);
+}
+.message-body strong,
+.document-markdown strong {
+  font-weight: var(--weight-strong);
 }
 .message-body ul,
 .message-body ol {
@@ -383,15 +395,15 @@ button {
 .message-body pre {
   padding: 12px;
   background: var(--soft);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   overflow-x: auto;
-  font-size: 11px;
+  font-size: var(--text-caption);
 }
 .message-body :not(pre) > code {
   background: var(--soft);
   padding: 1px 4px;
   border-radius: 4px;
-  font-size: 12px;
+  font-size: var(--text-caption);
 }
 .message-body blockquote {
   margin: 12px 0;
@@ -402,7 +414,7 @@ button {
 .message-body table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 11px;
+  font-size: var(--text-caption);
 }
 .message-body th,
 .message-body td {
@@ -412,20 +424,20 @@ button {
 }
 .message-error {
   color: var(--error);
-  font-size: 11px;
+  font-size: var(--text-caption);
   margin-top: 8px;
 }
 .message-status {
   display: block;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-caption);
   margin-top: 4px;
 }
 .message-status.error {
   color: var(--error);
 }
 .message-status.waiting {
-  color: var(--accent);
+  color: var(--warning);
 }
 .chat-composer {
   padding: 12px 16px 13px;
@@ -440,8 +452,8 @@ button {
 }
 .voice-settings legend {
   padding: 0 8px 0 0;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: var(--text-caption);
+  font-weight: var(--weight-strong);
 }
 .voice-settings .quiet-row {
   gap: 16px;
@@ -451,7 +463,7 @@ button {
   align-items: center;
   gap: 8px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-caption);
   padding: 0 4px 8px;
 }
 .voice-status > button {
@@ -467,7 +479,7 @@ button {
   height: 31px;
   padding: 6px;
   border: 0;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--muted);
   flex-shrink: 0;
@@ -477,13 +489,13 @@ button {
   background: var(--line);
 }
 .mic-button.recording {
-  color: #b53e42;
-  background: #f8e5e4;
+  color: var(--error);
+  background: var(--error-soft);
 }
 .voice-notice {
   padding: 0 6px 10px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-caption);
 }
 .read-aloud {
   display: inline-flex;
@@ -495,7 +507,7 @@ button {
   border-radius: 5px;
   background: transparent;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-caption);
 }
 .read-aloud:hover,
 .read-aloud[aria-pressed="true"] {
@@ -509,7 +521,7 @@ button {
   align-items: flex-end;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   padding: 11px 10px 10px 13px;
 }
 .chat-composer form:focus-within {
@@ -523,7 +535,7 @@ button {
   z-index: 5;
   padding: 5px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   background: var(--surface);
   box-shadow: 0 6px 24px light-dark(#223e2918, #0005);
 }
@@ -534,12 +546,12 @@ button {
   width: 100%;
   padding: 10px 12px;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--accent) 8%, transparent);
   color: var(--ink);
   text-align: left;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--text-caption);
 }
 .chat-command-menu span {
   color: var(--muted);
@@ -559,7 +571,7 @@ button {
   resize: none;
   max-height: 140px;
   padding: 0;
-  font-size: 13px;
+  font-size: var(--text-ui);
   line-height: 1.7;
 }
 .chat-composer textarea:focus-visible {
@@ -572,30 +584,30 @@ button {
 .stop-button {
   width: 31px;
   height: 31px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   border: 0;
   flex-shrink: 0;
   color: var(--accent-ink);
   background: var(--accent);
-  font-size: 21px;
+  font-size: var(--text-title);
   line-height: 1;
 }
 .stop-button {
-  font-size: 12px;
+  font-size: var(--text-caption);
 }
 .composer-meta {
   display: flex;
   align-items: center;
   gap: 5px;
   margin: 9px 2px 0;
-  font-size: 9px;
+  font-size: var(--text-caption);
   color: var(--muted);
 }
 .connection-dot {
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: #b18e4c;
+  background: var(--warning);
 }
 .connection-dot.online {
   background: var(--accent);
@@ -625,10 +637,18 @@ button {
 .message-body > .activity-group {
   margin-block: 20px;
 }
+.message-body > :first-child,
+.streaming-markdown > :first-child {
+  margin-top: 0;
+}
+.message-body > :last-child,
+.streaming-markdown > :last-child {
+  margin-bottom: 0;
+}
 .activity-group,
 .turn-completion {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-caption);
 }
 .activity-group > summary,
 .reasoning-details > summary {
@@ -700,7 +720,7 @@ button.action-target:hover {
 }
 .tool-outcome {
   margin-left: 24px;
-  font-size: 11px;
+  font-size: var(--text-caption);
 }
 .tool-detail header {
   display: flex;
@@ -710,8 +730,8 @@ button.action-target:hover {
 .tool-detail h4 {
   margin: 12px 0 4px;
   color: var(--muted);
-  font-size: 11px;
-  font-weight: 500;
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
 }
 .tool-detail[data-status="failed"],
 .tool-detail[data-status="interrupted"] {
@@ -720,12 +740,12 @@ button.action-target:hover {
 .message-body .tool-detail pre {
   max-height: 280px;
   overflow: auto;
-  font-size: 11px;
+  font-size: var(--text-caption);
   white-space: pre-wrap;
 }
 .reasoning-details {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-caption);
   margin-top: 14px;
 }
 .reasoning-details > summary {
@@ -738,7 +758,7 @@ button.action-target:hover {
   color: inherit;
 }
 .message.user .message-body :not(pre) > code {
-  background: #ffffff1c;
+  background: var(--line);
 }
 .attachment-link {
   display: inline-flex;
@@ -747,7 +767,7 @@ button.action-target:hover {
   color: var(--accent);
   border: 0;
   background: var(--soft);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   padding: 6px 10px;
   cursor: pointer;
 }
@@ -780,7 +800,7 @@ button.action-target:hover {
   background: var(--surface);
   color: var(--muted);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--text-caption);
 }
 
 .chat-content {
@@ -794,7 +814,7 @@ button.action-target:hover {
   border: 0;
   background: transparent;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-caption);
   cursor: pointer;
 }
 
@@ -806,5 +826,5 @@ button.action-target:hover {
   max-width: 100%;
   max-height: 420px;
   object-fit: contain;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
 }

@@ -107,7 +107,6 @@ The repository's Daily Paper, Auto Fin, LME, and BEAM plugins are complete examp
 ## Entry-point contract
 
 Plugins must use a package-only `reme.plugins` entry point and declare contributions in `plugin.yaml`.
-Migrate old `package:object` entry points to that format before enabling them. The separate `reme.configs` entry point
-remains available for named configuration presets. Enablement belongs to an Application.
+The separate `reme.configs` entry point provides named configuration presets. Enablement belongs to an Application.
 
 See [Plugin Management](./plugin_management.md) for installation, upgrades, and removal.

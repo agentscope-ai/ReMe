@@ -1,6 +1,7 @@
 """Components"""
 
 from . import agent_wrapper
+from . import anthropic_relay
 from . import as_llm
 from . import as_decision_model
 from . import asr
@@ -49,6 +50,7 @@ __all__ = [
     # base components
     "agent_wrapper",
     "agent_runtime",
+    "anthropic_relay",
     "codex_app_server",
     "agent_inbox",
     "as_llm",

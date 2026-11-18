@@ -108,9 +108,10 @@ class LocalAgentRuntime(BaseAgentRuntime):
             ChatAgentConfig.model_validate(config) if config is not None else ChatAgentConfig(created_at=self.now())
         )
         await complete_in_thread(
-            self.agents.initialize_memory,
-            chat.parent,
-            self.initial_chat.task_memory,
+            self.files.write,
+            self.agents.chat_memory_path(),
+            self.initial_chat.initial_memory,
+            create_only=True,
         )
         await complete_in_thread(self.files.write_json, chat, config.model_dump(mode="json"))
         existing = {name.casefold() for name in await asyncio.to_thread(self.agents.load, include_deleted=True)}
@@ -251,7 +252,7 @@ class LocalAgentRuntime(BaseAgentRuntime):
         snapshot = await self.inbox.snapshot(agent_name)
         receipt = snapshot["receipt"]
         execution = self.executions[agent_name]
-        memory = self.files.checked(self.agents.directory_for(agent) / "MEMORY.md")
+        task_path = self.agents.task_path(agent)
         next_trigger = None
         if agent.enabled and agent.agent_type == "cron":
             schedule = self.cron.get(agent_name)
@@ -263,7 +264,7 @@ class LocalAgentRuntime(BaseAgentRuntime):
             "agent_name": agent_name,
             "config": agent.model_dump(mode="json", exclude={"created_at", "deleted_at"}),
             "created_at": agent.created_at.isoformat(),
-            "memory_path": memory.relative_to(self.workspace_path).as_posix(),
+            "task_path": task_path.relative_to(self.workspace_path).as_posix(),
             "running": agent_name in self.workers,
             "pending_events": snapshot["pending_count"],
             "in_flight_events": snapshot["in_flight_count"],

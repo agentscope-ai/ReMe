@@ -149,11 +149,7 @@ class ChatNotifications:
                 chat_revision=self.chat_revision,
                 session_revision=snapshot.revision,
                 session_turn_id=snapshot.last_turn_id,
-                active_delivery=(
-                    priority == "P0"
-                    and self.runtime.agent_wrapper.supports_active_append
-                    and snapshot.state.status == "active"
-                ),
+                active_delivery=priority == "P0" and snapshot.state.status == "active",
             )
             self.active_turn = turn
             yield turn

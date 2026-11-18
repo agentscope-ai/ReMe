@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { DesktopController } from "../src/main/controller.ts";
 import { SessionModel } from "../src/main/session-model.ts";
+import { displayMessages } from "../src/shared/messages.ts";
 import type {
   AgentEvent,
   PendingTurn,
@@ -29,6 +30,46 @@ const snapshot = (turn: string, sessionId = "session"): AgentEvent => ({
     state: { session_id: sessionId, status: "idle", active_flags: [] },
     messages: [reply(turn)],
   },
+});
+
+test("only authoritative task inputs collapse; ordinary chat and task follow-ups remain visible", () => {
+  const model = new SessionModel();
+  model.apply(snapshot("turn"));
+  model.messages.unshift({
+    ...model.messages[0],
+    id: "turn:user",
+    role: "user",
+    content: "The same text in every context",
+    items: [],
+  });
+  const base = {
+    sessionId: "session",
+    messages: model.messages,
+    pending: null,
+  };
+  const task = displayMessages({ ...base, task: true }, undefined, "zh");
+  const chat = displayMessages(base, undefined, "zh");
+  assert.equal(task[0].taskInput, true);
+  assert.equal(task[1].taskInput, false);
+  assert.equal(chat[0].taskInput, undefined);
+  assert.equal(task[0].content, chat[0].content);
+  const query = displayMessages(
+    {
+      ...base,
+      task: true,
+      messages: [],
+      pending: {
+        id: "follow-up",
+        sessionId: "session",
+        query: model.messages[0].content,
+        streaming: true,
+      },
+    },
+    undefined,
+    "zh",
+  );
+  assert.equal(query[0].taskInput, undefined);
+  assert.equal(query[0].content, task[0].content);
 });
 
 test("automatic stages preserve query errors until the next task session", async () => {

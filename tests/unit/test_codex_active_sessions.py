@@ -10,9 +10,38 @@ import pytest
 
 from reme.components.agent_wrapper import CodexAgentWrapper
 from . import test_agent_session_api
+from . import test_codex_agent_wrapper
 
 runtime = test_agent_session_api.runtime
 codex_wrapper = test_agent_session_api.codex_wrapper
+system = test_codex_agent_wrapper.system
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ephemeral", [False, True])
+async def test_created_fork_stays_loaded_until_its_first_query(system, monkeypatch, ephemeral):
+    wrapper, _, server, _ = system
+    source = (await wrapper.reply("Source"))["session_id"]
+    child = await wrapper.create_session(resume=source, fork_session=True, ephemeral=ephemeral)
+    native = test_codex_agent_wrapper._Codex.instances[0]
+    assert child not in native.unsubscribed
+    assert server._threads[child].pending is native.threads[child]
+    read = AsyncMock(
+        return_value=SimpleNamespace(
+            thread=SimpleNamespace(
+                id=child,
+                turns=[],
+                path=None,
+                status=SimpleNamespace(root=SimpleNamespace(type="idle")),
+            ),
+        ),
+    )
+    monkeypatch.setattr(native._client, "thread_read", read)
+    await wrapper.read_session(child)
+    read.assert_awaited_once_with(child, include_turns=not ephemeral)
+    monkeypatch.setattr(native, "thread_resume", AsyncMock(side_effect=AssertionError("Ephemeral fork was unloaded")))
+    result = await wrapper.reply("Child query", resume=child)
+    assert result["status"] == "completed" and result["session_id"] == child
 
 
 @pytest.mark.asyncio

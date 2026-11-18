@@ -65,7 +65,7 @@ class BaseAgentRuntime(BaseComponent):
 
     @abstractmethod
     async def update(self, agent_name: str, config: dict) -> dict:
-        """Update execution settings independently of task memory."""
+        """Update execution settings independently of the task description."""
 
     @abstractmethod
     async def delete(self, agent_name: str) -> dict:

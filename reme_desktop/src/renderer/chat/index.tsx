@@ -11,6 +11,8 @@ import { watchReadReceipt } from "../read-receipt.ts";
 import MessageBody from "../message-body.tsx";
 import type { DesktopState, DisplayMessage } from "../../shared/protocol.ts";
 import { useCapture } from "../speech/use-capture.ts";
+import { messageKey } from "../state.ts";
+import { useChatScroll } from "./use-chat-scroll.ts";
 import { Sparkles, ArrowUpRight } from "lucide-react";
 
 export default function Chat({
@@ -47,15 +49,22 @@ export default function Chat({
     state.agents?.find((agent) => agent.agent_name === state.selectedAgentName)
       ?.agent_name ?? "Remy";
   const [error, setError] = useState<unknown>(null);
-  const history = useRef<HTMLDivElement | null>(null);
-  const content = useRef<HTMLDivElement | null>(null);
-  const [following, setFollowing] = useState(true);
+  const {
+    history,
+    content,
+    following,
+    jumpToLatest,
+    stopFollowing,
+    reveal,
+    prepend,
+  } = useChatScroll(state.sessionId, active);
   const [historyWindow, setHistoryWindow] = useState({
     sessionId: state.sessionId,
     start: Math.max(0, state.messages.length - 80),
   });
   const historyStart =
-    historyWindow.sessionId === state.sessionId
+    historyWindow.sessionId === state.sessionId &&
+    historyWindow.start < state.messages.length
       ? historyWindow.start
       : Math.max(0, state.messages.length - 80);
   const openLink = useCallback((url: string) => {
@@ -87,7 +96,6 @@ export default function Chat({
   const voice = state.speech.playback;
   const displayedError =
     error ?? (state.speech.error ? deserializeError(state.speech.error) : null);
-  const follow = useRef(true);
   const focusedMessage = useRef("");
   const sending = useRef(false);
   const messages = state.messages;
@@ -139,8 +147,7 @@ export default function Chat({
     if (focusedMessage.current === request) return;
     const index = messages.findIndex((message) => message.id === focusedId);
     if (index >= 0 && index < historyStart) {
-      follow.current = false;
-      setFollowing(false);
+      stopFollowing();
       setHistoryWindow({
         sessionId: state.sessionId,
         start: Math.max(0, index - 10),
@@ -152,9 +159,7 @@ export default function Chat({
         []),
     ].find((node) => node.dataset.messageId === focusedId);
     if (element) {
-      element.scrollIntoView({ block: "start" });
-      follow.current = false;
-      setFollowing(false);
+      reveal(element);
       focusedMessage.current = request;
     }
   }, [
@@ -164,10 +169,10 @@ export default function Chat({
     state.chatVisible,
     state.messages,
     active,
+    reveal,
+    stopFollowing,
   ]);
   useLayoutEffect(() => {
-    follow.current = true;
-    setFollowing(true);
     setHistoryWindow({
       sessionId: state.sessionId,
       start: Math.max(0, state.messages.length - 80),
@@ -175,37 +180,15 @@ export default function Chat({
   }, [state.sessionId]);
   useLayoutEffect(() => {
     if (!state.pending?.streaming) return;
-    follow.current = true;
-    setFollowing(true);
-  }, [state.pending?.id]);
+    jumpToLatest();
+  }, [state.pending?.id, jumpToLatest]);
   useEffect(() => {
-    if (follow.current && state.messages.length - historyStart > 120)
+    if (following && state.messages.length - historyStart > 120)
       setHistoryWindow({
         sessionId: state.sessionId,
         start: state.messages.length - 80,
       });
-  }, [state.messages.length, state.sessionId, historyStart]);
-  useLayoutEffect(() => {
-    if (active && follow.current && history.current)
-      history.current.scrollTop = history.current.scrollHeight;
-  }, [state.messages, state.chatVisible, active]);
-  useEffect(() => {
-    const root = history.current;
-    const body = content.current;
-    if (!root || !body || !active) return;
-    let frame = 0;
-    const observer = new ResizeObserver(() => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        if (follow.current) root.scrollTop = root.scrollHeight;
-      });
-    });
-    observer.observe(body);
-    return () => {
-      observer.disconnect();
-      cancelAnimationFrame(frame);
-    };
-  }, [active]);
+  }, [state.messages.length, state.sessionId, historyStart, following]);
   useEffect(() => {
     if (state.chatVisible && active) input.current?.focus();
   }, [state.chatVisible, active]);
@@ -266,7 +249,7 @@ export default function Chat({
     if (!value || busy || !ready || sending.current) return;
     sending.current = true;
     setQuery("");
-    follow.current = true;
+    jumpToLatest();
     if (
       !(await run(
         isRemy && value.toLowerCase() === "/clear"
@@ -315,21 +298,7 @@ export default function Chat({
           </button>
         </div>
       )}
-      <div
-        ref={history}
-        className="chat-history"
-        aria-label={t("history")}
-        onScroll={() => {
-          if (history.current) {
-            follow.current =
-              history.current.scrollHeight -
-                history.current.scrollTop -
-                history.current.clientHeight <
-              48;
-            setFollowing(follow.current);
-          }
-        }}
-      >
+      <div ref={history} className="chat-history" aria-label={t("history")}>
         <div ref={content} className="chat-content">
           {messages.length === 0 && (
             <div className="empty-chat">
@@ -372,17 +341,12 @@ export default function Chat({
               type="button"
               className="load-earlier"
               onClick={() => {
-                const root = history.current;
-                const height = root?.scrollHeight ?? 0;
-                follow.current = false;
-                setFollowing(false);
-                setHistoryWindow({
-                  sessionId: state.sessionId,
-                  start: Math.max(0, historyStart - 80),
-                });
-                requestAnimationFrame(() => {
-                  if (root) root.scrollTop += root.scrollHeight - height;
-                });
+                prepend(() =>
+                  setHistoryWindow({
+                    sessionId: state.sessionId,
+                    start: Math.max(0, historyStart - 80),
+                  }),
+                );
               }}
             >
               {t("loadEarlierMessages")}
@@ -390,13 +354,10 @@ export default function Chat({
           )}
           {messages.slice(historyStart).map((message) => (
             <article
-              key={
-                message.turnId && message.source === "chat"
-                  ? `${message.turnId}:${message.role}`
-                  : message.id
-              }
+              key={messageKey(message)}
               data-message-id={message.id}
               data-proactive={message.source === "proactive"}
+              data-task-input={message.taskInput}
               className={`message ${message.role} ${focusedId === message.id ? "message-focused" : ""}`}
             >
               {message.source === "proactive" && (
@@ -496,12 +457,7 @@ export default function Chat({
           <button
             type="button"
             className="jump-to-latest"
-            onClick={() => {
-              follow.current = true;
-              setFollowing(true);
-              if (history.current)
-                history.current.scrollTop = history.current.scrollHeight;
-            }}
+            onClick={jumpToLatest}
           >
             {t("jumpToLatest")}
           </button>
@@ -616,7 +572,9 @@ export default function Chat({
             placeholder={
               busy
                 ? t("draftWhileBusy")
-                : t("agentMessagePlaceholder", { name: agentName })
+                : isRemy
+                  ? t("agentMessagePlaceholder", { name: agentName })
+                  : t("taskQueryPlaceholder")
             }
             aria-label={t("message")}
             aria-controls={showClear ? "chat-commands" : undefined}

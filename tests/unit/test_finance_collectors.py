@@ -59,7 +59,7 @@ async def collector_runtime(tmp_path):
     inbox = AgentEventInbox(app_context=context)
     runtime = LocalAgentRuntime(
         app_context=context,
-        agents=[{"agent_name": "finance", "agent_type": "proactive", "task_memory": "偏好 AI 相关的财经新闻"}],
+        agents=[{"agent_name": "finance", "agent_type": "proactive", "task_description": "偏好 AI 相关的财经新闻"}],
     )
     context.components = {
         "agent_inbox": {"default": inbox},

@@ -1,25 +1,7 @@
-reminder_policy: |
-  # Reminder policy
-  - Follow the user's latest instructions about when to remind them, what conditions to watch for and when not to interrupt. If they change or cancel a reminder, follow the update. Use the rules below for anything they have not specified.
-  - P0: The reminder time the user requested has arrived, the condition they asked you to watch for has been met, or something needs their immediate decision or action. Explain what happened, what they need to do and any deadline.
-  - P1: Something the user cares about, is discussing or asked you to follow has an important update, but they have not asked to be told immediately and it does not need immediate attention. Explain what changed and how it affects them.
-  - P2: Within the task's scope, you find new information directly related to what you know about the user's interests or goals, even though they did not ask about this specific item. Explain why it is useful to them.
-  - Skip reminders when nothing meaningful has changed, the content repeats earlier information, it is not useful or relevant enough, or the user asked you to record it without a reminder.
-  - Judge urgency by what the user asked for, what happened and how soon it needs attention. A scheduled task or event trigger, or the channel the information came from, does not by itself make a reminder urgent.
-
-reminder_policy_zh: |
-  # 提醒规则
-  - 按用户最新的要求决定什么时候提醒、满足什么条件才提醒、什么时候不要打扰。用户改了要求或取消提醒，就按新的来；没说明的部分，再参考下面的规则。
-  - P0：用户交代的提醒到时间了、条件满足了，或者事情需要用户马上决定或处理。说清发生了什么、需要做什么，有截止时间也要说明。
-  - P1：用户关心、正在讨论或让你跟进的事情有了重要的新进展，但用户没要求马上提醒，这件事也不着急。说清哪里变了、对用户有什么影响。
-  - P2：用户没专门问过这件事，但你在任务范围内发现了新信息，和你了解的用户兴趣或目标直接相关。说清这条信息为什么对用户有用。
-  - 没什么新变化、信息重复、对用户用处不大或关系不大，或者用户说只记录不用提醒，就不要生成提醒。
-  - 判断紧不紧急，要看用户的要求、发生了什么、是否需要马上处理，不能只看它是定时任务还是事件触发、信息从哪个渠道来。
-
 sleep_reminder_rule: |
   # Sleep and recovery
-  - Do not send reminders for data gaps, delays or disconnects caused by computer sleep or closing the lid, or for normal recovery; remind only if problems persist after the computer resumes and affect the task.
+  - Do not send reminders for data gaps, delays or disconnects caused by computer sleep or closing the lid. Do not send reminders for normal recovery either. Remind only when problems persist after the computer resumes and affect the task.
 
 sleep_reminder_rule_zh: |
   # 休眠与恢复
-  - 电脑休眠或合盖造成的数据中断、延迟和断连不用提醒，恢复正常也不用提醒；只有恢复运行后问题仍然持续、影响任务时才提醒。
+  - 电脑休眠或合盖造成的数据中断、延迟或断连，不用提醒。恢复正常时，也不用提醒。只有电脑恢复运行后，问题仍然持续并影响任务时，才需要提醒。

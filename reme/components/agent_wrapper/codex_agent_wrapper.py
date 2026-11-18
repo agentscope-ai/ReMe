@@ -8,13 +8,13 @@ from contextlib import asynccontextmanager, nullcontext
 from dataclasses import dataclass
 from functools import partial
 import json
-import math
 import os
 from pathlib import Path
 from typing import Any, Literal, TYPE_CHECKING
 
 from .base_agent_wrapper import BaseAgentWrapper
 from . import codex_session_history
+from .session_append import check_guard, check_identity, validate_append
 from ..codex_app_server._session_history import item_chunks
 from ..codex_app_server import BaseCodexAppServer, SdkCodexAppServer
 from ..component_registry import R
@@ -51,8 +51,6 @@ class CodexAgentWrapper(BaseAgentWrapper):
     """Configure agents while sharing transport, authentication and session locks."""
 
     SDK_PACKAGE = "openai-codex"
-    supports_active_fork = True
-    supports_active_append = True
     _SERVER_OPTIONS = frozenset(
         {
             "auth_mode",
@@ -329,15 +327,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
         from ..codex_app_server._session_history import validate_identifier
 
         validate_identifier(session_id)
-        validate_identifier(message_id)
-        if role not in {"user", "assistant"}:
-            raise ValueError("role must be 'user' or 'assistant'")
-        if not isinstance(content, str) or not content.strip() or len(content) > 100_000:
-            raise ValueError("content must contain 1-100000 characters")
-        if delivery not in {"idle", "immediate"}:
-            raise ValueError("Invalid chat delivery policy")
-        if not math.isfinite(timeout) or timeout <= 0:
-            raise ValueError("timeout must be positive and finite")
+        validate_append(content, message_id, role, timeout, delivery)
         if expected_turn_id:
             validate_identifier(expected_turn_id)
         async with asyncio.timeout(timeout):
@@ -376,16 +366,13 @@ class CodexAgentWrapper(BaseAgentWrapper):
         snapshot = await self.read_session(session_id)
         accepted = next((message for message in snapshot.messages if message.id == identifier), None)
         receipt = accepted or pending.get(identifier)
-        if receipt is not None and (receipt.content, receipt.role) != (content, role):
-            raise ValueError("message_id already belongs to different content or role")
+        if receipt is not None:
+            check_identity(receipt, content, role)
         if accepted is not None:
             pending.pop(identifier, None)
             return accepted
         if receipt is None:
-            if expected_turn_id is not None and (snapshot.last_turn_id or "") != expected_turn_id:
-                raise RuntimeError("Session changed before appending")
-            if expected_revision is not None and snapshot.revision != expected_revision:
-                raise RuntimeError("Session changed before appending")
+            check_guard(snapshot, expected_turn_id, expected_revision)
             if snapshot.path is None:
                 raise ValueError("Appending requires a persisted Codex session")
             native_id = codex_session_history.item_id(session_id, message_id, snapshot.last_turn_id, delivery)

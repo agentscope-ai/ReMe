@@ -401,35 +401,45 @@ test("separate provider messages in one turn form one ordered timeline", () => {
   );
 });
 
-test("Markdown stabilizes complete blocks and invalidates references when their definition arrives", async () => {
+test("streaming Markdown reparses ambiguous tails and resolves definitions and corrected snapshots", async () => {
   const server = await createServer({
     configFile: false,
     server: { middlewareMode: true, watch: null, hmr: false, ws: false },
   });
   try {
-    const { MarkdownBuffer } = await server.ssrLoadModule(
+    const { default: MarkdownText } = await server.ssrLoadModule(
       "/src/renderer/markdown.tsx",
     );
-    const buffer = new MarkdownBuffer();
-    const first = buffer.update("# Title\n\nFirst paragraph\n\nLast", false);
-    const next = buffer.update(
-      "# Title\n\nFirst paragraph\n\nLast changed",
-      false,
+    const render = (text: string, completed: boolean) =>
+      renderToStaticMarkup(
+        createElement(MarkdownText, { text, completed, onLink: () => {} }),
+      );
+    for (const source of [
+      "hello\n#x",
+      "#e\n5\n-p2=kj:c",
+      "- one\n\n  continued\n- two",
+      "| A | B |\n| - | - |\n| 1 | 2 |",
+      "# Title\n\n[source][ref]\n\n[ref]: https://example.com",
+      "```text\n# stays code\n```\n\n正文 [[daily/note|记录]]",
+    ]) {
+      const expected = render(source, true);
+      for (const size of [1, 7]) {
+        for (let end = size; end < source.length; end += size)
+          render(source.slice(0, end), false);
+        assert.equal(render(source, true), expected);
+      }
+    }
+    const html = render("hello\n#x", true);
+    assert.equal((html.match(/<p[ >]/g) ?? []).length, 1);
+    assert.match(
+      render("[source][ref]\n\n[ref]: https://example.com", true),
+      /href="https:\/\/example.com"/,
     );
-    assert.equal(first[0], next[0]);
-    assert.equal(first[1], next[1]);
-    assert.match(next.at(-1).text, /Last changed/);
-    const source =
-      "# Title\n\nFirst paragraph\n\n[source][ref]\n\n[ref]: https://example.com";
-    assert.deepEqual(buffer.update(source, true), [
-      { offset: 0, text: source },
-    ]);
-    assert.deepEqual(buffer.update("Replaced", true), [
-      { offset: 0, text: "Replaced" },
-    ]);
-    assert.deepEqual(buffer.update("Replaced and corrected", true), [
-      { offset: 0, text: "Replaced and corrected" },
-    ]);
+    assert.match(
+      render("Replaced and corrected", true),
+      /Replaced and corrected/,
+    );
+    assert.match(render("**重点", false), /<strong[^>]*>重点<\/strong>/);
   } finally {
     await server.close();
   }

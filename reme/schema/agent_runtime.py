@@ -69,7 +69,7 @@ class CreateChatAgentConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    task_memory: str = Field(default="", max_length=100000)
+    initial_memory: str = Field(default="", max_length=100000)
 
 
 class ChatAgentConfig(BaseModel):

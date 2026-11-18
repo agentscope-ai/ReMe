@@ -1,26 +1,34 @@
 """File-native AgentScope sessions, serialized writes and nonblocking history reads."""
 
 import asyncio
-import math
 import re
 from collections.abc import AsyncIterator
-from contextlib import AsyncExitStack, asynccontextmanager
+from contextlib import asynccontextmanager
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
 
-from agentscope.message import AssistantMsg, Msg, UserMsg
+from agentscope.message import (
+    AssistantMsg,
+    Msg,
+    ToolCallBlock,
+    ToolCallState,
+    ToolResultBlock,
+    ToolResultState,
+    UserMsg,
+)
 from agentscope.permission import PermissionContext, PermissionMode
 from agentscope.state import AgentState
+
+from .session_append import SessionAppends, check_guard, check_identity, validate_append
 
 from ...enumeration import ChunkEnum
 from ...schema import SessionMessage, SessionSnapshot, SessionStatus, StreamChunk
 from ...utils.agent_state_io import AsSessionData, AsStateHandler
 
 _UUID = re.compile(r"[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}", re.IGNORECASE)
-_MESSAGE_ID = re.compile(r"[A-Za-z0-9_-]{1,128}")
 
 
 @dataclass
@@ -28,6 +36,8 @@ class _SessionRuntime:
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     users: int = 0
     session: AsSessionData | None = None
+    appends: SessionAppends = field(default_factory=SessionAppends)
+    running: bool = False
 
 
 def _message(msg: Msg, turn_id: str | None = None) -> SessionMessage:
@@ -151,8 +161,8 @@ def record_end(session: AsSessionData, terminal: StreamChunk, native: Msg | None
             ),
         )
     record_chunk(session, terminal)
-    if native is not None and session.messages:
-        session.messages[-1].created_at = native.created_at
+    if native is not None and message is not None:
+        message.created_at = native.created_at
 
 
 class AsSessionStore:
@@ -185,6 +195,8 @@ class AsSessionStore:
     def options(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         """Keep explicit new-session IDs distinct from resume and fork requests."""
         kwargs = dict(kwargs)
+        if kwargs.get("fork_session") and not kwargs.get("resume"):
+            raise ValueError("fork_session=True requires resume")
         for key in ("session_id", "resume"):
             if kwargs.get(key):
                 kwargs[key] = self.validate_id(kwargs[key], key)
@@ -197,21 +209,26 @@ class AsSessionStore:
         return kwargs
 
     @asynccontextmanager
-    async def _lease(self, session_id: str) -> AsyncIterator[_SessionRuntime]:
-        """Serialize mutations and discard idle runtime bookkeeping."""
+    async def _use(self, session_id: str) -> AsyncIterator[_SessionRuntime]:
+        """Pin the owner while callers wait without taking the generation lock."""
         self.path(session_id)
         runtime = self._runtimes.setdefault(session_id, _SessionRuntime())
         runtime.users += 1
         try:
-            async with runtime.lock:
-                yield runtime
+            yield runtime
         finally:
             runtime.users -= 1
-            if runtime.users == 0:
+            if runtime.users == 0 and not runtime.appends.pending:
                 self._runtimes.pop(session_id)
 
+    @asynccontextmanager
+    async def _lease(self, session_id: str) -> AsyncIterator[_SessionRuntime]:
+        """Serialize generation and idle mutations; active appends use their own queue."""
+        async with self._use(session_id) as runtime, runtime.lock:
+            yield runtime
+
     async def load(self, session_id: str) -> AsSessionData:
-        """Load an atomic snapshot, seeding display history for legacy state files."""
+        """Load an atomic snapshot and project native-only state into display messages."""
         session_id = self.validate_id(session_id)
         path = self.path(session_id)
         try:
@@ -233,21 +250,29 @@ class AsSessionStore:
         """Commit native state and display provenance in one atomic replacement."""
         await AsStateHandler(self.path(session.state.session_id)).dump_session(session)
 
+    def finish(self, session):
+        """New arrivals wait for the idle lease once final persistence begins."""
+        self._runtimes[session.state.session_id].running = False
+
     @asynccontextmanager
-    async def open(self, options: dict[str, Any], mode: PermissionMode) -> AsyncIterator[AsSessionData]:
-        """Hold source/target leases through loading, execution, and final persistence."""
+    async def open(
+        self,
+        options: dict[str, Any],
+        mode: PermissionMode,
+        *,
+        active: bool = False,
+    ) -> AsyncIterator[AsSessionData]:
+        """Lock only the target; a fork copies live state without waiting for its source."""
         source = options.get("resume")
         target = options.get("session_id") or source
-        async with AsyncExitStack() as stack:
-            runtimes = {
-                key: await stack.enter_async_context(self._lease(key)) for key in sorted({source, target} - {None})
-            }
+        async with self._lease(target) as runtime:
             if source:
-                session = await self.load(source)
+                session = await self.read(source) if source != target else await self.load(source)
                 if source != target:
                     if self.path(target).exists():
                         raise FileExistsError(f"AgentScope fork target already exists: {target}")
                     session.state.session_id = target
+                    self._seal_fork(session)
                     for message in session.messages:
                         for chunk in message.chunks:
                             chunk.session_id = target
@@ -256,12 +281,43 @@ class AsSessionStore:
                 session = await self.load(target) if self.path(target).exists() else AsSessionData(AgentState())
                 session.state = AgentState(session_id=target)
             session.state.permission_context = PermissionContext(mode=mode)
-            runtime = runtimes[target]
             runtime.session = session
+            runtime.running = active
             try:
                 yield session
             finally:
                 runtime.session = None
+                runtime.running = False
+                runtime.appends.fail(RuntimeError("AgentScope execution ended before append persistence"))
+
+    @staticmethod
+    def _seal_fork(session):
+        """Copy data, never executing tasks: finish dangling tools only in the detached branch."""
+        for native in session.state.context:
+            completed = {block.id for block in native.get_content_blocks("tool_result")}
+            for call in list(native.get_content_blocks("tool_call")):
+                if isinstance(call, ToolCallBlock) and call.id not in completed:
+                    call.state = ToolCallState.FINISHED
+                    native.content.append(
+                        ToolResultBlock(
+                            id=call.id,
+                            name=call.name,
+                            output="Source turn was still running when forked.",
+                            state=ToolResultState.INTERRUPTED,
+                        ),
+                    )
+        for message in session.messages:
+            if not message.completed:
+                message.completed = True
+                message.chunks.append(
+                    StreamChunk(
+                        chunk_type=ChunkEnum.REPLY_END,
+                        event="end",
+                        session_id=session.state.session_id,
+                        turn_id=message.turn_id,
+                        status="interrupted",
+                    ),
+                )
 
     async def exists(self, session_id: str) -> bool:
         """Check resumability without constructing an agent or invoking its model."""
@@ -331,42 +387,119 @@ class AsSessionStore:
         name: str,
         expected_revision: str | None = None,
     ) -> SessionMessage:
-        """Commit one observation and its idempotency key without calling a model."""
+        """Queue during generation; idle appends and SDK boundaries commit the same records."""
         session_id = self.validate_id(session_id)
-        if role not in ("user", "assistant"):
-            raise ValueError("role must be 'user' or 'assistant'")
-        if not isinstance(message_id, str) or not _MESSAGE_ID.fullmatch(message_id):
-            raise ValueError("message_id must contain 1-128 letters, digits, underscores or hyphens")
-        if not isinstance(content, str) or not content.strip() or len(content) > 100_000:
-            raise ValueError("content must contain 1-100000 characters")
-        if delivery not in {"idle", "immediate"}:
-            raise ValueError("Invalid chat delivery policy")
-        if not math.isfinite(timeout) or timeout <= 0:
-            raise ValueError("timeout must be positive and finite")
+        validate_append(content, message_id, role, timeout, delivery)
         async with asyncio.timeout(timeout):
-            async with self._lease(session_id):
-                session = await self.load(session_id)
-                native_id = f"reme-proactive-{message_id}"
-                accepted = next((msg for msg in session.messages if msg.id == native_id), None)
-                if accepted is not None:
-                    if accepted.source != "proactive" or (accepted.content, accepted.role) != (content, role):
-                        raise ValueError("message_id already belongs to different content or role")
-                    return accepted
-                tail = session.state.context[-1] if session.state.context else None
-                if tail is not None and session.state.has_awaiting_tool_calls(tail.name):
-                    raise RuntimeError("Session must be idle before appending")
-                if expected_turn_id is not None and (session.last_turn_id or "") != expected_turn_id:
-                    raise RuntimeError("Session changed before appending")
-                if expected_revision is not None and (await self.snapshot(session_id)).revision != expected_revision:
-                    raise RuntimeError("Session changed before appending")
-                factory = AssistantMsg if role == "assistant" else UserMsg
-                native = factory(name=name if role == "assistant" else "user", content=content, id=native_id)
-                message = _message(native, session.last_turn_id)
-                message.source = "proactive"
-                message.delivery = delivery
-                message.origin_session_id = session_id
-                native.metadata["reme"] = message.model_dump(mode="json", exclude={"chunks"})
-                session.state.context.append(native)
-                session.messages.append(message)
+            async with self._use(session_id) as runtime:
+                if delivery == "immediate":
+                    async with runtime.appends.lock:
+                        if runtime.running and runtime.session is not None:
+                            pending, accepted = self._prepare_append(
+                                runtime,
+                                runtime.session,
+                                content,
+                                message_id,
+                                role,
+                                delivery,
+                                name,
+                                expected_turn_id,
+                                expected_revision,
+                            )
+                        else:
+                            pending = accepted = None
+                    if accepted is not None:
+                        return accepted
+                    if pending is not None:
+                        return await pending.wait()
+                async with runtime.lock:
+                    session = await self.load(session_id)
+                    async with runtime.appends.lock:
+                        pending, accepted = self._prepare_append(
+                            runtime,
+                            session,
+                            content,
+                            message_id,
+                            role,
+                            delivery,
+                            name,
+                            expected_turn_id,
+                            expected_revision,
+                        )
+                    if accepted is not None:
+                        return accepted
+                    await self.drain(session)
+                    return await pending.wait()
+
+    def _prepare_append(
+        self,
+        runtime,
+        session,
+        content,
+        message_id,
+        role,
+        delivery,
+        name,
+        expected_turn_id,
+        expected_revision,
+    ):
+        identifier = f"reme-proactive-{message_id}"
+        pending = runtime.appends.get(identifier, content, role)
+        if pending is not None:
+            return pending, None
+        accepted = next((message for message in session.messages if message.id == identifier), None)
+        if accepted is not None:
+            check_identity(accepted, content, role)
+            return None, accepted.model_copy(deep=True)
+        self._require_appendable(session)
+        snapshot = SessionSnapshot(
+            session_id=session.state.session_id,
+            state=self.status(session),
+            messages=session.messages,
+            last_turn_id=session.last_turn_id,
+        )
+        check_guard(snapshot, expected_turn_id, expected_revision)
+        factory = AssistantMsg if role == "assistant" else UserMsg
+        native = factory(name=name if role == "assistant" else "user", content=content, id=identifier)
+        message = _message(native, session.last_turn_id)
+        message.source, message.delivery = "proactive", delivery
+        message.origin_session_id = session.state.session_id
+        native.metadata["reme"] = message.model_dump(mode="json", exclude={"chunks"})
+        return runtime.appends.add(message, native), None
+
+    @staticmethod
+    def _require_appendable(session):
+        tail = session.state.context[-1] if session.state.context else None
+        if tail is not None and session.state.has_awaiting_tool_calls(tail.name):
+            raise RuntimeError("Session must be idle before appending")
+
+    async def drain(self, session, agent=None):
+        """Observe only before model input or after a reply, never during SDK compression.
+
+        AgentScope replaces context after awaited compression. Concurrent observe()
+        would lose messages. The wrapper suspends its SDK generator at these safe
+        boundaries, then persists before resolving any pending receipt.
+        """
+        runtime = self._runtimes.get(session.state.session_id)
+        if runtime is None or not runtime.appends.pending:
+            return
+        async with runtime.appends.lock:
+            try:
+                self._require_appendable(session)
+            except RuntimeError as exc:
+                runtime.appends.fail(exc)
+                return
+            try:
+                for pending in list(runtime.appends.pending.values()):
+                    if not any(message.id == pending.message.id for message in session.messages):
+                        if agent is None:
+                            session.state.context.append(pending.payload)
+                        else:
+                            await agent.observe(pending.payload)
+                        session.messages.append(pending.message)
                 await self.save(session)
-                return message
+                for pending in list(runtime.appends.pending.values()):
+                    runtime.appends.resolve(pending.message)
+            except BaseException as exc:
+                runtime.appends.fail(exc)
+                raise

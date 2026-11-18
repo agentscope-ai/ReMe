@@ -10,9 +10,10 @@ import pytest
 
 from reme.components import RuntimeContext
 from reme.schema import SessionMessage
-from reme.steps.proactive.agent import ChatAgentStep, InboxChatStep, NewChatSessionStep
+from reme.steps.proactive.agent import ChatAgentStep, InboxChatStep, NewChatSessionStep, ProactiveAgentStep
 from reme.steps.proactive.tools.inbox import ReadInboxStep, SendChatMessageStep
 from .test_agent_runtime import completed_result, create_agent, running_runtime
+from .test_proactive_stages import install_round
 
 
 async def prepare(runtime, context, priority="P1"):
@@ -77,7 +78,7 @@ async def test_fork_sends_only_explicit_content_and_consumes_decisions(tmp_path,
         assert captured["resume"] == source
         assert captured["fork_session"] and captured["ephemeral"] and captured["sandbox"] == "read-only"
         assert captured["job_tools"] == ["read_inbox", "send_chat_msg"]
-        assert captured["config"]["web_search"] == "disabled"
+        assert "config" not in captured
         assert not runtime.notifications.pending
         assert runtime.notifications.active_turn is None
         assert runtime.notifications.last_activity_at == activity
@@ -92,6 +93,47 @@ async def test_fork_sends_only_explicit_content_and_consumes_decisions(tmp_path,
             wrapper.append_session.assert_not_awaited()
         with pytest.raises(ValueError, match="active reminder fork"):
             await ReadInboxStep(app_context=context)(**captured["injected_job_kwargs"])
+
+
+@pytest.mark.parametrize("content", ["", "New experiment progress"])
+@pytest.mark.asyncio
+async def test_chat_decision_preserves_generated_task_record_and_summary(tmp_path, monkeypatch, content):
+    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+        await create_agent(runtime)
+        now = runtime.now()
+        monkeypatch.setattr(runtime, "now", lambda: now)
+        step = ProactiveAgentStep(app_context=context)
+        paths = step._paths(await runtime.definition("monitor"), now)
+        install_round(runtime, wrapper, monkeypatch, paths)
+        await step(agent_name="monitor")
+        saved = {
+            key: (runtime.files.read(paths[key]), paths[key].stat().st_mtime_ns)
+            for key in ("record_path", "today_summary_path")
+        }
+        await runtime.outbox.sync()
+        identifiers = list(runtime.notifications.pending)
+        runtime.notifications.last_activity_at -= timedelta(seconds=2000)
+        wrapper.append_session = AsyncMock(side_effect=append_message)
+
+        async def reply(_hint, **options):
+            bound = options["injected_job_kwargs"]
+            await ReadInboxStep(app_context=context)(**bound)
+            await SendChatMessageStep(app_context=context)(content=content, **bound)
+            return {"status": "completed", "result": "Decision submitted"}
+
+        wrapper.reply = AsyncMock(side_effect=reply)
+        response = await InboxChatStep(app_context=context)(priority="P1", msg_ids=identifiers)
+
+        assert response.answer == {"sent": bool(content)}
+        assert not runtime.notifications.pending
+        for key, (body, mtime) in saved.items():
+            assert runtime.files.read(paths[key]) == body
+            assert paths[key].stat().st_mtime_ns == mtime
+        assert paths["reminder_path"].exists()
+        if content:
+            wrapper.append_session.assert_awaited_once()
+        else:
+            wrapper.append_session.assert_not_awaited()
 
 
 @pytest.mark.parametrize(
@@ -250,7 +292,9 @@ async def test_inbox_timeout_covers_native_session_setup_and_releases_claim(tmp_
 async def test_priority_wakeup_can_overtake_older_low_priority_reminders(tmp_path):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         low = await prepare(runtime, context, "P2")
-        await runtime.create({"agent_name": "urgent", "agent_type": "proactive", "task_memory": "Urgent observations"})
+        await runtime.create(
+            {"agent_name": "urgent", "agent_type": "proactive", "task_description": "Urgent observations"},
+        )
         await runtime.append(
             "urgent",
             {"id": "urgent", "event_ts": runtime.now(), "source": "test", "description": "Urgent"},
@@ -347,7 +391,7 @@ async def test_tools_cannot_read_other_priorities_or_consume_later_arrivals(tmp_
                 await ReadInboxStep(app_context=context)(priority="P2", **bound)
             await ReadInboxStep(app_context=context)(**bound)
             await runtime.create(
-                {"agent_name": "other", "agent_type": "proactive", "task_memory": "Other observations"},
+                {"agent_name": "other", "agent_type": "proactive", "task_description": "Other observations"},
             )
             await runtime.append(
                 "other",

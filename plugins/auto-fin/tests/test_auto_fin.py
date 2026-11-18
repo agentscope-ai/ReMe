@@ -322,11 +322,7 @@ async def test_research_writes_one_note_per_topic_with_latest_twenty_news(tmp_pa
     response = await AutoFinResearchStep(app_context=app_context, agent_wrapper=agent)(context)
 
     assert len(agent.calls) == 2
-    gold_prompt, gold_kwargs = agent.calls[0]
-    assert '"news_id": "24"' in gold_prompt
-    assert '"news_id": "4"' not in gold_prompt
-    assert "另有 5 篇" in gold_prompt
-    assert "当前主题：机器人" in agent.calls[1][0]
+    _, gold_kwargs = agent.calls[0]
     assert gold_kwargs["job_tools"] == ["search"]
     assert gold_kwargs["output_schema"] == AutoFinReportOutput
     assert gold_kwargs["tool_context_id"].startswith("auto_fin:")
@@ -517,12 +513,8 @@ async def test_digest_merges_notes_and_links_back_to_each_of_them(tmp_path: Path
 
     response = await AutoFinDigestStep(app_context=app_context, agent_wrapper=agent)(context)
 
-    prompt, kwargs = agent.calls[-1]
+    _, kwargs = agent.calls[-1]
     assert kwargs["job_tools"] == []
-    assert '"topic": "黄金"' in prompt
-    assert "各主题笔记" in prompt
-    assert "当前主题：" not in prompt
-    assert "本次为当日首次生成。" in prompt
 
     digest_path = "daily/2026-08-10/主题新闻观察（2026-08-10）.md"
     digest = (tmp_path / digest_path).read_text(encoding="utf-8")

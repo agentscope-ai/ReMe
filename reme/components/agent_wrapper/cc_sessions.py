@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import math
 import os
 import re
 from collections.abc import AsyncIterator
@@ -13,6 +12,8 @@ from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from pydantic import BaseModel, Field
+
+from .session_append import SessionAppends
 
 from ...schema import SessionMessage, SessionStatus, StreamChunk
 from ...utils.async_utils import complete_in_thread
@@ -51,6 +52,11 @@ class SessionRuntime:
     state: str = "running"
     input: SessionMessage | None = None
     chunks: list[StreamChunk] = field(default_factory=list)
+    appends: SessionAppends = field(default_factory=SessionAppends)
+    data: SessionData | None = None
+    client: Any = None
+    finishing: bool = False
+    running: bool = False
 
     def observe(self, chunk: StreamChunk) -> None:
         """Track native waits and retain only the current main model message."""
@@ -203,21 +209,26 @@ class CcSessions:
         return None
 
     @asynccontextmanager
-    async def lease(self, session_id: str) -> AsyncIterator[SessionRuntime]:
-        """Hold the same lease for reply, compaction, native injection and publication."""
+    async def use(self, session_id: str) -> AsyncIterator[SessionRuntime]:
+        """Pin a session owner while active appends bypass its generation lock."""
         session_id = self.validate_id(session_id)
         runtime = self.runtimes.setdefault(session_id, SessionRuntime())
         runtime.users += 1
         try:
-            async with runtime.lock:
-                runtime.state = "running"
-                runtime.input = None
-                runtime.chunks.clear()
-                yield runtime
+            yield runtime
         finally:
             runtime.users -= 1
-            if runtime.users == 0:
+            if runtime.users == 0 and not runtime.appends.pending:
                 self.runtimes.pop(session_id)
+
+    @asynccontextmanager
+    async def lease(self, session_id: str) -> AsyncIterator[SessionRuntime]:
+        """Serialize generation and idle writers, never another session's fork."""
+        async with self.use(session_id) as runtime, runtime.lock:
+            runtime.state, runtime.finishing = "running", False
+            runtime.input = None
+            runtime.chunks.clear()
+            yield runtime
 
     def status(self, session_id: str, data: SessionData) -> SessionStatus:
         """A result alone cannot declare a leased or approval-blocked session idle."""
@@ -228,20 +239,6 @@ class CcSessions:
             status="active" if waiting or (runtime is not None and runtime.lock.locked()) else "idle",
             active_flags=["waitingOnApprovalOrInput"] if waiting else [],
         )
-
-    @staticmethod
-    def validate_append(content: str, message_id: str, role: str, timeout: float, delivery: str) -> None:
-        """Reject invalid append requests before taking a lease or starting the SDK."""
-        if role not in {"user", "assistant"}:
-            raise ValueError("role must be 'user' or 'assistant'")
-        if not isinstance(message_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", message_id):
-            raise ValueError("Invalid message_id")
-        if not isinstance(content, str) or not content.strip() or len(content) > 100_000:
-            raise ValueError("content must contain 1-100000 characters")
-        if delivery not in {"idle", "immediate"}:
-            raise ValueError("Invalid chat delivery policy")
-        if not math.isfinite(timeout) or timeout <= 0:
-            raise ValueError("timeout must be positive and finite")
 
 
 def input_frame(session_id: str, identifier: str, content: str, role: str = "user") -> dict:

@@ -10,15 +10,14 @@ class BaseChatAgentStep(BaseAgentStep):
     def session_options(self):
         """Build the shared Chat prompt, memory path and tool bindings."""
         runtime = self.agent_runtime
-        memory = runtime.agents.path("Remy") / "MEMORY.md"
+        memory = runtime.agents.chat_memory_path()
         return {
-            **self.web_options(True),
+            "job_tools": self.kwargs.get("job_tools") or [],
             "system_prompt": self.prompt_format(
                 "system_prompt",
                 workspace_dir=self.workspace_path,
                 memory_path=memory,
             ),
-            "job_tools": self.kwargs.get("job_tools", []),
             "injected_job_kwargs": {"_agent_name": "Remy"},
         }
 

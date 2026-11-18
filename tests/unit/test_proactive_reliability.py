@@ -112,7 +112,7 @@ async def test_missing_reminder_isolated_across_restart_and_recovers_when_restor
         path = tmp_path / ref.file
         original = path.read_bytes()
         path.unlink()
-        await runtime.create({"agent_name": "other", "agent_type": "proactive", "task_memory": "Other"})
+        await runtime.create({"agent_name": "other", "agent_type": "proactive", "task_description": "Other"})
         await runtime.append(
             "other",
             {"id": "other", "event_ts": runtime.now(), "source": "test", "description": "Other"},
@@ -150,7 +150,7 @@ async def test_missing_result_blocks_temporary_collection_before_source_deletion
     async with running_runtime(tmp_path) as (runtime, _, _):
         start = runtime.now()
         await runtime.create(
-            {"agent_name": "experiment", "task_memory": "Observe", "agent_type": "proactive", "temporary": True},
+            {"agent_name": "experiment", "task_description": "Observe", "agent_type": "proactive", "temporary": True},
         )
         await runtime.append("experiment", {"event_ts": start, "source": "lab", "description": "Finished"})
         await runtime.run("experiment", AsyncMock(return_value=completed_result(runtime, "experiment")))
@@ -160,7 +160,7 @@ async def test_missing_result_blocks_temporary_collection_before_source_deletion
         directory = runtime.agents.path("experiment")
         runtime.now = lambda: start + timedelta(days=8)
         await runtime.tick(AsyncMock())
-        assert directory.is_dir() and (directory / "MEMORY.md").is_file()
+        assert directory.is_dir() and (directory / "TASK.md").is_file()
         assert ref.file in runtime.outbox.issues
         assert (await runtime.inbox.snapshot("experiment"))["receipt"].metadata["reminders"] == [ref.model_dump()]
 
@@ -171,7 +171,7 @@ async def test_temporary_lifetime_survives_priority_consumption_and_restart(tmp_
         now = runtime.now()
         runtime.now = lambda: now - timedelta(days=8)
         await runtime.create(
-            {"agent_name": "experiment", "task_memory": "Observe", "agent_type": "proactive", "temporary": True},
+            {"agent_name": "experiment", "task_description": "Observe", "agent_type": "proactive", "temporary": True},
         )
         await runtime.append("experiment", {"id": "old", "event_ts": now, "source": "lab", "description": "Old"})
         recent = now - timedelta(days=1)
@@ -195,19 +195,19 @@ async def test_temporary_lifetime_survives_priority_consumption_and_restart(tmp_
 
 
 @pytest.mark.asyncio
-async def test_formal_sessions_allow_native_memory_file_updates(tmp_path):
+async def test_session_setup_preserves_workspace_documents(tmp_path):
     async with running_runtime(tmp_path) as (runtime, context, _):
         await create_agent(runtime)
         agent = await runtime.definition("monitor")
         step = ProactiveAgentStep(app_context=context)
         now = runtime.now()
-        options = [
-            ChatAgentStep(app_context=context).session_options(),
-            step.session_options(agent, step._paths(agent, now), now),
-        ]
-        for name, item in zip(("Remy", "monitor"), options):
+        documents = (
+            ("Remy", "MEMORY.md", ChatAgentStep(app_context=context).session_options()),
+            ("monitor", "TASK.md", step.session_options(agent, step._paths(agent, now), now)),
+        )
+        for name, filename, item in documents:
+            path = runtime.agents.path(name) / filename
             assert "read_only_paths" not in item and "agent_memory" not in item["job_tools"]
-            path = runtime.agents.path(name) / "MEMORY.md"
             path.write_text("Confirmed fact\n", encoding="utf-8")
             await runtime.sessions.ensure(name, runtime.agent_wrapper, item, runtime.now())
             assert path.read_text() == "Confirmed fact\n"

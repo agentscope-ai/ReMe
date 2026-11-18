@@ -179,7 +179,7 @@ async def test_claude_outcome_preserves_native_result(tmp_path, monkeypatch, ove
         if message.is_error:
             raise RuntimeError("Claude Code returned an error result: turn limit")
 
-    monkeypatch.setattr("claude_agent_sdk.query", query)
+    monkeypatch.setattr(CcAgentWrapper, "_stream_messages", staticmethod(query))
     wrapper = CcAgentWrapper(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
     result = await wrapper.reply("hello")
 
@@ -213,7 +213,7 @@ async def test_claude_does_not_hide_transport_errors_or_cancellation(tmp_path, m
             raise asyncio.CancelledError()
         raise RuntimeError("transport disconnected")
 
-    monkeypatch.setattr("claude_agent_sdk.query", query)
+    monkeypatch.setattr(CcAgentWrapper, "_stream_messages", staticmethod(query))
     wrapper = CcAgentWrapper(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
     with pytest.raises(asyncio.CancelledError if cancelled else RuntimeError, match=None if cancelled else "transport"):
         await wrapper.reply("hello")
@@ -352,7 +352,7 @@ async def test_claude_preserves_unprojected_native_messages_and_final_outcome(tm
         for message in native:
             yield message
 
-    monkeypatch.setattr("claude_agent_sdk.query", query)
+    monkeypatch.setattr(CcAgentWrapper, "_stream_messages", staticmethod(query))
     wrapper = CcAgentWrapper(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
     reply = await wrapper.reply("hello", output_schema={})
     assert len(calls) == 1

@@ -237,8 +237,7 @@ entry-point 名称就是插件标识；使用
 `(component_type, backend)` 时会在装配阶段失败，
 不会互相覆盖。
 
-迁移期间仍兼容旧的 Python `Plugin` descriptor 和 `reme.configs` entry point。配置的 `extends` 可以继承内置配置、
-旧插件配置或文件配置。独立打包示例见[钉钉](../../plugins/dingtalk/README_ZH.md)、
+配置的 `extends` 可以继承内置配置、已安装的命名配置或文件配置。独立打包示例见[钉钉](../../plugins/dingtalk/README_ZH.md)、
 [Auto Fin](../../plugins/auto-fin/README_ZH.md) 与
 [每日论文](../../plugins/daily_paper/README_ZH.md) 插件。
 
@@ -560,16 +559,15 @@ payload、顺序、原生元数据和终止状态；缺少或重复的终止结�
 Claude 保留 `ResultMessage`，Codex 保留 `TurnResult`。需要原样重放时应保存完整 AgentReply；原生会话历史提供
 item 快照，不含原始流的逐次增量。Studio 合并内容快照，展示结构化输出和终止状态，历史刷新保留已有实时事件。
 HTTP `stream_chunks()` 完整返回错误事件和 DONE，CLI 与文本辅助函数单独处理报错。
-迁移：用 `result`/`raw` 替代 `last_message`/`turn`，消费终止结果，不再拼接所有流式 payload。
 纯文本生产者使用默认 `delta` 操作。
 
 AgentScope wrapper 支持上述会话操作，保留现有 Agent 生成流程。`resume` 恢复模型上下文；显式 `session_id`
 在该 ID 下使用新的模型上下文，同时保留显示历史。`{mem_session_dir}/agentscope/<UUID>.jsonl` 原子保存当前
 SDK 状态及 `agentscope/history/<UUID>.jsonl` 中已提交的字节位置。显示日志只追加新增或修改的消息尾部，
 已完成的内容块快照替代流式增量；序列化和解析在线程中执行。备份时需一起保留两个文件。
-读取忽略未提交的日志尾部，下一次写入仅清理该尾部。旧的内联历史及摘要/上下文文件仍可读取，在下次保存时迁移；
-之前已经丢弃的历史无法恢复。压缩不会丢失显示历史。回复、压缩和追加消息共用会话锁；读取不等待生成。追加保留展示
-策略，并通过 `message_id` 在重启后保持幂等。等待审批或外部执行也视为活跃状态。会话所有权和运行状态限定在
+读取忽略未提交的日志尾部，下一次写入仅清理该尾部。压缩不会丢失显示历史。
+回复、压缩和 idle 追加共用会话锁；读取和 fork 不等待生成。immediate 追加进入队列，在安全的模型输入或回复边界
+处理，落盘后才返回。追加保留展示策略，并通过 `message_id` 在重启后保持幂等。等待审批或外部执行也视为活跃状态。会话所有权和运行状态限定在
 同一个 Application 中，独立进程不能并发写入同一会话。
 
 Codex wrapper 通过 `app_server: default` 或 `app_server: oauth` 引用共享组件。多个 wrapper 可以共享同一个进程，
@@ -577,8 +575,8 @@ Codex wrapper 通过 `app_server: default` 或 `app_server: oauth` 引用共享�
 不同 thread 可以并发，同一 thread 的操作串行。
 
 传入 `fork_session=True` 和 `resume` 或 `session_id`，可继承来源会话的原生上下文。
-模型、指令、turn 设置和 job 工具由当前 wrapper 配置与调用参数提供；重启后重新从应用配置和 Step 构造，
-不再保存或读取 `session/proactive/` 下的会话配置快照。来源为空且尚无原生 rollout 时，创建使用当前配置的独立 thread。
+模型、指令、turn 设置和 job 工具由当前 wrapper 配置与调用参数提供；重启后重新从应用配置和 Step 构造。
+来源为空且尚无原生 rollout 时，创建使用当前配置的独立 thread。
 原生会话准备被拒绝或取消时，保留之前有效的运行中设置和工具绑定。
 
 `create_session()` 在首次查询前保留 `effort` 等进程内 turn 设置。
@@ -642,9 +640,8 @@ API key 模式默认使用 `qwen3.8-max` 处理主对话、代码审查、子任
 thread 的模型。OAuth 使用账号支持的模型，通过独立的 `CODEX_OAUTH_MODEL_NAME` 覆盖。
 使用 `LLM_API_KEY`、`LLM_BASE_URL` 的完整 API key 配置见 [demo 配置](../../reme/config/demo.yaml)。
 
-迁移：将 wrapper 上的 `auth_mode`、`api_key`、`base_url`、`codex_home`、`codex_bin`、`config_overrides` 和
-`experimental_api` 移到 `components.codex_app_server.<名称>`，并使用 `backend: sdk`。默认 Codex 目录为
-`{workspace_dir}/.codex`；如需继续使用原有登录和会话，请将 `codex_home` 指向旧目录。
+在 `components.codex_app_server.<名称>`（`backend: sdk`）中配置 `auth_mode`、`api_key`、`base_url`、`codex_home`、
+`codex_bin`、`config_overrides` 和 `experimental_api`。默认 Codex 目录为 `{workspace_dir}/.codex`。
 多个服务组件需要独立账号或会话存储时，分别显式配置 `codex_home`。
 删除 `mcp_config` 和 `release_threads`。job 工具通过受限 MCP 入口调用当前 Application 中的原有 job，明文 HTTP 模式复用现有
 监听器，TLS、CLI 和嵌入式模式使用随组件关闭的本地监听器。工具白名单及隐藏参数绑定到已加载的 thread；thread 卸载后可在

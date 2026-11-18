@@ -86,7 +86,7 @@ async def test_scheduler_failure_does_not_starve_the_other_consumer(tmp_path, mo
         failure = AsyncMock(side_effect=OSError("scheduler unavailable"))
         if failed == "task":
             await runtime.create(
-                {"agent_name": "timer", "task_memory": "Report", "agent_type": "cron", "cron": "* * * * *"},
+                {"agent_name": "timer", "task_description": "Report", "agent_type": "cron", "cron": "* * * * *"},
             )
             monkeypatch.setattr(runtime, "_schedule_cron", failure)
         else:

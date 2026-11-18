@@ -45,25 +45,23 @@ class ProactiveAgentStep(BaseAgentStep):
         return {
             "daily_dir": daily,
             "reminder_dir": reminder_dir,
-            "memory_path": agent_dir / "MEMORY.md",
-            "summary_path": summary,
+            "task_path": runtime.agents.task_path(agent),
+            "today_summary_path": summary,
             "yesterday_summary_path": yesterday_summary,
-            "detail_path": detail,
+            "record_path": detail,
             "reminder_path": reminder,
         }
 
     def session_options(self, agent, paths, now):
         """Build the full environment for one automatic run."""
-        options = self.web_options(agent.agent_type == "cron")
-        options["config"]["skills.include_instructions"] = False
-        return {
-            **options,
+        options = {
+            "config": {"skills.include_instructions": False},
+            "job_tools": self.kwargs.get("job_tools") or [],
             "system_prompt": self.prompt_format(
                 "system_prompt",
                 workspace_dir=self.workspace_path,
                 agent_name=agent.agent_name,
                 app_timezone=self.app_context.app_config.timezone or str(now.tzinfo),
-                reminder_policy=self.get_prompt("reminder_policy"),
                 sleep_reminder_rule=self.get_prompt("sleep_reminder_rule"),
                 **{key: str(value) for key, value in paths.items()},
                 now=now.isoformat(),
@@ -71,42 +69,35 @@ class ProactiveAgentStep(BaseAgentStep):
                 cron=agent.agent_type == "cron",
             ),
             "injected_job_kwargs": {"_agent_name": agent.agent_name},
-            "sandbox": "workspace-write",
             "approval_mode": "deny_all",
         }
+        if (sandbox := self.kwargs.get("sandbox", "workspace-write")) is not None:
+            options["sandbox"] = sandbox
+        return options
 
-    def _record_query(self, agent, events, paths, now):
+    def _record_query(self, agent, events):
         cron = agent.agent_type == "cron"
         files = self.agent_runtime.files
-        try:
-            same_day = bool(files.read(paths["summary_path"]).strip())
-        except FileNotFoundError:
-            same_day = False
         inputs = []
-        for number, event in enumerate(events, 1):
-            if cron:
-                content = self.prompt_format("cron_input", event_ts=event["event_ts"])
-            else:
-                content = self.prompt_format(
-                    "event_input",
-                    number=number,
-                    event_ts=event["event_ts"],
-                    source=event["source"],
-                    description=event["description"],
-                    paths="\n".join(str(files.path(path)) for path in event["paths"]),
-                    has_files=bool(event["paths"]),
-                    no_files=not event["paths"],
+        if not cron:
+            for number, event in enumerate(events, 1):
+                inputs.append(
+                    self.prompt_format(
+                        "event_input",
+                        number=number,
+                        event_ts=event["event_ts"],
+                        source=event["source"],
+                        description=event["description"],
+                        paths="\n".join(str(files.path(path)) for path in event["paths"]),
+                        has_files=bool(event["paths"]),
+                        no_files=not event["paths"],
+                    ),
                 )
-            inputs.append(content)
         return self.prompt_format(
             "query_record",
-            **{key: str(value) for key, value in paths.items()},
-            now=now.isoformat(),
             input_content="\n\n".join(inputs),
-            event=not cron,
+            proactive=not cron,
             cron=cron,
-            new_day=not same_day,
-            same_day=same_day,
         )
 
     def _read_optional(self, path):
@@ -116,12 +107,12 @@ class ProactiveAgentStep(BaseAgentStep):
         except FileNotFoundError:
             return None
 
-    def _read_document(self, path, *, action=None):
-        """Require an explicit decision and a nonempty body, including for skips."""
+    def _read_document(self, path, *, action=None, allow_empty_skip=False):
+        """Require an explicit decision and validate the body."""
         document = frontmatter.loads(self.agent_runtime.files.read(path))
         if document.get("action") not in ("write", "skip"):
             raise ValueError(f"{path}: action must be write or skip")
-        if not document.content.strip():
+        if not document.content.strip() and not (allow_empty_skip and document["action"] == "skip"):
             raise ValueError(f"{path}: document body must not be blank")
         if action is not None and document["action"] != action:
             raise ValueError(f"{path}: action must remain {action}")
@@ -133,7 +124,7 @@ class ProactiveAgentStep(BaseAgentStep):
         document = self._read_document(paths["reminder_path"])
         if document["action"] == "skip":
             return ProactiveRunResult(notifications=[])
-        self._read_document(paths["detail_path"], action="write")
+        self._read_document(paths["record_path"], action="write")
         return ProactiveRunResult(
             notifications=[
                 {
@@ -141,7 +132,7 @@ class ProactiveAgentStep(BaseAgentStep):
                     "message": document.content,
                     "paths": [
                         path.relative_to(files.workspace).as_posix()
-                        for path in (paths["reminder_path"], paths["detail_path"])
+                        for path in (paths["reminder_path"], paths["record_path"])
                     ],
                 },
             ],
@@ -164,9 +155,9 @@ class ProactiveAgentStep(BaseAgentStep):
     def _read_artifacts(self, paths, summary_before, record, reminder):
         """Require a summary of new progress and preserve already validated documents."""
         files = self.agent_runtime.files
-        if files.read(paths["detail_path"]) != record or files.read(paths["reminder_path"]) != reminder:
+        if files.read(paths["record_path"]) != record or files.read(paths["reminder_path"]) != reminder:
             raise ValueError("summary stage must not change the record or reminder")
-        summary = self._read_optional(paths["summary_path"])
+        summary = self._read_optional(paths["today_summary_path"])
         if not summary or not summary.strip():
             raise ValueError("new progress must have a nonempty daily summary")
         if summary == summary_before:
@@ -225,13 +216,13 @@ class ProactiveAgentStep(BaseAgentStep):
         return self.context.response
 
     async def _execute(self, agent, events):
-        """Run four file-backed stages in one fresh session, stopping on an explicit skip."""
+        """Retain records and summarize only when a fresh run generates a reminder."""
         runtime = self.agent_runtime
         now = runtime.now()
         paths = await asyncio.to_thread(self._paths, agent, now)
-        summary_before = await asyncio.to_thread(self._read_optional, paths["summary_path"])
-        if not (await asyncio.to_thread(runtime.files.read, paths["memory_path"])).strip():
-            raise ValueError("proactive Agent MEMORY.md must not be blank")
+        summary_before = await asyncio.to_thread(self._read_optional, paths["today_summary_path"])
+        if not (await asyncio.to_thread(runtime.files.read, paths["task_path"])).strip():
+            raise ValueError("TASK.md must not be blank")
         options = self.session_options(agent, paths, now)
         session_id = await runtime.sessions.ensure(
             agent.agent_name,
@@ -240,46 +231,66 @@ class ProactiveAgentStep(BaseAgentStep):
             now,
             new=True,
         )
-        query = await asyncio.to_thread(self._record_query, agent, events, paths, now)
+        query = await asyncio.to_thread(self._record_query, agent, events)
 
-        async def run(stage, path, check, **values):
+        async def run(stage, path, check):
             prompt = (
                 query
                 if stage == "record"
                 else self.prompt_format(
                     f"query_{stage}",
                     **{key: str(value) for key, value in paths.items()},
-                    **values,
                 )
             )
             return await self._run_stage(agent.agent_name, session_id, stage, prompt, path, check, options)
 
-        document = await run("record", paths["detail_path"], lambda: self._read_document(paths["detail_path"]))
+        document = await run(
+            "record",
+            paths["record_path"],
+            lambda: self._read_document(paths["record_path"], allow_empty_skip=True),
+        )
         if document["action"] == "skip":
-            if await asyncio.to_thread(self._read_optional, paths["summary_path"]) != summary_before:
+            if await asyncio.to_thread(self._read_optional, paths["today_summary_path"]) != summary_before:
                 raise ValueError("a skipped record must not change the daily summary")
-            await complete_in_thread(
-                runtime.files.write,
-                paths["reminder_path"],
-                frontmatter.dumps(frontmatter.Post(document.content, action="skip")) + "\n",
-            )
+            await complete_in_thread(runtime.files.remove, paths["record_path"])
             for stage in ("update", "reminder", "summary"):
-                key = {"update": "detail_path", "reminder": "reminder_path", "summary": "summary_path"}[stage]
+                key = {
+                    "update": "record_path",
+                    "reminder": "reminder_path",
+                    "summary": "today_summary_path",
+                }[stage]
                 self.logger.info(
                     f"Proactive agent={agent.agent_name} session={session_id} stage={stage} "
                     f"result=skipped reason=record_skipped path={paths[key]}",
                 )
             return ProactiveRunResult(notifications=[]), session_id
 
-        await run("update", paths["detail_path"], lambda: self._read_document(paths["detail_path"], action="write"))
-        record = await asyncio.to_thread(runtime.files.read, paths["detail_path"])
+        await run(
+            "update",
+            paths["record_path"],
+            lambda: self._read_document(paths["record_path"], action="write"),
+        )
+        record = await asyncio.to_thread(runtime.files.read, paths["record_path"])
         result = await run("reminder", paths["reminder_path"], lambda: self._prepare_reminder(paths))
+        if not result.notifications:
+
+            def discard_draft():
+                if self._read_optional(paths["today_summary_path"]) != summary_before:
+                    raise ValueError("a skipped reminder must not change the daily summary")
+                runtime.files.remove(paths["record_path"])
+                runtime.files.remove(paths["reminder_path"])
+
+            await complete_in_thread(discard_draft)
+            self.logger.info(
+                f"Proactive agent={agent.agent_name} session={session_id} stage=summary "
+                f"result=skipped reason=reminder_skipped path={paths['today_summary_path']}",
+            )
+            return result, session_id
         reminder = await asyncio.to_thread(runtime.files.read, paths["reminder_path"])
         result = await run(
             "summary",
-            paths["summary_path"],
+            paths["today_summary_path"],
             lambda: self._read_artifacts(paths, summary_before, record, reminder),
-            reminder_action="write" if result.notifications else "skip",
         )
         return result, session_id
 

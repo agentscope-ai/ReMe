@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import {
   ArrowDownLeft,
+  ArrowLeft,
   ArrowUpRight,
   ChevronLeft,
   ChevronRight,
@@ -63,11 +64,11 @@ export default function ResourcePane({
   return (
     <SplitPane
       name="resources"
-      className="resource-browser"
+      className={`resource-browser ${selected ? "has-selection" : ""}`}
       language={state.settings.language}
-      defaultWidth={360}
-      minWidth={220}
-      maxWidth={720}
+      defaultWidth={300}
+      minWidth={240}
+      maxWidth={440}
       resizeLabel={t("resizeResourceList")}
       sidebar={
         <div className="resource-list-pane">
@@ -82,7 +83,7 @@ export default function ResourcePane({
               rows.map((row) => (
                 <button
                   key={row.id}
-                  className={`resource-card ${selected === row.id ? "selected" : ""}`}
+                  className={`resource-row ${selected === row.id ? "selected" : ""}`}
                   aria-pressed={selected === row.id}
                   onClick={() => onSelect(row.id)}
                   onContextMenu={(event) => {
@@ -96,7 +97,7 @@ export default function ResourcePane({
                     }
                   }}
                 >
-                  <div className="resource-card-meta">
+                  <div className="resource-row-meta">
                     <span className="resource-sender">
                       {row.unread && <i className="unread-dot" />}
                       {row.title}
@@ -104,9 +105,8 @@ export default function ResourcePane({
                     <time>{formatDate(row.time, state.settings.language)}</time>
                   </div>
                   <p>{row.preview}</p>
-                  <div className="resource-card-footer">
+                  <div className="resource-row-footer">
                     <span data-state={row.state}>{row.badge}</span>
-                    <ArrowUpRight size={14} />
                   </div>
                 </button>
               ))
@@ -153,6 +153,12 @@ export default function ResourcePane({
       }
     >
       <div className="resource-detail">
+        {selected && (
+          <button className="resource-back" onClick={() => onSelect("")}>
+            <ArrowLeft size={15} />
+            {t("backToList")}
+          </button>
+        )}
         {children ?? (
           <div className="resource-empty">
             <ArrowDownLeft size={32} strokeWidth={1.2} />

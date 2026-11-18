@@ -22,13 +22,13 @@ from reme.components.application_context import ApplicationContext
 
 def write_entries(wrapper, options, frames):
     """Simulate only the CLI's native persistence boundary, within tmp_path."""
-    session_id = options.resume or options.session_id
+    session_id = options.session_id if options.fork_session else options.resume or options.session_id
     data = wrapper._sessions.location(options)
     path = wrapper._sessions.native_path(session_id, data)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as output:
         for frame in frames:
-            entry = {**frame, "sessionId": session_id, "timestamp": datetime.now(timezone.utc).isoformat()}
+            entry = {"timestamp": datetime.now(timezone.utc).isoformat(), **frame, "sessionId": session_id}
             if frame.get("isSynthetic") and frame.get("type") == "user":
                 entry["isMeta"] = True
             output.write(json.dumps(entry) + "\n")
@@ -44,6 +44,19 @@ def wrapper(tmp_path, monkeypatch):
     )
 
     async def inject(options, frames):
+        if options.session_store is not None:
+            project = project_key_for_directory(options.cwd)
+            target = options.session_id if options.fork_session else options.resume or options.session_id
+            if options.fork_session:
+                frames = (
+                    await options.session_store.load({"project_key": project, "session_id": options.resume}) or []
+                ) + frames
+            await options.session_store.append({"project_key": project, "session_id": target}, frames)
+            return
+        if options.fork_session:
+            data = instance._sessions.location(options)
+            source = instance._sessions.native_path(options.resume, data)
+            frames = [json.loads(line) for line in source.read_text().split("\n") if line.strip()] + frames
         write_entries(instance, options, frames)
 
     monkeypatch.setattr(instance, "_inject", AsyncMock(side_effect=inject))
@@ -128,13 +141,16 @@ async def test_continue_resolves_latest_main_session_and_holds_its_lease(wrapper
             result="continued",
         )
 
-    monkeypatch.setattr("claude_agent_sdk.query", query)
+    monkeypatch.setattr(CcAgentWrapper, "_stream_messages", staticmethod(query))
     pending = asyncio.create_task(wrapper.reply("continue", continue_conversation=True, fork_session=fork))
     try:
         await asyncio.wait_for(started.wait(), 2)
-        assert (await wrapper.get_session_status(source_id)).status == "active"
-        with pytest.raises(TimeoutError):
-            await wrapper.append_session(source_id, "queued", message_id="queued", timeout=0.01)
+        assert (await wrapper.get_session_status(source_id)).status == ("idle" if fork else "active")
+        if fork:
+            await wrapper.append_session(source_id, "independent", message_id="independent")
+        else:
+            with pytest.raises(TimeoutError):
+                await wrapper.append_session(source_id, "queued", message_id="queued", timeout=0.01)
         release.set()
         result = await pending
     finally:
@@ -164,7 +180,7 @@ async def test_continue_without_history_starts_a_new_session(wrapper, monkeypatc
             result="new session",
         )
 
-    monkeypatch.setattr("claude_agent_sdk.query", query)
+    monkeypatch.setattr(CcAgentWrapper, "_stream_messages", staticmethod(query))
     result = await wrapper.reply("start", continue_conversation=True)
     assert (await wrapper.read_session(result["session_id"])).messages[0].content == "start"
 
@@ -186,7 +202,7 @@ async def test_resume_with_explicit_session_id_requires_a_fork_before_any_writes
     def query(*_args, **_kwargs):
         raise AssertionError("Invalid resume must not reach the SDK")
 
-    monkeypatch.setattr("claude_agent_sdk.query", query)
+    monkeypatch.setattr(CcAgentWrapper, "_stream_messages", staticmethod(query))
     session_id = await wrapper.create_session()
     target = str(uuid4())
     with pytest.raises(ValueError, match="session_id cannot be used with resume"):
@@ -250,11 +266,14 @@ async def test_append_role_is_durable_and_idempotent_across_wrapper_restart(wrap
     "kwargs",
     [
         {"role": "system"},
+        {"role": []},
         {"message_id": "../escape"},
         {"content": " "},
         {"timeout": float("nan")},
+        {"timeout": True},
         {"timeout": 0},
         {"delivery": "unknown"},
+        {"delivery": []},
     ],
 )
 async def test_invalid_append_has_no_native_side_effects(wrapper, kwargs):
@@ -402,7 +421,7 @@ async def test_reads_are_nonblocking_and_append_waits_for_the_generation_lease(w
             result="final",
         )
 
-    monkeypatch.setattr("claude_agent_sdk.query", query)
+    monkeypatch.setattr(CcAgentWrapper, "_stream_messages", staticmethod(query))
     task = asyncio.create_task(wrapper.reply("question", resume=session_id))
     await started.wait()
     async with asyncio.timeout(0.2):
@@ -464,7 +483,7 @@ async def test_explicit_new_session_and_fork_cannot_replace_existing_native_hist
     """Reject colliding new/fork IDs without launching the native SDK."""
     session_id = await wrapper.create_session()
     query = AsyncMock()
-    monkeypatch.setattr("claude_agent_sdk.query", query)
+    monkeypatch.setattr(CcAgentWrapper, "_stream_messages", staticmethod(query))
     with pytest.raises(FileExistsError):
         await wrapper.reply("replace", session_id=session_id)
     with pytest.raises(ValueError, match="different"):
@@ -574,7 +593,7 @@ async def test_closing_reply_stream_closes_sdk_and_releases_session_lease(wrappe
         finally:
             closed.append(True)
 
-    monkeypatch.setattr("claude_agent_sdk.query", query)
+    monkeypatch.setattr(CcAgentWrapper, "_stream_messages", staticmethod(query))
     stream = wrapper.reply_stream("question", resume=session_id)
     await anext(stream)
     await stream.aclose()
@@ -647,7 +666,7 @@ async def test_resume_restores_saved_cwd_and_rejects_explicit_project_changes(wr
             result="Resumed",
         )
 
-    monkeypatch.setattr("claude_agent_sdk.query", query)
+    monkeypatch.setattr(CcAgentWrapper, "_stream_messages", staticmethod(query))
     assert (await wrapper.reply("Continue", resume=session_id))["status"] == "completed"
     assert (await wrapper.read_session(session_id)).messages[0].content == "Continue"
     with pytest.raises(ValueError, match="original cwd"):
@@ -670,7 +689,7 @@ async def test_failed_query_updates_anchor_only_after_native_input_acceptance(wr
         raise RuntimeError("Rejected query")
         yield  # pylint: disable=unreachable
 
-    monkeypatch.setattr("claude_agent_sdk.query", query)
+    monkeypatch.setattr(CcAgentWrapper, "_stream_messages", staticmethod(query))
     with pytest.raises(RuntimeError, match="Rejected query"):
         await wrapper.reply("Continue", resume=session_id)
     saved = await wrapper._sessions.load(session_id, wrapper._session_defaults())

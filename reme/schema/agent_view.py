@@ -19,7 +19,8 @@ class AgentView(BaseModel):
     running: bool = False
     status: Literal["active", "idle", "not_loaded", "error"] = "idle"
     session_id: str | None = None
-    memory_path: str
+    memory_path: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    task_path: str | None = Field(default=None, exclude_if=lambda value: value is None)
     directory: str
     pending_events: int = 0
     last_started_at: str | None = None

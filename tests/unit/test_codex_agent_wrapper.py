@@ -643,7 +643,6 @@ async def test_resume_fork_and_sdk_options_remain_explicit(system, approval_mode
     original = await first.reply(
         "one",
         model="custom",
-        system_prompt="instructions",
         personality="friendly",
         approval_mode=approval_mode,
     )
@@ -655,7 +654,6 @@ async def test_resume_fork_and_sdk_options_remain_explicit(system, approval_mode
     client = _Codex.instances[0]
     options = client.opened[0][2]
     assert options["model"] == "custom"
-    assert options["base_instructions"] is None
     assert options["approval_mode"] == (ApprovalMode.auto_review if approval_mode else ApprovalMode.deny_all)
     assert options["sandbox"] == Sandbox.full_access
     assert options["personality"] == Personality.friendly

@@ -6,7 +6,7 @@ import { action } from "./desktop.ts";
 import { requestResource } from "./resources.ts";
 import DocumentPreview from "./knowledge/DocumentPreview.tsx";
 
-export default function AgentMemory({
+export default function AgentDocument({
   state,
   path,
 }: {
@@ -35,8 +35,8 @@ export default function AgentMemory({
     };
   }, [path, state.workspace, state.settings.endpoint, completed]);
   return (
-    <div className="agent-memory document-pane">
-      <div className="resource-memory-toolbar">
+    <div className="agent-document document-pane">
+      <div className="agent-document-toolbar">
         <span>{path}</span>
         <button
           className="subtle"

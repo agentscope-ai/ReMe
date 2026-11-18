@@ -88,7 +88,7 @@ export class DesktopWindows {
       transparent: process.platform === "darwin",
       backgroundColor: process.platform === "darwin" ? "#00000000" : "#f4f5f7",
       visualEffectState: "followWindow",
-      title: "Remy · ReMe",
+      title: app.getName(),
       icon: paths.icon,
       // This renderer also plays audio while the workspace is hidden.
       webPreferences: { ...webPreferences, backgroundThrottling: false },

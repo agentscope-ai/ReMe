@@ -10,7 +10,7 @@ import frontmatter
 import pytest
 
 from reme.enumeration import ChunkEnum
-from reme.schema import StreamChunk
+from reme.schema import Event, StreamChunk
 from reme.steps.proactive.agent import ProactiveAgentStep
 from .test_agent_runtime import create_agent, running_runtime
 
@@ -22,14 +22,14 @@ def document_action(path):
 def install_round(runtime, wrapper, monkeypatch, paths, *, record="write", reminder="write", hook=None, failed=None):
     calls = []
 
-    async def stream(query, **options):
+    async def stream(_query, **options):
         stage = ("record", "update", "reminder", "summary")[len(calls)]
-        calls.append((stage, query, options))
+        calls.append((stage, options))
         if stage == "record":
             runtime.files.write(
-                paths["detail_path"],
+                paths["record_path"],
                 frontmatter.dumps(
-                    frontmatter.Post("New progress" if record == "write" else "No new information", action=record),
+                    frontmatter.Post("New progress" if record == "write" else "", action=record),
                 ),
             )
         elif stage == "reminder":
@@ -38,10 +38,15 @@ def install_round(runtime, wrapper, monkeypatch, paths, *, record="write", remin
                 metadata["priority"] = "P1"
             runtime.files.write(
                 paths["reminder_path"],
-                frontmatter.dumps(frontmatter.Post("New result" if reminder == "write" else "Record only", **metadata)),
+                frontmatter.dumps(
+                    frontmatter.Post("New result" if reminder == "write" else "No reminder needed", **metadata),
+                ),
             )
         elif stage == "summary":
-            runtime.files.write(paths["summary_path"], f"# Progress\n[Record]({paths['detail_path'].name})\n")
+            runtime.files.write(
+                paths["today_summary_path"],
+                f"# Progress\n[Record]({paths['record_path'].name})\n",
+            )
         if hook is not None:
             hook(stage)
         result = {
@@ -60,9 +65,8 @@ def install_round(runtime, wrapper, monkeypatch, paths, *, record="write", remin
     return calls
 
 
-@pytest.mark.parametrize("reminder", ["write", "skip"])
 @pytest.mark.asyncio
-async def test_four_stages_share_session_and_summarize_record_without_history(tmp_path, monkeypatch, reminder):
+async def test_four_stages_share_session_and_summarize_generated_reminder(tmp_path, monkeypatch):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         now = runtime.now()
@@ -76,31 +80,31 @@ async def test_four_stages_share_session_and_summarize_record_without_history(tm
             if stage == "summary":
                 intermediate.update(frontmatter.loads(runtime.files.read(paths["reminder_path"])).metadata)
 
-        calls = install_round(runtime, wrapper, monkeypatch, paths, reminder=reminder, hook=inspect)
+        calls = install_round(runtime, wrapper, monkeypatch, paths, hook=inspect)
         response = await step(agent_name="monitor")
         assert response.success
-        assert [stage for stage, _, _ in calls] == ["record", "update", "reminder", "summary"]
-        assert len({options["resume"] for _, _, options in calls}) == 1
+        assert [stage for stage, _ in calls] == ["record", "update", "reminder", "summary"]
+        assert len({options["resume"] for _, options in calls}) == 1
         assert len(wrapper.created) == 1
-        assert intermediate["action"] == reminder and "id" not in intermediate
-        if reminder == "write":
-            assert intermediate["paths"] == [
-                paths[key].relative_to(tmp_path).as_posix() for key in ("reminder_path", "detail_path")
-            ]
-        assert paths["detail_path"].name in runtime.files.read(paths["summary_path"])
-        assert len(response.answer["notifications"]) == (reminder == "write")
+        assert intermediate["action"] == "write" and "id" not in intermediate
+        assert intermediate["paths"] == [
+            paths[key].relative_to(tmp_path).as_posix() for key in ("reminder_path", "record_path")
+        ]
+        assert paths["reminder_path"].exists()
+        assert paths["record_path"].name in runtime.files.read(paths["today_summary_path"])
+        assert len(response.answer["notifications"]) == 1
         assert (await runtime.status("monitor"))["pending_events"] == 0
         await runtime.outbox.sync()
-        assert len(runtime.outbox.committed) == (reminder == "write")
+        assert len(runtime.outbox.committed) == 1
         logs = "\n".join(call.args[0] for call in step.logger.info.call_args_list)
         assert "stage=update result=unchanged" in logs
         assert "stage=summary result=created" in logs
-        assert "elapsed=" in logs and str(paths["detail_path"]) in logs
+        assert "elapsed=" in logs and str(paths["record_path"]) in logs
 
 
 @pytest.mark.parametrize("existing_summary", [False, True])
 @pytest.mark.asyncio
-async def test_no_new_information_writes_both_skip_files_with_one_model_call(tmp_path, monkeypatch, existing_summary):
+async def test_no_new_information_leaves_no_artifacts(tmp_path, monkeypatch, existing_summary):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         now = runtime.now()
@@ -108,19 +112,96 @@ async def test_no_new_information_writes_both_skip_files_with_one_model_call(tmp
         step = ProactiveAgentStep(app_context=context)
         paths = step._paths(await runtime.definition("monitor"), now)
         if existing_summary:
-            runtime.files.write(paths["summary_path"], "# Previous progress\n")
-        before = step._read_optional(paths["summary_path"])
+            runtime.files.write(paths["today_summary_path"], "# Previous progress\n")
+        before = step._read_optional(paths["today_summary_path"])
         calls = install_round(runtime, wrapper, monkeypatch, paths, record="skip")
         response = await step(agent_name="monitor")
         assert response.success and response.answer["notifications"] == []
         assert len(calls) == 1
-        for key in ("detail_path", "reminder_path"):
-            document = frontmatter.loads(runtime.files.read(paths[key]))
-            assert document.metadata == {"action": "skip"}
-            assert document.content == "No new information"
-        assert step._read_optional(paths["summary_path"]) == before
+        assert not paths["record_path"].exists() and not paths["reminder_path"].exists()
+        assert step._read_optional(paths["today_summary_path"]) == before
         await runtime.outbox.sync()
         assert not runtime.outbox.records and not runtime.outbox.issues
+
+
+@pytest.mark.parametrize("agent_type", ["proactive", "cron"])
+@pytest.mark.parametrize("existing_summary", [False, True])
+@pytest.mark.asyncio
+async def test_skipped_reminder_discards_current_record_and_preserves_history(
+    tmp_path,
+    monkeypatch,
+    agent_type,
+    existing_summary,
+):
+    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+        if agent_type == "proactive":
+            await create_agent(runtime)
+        else:
+            await runtime.create(
+                {
+                    "agent_name": "monitor",
+                    "agent_type": "cron",
+                    "cron": "0 * * * *",
+                    "task_description": "Monitor experiments",
+                },
+            )
+            await runtime._append(
+                await runtime.definition("monitor"),
+                [Event(id="scheduled", event_ts=runtime.now(), source="cron", description="Scheduled run")],
+            )
+        now = runtime.now()
+        monkeypatch.setattr(runtime, "now", lambda: now)
+        step = ProactiveAgentStep(app_context=context)
+        step.logger = Mock()
+        paths = step._paths(await runtime.definition("monitor"), now)
+        history = paths["record_path"].with_name("earlier.md")
+        runtime.files.write(history, "# Earlier progress\n")
+        if existing_summary:
+            runtime.files.write(paths["today_summary_path"], "# Previous summary\n")
+        summary_before = step._read_optional(paths["today_summary_path"])
+        summary_mtime = paths["today_summary_path"].stat().st_mtime_ns if existing_summary else None
+        calls = install_round(runtime, wrapper, monkeypatch, paths, reminder="skip")
+
+        response = await step(agent_name="monitor")
+
+        assert response.success and response.answer["notifications"] == []
+        assert [stage for stage, _ in calls] == ["record", "update", "reminder"]
+        assert not paths["record_path"].exists() and not paths["reminder_path"].exists()
+        assert step._read_optional(paths["today_summary_path"]) == summary_before
+        if existing_summary:
+            assert paths["today_summary_path"].stat().st_mtime_ns == summary_mtime
+        assert history.read_text() == "# Earlier progress\n"
+        assert (await runtime.status("monitor"))["pending_events"] == 0
+        await runtime.outbox.sync()
+        assert not runtime.outbox.records and not runtime.outbox.issues
+        assert any(
+            "stage=summary result=skipped reason=reminder_skipped" in call.args[0]
+            for call in step.logger.info.call_args_list
+        )
+
+
+@pytest.mark.parametrize("stage", ["record", "update", "reminder"])
+@pytest.mark.asyncio
+async def test_skipped_reminder_rejects_premature_summary_changes(tmp_path, monkeypatch, stage):
+    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+        await create_agent(runtime)
+        now = runtime.now()
+        monkeypatch.setattr(runtime, "now", lambda: now)
+        step = ProactiveAgentStep(app_context=context)
+        paths = step._paths(await runtime.definition("monitor"), now)
+        runtime.files.write(paths["today_summary_path"], "# Earlier progress\n")
+
+        def rewrite_summary(current):
+            if current == stage:
+                runtime.files.write(paths["today_summary_path"], "# Premature update\n")
+
+        calls = install_round(runtime, wrapper, monkeypatch, paths, reminder="skip", hook=rewrite_summary)
+        with pytest.raises(ValueError, match="a skipped reminder must not change the daily summary"):
+            await step(agent_name="monitor")
+        assert calls[-1][0] == "reminder"
+        assert (await runtime.status("monitor"))["pending_events"] == 1
+        await runtime.outbox.sync()
+        assert not runtime.outbox.committed
 
 
 @pytest.mark.parametrize("stage", ["record", "reminder"])
@@ -137,7 +218,7 @@ async def test_missing_or_invalid_required_documents_fail_instead_of_skipping(tm
         step = ProactiveAgentStep(app_context=context)
         step.logger = Mock()
         paths = step._paths(await runtime.definition("monitor"), now)
-        path = paths["detail_path" if stage == "record" else "reminder_path"]
+        path = paths["record_path" if stage == "record" else "reminder_path"]
 
         def corrupt(current):
             if current != stage:
@@ -182,22 +263,21 @@ async def test_failed_turn_stops_at_its_stage_and_keeps_inputs(tmp_path, monkeyp
         assert not runtime.outbox.committed
 
 
-@pytest.mark.parametrize("reminder", ["write", "skip"])
 @pytest.mark.asyncio
-async def test_rewriting_identical_summary_does_not_count_as_updated_progress(tmp_path, monkeypatch, reminder):
+async def test_rewriting_identical_summary_does_not_count_as_updated_progress(tmp_path, monkeypatch):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)
         step = ProactiveAgentStep(app_context=context)
         paths = step._paths(await runtime.definition("monitor"), now)
-        runtime.files.write(paths["summary_path"], "# Unchanged\n")
+        runtime.files.write(paths["today_summary_path"], "# Unchanged\n")
 
         def unchanged(stage):
             if stage == "summary":
-                runtime.files.write(paths["summary_path"], "# Unchanged\n")
+                runtime.files.write(paths["today_summary_path"], "# Unchanged\n")
 
-        install_round(runtime, wrapper, monkeypatch, paths, reminder=reminder, hook=unchanged)
+        install_round(runtime, wrapper, monkeypatch, paths, hook=unchanged)
         with pytest.raises(ValueError, match="new progress must update"):
             await step(agent_name="monitor")
         assert (await runtime.status("monitor"))["pending_events"] == 1
@@ -205,7 +285,7 @@ async def test_rewriting_identical_summary_does_not_count_as_updated_progress(tm
         assert not runtime.outbox.committed
 
 
-@pytest.mark.parametrize("key", ["detail_path", "reminder_path"])
+@pytest.mark.parametrize("key", ["record_path", "reminder_path"])
 @pytest.mark.asyncio
 async def test_summary_cannot_rewrite_validated_documents(tmp_path, monkeypatch, key):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
@@ -268,11 +348,11 @@ async def test_proactive_agent_step_saves_artifacts_and_publishes_through_runtim
             stage = ("record", "update", "reminder", "summary")[len(stages)]
             stages.append(stage)
             if stage == "record":
-                runtime.files.write(paths["detail_path"], "---\naction: write\n---\n# Experiment results\n")
+                runtime.files.write(paths["record_path"], "---\naction: write\n---\n# Experiment results\n")
             elif stage == "reminder":
                 runtime.files.write(paths["reminder_path"], "---\naction: write\npriority: P0\n---\nFinished\n")
             elif stage == "summary":
-                runtime.files.write(paths["summary_path"], "# Experiment finished\n")
+                runtime.files.write(paths["today_summary_path"], "# Experiment finished\n")
             return {
                 "status": "completed",
                 "session_id": kwargs["resume"],
@@ -303,7 +383,7 @@ async def test_proactive_agent_step_saves_artifacts_and_publishes_through_runtim
         await runtime.outbox.sync()
         item = (await runtime.notifications.read())["items"][0]
         assert stages == ["record", "update", "reminder", "summary"]
-        assert document_action(paths["detail_path"]) == "write"
+        assert document_action(paths["record_path"]) == "write"
         assert item["message"] == "Finished" and item["priority"] == "P0"
         assert item["reminder_path"] == paths["reminder_path"].relative_to(tmp_path).as_posix()
         document = frontmatter.loads(paths["reminder_path"].read_text())
@@ -312,9 +392,9 @@ async def test_proactive_agent_step_saves_artifacts_and_publishes_through_runtim
         assert "message" not in document.metadata
         assert not list(paths["reminder_dir"].glob("*.jsonl"))
         assert item["paths"] == [
-            paths[key].relative_to(tmp_path).as_posix() for key in ("reminder_path", "detail_path")
+            paths[key].relative_to(tmp_path).as_posix() for key in ("reminder_path", "record_path")
         ]
-        assert paths["detail_path"].name == f"monitor_{now:%H%M%S}.md"
+        assert paths["record_path"].name == f"monitor_{now:%H%M%S}.md"
         assert paths["reminder_path"].name == f"{now:%H%M%S}.md"
         assert wrapper.created[0]["sandbox"] == "workspace-write"
 
@@ -341,7 +421,7 @@ async def test_incomplete_round_keeps_events_pending_without_publishing(tmp_path
         step = ProactiveAgentStep(app_context=context)
         paths = step._paths(await runtime.definition("monitor"), now)
         if failure == "unchanged_summary":
-            runtime.files.write(paths["summary_path"], "# Previous summary\n")
+            runtime.files.write(paths["today_summary_path"], "# Previous summary\n")
 
         stages = []
 
@@ -349,14 +429,14 @@ async def test_incomplete_round_keeps_events_pending_without_publishing(tmp_path
             stage = ("record", "update", "reminder", "summary")[len(stages)]
             stages.append(stage)
             if stage == "record" and failure != "missing_detail":
-                runtime.files.write(paths["detail_path"], "---\naction: write\n---\n# Details\n")
+                runtime.files.write(paths["record_path"], "---\naction: write\n---\n# Details\n")
             if stage == "reminder":
                 priority = "P9" if failure == "invalid_priority" else "P0"
                 header = "action: write\n" + ("" if failure == "missing_priority" else f"priority: {priority}\n")
                 body = "" if failure == "empty_reminder" else "Finished\n"
                 runtime.files.write(paths["reminder_path"], "---\n" + header + "---\n" + body)
             if stage == "summary" and failure not in {"missing_summary", "unchanged_summary"}:
-                runtime.files.write(paths["summary_path"], "" if failure == "empty_summary" else "# Summary\n")
+                runtime.files.write(paths["today_summary_path"], "" if failure == "empty_summary" else "# Summary\n")
             result = {
                 "status": "failed" if failure == "failed_reply" else "completed",
                 "session_id": kwargs["resume"],
@@ -390,11 +470,11 @@ async def test_round_without_reminder_uses_saved_files_instead_of_response_json(
         paths = ProactiveAgentStep(app_context=context)._paths(await runtime.definition("monitor"), now)
         summary_mtime = None
         if existing_summary:
-            runtime.files.write(paths["summary_path"], "# No material change\n")
-            summary_mtime = paths["summary_path"].stat().st_mtime_ns
+            runtime.files.write(paths["today_summary_path"], "# No material change\n")
+            summary_mtime = paths["today_summary_path"].stat().st_mtime_ns
 
         async def model_reply(_query, **kwargs):
-            runtime.files.write(paths["detail_path"], "---\naction: skip\n---\nNo material change.\n")
+            runtime.files.write(paths["record_path"], "---\naction: skip\n---\nNo material change.\n")
             return {
                 "status": "completed",
                 "session_id": kwargs["resume"],
@@ -424,11 +504,10 @@ async def test_round_without_reminder_uses_saved_files_instead_of_response_json(
         assert response.success and response.answer["notifications"] == []
         assert (await runtime.status("monitor"))["pending_events"] == 0
         if existing_summary:
-            assert paths["summary_path"].stat().st_mtime_ns == summary_mtime
+            assert paths["today_summary_path"].stat().st_mtime_ns == summary_mtime
         else:
-            assert not paths["summary_path"].exists()
-        assert document_action(paths["detail_path"]) == "skip"
-        assert document_action(paths["reminder_path"]) == "skip"
+            assert not paths["today_summary_path"].exists()
+        assert not paths["record_path"].exists() and not paths["reminder_path"].exists()
         await runtime.outbox.sync()
         assert not runtime.notifications.pending
 
@@ -448,13 +527,13 @@ async def test_round_paths_keep_both_calendar_summaries_and_paired_filenames(tmp
         step = ProactiveAgentStep(app_context=context)
         now = datetime.fromisoformat(timestamp)
         paths = step._paths(agent, now)
-        assert paths["summary_path"] == tmp_path / "daily" / f"{now:%Y-%m-%d}" / "monitor.md"
+        assert paths["today_summary_path"] == tmp_path / "daily" / f"{now:%Y-%m-%d}" / "monitor.md"
         assert paths["yesterday_summary_path"] == tmp_path / "daily" / yesterday / "monitor.md"
-        assert paths["detail_path"] == tmp_path / "daily" / f"{now:%Y-%m-%d}" / f"monitor_{now:%H%M%S}.md"
+        assert paths["record_path"] == tmp_path / "daily" / f"{now:%Y-%m-%d}" / f"monitor_{now:%H%M%S}.md"
         assert paths["reminder_path"] == (
             tmp_path / "reme_agents/monitor/reminder" / f"{now:%Y-%m-%d}" / f"{now:%H%M%S}.md"
         )
-        assert not paths["summary_path"].exists() and not paths["yesterday_summary_path"].exists()
+        assert not paths["today_summary_path"].exists() and not paths["yesterday_summary_path"].exists()
         for delta in (-5, -2, 1):
             path = tmp_path / "daily" / f"{now + timedelta(days=delta):%Y-%m-%d}" / "monitor.md"
             runtime.files.write(path, "# Summary\n")
@@ -463,14 +542,14 @@ async def test_round_paths_keep_both_calendar_summaries_and_paired_filenames(tmp
         assert paths["yesterday_summary_path"] == tmp_path / "daily" / yesterday / "monitor.md"
         assert not paths["yesterday_summary_path"].exists()
         runtime.files.write(paths["yesterday_summary_path"], "# Yesterday\n")
-        runtime.files.write(paths["summary_path"], "# Today\n")
-        runtime.files.write(paths["detail_path"], "# Existing details\n")
+        runtime.files.write(paths["today_summary_path"], "# Today\n")
+        runtime.files.write(paths["record_path"], "# Existing details\n")
         paths = step._paths(agent, now)
-        assert paths["summary_path"].read_text() == "# Today\n"
+        assert paths["today_summary_path"].read_text() == "# Today\n"
         assert paths["yesterday_summary_path"].read_text() == "# Yesterday\n"
-        assert paths["detail_path"].name == f"monitor_{now:%H%M%S}_1.md"
+        assert paths["record_path"].name == f"monitor_{now:%H%M%S}_1.md"
         assert paths["reminder_path"].name == f"{now:%H%M%S}_1.md"
         runtime.files.write(paths["reminder_path"], "---\npriority: P1\n---\nExisting reminder\n")
         paths = step._paths(agent, now)
-        assert paths["detail_path"].name == f"monitor_{now:%H%M%S}_2.md"
+        assert paths["record_path"].name == f"monitor_{now:%H%M%S}_2.md"
         assert paths["reminder_path"].name == f"{now:%H%M%S}_2.md"

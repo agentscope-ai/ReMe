@@ -105,7 +105,7 @@ async def runtime(tmp_path):
             {
                 "agent_name": "work",
                 "agent_type": "proactive",
-                "task_memory": "跟踪项目进展和难点",
+                "task_description": "跟踪项目进展和难点",
             },
         ],
     )

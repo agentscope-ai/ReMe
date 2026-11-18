@@ -13,6 +13,7 @@ import {
   formatDate,
   plainText,
   requestResource,
+  resourceSource,
   useResourcePage,
 } from "./resources.ts";
 import ResourcePane, { ResourceMessage } from "./resource-pane.tsx";
@@ -209,7 +210,10 @@ export default function AgentResources({
           if ("event" in value && !value.reminder)
             return {
               id: value.event.id,
-              title: value.event.source,
+              title: resourceSource(
+                value.event.source,
+                state.settings.language,
+              ),
               preview: value.event.description,
               time: value.event.event_ts,
               badge: stateLabel(value.state),
@@ -237,31 +241,45 @@ export default function AgentResources({
         {item &&
           ("event" in item ? (
             <article className="resource-article">
-              <div className="eyebrow">
-                {item.event.source} · {stateLabel(item.state)}
-              </div>
-              <h2>{item.event.description}</h2>
-              <p className="resource-timestamp">
+              <div className="resource-event-meta">
+                {stateLabel(item.state)} ·{" "}
                 {formatDate(item.event.event_ts, state.settings.language)}
-              </p>
+              </div>
+              <h2 className="resource-title">
+                {resourceSource(item.event.source, state.settings.language)}
+              </h2>
+              <p className="resource-description">{item.event.description}</p>
               {item.consume_ts && (
                 <p className="resource-timestamp">
                   {t("processedAt")}{" "}
                   {formatDate(item.consume_ts, state.settings.language)}
                 </p>
               )}
-              <div className="resource-links">
+              <details className="resource-files">
+                <summary>
+                  {t("relatedFiles")} <span>{item.event.paths.length}</span>
+                </summary>
+                <div className="resource-links">
+                  {item.event.paths.map((path) => (
+                    <button
+                      key={path}
+                      className="resource-path"
+                      title={path}
+                      onClick={() => open(path)}
+                    >
+                      {path.split(/[\\/]/).at(-1) || path}
+                      <ArrowUpRight size={14} />
+                    </button>
+                  ))}
+                </div>
+              </details>
+              <details className="resource-original">
+                <summary>{t("originalInformation")}</summary>
+                <p>{item.event.source}</p>
                 {item.event.paths.map((path) => (
-                  <button
-                    key={path}
-                    className="resource-path"
-                    onClick={() => open(path)}
-                  >
-                    {path}
-                    <ArrowUpRight size={14} />
-                  </button>
+                  <p key={path}>{path}</p>
                 ))}
-              </div>
+              </details>
             </article>
           ) : (
             <ResourceMessage
@@ -289,6 +307,9 @@ export default function AgentResources({
                 </span>
                 <span>
                   {stateLabel(item.read_at ? "processed" : "pending")}
+                </span>
+                <span>
+                  {t(item.user_read_at ? "inboxUserRead" : "inboxUserUnread")}
                 </span>
               </div>
               <div className="resource-links">

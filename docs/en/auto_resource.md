@@ -84,8 +84,8 @@ resource/screenshot/YYYY-MM-DD/hhmmss_<uuid4-first-6>/
   metadata.json
 ```
 
-Directories use the collector source, application-local date and time plus the first six UUID4 hex characters: `screenshot` for screenshots
-and `web_extract` for web extraction. `metadata.json` lists the collected files using package-relative paths. Event IDs
+Directories use the collector source, application-local date and time plus the first six UUID4 hex characters. Screenshots use `screenshot`.
+`metadata.json` lists the collected files using package-relative paths. Event IDs
 are derived from the workspace-relative package path. Existing packages stay in place and retain their saved references.
 
 The manifest uses `ResourceMetadata`: timezone-aware creation/update timestamps, source, description, connector class
@@ -138,7 +138,7 @@ reme manage_proactive_agent action=update agent_name=finance agent_type=proactiv
 reme manage_proactive_agent action=status agent_name=finance
 ```
 
-Use the returned `memory_path` to update its existing task and AI-news preferences; restarting does not overwrite memory.
+Use the returned `task_path` to edit the task description and AI-news preferences in `TASK.md`. Edits persist across restarts.
 Disable a collector with `jobs.finance_news_cron.enabled=false`, `jobs.stock_quotes_cron.enabled=false` or
 `jobs.btc_quotes_cron.enabled=false` at startup.
 

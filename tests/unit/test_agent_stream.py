@@ -143,7 +143,7 @@ async def test_claude_multiple_model_messages_have_one_invocation_end(tmp_path, 
             session_id="session",
         )
 
-    monkeypatch.setattr("claude_agent_sdk.query", query)
+    monkeypatch.setattr(CcAgentWrapper, "_stream_messages", staticmethod(query))
     wrapper = CcAgentWrapper(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
     chunks = [chunk async for chunk in wrapper.reply_stream("hello")]
     assert sum(chunk.chunk_type == ChunkEnum.REPLY_START for chunk in chunks) == 1
@@ -180,7 +180,7 @@ async def test_claude_interleaved_child_events_keep_their_own_block_state(tmp_pa
             session_id="session",
         )
 
-    monkeypatch.setattr("claude_agent_sdk.query", query)
+    monkeypatch.setattr(CcAgentWrapper, "_stream_messages", staticmethod(query))
     wrapper = CcAgentWrapper(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
     chunks = [chunk async for chunk in wrapper.reply_stream("hello")]
     deltas = [chunk for chunk in chunks if chunk.chunk_type == ChunkEnum.CONTENT and chunk.event == "delta"]

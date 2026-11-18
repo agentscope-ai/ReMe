@@ -4,7 +4,7 @@ from pathlib import Path
 import json
 
 import pytest
-from agentscope.message import AssistantMsg, Msg, TextBlock, ToolCallBlock, UserMsg
+from agentscope.message import AssistantMsg, TextBlock, ToolCallBlock, UserMsg
 from agentscope.state import AgentState
 
 from reme.utils import AsStateHandler
@@ -47,16 +47,14 @@ async def test_state_load_accepts_lf_and_crlf_records(tmp_path: Path, newline: s
 
 
 @pytest.mark.asyncio
-async def test_state_load_accepts_empty_file(tmp_path: Path):
-    """An empty state file continues to load as a fresh AgentState."""
+async def test_state_load_rejects_empty_file(tmp_path: Path):
+    """A truncated snapshot must not silently become an empty conversation."""
     handler = AsStateHandler.for_session(tmp_path, "empty-session")
     handler.path.write_text("", encoding="utf-8")
 
-    restored = await handler.load()
-    assert restored.summary == ""
-    assert restored.context == []
-    assert restored.cur_iter == 0
-    assert restored.session_id
+    with pytest.raises(ValueError):
+        await handler.load()
+    assert handler.path.read_bytes() == b""
 
 
 @pytest.mark.asyncio
@@ -79,24 +77,6 @@ async def test_state_round_trip_preserves_sdk_resume_context(tmp_path):
     restored = await handler.load()
     assert restored.model_dump(mode="json") == state.model_dump(mode="json")
     assert restored.has_awaiting_tool_calls("agent")
-
-
-@pytest.mark.asyncio
-async def test_legacy_header_remains_readable(tmp_path):
-    """Previously saved summary/context files load without rewriting user data."""
-    header = UserMsg(
-        name="__state__",
-        content="summary",
-        metadata={"session_id": "legacy", "reply_id": "reply", "cur_iter": 2},
-    )
-    message = UserMsg(name="user", content="before\u2028after")
-    handler = AsStateHandler.for_session(tmp_path, "legacy")
-    original = header.model_dump_json() + "\n" + message.model_dump_json() + "\n"
-    handler.path.write_text(original, encoding="utf-8")
-    restored = await handler.load()
-    assert restored.summary == "summary" and restored.reply_id == "reply" and restored.cur_iter == 2
-    assert restored.context == [message]
-    assert handler.path.read_text(encoding="utf-8") == original
 
 
 @pytest.mark.asyncio
@@ -158,21 +138,13 @@ async def test_failed_snapshot_publication_does_not_commit_history_and_retry_rec
 
 
 @pytest.mark.asyncio
-async def test_legacy_display_history_migrates_on_save_and_forks_are_independent(tmp_path):
-    """Old inline histories stay readable and a fork writes its own paired history."""
+async def test_forks_write_independent_display_histories(tmp_path):
+    """A fork writes its own paired history without changing the source."""
     handler = AsStateHandler.for_session(tmp_path, "source")
-    message = SessionMessage(id="one", role="user", content="legacy")
-    header = UserMsg(
-        name="__state__",
-        content="",
-        metadata={"session_id": "source", "messages": [message.model_dump()]},
-    )
-    handler.path.write_text(header.model_dump_json() + "\n", encoding="utf-8")
+    message = SessionMessage(id="one", role="user", content="source")
+    await handler.dump_session(AsSessionData(AgentState(session_id="source"), [message]))
     session = await handler.load_session()
     assert session.messages == [message]
-    await handler.dump_session(session)
-    header = Msg.model_validate_json(handler.path.read_text(encoding="utf-8").split("\n")[0])
-    assert "messages" not in (header.metadata or {})
     fork = AsStateHandler.for_session(tmp_path, "fork")
     session.state.session_id = "fork"
     await fork.dump_session(session)

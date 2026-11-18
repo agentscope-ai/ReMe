@@ -768,6 +768,7 @@ export class DesktopController {
           messages: child.pending ? [] : child.model.messages,
           pending: child.pending,
           reply: child.reply,
+          task: true,
         },
         child.pending ? undefined : child.model.activities.chat,
         this.state.settings.language,

@@ -95,6 +95,12 @@ class AgentFiles:
         finally:
             temporary.unlink(missing_ok=True)
 
+    def remove(self, path: Path) -> None:
+        """Remove a workspace file and sync its parent directory."""
+        path = self.checked(path)
+        path.unlink()
+        sync_directory(path.parent)
+
     def write_json(self, path: Path, value) -> None:
         """Keep user-owned configuration readable without private database state."""
         self.write(path, json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False) + "\n")

@@ -1,72 +1,47 @@
-import { memo, useMemo, useRef } from "react";
-import Markdown from "react-markdown";
+import { memo, useMemo } from "react";
+import { Streamdown, type Components } from "streamdown";
 import remarkGfm from "remark-gfm";
-import { fromMarkdown } from "mdast-util-from-markdown";
 import { remarkWikilinks } from "./knowledge/wikilinks.ts";
 
-interface Segment {
-  offset: number;
-  text: string;
-}
-
-/** Freeze complete top-level blocks; reference definitions invalidate the whole document. */
-export class MarkdownBuffer {
-  private source = "";
-  private stable: Segment[] = [];
-  private boundary = 0;
-  private references = false;
-  private finalized = false;
-
-  update(source: string, completed: boolean): Segment[] {
-    if (
-      !source.startsWith(this.source) ||
-      (this.finalized && source !== this.source)
-    ) {
-      this.stable = [];
-      this.boundary = 0;
-      this.references = false;
-    }
-    this.source = source;
-    this.finalized = completed;
-    const tail = source.slice(this.boundary);
-    const nodes = fromMarkdown(tail).children.filter(
-      (node) => "position" in node && node.position,
-    );
-    this.references ||= nodes.some((node) => node.type === "definition");
-    if (this.references) return [{ offset: 0, text: source }];
-    const count = completed ? nodes.length : Math.max(0, nodes.length - 1);
-    const start = this.boundary;
-    for (const node of nodes.slice(0, count)) {
-      const end = node.position!.end.offset!;
-      this.stable.push({
-        offset: start + node.position!.start.offset!,
-        text: tail.slice(node.position!.start.offset!, end),
-      });
-      this.boundary = start + end;
-    }
-    const last = nodes[count];
-    return last
-      ? [
-          ...this.stable,
-          {
-            offset: start + last.position!.start.offset!,
-            text: tail.slice(last.position!.start.offset!),
-          },
-        ]
-      : this.stable;
-  }
-}
-
 const plugins = [remarkGfm, remarkWikilinks];
-const MarkdownBlock = memo(function MarkdownBlock({
+const rehypePlugins: [] = [];
+const linkSafety = { enabled: false };
+const remend = { linkMode: "text-only" as const };
+
+/** Streamdown owns block boundaries and incomplete syntax; workspace links keep their existing routing. */
+export default memo(function MarkdownText({
   text,
+  completed = true,
   onLink,
+  components: overrides,
 }: {
   text: string;
+  completed?: boolean;
   onLink: (url: string) => void;
+  components?: Components;
 }) {
-  const components = useMemo(
+  const components = useMemo<Components>(
     () => ({
+      p: "p",
+      strong: "strong",
+      em: "em",
+      h1: "h1",
+      h2: "h2",
+      h3: "h3",
+      h4: "h4",
+      h5: "h5",
+      h6: "h6",
+      ul: "ul",
+      ol: "ol",
+      li: "li",
+      blockquote: "blockquote",
+      hr: "hr",
+      del: "del",
+      thead: "thead",
+      tbody: "tbody",
+      tr: "tr",
+      th: "th",
+      td: "td",
       a: ({ href, children }: React.ComponentProps<"a">) => (
         <a
           href={href}
@@ -89,37 +64,26 @@ const MarkdownBlock = memo(function MarkdownBlock({
           {alt || "Image"}
         </button>
       ),
+      pre: "pre",
+      code: "code",
+      table: "table",
+      ...overrides,
     }),
-    [onLink],
+    [onLink, overrides],
   );
   return (
-    <Markdown remarkPlugins={plugins} components={components}>
+    <Streamdown
+      className="streaming-markdown"
+      components={components}
+      remarkPlugins={plugins}
+      rehypePlugins={rehypePlugins}
+      linkSafety={linkSafety}
+      remend={remend}
+      controls={false}
+      parseIncompleteMarkdown={!completed}
+      isAnimating={!completed}
+    >
       {text}
-    </Markdown>
-  );
-});
-
-export default memo(function MarkdownText({
-  text,
-  completed = true,
-  onLink,
-}: {
-  text: string;
-  completed?: boolean;
-  onLink: (url: string) => void;
-}) {
-  const buffer = useRef<MarkdownBuffer | null>(null);
-  buffer.current ??= new MarkdownBuffer();
-  const segments = buffer.current.update(text, completed);
-  return (
-    <>
-      {segments.map((segment) => (
-        <MarkdownBlock
-          key={segment.offset}
-          text={segment.text}
-          onLink={onLink}
-        />
-      ))}
-    </>
+    </Streamdown>
   );
 });

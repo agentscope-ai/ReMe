@@ -60,6 +60,7 @@ export interface DisplayMessage {
   streaming: boolean;
   status: StatusNotice | null;
   error?: string;
+  taskInput?: boolean;
 }
 
 export type ItemStatus =
@@ -244,20 +245,21 @@ export interface PendingTurn {
   error?: string;
 }
 
-export interface AgentView {
+export type AgentView = {
   agent_name: string;
-  agent_type: "chat" | "proactive" | "cron";
   enabled: boolean;
   running: boolean;
   status: SessionStatus;
   session_id: string | null;
-  memory_path: string;
   directory: string;
   pending_events: number;
   next_trigger_at: string | null;
   last_completed_at: string | null;
   error: string | null;
-}
+} & (
+  | { agent_type: "chat"; memory_path: string }
+  | { agent_type: "proactive" | "cron"; task_path: string }
+);
 
 export interface DesktopState {
   revision: number;

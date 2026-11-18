@@ -1,11 +1,9 @@
 import { useMemo } from "react";
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import MarkdownText from "../markdown.tsx";
 import { ChevronRight, ListFilter } from "lucide-react";
 import { stringify } from "yaml";
 import { translator, type Language } from "../../shared/i18n.ts";
 import { documentPresentation, parseMarkdown } from "./model.ts";
-import { remarkWikilinks } from "./wikilinks.ts";
 
 export default function DocumentPreview({
   path,
@@ -43,16 +41,16 @@ export default function DocumentPreview({
       : undefined;
   const timestamp = created ?? mtime;
   const date = timestamp ? new Date(timestamp) : null;
-  const tag = (value: string) => (
-    <button
-      key={value}
-      className="document-tag"
-      disabled={!supportsTags}
-      onClick={() => onTag(value)}
-    >
-      # {value}
-    </button>
-  );
+  const tag = (value: string) =>
+    supportsTags ? (
+      <button key={value} className="document-tag" onClick={() => onTag(value)}>
+        # {value}
+      </button>
+    ) : (
+      <span key={value} className="document-tag">
+        # {value}
+      </span>
+    );
   return (
     <article className="document-content">
       <h1 className="document-title" data-long={presentation.title.length > 80}>
@@ -79,7 +77,10 @@ export default function DocumentPreview({
         <p className="document-description">{parsed.metadata.description}</p>
       )}
       {(entries.length > 0 || parsed.frontmatterError) && (
-        <details className="document-properties" open>
+        <details
+          className="document-properties"
+          open={Boolean(parsed.frontmatterError)}
+        >
           <summary>
             <ChevronRight size={13} />
             <ListFilter size={13} />
@@ -117,27 +118,15 @@ export default function DocumentPreview({
       )}
       {markdown ? (
         <div className="document-markdown">
-          <Markdown
-            remarkPlugins={[remarkGfm, remarkWikilinks]}
+          <MarkdownText
+            text={presentation.body}
+            onLink={onLink}
             components={{
-              a: ({ href, children }) => (
-                <a
-                  href={href}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    if (href) onLink(href);
-                  }}
-                >
-                  {children}
-                </a>
-              ),
               img: ({ alt }) => (
                 <span className="image-placeholder">{alt || t("image")}</span>
               ),
             }}
-          >
-            {presentation.body}
-          </Markdown>
+          />
         </div>
       ) : (
         <pre className="document-text">{content}</pre>
