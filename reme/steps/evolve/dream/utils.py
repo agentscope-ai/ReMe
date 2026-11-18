@@ -212,7 +212,7 @@ def parse_structured_reply(text: str, *, strict: bool = False) -> dict:
     """Parse a JSON/YAML object; strict mode rejects lossy fallbacks with diagnostics."""
     # Parse complete documents before envelope recovery so YAML flow mappings and
     # literal reasoning tags in string values retain their original structure.
-    candidates = [text]
+    candidates = [text, _strip_reasoning_tags(text)]
     error = "expected a JSON/YAML object"
     for raw in candidates:
         try:
@@ -224,33 +224,32 @@ def parse_structured_reply(text: str, *, strict: bool = False) -> dict:
                 return data
             if isinstance(data, list):
                 if strict:
-                    raise ValueError(f"Invalid structured reply: {error}")
+                    raise ValueError("Invalid structured reply: expected a JSON/YAML object")
                 return {}
 
-    cleaned = _strip_reasoning_tags(text)
-    candidates = [cleaned]
-    fenced = [m.group(1) for m in re.finditer(r"```(?:json|ya?ml)?\s*(.*?)```", cleaned, re.S | re.I)]
-    candidates.extend(reversed(fenced))
-    # Preserve complete fenced YAML roots before recovering nested JSON spans.
-    # Later fences are answers, not earlier draft examples.
+    cleaned = candidates[-1]
+    # Split at fences, retaining both fenced and unfenced regions in response
+    # order. A final bare answer must outrank an earlier fenced draft, too.
+    candidates = _reply_regions(cleaned)
+    candidates.reverse()
     for raw in candidates:
-        if not raw:
+        if not raw.strip():
             continue
         try:
             data = yaml.safe_load(raw)
         except yaml.YAMLError as exc:
             error = f"{type(exc).__name__}: {exc}"
-        else:
-            if isinstance(data, dict):
-                return data
-            if isinstance(data, list):
-                if strict:
-                    raise ValueError("Invalid structured reply: expected a JSON/YAML object")
-                return {}
-    for raw in candidates:
-        data = _final_json_object(raw)
-        if data is not None:
+            data = None
+        # Complete YAML roots take precedence over JSON nested within that
+        # same region, never over a later region of the response.
+        if not isinstance(data, (dict, list)):
+            data = _final_json_value(raw)
+        if isinstance(data, dict):
             return data
+        if isinstance(data, list):
+            if strict:
+                raise ValueError("Invalid structured reply: expected a JSON/YAML object")
+            return {}
     if not strict:
         for raw in candidates:
             data = _parse_scalar_mapping(raw)
@@ -300,55 +299,50 @@ def _strip_reasoning_tags(raw: str) -> str:
     return "".join(result)
 
 
-def _final_json_object(raw: str) -> dict | None:
-    """Return the final top-level JSON object outside reasoning envelopes."""
-    spans: list[tuple[int, int, str]] = []
-    stack: list[tuple[str, int]] = []
-    opening_for = {"}": "{", "]": "["}
-    in_string = False
-    escaped = False
-    for index, char in enumerate(raw):
-        if in_string:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == '"':
-                in_string = False
-            continue
-        if char == '"' and stack:
-            in_string = True
-        elif char in "{[":
-            stack.append((char, index))
-        elif char in "}]":
-            if not stack or stack[-1][0] != opening_for[char]:
-                stack.clear()
+def _reply_regions(raw: str) -> list[str]:
+    """Split Markdown fences without treating JSON string contents as fences."""
+    fence = re.compile(r"```(?:json|ya?ml)?\s*(.*?)```", re.S | re.I)
+    decoder = json.JSONDecoder()
+    regions = []
+    start = index = 0
+    while index < len(raw):
+        if raw[index] == '"':
+            try:
+                _, index = decoder.raw_decode(raw, index)
                 continue
-            _, start = stack.pop()
-            spans.append((start, index + 1, raw[start : index + 1]))
+            except json.JSONDecodeError:
+                pass
+        if match := fence.match(raw, index):
+            regions.extend((raw[start:index], match.group(1)))
+            start = index = match.end()
+        else:
+            index += 1
+    regions.append(raw[start:])
+    return regions
 
-    decoded_spans = []
-    for start, end, span in spans:
-        try:
-            data = json.loads(span)
-        except json.JSONDecodeError:
+
+def _final_json_value(raw: str) -> dict | list | None:
+    """Recover the final independent JSON container, preserving valid outer values."""
+    decoder = json.JSONDecoder()
+    final = None
+    index = 0
+    while index < len(raw):
+        if raw[index] not in '{["':
+            index += 1
             continue
-        decoded_spans.append((start, end, data))
-
-    # Ignore nested values inside a valid outer JSON value; in particular, do not
-    # unwrap an object nested in a top-level array into a supported object reply.
-    top_level = [
-        candidate
-        for candidate in decoded_spans
-        if not any(
-            outer[0] <= candidate[0]
-            and candidate[1] <= outer[1]
-            and (outer[0], outer[1]) != (candidate[0], candidate[1])
-            for outer in decoded_spans
-        )
-    ]
-    final = max(top_level, key=lambda item: item[1])[2] if top_level else None
-    return final if isinstance(final, dict) else None
+        try:
+            data, end = decoder.raw_decode(raw, index)
+        except json.JSONDecodeError:
+            # A malformed draft must not carry its string/brace state into an
+            # independently valid final answer. Retry from the next character.
+            index += 1
+            continue
+        if isinstance(data, (dict, list)):
+            final = data
+        # Valid containers and strings are opaque: do not promote their nested
+        # objects or JSON-looking string contents into independent answers.
+        index = end
+    return final
 
 
 def _parse_scalar_mapping(raw: str) -> dict:
