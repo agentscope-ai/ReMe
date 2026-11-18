@@ -1,4 +1,4 @@
-"""Finance schedules collect into isolated files and use the real append_event Job."""
+"""Finance schedules collect into isolated files and use the real append_agent_events Job."""
 
 # pylint: disable=protected-access,missing-function-docstring,redefined-outer-name
 
@@ -68,7 +68,7 @@ async def collector_runtime(tmp_path):
     }
     job = BaseJob(app_context=context, steps=[{"backend": "append_event_step"}])
     append = AsyncMock(side_effect=job.__call__)
-    context.jobs["append_event"] = append
+    context.jobs["append_agent_events"] = append
     async with inbox, runtime, job:
         runtime.watcher.cancel()
         await asyncio.gather(runtime.watcher, return_exceptions=True)

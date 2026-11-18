@@ -42,7 +42,7 @@ export async function requestWorkspace(
         file_store?: Record<string, { tag_index?: string }>;
         tag_index?: Record<string, { tag_key?: string }>;
       };
-    }>("app_config", {}, signal);
+    }>("get_app_config", {}, signal);
     const answer: WorkspaceConfig = {
       workspace_dir: config.workspace_dir,
       daily_dir: config.daily_dir ?? "daily",
@@ -94,7 +94,7 @@ export async function requestWorkspace(
         limit > 100
       )
         throw new UiError("invalidWorkspaceRequest");
-      job = request.type === "inbox" ? "agent_inbox" : "agent_outbox";
+      job = request.type === "inbox" ? "list_agent_inbox" : "list_agent_outbox";
       body = {
         agent_name: request.agentName,
         state: request.state ?? "all",
@@ -114,7 +114,7 @@ export async function requestWorkspace(
           typeof request.markRead !== "boolean")
       )
         throw new UiError("invalidWorkspaceRequest");
-      job = "agent_reminder";
+      job = "read_agent_reminder";
       body = {
         agent_name: request.agentName,
         message_id: request.id,
@@ -122,7 +122,7 @@ export async function requestWorkspace(
       };
       break;
     case "list":
-      job = "list";
+      job = "list_workspace";
       body = {
         path: relativePath(request.path),
         recursive: true,
@@ -151,7 +151,7 @@ export async function requestWorkspace(
       body = { path: relativePath(request.path) };
       break;
     case "load":
-      job = "load";
+      job = "load_file";
       body = { path: relativePath(request.path) };
       break;
     case "tags":
@@ -174,7 +174,7 @@ export async function requestWorkspace(
         request.query.length > 10000
       )
         throw new UiError("invalidWorkspaceRequest");
-      job = "search";
+      job = "search_workspace";
       body = {
         query: request.query,
         tags: request.tags,

@@ -35,6 +35,8 @@ npx install-electron
 Configure `LLM_API_KEY` and `LLM_BASE_URL` in the backend environment. The endpoint must support Responses API.
 The optional voice functions also require `DASHSCOPE_API_KEY`. See
 [`proactive.yaml`](../reme/config/proactive.yaml) for the model, collectors and initial Agents.
+[`demo.yaml`](../reme/config/demo.yaml) extends it with standalone examples, including the `speech_demo` round trip.
+Codex dialogue and screenshots are collected independently every five minutes and both delivered to the `work` Agent.
 
 Terminal one, from the repository root:
 
@@ -57,18 +59,19 @@ Closing the workspace hides the window; use the character or tray to reopen it. 
 
 The client uses the following jobs from the same checkout:
 
-| Job                                                     | Behavior                                                                               |
-| ------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `agent_list`                                            | Remy and task identities, current formal session IDs and lightweight status            |
-| `agent_session`                                         | Current session snapshot for `agent_name`, or a null snapshot before the first session |
-| `agent_chat`                                            | Continue main Chat, or stream a read-only fork query of the latest task session        |
-| `agent_new_session`                                     | Start a fresh main Chat session; accepts no arguments                                  |
-| `agent_events`                                          | Observe one Agent's current session plus global sidebar status                         |
-| `agent_inbox`                                           | Page every Agent's pending, processing and processed input events                      |
-| `agent_outbox`                                          | Page a task Agent's committed reminders                                                |
-| `agent_reminder`                                        | Read canonical reminders and acknowledge user reading independently of processing      |
-| `session_read` / `session_status`                       | Read retained native history / inspect native activity                                 |
-| `list`, `load`, `list_tags`, `list_tag_files`, `search` | Read-only Knowledge browsing                                                           |
+| Job                                                                                            | Behavior                                                                               |
+| ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `list_agents`                                                                                  | Remy and task identities, current formal session IDs and lightweight status            |
+| `read_agent_session`                                                                           | Current session snapshot for `agent_name`, or a null snapshot before the first session |
+| `ask_agent`                                                                                    | Continue main Chat, or stream a read-only fork query of the latest task session        |
+| `create_chat_session`                                                                          | Start a fresh main Chat session; accepts no arguments                                  |
+| `watch_agent_session`                                                                          | Observe one Agent's current session plus global sidebar status                         |
+| `list_agent_inbox`                                                                             | Page every Agent's pending, processing and processed input events                      |
+| `list_agent_outbox`                                                                            | Page a task Agent's committed reminders                                                |
+| `read_agent_reminder`                                                                          | Read canonical reminders and acknowledge user reading independently of processing      |
+| `list_workspace`, `load_file`, `read_image`, `list_tags`, `list_tag_files`, `search_workspace` | Read-only Knowledge browsing                                                           |
+| `asr` / `tts`                                                                                  | Voice input and playback                                                               |
+| `get_app_config`                                                                               | Discover backend capabilities and workspace settings                                   |
 
 Subscriptions start with an authoritative snapshot and coalesce live updates into replaceable message snapshots.
 Text, tool activity, public reasoning summaries and attachments retain their order within each turn. Repeated updates
@@ -86,7 +89,7 @@ Normal progress messages remain in the conversation. Reasoning summaries stay in
 they do not separate adjacent tool calls. Native command actions identify reads, directory listings and searches,
 including their paths and queries. Completed turns show a localized completion row with the retained process details.
 
-Task questions through `agent_chat` and `manage_proactive_agent(action=query)` share the same temporary read-only fork.
+Task questions through `ask_agent` and `manage_proactive_agent(action=query)` share the same temporary read-only fork.
 They use the latest task session during execution or while waiting for the next trigger, inherit its instructions and
 context, and send the question directly. Query forks are retained for audit and never replace the task session.
 Desktop displays each query answer separately from automatic progress; questions require an existing task session.

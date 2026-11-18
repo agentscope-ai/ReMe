@@ -61,9 +61,9 @@ workspace/
 
 ## 定时屏幕采集
 
-`config=proactive` 包含默认关闭的 `screen_capture_cron`。先创建事件 Agent，再配置
-`jobs.screen_capture_cron.agent_name` 和 `jobs.screen_capture_cron.enabled=true` 后重启。
-采集按应用时区每 5 分钟触发，启动时不立即采集。
+`config=proactive` 默认启用 `screen_capture_cron`，按应用时区每 5 分钟采集截图，启动时不立即采集。
+截图独立投递给 `work` 事件 Agent，与 Codex 对话采集互不依赖。可用 `jobs.screen_capture_cron.enabled=false`
+关闭，或通过 `jobs.screen_capture_cron.agent_name` 改为其他事件 Agent。
 
 `BaseConnectorStep` 将资料直接写入资源目录，最后原子写入 `metadata.json`；`ScreenCaptureStep` 为每个显示器保留一张原尺寸 PNG。
 随后 `ResourceEventStep` 向指定 Agent 投递带稳定 ID 的观察事件，包含资源描述、manifest 与全部文件的
@@ -86,10 +86,21 @@ manifest 使用 `ResourceMetadata`：带时区的创建/更新时间、source、
 
 截图逐屏与最近保存的一组比较，以 RGB 完全相同的像素占比作为相似度。显示器布局和图像尺寸不变，且每屏相似度都超过 99% 时，
 不生成截图资源包或事件；否则保留全部屏幕供理解上下文。恰好 99% 仍保存，比较基准不会随跳过的截图更新。
-工作观察通过 Step 参数 `screenshot_similarity_threshold` 配置阈值，独立截图通过 `similarity_threshold` 配置，默认均为 `0.99`；
+截图 Step 通过 `similarity_threshold` 配置阈值，默认为 `0.99`；
 设为 `1` 时仅跳过完全相同的图像。局部变化不足 1% 时可能被过滤，包括小范围的文字变化。
-截图过滤不影响新增 Codex 对话的投递。Codex 对话从保存的偏移继续读取，按会话和消息 ID 跨批次、重启去重；空闲扫描不追加进度记录，
-只有工具记录发生变化时仍推进偏移，但不产生对话事件。
+截图过滤不影响新增 Codex 对话的投递。
+
+## 定时 Codex 对话采集
+
+`codex_dialogue_cron` 启动时先通过 `init_steps` 执行 `codex_dialogue_init_step`，建立初始读取基线，不导入旧历史。
+初始化成功后，每 5 分钟读取
+`${CODEX_HOME:-~/.codex}/sessions` 中新增的用户消息和最终回答，以 `codex_dialogue` 为来源投递给同一个 `work` Agent。
+它不截图，也不采集进度消息、推理、工具输出、子 Agent 或 ReMe 自己的会话。
+
+每批对话保存在 `resource/codex_dialogue/YYYY-MM-DD/HHMMSS_<suffix>/`，包含 `dialogue.jsonl` 和 `metadata.json`。
+`resource/codex_dialogue/progress.jsonl` 保存已提交的读取位置和消息 ID；`pending.json` 固定未完成的批次，
+先重试投递，再读取后续变化。这些采集状态文件不放入事件路径。重启后沿用已保存的进度，不重复投递已完成对话。
+空闲扫描不追加进度记录；只有工具记录变化时仍推进偏移，但不产生对话事件。
 
 ## 定时财经采集
 
@@ -106,7 +117,7 @@ BTC 使用滚动 24 小时涨跌幅，保存统计窗口和采集时间；USDT �
 价格和 24 小时基准价不变时，不生成新资源或事件；仅采集时间或统计窗口推进不算新增信息，时间倒退的统计窗口会被跳过。
 
 采集器将 `news.jsonl`、`quotes.jsonl` 或 `btc.jsonl` 保存到 `resource/<source>/YYYY-MM-DD/hhmmss_<suffix>/`，
-随后调用已有 `append_event` Job，投递给 `finance` 事件 Agent。采集不调用 LLM；无新增时不创建文件或事件。
+随后调用已有 `append_agent_events` Job，投递给 `finance` 事件 Agent。采集不调用 LLM；无新增时不创建文件或事件。
 新闻首次回看最近 24 小时，按保留新闻文件中的 ID 去重；成功拉取后保存来源进度，后续从上次检查时间向前重叠十分钟拉取，
 最多回看 24 小时。删除进度文件后恢复完整回看，保留的新闻 ID 仍防止重复；超过回看窗口的停机可能留下缺口。
 已落盘但缺少投递回执的批次会在采集新数据前补投，股票批次还受交易时段限制；

@@ -205,13 +205,14 @@ def test_configuration_registers_runtime_and_agent_steps_without_legacy_aliases(
     for job in config["jobs"].values():
         for step in job.get("steps", []):
             assert R.get(ComponentEnum.STEP, step["backend"]) is not None
-    assert not config["jobs"]["proactive_run"]["enable_serve"]
-    assert not config["jobs"]["inbox_chat"]["enable_serve"]
-    assert config["jobs"]["agent_loop"]["steps"] == [{"backend": "agent_loop_step"}]
-    for job_name in ("proactive_loop", "inbox_loop", "agent_event_list", "agent_mailbox"):
+    assert not config["jobs"]["run_proactive_agent"]["enable_serve"]
+    assert not config["jobs"]["process_chat_reminders"]["enable_serve"]
+    assert config["jobs"]["proactive_loop"]["steps"] == [{"backend": "agent_loop_step"}]
+    assert "agent_loop" not in config["jobs"]
+    for job_name in ("inbox_loop", "agent_event_list", "agent_mailbox"):
         assert job_name not in config["jobs"]
         assert R.get(ComponentEnum.STEP, f"{job_name}_step") is None
-    assert config["jobs"]["read_inbox"]["parameters"]["properties"] == {}
+    assert config["jobs"]["read_chat_reminders"]["parameters"]["properties"] == {}
     schema = CreateProactiveAgentConfig.model_json_schema()
     properties = config["jobs"]["manage_proactive_agent"]["parameters"]["properties"]
     assert properties.keys() == ManageProactiveAgentRequest.model_json_schema()["properties"].keys()
@@ -247,7 +248,7 @@ async def test_formal_agents_inherit_web_search_from_shared_codex_server(tmp_pat
             values["cron"] = "0 * * * *"
         await runtime.create(values)
         agent = await runtime.definition("monitor")
-        step_config = config["jobs"]["proactive_run"]["steps"][0]
+        step_config = config["jobs"]["run_proactive_agent"]["steps"][0]
         step = ProactiveAgentStep(app_context=context, **step_config)
         now = runtime.now()
         options = step.session_options(agent, step._paths(agent, now), now)
@@ -256,7 +257,7 @@ async def test_formal_agents_inherit_web_search_from_shared_codex_server(tmp_pat
         assert "sandbox" not in options  # The configured run inherits the selected wrapper's sandbox.
         assert options["approval_mode"] == "deny_all"
         assert options["config"] == {"skills.include_instructions": False}
-        chat_tools = config["jobs"]["chat"]["steps"][0]["job_tools"]
+        chat_tools = config["jobs"]["ask_agent"]["steps"][0]["job_tools"]
         chat = ChatAgentStep(app_context=context, job_tools=chat_tools).session_options()
         assert chat["job_tools"] == ["manage_proactive_agent"]
         assert "sandbox" not in chat
@@ -285,7 +286,7 @@ async def test_chat_tool_changes_fork_existing_history_and_then_reuse_session(tm
             {"job_tools": ["manage_proactive_agent", "web_extract"]},
             runtime.now(),
         )
-        tools = resolve_app_config(config="proactive", log_config=False)["jobs"]["chat"]["steps"][0]["job_tools"]
+        tools = resolve_app_config(config="proactive", log_config=False)["jobs"]["ask_agent"]["steps"][0]["job_tools"]
         for _ in range(2):
             await ChatAgentStep(app_context=context, job_tools=tools)(
                 RuntimeContext(stream_queue=asyncio.Queue()),
@@ -719,7 +720,7 @@ async def test_chat_rotation_preserves_inbox_and_wakeup_uses_current_session(tmp
         assert (await runtime.notifications.read())["items"][0]["id"] == identifier
 
         async def run_job(name, **kwargs):
-            assert name == "inbox_chat"
+            assert name == "process_chat_reminders"
             return await InboxChatStep(app_context=context)(**kwargs)
 
         async def decide(_hint, **options):

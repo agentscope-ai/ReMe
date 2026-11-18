@@ -77,7 +77,7 @@ async def test_fork_sends_only_explicit_content_and_consumes_decisions(tmp_path,
         assert response.answer == {"sent": bool(content.strip())}
         assert captured["resume"] == source
         assert captured["fork_session"] and captured["ephemeral"] and captured["sandbox"] == "read-only"
-        assert captured["job_tools"] == ["read_inbox", "send_chat_msg"]
+        assert captured["job_tools"] == ["read_chat_reminders", "submit_chat_reminder"]
         assert "config" not in captured
         assert not runtime.notifications.pending
         assert runtime.notifications.active_turn is None
@@ -385,7 +385,7 @@ async def test_tools_cannot_read_other_priorities_or_consume_later_arrivals(tmp_
 
         async def reply(_hint, **options):
             bound = options["injected_job_kwargs"]
-            with pytest.raises(ValueError, match="read_inbox"):
+            with pytest.raises(ValueError, match="read_chat_reminders"):
                 await SendChatMessageStep(app_context=context)(content="Update", **bound)
             with pytest.raises(ValueError, match="accepts no arguments"):
                 await ReadInboxStep(app_context=context)(priority="P2", **bound)

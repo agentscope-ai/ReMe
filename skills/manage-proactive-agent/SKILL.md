@@ -105,8 +105,8 @@ description: 创建和管理主人交办的定时任务与事件监控，包括�
 
 创建任务不等于已经开始监控，还须完成以下工作：
 
-1. 复用当前 HTTP 服务，通过 `POST /app_config`（请求体 `{}`）确认 `workspace_dir`、`resource_dir`，确认输入来源和已有采集宿主。
-2. 在返回的 `task_path` 所在目录下编写采集代码和运行配置，或复用现有采集器。先将完整资料原子保存到服务工作区，再通过 `POST /append_event` 投递观察；是否异常或结束由任务根据资料判断。
+1. 复用当前 HTTP 服务，通过 `POST /get_app_config`（请求体 `{}`）确认 `workspace_dir`、`resource_dir`，确认输入来源和已有采集宿主。
+2. 在返回的 `task_path` 所在目录下编写采集代码和运行配置，或复用现有采集器。先将完整资料原子保存到服务工作区，再通过 `POST /append_agent_events` 投递观察；是否异常或结束由任务根据资料判断。
 3. `paths` 使用规范的工作区相对路径，不含绝对路径或 `..`；远程资料先同步到工作区。按规模选择快照或增量采集，保留原始日志；增量游标只在服务确认接收后推进，日志轮转须保留归档或接入训练回调。
 4. 启动对应宿主配置，记录入口、命令、运行标识、输出日志、重启策略和停止方式，并写入任务说明；ReMe 内部采集器由 BackgroundJob/Component 管理生命周期。
 5. 用真实资料验证采集和投递，并确认新资料能持续进入。通过 `status` 查看待处理、处理中数量、完成时间和错误，再用 `query` 或日记核对分析结果；提醒条件出现时核对实际提醒，区分已经验证和尚未发生的环节。
@@ -114,7 +114,7 @@ description: 创建和管理主人交办的定时任务与事件监控，包括�
 采集代码与管理工具统一使用 `agent_name` 指定任务：
 
 ```bash
-curl --fail-with-body http://127.0.0.1:2333/append_event \
+curl --fail-with-body http://127.0.0.1:2333/append_agent_events \
   -H 'Content-Type: application/json' \
   --data-binary '{
     "agent_name": "experiment_watch",

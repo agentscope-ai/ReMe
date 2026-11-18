@@ -114,7 +114,7 @@ async def test_all_actions_expose_only_their_results_and_keep_task_files(tmp_pat
             await tool(action="query", agent_name="tech_news", question="进展如何？")
         ).answer == "今天的早报已经完成。"
         query.assert_awaited_once_with(
-            "proactive_query",
+            "query_proactive_agent",
             agent_name="tech_news",
             query="进展如何？",
             _allowed_paths=None,

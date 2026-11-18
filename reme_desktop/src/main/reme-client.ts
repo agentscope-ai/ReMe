@@ -58,7 +58,7 @@ export class ReMeClient {
   }
 
   async stream(
-    job: "agent_events" | "agent_chat",
+    job: "watch_agent_session" | "ask_agent",
     body: object,
     signal: AbortSignal,
     onChunk: (chunk: StreamChunk) => void,
@@ -68,7 +68,7 @@ export class ReMeClient {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const touch = () => {
       // Agent subscriptions promise heartbeats; a chat can wait on a long tool.
-      if (job !== "agent_events") return;
+      if (job !== "watch_agent_session") return;
       clearTimeout(timer);
       timer = setTimeout(
         () => idle.abort(new UiError("idleConnection")),

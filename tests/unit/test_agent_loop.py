@@ -35,9 +35,9 @@ async def test_shared_loop_runs_both_consumers_and_releases_their_claims_on_stop
             await asyncio.Event().wait()
 
         async def run_job(name, **kwargs):
-            if name == "proactive_run":
+            if name == "run_proactive_agent":
                 return Response(answer=await runtime.run(kwargs["agent_name"], execute))
-            assert name == "inbox_chat"
+            assert name == "process_chat_reminders"
             return await InboxChatStep(app_context=context)(**kwargs)
 
         wrapper.reply = AsyncMock(side_effect=reply)
@@ -76,7 +76,7 @@ async def test_scheduler_failure_does_not_starve_the_other_consumer(tmp_path, mo
     async with running_runtime(tmp_path) as (runtime, context, _):
         await prepare(runtime, context)
         started = asyncio.Event()
-        expected = "inbox_chat" if failed == "task" else "proactive_run"
+        expected = "process_chat_reminders" if failed == "task" else "run_proactive_agent"
 
         async def run_job(name, **_kwargs):
             assert name == expected

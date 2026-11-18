@@ -98,6 +98,34 @@ Set it explicitly to override either default, for example `reme start jobs.chat.
 Execution records are memory-only and disappear when the Application is recreated. `job_history_limit=0` retains only
 running executions. See [Job execution status](./operations.md#job-execution-status) for queries and step paths.
 
+## Cron initialization
+
+Cron Jobs accept optional `init_steps` (default `[]`). They run in order before the scheduler waits for its first
+trigger. For example, the proactive preset keeps Codex dialogue initialization and collection in one Job:
+
+```yaml
+jobs:
+  codex_dialogue_cron:
+    backend: cron
+    cron: "*/5 * * * *"
+    init_steps:
+      - backend: codex_dialogue_init_step
+        codex_home: &codex_home ${CODEX_HOME:-~/.codex}
+    steps:
+      - backend: codex_dialogue_step
+        agent_name: work
+        codex_home: *codex_home
+```
+
+Only `steps` run at each scheduled time, using the application's timezone. Initialization and each trigger get fresh
+Step instances and separate runtime contexts and execution records. Share durable progress through workspace files
+or Components, rather than initialization outputs. Waiting creates no execution record.
+
+An initialization exception or `success=False` stops the initialization chain and prevents scheduling. With supervision
+enabled, the existing background supervisor retries with backoff; `supervisor=false` leaves the failure unretried.
+Initialization runs again whenever the job body restarts, so its Steps must be idempotent. Shutdown uses the same stop
+signal and cancellation cleanup as other background Jobs. Nonempty `init_steps` are rejected by other built-in Job types.
+
 ## LLM
 
 The default LLM uses an OpenAI-compatible interface:
@@ -228,22 +256,23 @@ See [Context compaction with decision models](./context_compaction.md) for the s
 
 ## Speech recognition and synthesis
 
-The `proactive` configuration includes `asr_demo`, `tts_demo`, and the `speech_demo` TTS-to-ASR round trip.
+The `proactive` configuration exposes `asr` and `tts` for Desktop voice input and playback.
+The `demo` preset extends it with the `speech_demo` TTS-to-ASR round trip.
 Set `DASHSCOPE_API_KEY`, then start the service:
 
 ```bash
-reme start config=proactive
+reme start config=demo
 ```
 
 From another terminal:
 
 ```bash
-reme tts_demo text="Hello from ReMe."
+reme tts text="Hello from ReMe."
 reme speech_demo text="Hello from ReMe."
 ```
 
-`asr_demo` accepts Base64 `audio`, `audio_format` (`wav`, `mp3`, `pcm`, or `opus`), and optional `sample_rate`.
-Its answer is the recognized text; silence returns an empty string. `tts_demo` returns Base64 `audio`, `format`,
+`asr` accepts Base64 `audio`, `audio_format` (`wav`, `mp3`, `pcm`, or `opus`), and optional `sample_rate`.
+Its answer is the recognized text; silence returns an empty string. `tts` returns Base64 `audio`, `format`,
 `sample_rate`, and `is_last=true` inside the standard response answer. Provider failures return `success=false`.
 
 Select components through Step settings `asr: <name>` and `tts: <name>`. Configure model, voice, provider `parameters`,

@@ -180,7 +180,7 @@ class ChatNotifications:
         async with turn.lock:
             self.current_turn(turn.id)
             if turn.items is None:
-                raise ValueError("read_inbox must be called before send_chat_msg")
+                raise ValueError("read_chat_reminders must be called before submit_chat_reminder")
             if content and not turn.items:
                 raise ValueError("no reminders were read")
             if turn.content is not None and content != turn.content:
@@ -293,7 +293,7 @@ class ChatNotifications:
         permanent = False
         self.last_started_at = self.runtime.now()
         try:
-            response = await run_job("inbox_chat", priority=priority, msg_ids=identifiers)
+            response = await run_job("process_chat_reminders", priority=priority, msg_ids=identifiers)
             if not response.success:
                 failure = response.metadata.get("reme.job_error", {})
                 permanent = failure.get("type") in {"TypeError", "ImportError", "ModuleNotFoundError"}

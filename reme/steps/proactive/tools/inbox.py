@@ -22,7 +22,7 @@ class ReadInboxStep(_InboxTool):
 
     async def execute(self):
         if self.parameters():
-            raise ValueError("read_inbox accepts no arguments")
+            raise ValueError("read_chat_reminders accepts no arguments")
         batch = await self.agent_runtime.notifications.read_turn(self.turn())
         self.context.response.answer = {
             "items": [

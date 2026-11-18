@@ -436,8 +436,9 @@ jobs:
       - backend: dream_finish_step
 ```
 
-The current implementation uses `croniter` to calculate the next trigger time. The timezone comes from
-`app_config.timezone`.
+The implementation uses `croniter` to calculate the next trigger time in `app_config.timezone`. Optional
+[`init_steps`](./configuration.md#cron-initialization) run before entering the schedule; only `steps` run at each
+trigger. Initialization failures reach the background supervisor, and initialization must be idempotent for retries.
 
 ### 6.5 Default Job Types
 
@@ -609,7 +610,7 @@ thread with the current configuration. Rejected or cancelled preparation retains
 `output_schema` applies only to the current invocation; omission uses the calling wrapper's default, and explicit
 `None` disables that default for this invocation.
 
-Proactive reminders are evaluated in a disposable read-only fork with only `read_inbox` and `send_chat_msg` tools.
+Proactive reminders are evaluated in a disposable read-only fork with only `read_chat_reminders` and `submit_chat_reminder` tools.
 Only explicitly submitted text is appended to the foreground conversation; fork reasoning and ordinary replies stay
 outside it. Codex stores injected content in its native rollout without a second application-authored message copy.
 `reme_agents/` retains Agent configuration, memory, session IDs and

@@ -42,22 +42,22 @@ test("explicit chat reading retries durable acknowledgements; historical suppres
     ReMeClient.prototype,
     "call",
     async (job: string, body: unknown) => {
-      if (job === "app_config")
+      if (job === "get_app_config")
         return {
           workspace_dir: "/receipt-test",
           jobs: Object.fromEntries(
             [
-              "agent_events",
-              "agent_chat",
-              "agent_session",
-              "agent_new_session",
-              "agent_outbox",
-              "agent_reminder",
-              "agent_inbox",
+              "watch_agent_session",
+              "ask_agent",
+              "read_agent_session",
+              "create_chat_session",
+              "list_agent_outbox",
+              "read_agent_reminder",
+              "list_agent_inbox",
             ].map((name) => [name, {}]),
           ),
         };
-      assert.equal(job, "agent_reminder");
+      assert.equal(job, "read_agent_reminder");
       calls.push(body);
       if (offline) throw new Error("temporary offline");
       return { id: reminder.id, items: [] };

@@ -569,7 +569,7 @@ class LocalAgentRuntime(BaseAgentRuntime):
     async def _work(self, agent_name, run_job):
         execution = self.executions[agent_name]
         try:
-            response = await run_job("proactive_run", agent_name=agent_name)
+            response = await run_job("run_proactive_agent", agent_name=agent_name)
             if not response.success:
                 raise RuntimeError(str(response.answer))
             execution.error = execution.retry_at = None

@@ -196,8 +196,8 @@ export default function Knowledge({
       .then((result) => {
         if (!live) return;
         if (
-          !result.answer.jobs.includes("list") ||
-          !result.answer.jobs.includes("load")
+          !result.answer.jobs.includes("list_workspace") ||
+          !result.answer.jobs.includes("load_file")
         )
           throw new UiError("workspaceUnavailable");
         setConfig(result.answer);

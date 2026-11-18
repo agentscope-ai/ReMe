@@ -1008,22 +1008,24 @@ def test_default_and_demo_configuration_use_named_shared_servers(monkeypatch):
     for name in ("default", "demo"):
         config = resolve_app_config(config=name, log_config=False)
         wrappers = config["components"]["agent_wrapper"]
-        assert wrappers["codex"]["app_server"] == "default"
+        server_name = "demo" if name == "demo" else "default"
+        assert wrappers["codex"]["app_server"] == server_name
         assert "auth_mode" not in wrappers["codex"]
         servers = config["components"]["codex_app_server"]
-        assert servers["default"]["auth_mode"] == "api_key"
-        assert servers["default"]["codex_home"] == ".codex"
-        assert servers["default"]["supports_websockets"] is False
+        server = servers[server_name]
+        assert server["auth_mode"] == "api_key"
+        assert server["codex_home"] == (".codex/demo" if name == "demo" else ".codex")
+        assert server["supports_websockets"] is False
         assert wrappers["codex"]["model"] == "qwen3.8-max"
         assert wrappers["codex"]["approval_mode"] == "deny_all"
         assert wrappers["codex"]["effort"] == "xhigh"
-        models = servers["default"]["model_catalog"]["models"]
+        models = server["model_catalog"]["models"]
         assert {model["slug"] for model in models} == {"qwen3.8-max", "qwen3.8-flash"}
         assert all(model["auto_review_model_override"] == "qwen3.8-flash" for model in models)
         assert all(model["default_reasoning_level"] == "xhigh" for model in models)
         assert all(model["multi_agent_reasoning_effort"] == "xhigh" for model in models)
         assert all([level["effort"] for level in model["supported_reasoning_levels"]] == ["xhigh"] for model in models)
-        assert set(servers["default"]["config_overrides"]) == {
+        assert set(server["config_overrides"]) == {
             'model_reasoning_effort="xhigh"',
             'review_model="qwen3.8-max"',
             'agents.default_subagent_model="qwen3.8-max"',
@@ -1032,8 +1034,10 @@ def test_default_and_demo_configuration_use_named_shared_servers(monkeypatch):
             'memories.consolidation_model="qwen3.8-max"',
         }
         if name == "demo":
-            assert servers["default"]["api_key"] == "demo-api-key"
-            assert servers["default"]["base_url"] == "https://demo.invalid/v1"
+            assert wrappers["default"]["app_server"] == "default"
+            assert servers["default"]["codex_home"] != server["codex_home"]
+            assert server["api_key"] == "demo-api-key"
+            assert server["base_url"] == "https://demo.invalid/v1"
         else:
             assert servers["oauth"]["codex_home"] == "~/.codex"
 

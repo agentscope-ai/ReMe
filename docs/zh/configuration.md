@@ -102,6 +102,32 @@ Background 和 cron Job 始终不暴露服务接口。
 执行记录仅保存在内存中，重新创建 Application 后清空。`job_history_limit=0` 仅保留运行中的记录。
 查询方式与 Step 路径见 [Job 执行状态](./operations.md#job-执行状态)。
 
+## Cron 初始化
+
+Cron Job 支持可选的 `init_steps`，默认为 `[]`。进入首次定时等待前，先按顺序执行初始化。
+例如，proactive 预置配置把 Codex 对话的初始化和采集合并在同一个 Job 中：
+
+```yaml
+jobs:
+  codex_dialogue_cron:
+    backend: cron
+    cron: "*/5 * * * *"
+    init_steps:
+      - backend: codex_dialogue_init_step
+        codex_home: &codex_home ${CODEX_HOME:-~/.codex}
+    steps:
+      - backend: codex_dialogue_step
+        agent_name: work
+        codex_home: *codex_home
+```
+
+每次按应用时区到达定时时间时，只执行 `steps`。初始化和每次定时执行各自创建新的 Step 实例、运行上下文和执行记录；
+跨轮次进度通过工作区文件或 Component 保存，不依赖初始化的输出。等待调度不创建执行记录。
+
+初始化抛出异常或返回 `success=False` 时，停止初始化链，也不进入调度。启用监护时由现有后台 supervisor 退避重试；
+`supervisor=false` 时保留失败，不重试。每次执行体重新启动都会重跑初始化，因此初始化 Steps 必须幂等。
+关闭 Job 沿用后台任务的停止信号和取消清理。其他内置 Job 类型不接受非空的 `init_steps`。
+
 ## LLM 配置
 
 默认 LLM 使用 OpenAI-compatible 接口：
@@ -225,22 +251,23 @@ schema 定义问题与答案。接口见 `reme/components/as_decision_model/`。
 
 ## 语音识别与合成
 
-`proactive` 配置包含 `asr_demo`、`tts_demo`，以及串联 TTS 与 ASR 的 `speech_demo`。
+`proactive` 配置提供桌面语音输入和播放需要的 `asr`、`tts`。
+`demo` 继承它，并增加串联 TTS 与 ASR 的 `speech_demo`。
 设置 `DASHSCOPE_API_KEY` 后启动服务：
 
 ```bash
-reme start config=proactive
+reme start config=demo
 ```
 
 在另一个终端调用：
 
 ```bash
-reme tts_demo text="你好，这是 ReMe 的语音测试。"
+reme tts text="你好，这是 ReMe 的语音测试。"
 reme speech_demo text="你好，这是 ReMe 的语音测试。"
 ```
 
-`asr_demo` 接收 Base64 `audio`、`audio_format`（`wav`、`mp3`、`pcm` 或 `opus`）与可选的 `sample_rate`，
-answer 为识别文本；静音返回空字符串。`tts_demo` 在标准响应的 answer 中返回 Base64 `audio`、`format`、
+`asr` 接收 Base64 `audio`、`audio_format`（`wav`、`mp3`、`pcm` 或 `opus`）与可选的 `sample_rate`，
+answer 为识别文本；静音返回空字符串。`tts` 在标准响应的 answer 中返回 Base64 `audio`、`format`、
 `sample_rate` 和 `is_last=true`。供应商调用失败时返回 `success=false`。
 
 Step 通过 `asr: <组件名>` 和 `tts: <组件名>` 选择组件；模型、音色、供应商 `parameters` 与超时配置在

@@ -1,4 +1,4 @@
-"""File-backed collection and retryable delivery through the existing append_event Job."""
+"""File-backed collection and retryable delivery through the existing append_agent_events Job."""
 
 import asyncio
 from datetime import datetime
@@ -47,8 +47,8 @@ class FinanceCollectorStep(BaseConnectorStep):
         self.resource_root = self.files.checked(target.parent.parent)
         self.require_path(self.resource_root)
         self.require_path(self.files.path(self.config_value("reme_agent_dir")))
-        if self.get_job("append_event") is None:
-            raise RuntimeError("Finance collectors require the append_event Job")
+        if self.get_job("append_agent_events") is None:
+            raise RuntimeError("Finance collectors require the append_agent_events Job")
         async with await get_path_lock(self.resource_root):
             await self._deliver_pending()
             await super().execute()
@@ -123,7 +123,7 @@ class FinanceCollectorStep(BaseConnectorStep):
                 paths=[item.relative_to(self.workspace_path).as_posix() for item in payloads],
             )
             response = await self.run_job(
-                "append_event",
+                "append_agent_events",
                 agent_name=self.agent_name,
                 events=[event.model_dump(mode="json")],
                 _allowed_paths=self.context.get("_allowed_paths"),

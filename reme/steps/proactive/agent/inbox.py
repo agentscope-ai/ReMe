@@ -64,7 +64,7 @@ class InboxChatStep(BaseChatAgentStep):
                     sleep_reminder_rule=self.get_prompt("sleep_reminder_rule"),
                 ),
                 system_prompt=options["system_prompt"],
-                job_tools=["read_inbox", "send_chat_msg"],
+                job_tools=["read_chat_reminders", "submit_chat_reminder"],
                 resume=session_id,
                 fork_session=True,
                 ephemeral=True,

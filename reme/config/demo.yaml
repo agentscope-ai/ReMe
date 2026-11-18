@@ -1,3 +1,7 @@
+# Desktop runtime plus standalone examples.
+# reme start config=demo
+extends: proactive
+
 service:
   backend: http
 
@@ -100,7 +104,107 @@ jobs:
       - backend: stream_demo_step1
       - backend: stream_demo_step2
 
+  speech_demo:
+    backend: base
+    description: "Synthesize text, then transcribe the audio; requires DASHSCOPE_API_KEY."
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        text: {type: string, minLength: 1}
+      required: [text]
+    steps:
+      - backend: tts_step
+        tts: default
+      - backend: asr_step
+        asr: default
+
+  chat:
+    backend: stream
+    description: "Chat with the fixed Chat Agent using its current session."
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        query: {type: string, minLength: 1}
+      required: [query]
+    steps:
+      - backend: chat_agent_step
+        job_tools: [manage_proactive_agent]
+
+  new_chat_session:
+    backend: base
+    description: "Create and select an empty chat session; retain all previous session IDs."
+    parameters: {type: object, additionalProperties: false, properties: {}}
+    steps:
+      - backend: new_chat_session_step
+        job_tools: [manage_proactive_agent]
+
+  list_chat_sessions:
+    backend: base
+    description: "Chat history, newest first. Pure query; cold listing never creates sessions."
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        offset: {type: integer, minimum: 0, default: 0}
+        limit: {type: integer, minimum: 1, default: 10}
+    steps:
+      - backend: list_chat_sessions_step
+
+  session_read:
+    backend: base
+    description: Read session history, including proactive user and assistant messages.
+    parameters:
+      type: object
+      properties:
+        session_id:
+          type: string
+          description: agent session identifier
+      required:
+      - session_id
+    steps:
+    - backend: session_read_step
+      agent_wrapper: default
+  session_status:
+    backend: base
+    description: Inspect session activity without waiting for generation.
+    parameters:
+      type: object
+      properties:
+        session_id:
+          type: string
+          description: agent session identifier
+      required:
+      - session_id
+    steps:
+    - backend: session_status_step
+      agent_wrapper: default
+  version:
+    backend: base
+    description: "Return the ReMe version."
+    steps:
+      - backend: version_step
+
 components:
+  file_catalog:
+    default:
+      backend: local
+  file_chunker:
+    json:
+      backend: json
+      supported_extensions:
+      - json
+    jsonl:
+      backend: jsonl
+      supported_extensions:
+      - jsonl
+    default:
+      backend: default
+      supported_extensions:
+      - txt
+      - log
+
   as_llm:
     default:
       backend: openai
@@ -116,12 +220,12 @@ components:
         thinking_enable: false
 
   codex_app_server:
-    default:
+    demo:
       backend: sdk
       auth_mode: api_key
       api_key: ${LLM_API_KEY:-}
       base_url: ${LLM_BASE_URL:-}
-      codex_home: .codex
+      codex_home: .codex/demo
       supports_websockets: false
       config_overrides:
         - 'model_reasoning_effort="xhigh"'
@@ -188,7 +292,7 @@ components:
       permission_mode: bypassPermissions
     codex:
       backend: codex
-      app_server: default
+      app_server: demo
       model: *codex_complex_model
       effort: xhigh
       job_tools:

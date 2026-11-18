@@ -114,18 +114,20 @@ test("authoritative subscriptions reconcile replies and endpoint changes respect
   let taskStream: ((chunk: StreamChunk) => void) | undefined;
   t.mock.method(ReMeClient.prototype, "call", async (job: string) => {
     calls.push(job);
-    assert.equal(job, "app_config");
+    assert.equal(job, "get_app_config");
     return {
       workspace_dir: "/test-workspace",
       jobs: Object.fromEntries(
         [
-          "agent_events",
-          "agent_chat",
-          "agent_session",
-          "agent_new_session",
-          "agent_outbox",
-          "agent_reminder",
-          "agent_inbox",
+          "watch_agent_session",
+          "ask_agent",
+          "read_agent_session",
+          "create_chat_session",
+          "list_agent_outbox",
+          "read_agent_reminder",
+          "list_agent_inbox",
+          "asr",
+          "tts",
         ].map((name) => [name, { backend: "base" }]),
       ),
     };
@@ -145,7 +147,7 @@ test("authoritative subscriptions reconcile replies and endpoint changes respect
       receive: (chunk: StreamChunk) => void,
     ) => {
       const agentName = body.agent_name ?? "Remy";
-      if (job === "agent_events") {
+      if (job === "watch_agent_session") {
         listeners.set(agentName, receive);
         receive({ chunk_type: "data", chunk: snapshot(agentName) });
         await untilAbort(signal);
@@ -180,6 +182,8 @@ test("authoritative subscriptions reconcile replies and endpoint changes respect
   controller.start();
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(controller.state.connection, "connected");
+  assert.equal(controller.state.speech.asr, true);
+  assert.equal(controller.state.speech.tts, true);
   await controller.send("Hello");
   // A command outcome never creates a second display transcript.
   assert.equal(controller.state.pending?.outcome, "completed");
@@ -203,7 +207,7 @@ test("authoritative subscriptions reconcile replies and endpoint changes respect
   assert.equal(controller.state.pending, null);
   assert.equal(controller.state.messages[0].id, "reply");
   assert.equal(observed.mock.calls.length, 1);
-  assert.deepEqual(calls, ["app_config"]);
+  assert.deepEqual(calls, ["get_app_config"]);
 
   waiting = true;
   await controller.send("Wait for confirmation");

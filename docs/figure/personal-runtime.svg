@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1780" height="1120" viewBox="0 0 1780 1120" role="img" aria-labelledby="title desc">
   <title id="title">Personal Runtime</title>
-  <desc id="desc">The foreground Chat Agent manages independent named proactive tasks through six management actions. The task description initializes TASK.md. Later edits use native file tools. Pause and resume update enabled. Query requires an existing queryable task session and uses its read-only fork. Background Outboxes deliver events linking to saved reminder files into Chat Inbox. A separate ephemeral read-only fork of the current Chat calls read_inbox with no arguments to obtain the selected reminders and supporting paths, reads the original evidence, and submits a decision with send_chat_msg. A text decision appends an assistant message to Chat. An empty decision consumes the batch silently. File cards show personal memory, Chat and task session references, unread and read Inbox logs, task configuration and description, dated reminders and daily outputs. Temporary task descriptions live at reme_agents/tmp/{agent_name}/TASK.md. All messages are illustrative.</desc>
+  <desc id="desc">The foreground Chat Agent manages independent named proactive tasks through six management actions. The task description initializes TASK.md. Later edits use native file tools. Pause and resume update enabled. Query requires an existing queryable task session and uses its read-only fork. Background Outboxes deliver events linking to saved reminder files into Chat Inbox. A separate ephemeral read-only fork of the current Chat calls read_chat_reminders with no arguments to obtain the selected reminders and supporting paths, reads the original evidence, and submits a decision with submit_chat_reminder. A text decision appends an assistant message to Chat. An empty decision consumes the batch silently. File cards show personal memory, Chat and task session references, unread and read Inbox logs, task configuration and description, dated reminders and daily outputs. Temporary task descriptions live at reme_agents/tmp/{agent_name}/TASK.md. All messages are illustrative.</desc>
   <metadata>Source: reme/schema/proactive_agent.py; reme/config/proactive.yaml; reme/components/agent_inbox/; reme/components/agent_runtime/_internal/registry.py; reme/components/agent_runtime/_internal/sessions.py; reme/components/agent_runtime/_internal/outbox.py; reme/components/agent_runtime/_internal/notifications.py; reme/steps/proactive/agent/proactive.py; reme/steps/proactive/agent/inbox.py; reme/steps/proactive/agent/inbox.yaml; reme/steps/proactive/tools/manage_proactive_agent.py; reme/steps/proactive/tools/inbox.py. Drawn from the current working tree. Paths are relative to the configured workspace root; {date} is an application-local calendar date. Permanent task paths shown.</metadata>
   <defs>
     <style>
@@ -62,7 +62,7 @@
     <text x="429" y="287" font-size="13" text-anchor="middle" class="teal">fork</text>
     <path d="M506 340H352" class="line" stroke="#BE9859" stroke-width="1.5" marker-end="url(#gold)" />
     <text x="429" y="362" font-size="13" text-anchor="middle" style="fill:#A07A3D">Append message</text>
-    <text x="402" y="388" font-size="12" style="fill:#A07A3D" text-anchor="middle">Submit via send_chat_msg</text>
+    <text x="402" y="388" font-size="12" style="fill:#A07A3D" text-anchor="middle">submit_chat_reminder</text>
     <text x="594" y="388" font-size="12" class="purple" text-anchor="middle">Read evidence in paths</text>
     <path d="M88 404H680" class="line" stroke="#DFE8E8" />
     <g data-role="chat-task-management">
@@ -156,7 +156,7 @@
   </g>
   <g data-role="read-inbox">
     <path d="M806 300H682" class="line" stroke="#9A83BA" stroke-width="1.7" marker-end="url(#purple)" />
-    <text x="744" y="287" font-size="14" class="purple" font-weight="600" text-anchor="middle">read_inbox</text>
+    <text x="744" y="287" font-size="14" class="purple" font-weight="600" text-anchor="middle">Read reminders</text>
     <text x="744" y="324" font-size="12" class="muted" text-anchor="middle">Selected batch</text>
   </g>
   <g data-role="runtime-to-inbox">

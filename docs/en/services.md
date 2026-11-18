@@ -52,8 +52,12 @@ curl -N http://127.0.0.1:2333/chat \
   -d '{"query":"Summarize my long-term preferences"}'
 ```
 
-The `proactive` configuration exposes `chat(query)` for the fixed `Remy` Agent. It resumes the current
-native session; `new_chat_session` selects a fresh session and retains the history exposed by `list_chat_sessions`.
+The `proactive` preset uses `list_workspace`, `search_workspace`, `load_file` and `get_app_config` for workspace access.
+The default configuration provides `list`, `search`, `load` and `app_config`.
+
+The `proactive` configuration exposes `ask_agent(query, agent_name=Remy)` for the fixed Chat Agent. It resumes the current
+native session; `create_chat_session` selects a fresh session. The `demo` preset additionally exposes `chat`,
+`new_chat_session`, `list_chat_sessions`, `session_read` and `session_status` for standalone examples.
 MCP does not expose Stream Jobs. Studio integration is separate from this backend.
 
 ## Agent Runtime
@@ -102,7 +106,7 @@ From another terminal:
 reme manage_proactive_agent action=list
 reme manage_proactive_agent action=create agent_name=experiment agent_type=proactive \
   'task_description=Monitor experiment logs and report failures or completion.'
-reme agent_inbox
+reme list_agent_inbox
 ```
 
 `manage_proactive_agent` supports `list/create/status/update/delete/query` with top-level parameters and a task `agent_name`.
@@ -130,8 +134,10 @@ Declare initial tasks under `components.agent_runtime.default.agents` in the pro
 fields, including `task_description`. Startup creates missing identities and preserves existing descriptions, settings
 and deletions. Two event tasks are enabled by default. `finance` analyzes collected news and quotes,
 and the event-driven `work` tracks the user's current projects, progress, difficulties and discussion points from
-incoming observations. Work observations capture screens and new Codex dialogue every five minutes. The separate
-standalone screen-capture collector is disabled by default.
+incoming observations. `codex_dialogue_cron` collects new Codex user messages and final answers;
+`screen_capture_cron` separately captures all displays. Both are enabled every five minutes and deliver to `work`.
+The dialogue Job's `init_steps` establish the startup reading baseline without importing existing dialogue before
+periodic collection begins.
 The default scheduled task `tech_news` also runs daily at 08:00 in the application timezone, summarizes important
 technology news from the past 24 hours and sends a reminder when ready.
 
@@ -146,7 +152,7 @@ Claude Code trajectories can be submitted through the event API.
 Agent configuration uses `agent_type`: `chat`, `proactive` or `cron`. The management tool creates only
 `proactive` and `cron` tasks; Chat is initialized by the runtime.
 
-A `proactive` Agent accepts observations through `append_event(agent_name, events)`, with `event_ts`, `source`, `description`
+A `proactive` Agent accepts observations through `append_agent_events(agent_name, events)`, with `event_ts`, `source`, `description`
 and optional workspace-relative `paths`, `id` and `metadata`. A `cron` Agent requires a cron expression and executes
 its full task at the scheduled time. Both use the application timezone and a serial executor per Agent.
 `source=cron` is reserved. Event tasks may set `min_trigger_interval_seconds`, measured from the previous successful
@@ -198,8 +204,8 @@ Codex, Claude Code and AgentScope share one session contract: a fork snapshots t
 
 See `reme/components/agent_wrapper/base_agent_wrapper.py` for the common contract. Claude Code and AgentScope forks remain file-backed; releasing runtime resources does not delete history. Their shared read-only hint restricts built-in tools; native command sandboxes and network settings remain SDK-specific.
 
-Only the reminder fork receives `read_inbox()` and `send_chat_msg(content=...)`.
-The framework selects the priority and batch; `read_inbox` accepts no arguments.
+Only the reminder fork receives `read_chat_reminders()` and `submit_chat_reminder(content=...)`.
+The framework selects the priority and batch; `read_chat_reminders` accepts no arguments.
 Reminder evaluation has a 120-second timeout and proactive execution a 1200-second timeout, configured with each
 Step's `timeout_seconds`. Transient inbox failures retry with exponential backoff capped at 300 seconds; SDK type
 or import errors stop retries until the environment is repaired and restarted. Chat status exposes inbox failures,
@@ -209,13 +215,13 @@ Reading is limited to the selected batch. Nonempty content is appended as an ass
 `source="proactive"`; empty content commits a silent decision without inserting a message. Successful decisions
 automatically consume the messages read, independently of user-read state. Failures remain retryable, and a switched
 Chat session or a new foreground turn rejects the old fork's decision. The ordinary fork reply is never sent to the user.
-Desktop derives its reminder list from these marked messages. `agent_inbox agent_name=<name>` pages any Agent's pending,
-processing and processed events without claiming them; omitted `agent_name` selects Chat. `agent_outbox agent_name=<name>`
-pages a task's committed reminders. `agent_reminder message_id=<id>` reads a canonical reminder; `mark_read=true`
+Desktop derives its reminder list from these marked messages. `list_agent_inbox agent_name=<name>` pages any Agent's pending,
+processing and processed events without claiming them; omitted `agent_name` selects Chat. `list_agent_outbox agent_name=<name>`
+pages a task's committed reminders. `read_agent_reminder message_id=<id>` reads a canonical reminder; `mark_read=true`
 acknowledges user reading without consuming its Inbox event.
 Chat Inbox entries include a resolved `reminder` view from the canonical Markdown for display.
 
-`agent_session` and `agent_events` expose full Chat history, but only the latest native turn for proactive/cron Agents,
+`read_agent_session` and `watch_agent_session` expose full Chat history, but only the latest native turn for proactive/cron Agents,
 including its input and all partial/final assistant messages. Task subscriptions replace the whole view with each
 `snapshot`; `heartbeat` carries no messages. Each automatic event or cron run starts a fresh native session and rebuilds
 context from the task description and daily summaries. Earlier sessions remain available as history. Main Chat continues its
@@ -223,13 +229,15 @@ current session; task questions fork the latest task session read-only without c
 
 Event tasks accept `max_batch_events` (default 20); retries within the same process keep the original batch and leave new inputs for later rounds. `proactive_agent_step` defaults to a 1200-second total timeout; native automatic compaction inherits the global Codex App Server settings. Daily summaries carry current state; per-round details retain chronology and evidence.
 
-`agent_reminder agent_name=Remy` also accepts a combined Chat message ID and returns `{id,items}`. `mark_read=true` acknowledges all retained source reminders, linked through their `chat_message_ids` frontmatter. Acknowledgement remains successful with an empty list after the sources have been removed. Only explicit user reading is synchronized; historical initialization, suppression and bubble presentation do not imply reading.
+`read_agent_reminder agent_name=Remy` also accepts a combined Chat message ID and returns `{id,items}`. `mark_read=true` acknowledges all retained source reminders, linked through their `chat_message_ids` frontmatter. Acknowledgement remains successful with an empty list after the sources have been removed. Only explicit user reading is synchronized; historical initialization, suppression and bubble presentation do not imply reading.
 
-One background `agent_loop` schedules task execution and Chat reminder decisions with independent workers and retries.
+One background `proactive_loop` schedules task execution and Chat reminder decisions with independent workers and retries.
 Chat Inbox logs are rebuilt from reminder Markdown on startup; task input logs use the Event format.
 
-`proactive_run`, `proactive_query` and `inbox_chat` are service-private Jobs. Collectors remain opt-in; configure `jobs.screen_capture_cron.agent_name` and enable the job to publish
-complete resource packages as observations. No resource watcher or automatic TTL deletion participates in this flow.
+`run_proactive_agent`, `query_proactive_agent` and `process_chat_reminders` are service-private Jobs. `proactive` includes the Desktop runtime,
+finance, Codex dialogue and screenshot collectors, and initial tasks. Codex and screenshots use independent collection
+jobs, sources and workspace directories. No resource watcher or automatic TTL deletion
+participates in this flow. `demo` extends this preset with standalone examples.
 
 The built-in proactive configuration selects CodexAgentWrapper. Claude Code and AgentScope implement the same session APIs and scheduling behavior.
 

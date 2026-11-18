@@ -347,7 +347,7 @@ export class SpeechController {
     } else {
       const result = await this.client().call<
         SpeechAudio & { is_last: boolean }
-      >("tts_demo", { text }, playback.controller.signal, {
+      >("tts", { text }, playback.controller.signal, {
         timeoutMs: 70_000,
         maxBytes: 16 * 1024 * 1024,
       });
@@ -470,7 +470,7 @@ export class SpeechController {
     this.update({ capture: { id, phase: "transcribing" } });
     try {
       const text = await this.client().call<string>(
-        "asr_demo",
+        "asr",
         {
           audio: Buffer.from(audio).toString("base64"),
           audio_format: "wav",

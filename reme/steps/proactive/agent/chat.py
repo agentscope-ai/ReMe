@@ -52,7 +52,7 @@ class NewChatSessionStep(BaseChatAgentStep):
             raise ValueError("new_chat_session accepts no arguments")
         self.require_paths(self.workspace_path)
         if self.agent_runtime.chat_lock.locked():
-            raise RuntimeError("Chat Agent is busy; retry new_chat_session after its turn completes")
+            raise RuntimeError("Chat Agent is busy; retry after its turn completes")
         async with self.agent_runtime.chat_turn():
             await self.ensure_session(self.session_options(), new=True)
         self.context.response.answer = {"agent_name": "Remy", "created": True}

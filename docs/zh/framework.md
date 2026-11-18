@@ -419,7 +419,9 @@ jobs:
       - backend: dream_finish_step
 ```
 
-当前实现使用 `croniter` 计算下一次触发时间，时区来自 `app_config.timezone`。
+使用 `croniter` 按 `app_config.timezone` 计算下一次触发时间。可选的
+[`init_steps`](./configuration.md#cron-初始化) 在进入调度前执行，每次定时触发只运行 `steps`。
+初始化失败交给后台 supervisor 重试，因此初始化必须幂等。
 
 ### 6.5 默认 Job 类型分布
 
@@ -582,7 +584,7 @@ Codex wrapper 通过 `app_server: default` 或 `app_server: oauth` 引用共享�
 `create_session()` 在首次查询前保留 `effort` 等进程内 turn 设置。
 `output_schema` 只作用于本次调用；省略时使用调用方 wrapper 的默认值，显式传 `None` 在本次调用关闭该默认值。
 
-主动提醒在临时只读分身中评估，仅绑定 `read_inbox` 和 `send_chat_msg`；只有明确提交的文本追加到前台会话，
+主动提醒在临时只读分身中评估，仅绑定 `read_chat_reminders` 和 `submit_chat_reminder`；只有明确提交的文本追加到前台会话，
 分身推理过程与普通回复留在分身中。Codex 把追加内容保存在原生 rollout，不保存另一份应用消息副本。
 `reme_agents/` 保存 Agent 配置、记忆、会话 ID 和收件箱引用；恢复完整对话与提醒还需要原生会话历史和提醒源文件。
 

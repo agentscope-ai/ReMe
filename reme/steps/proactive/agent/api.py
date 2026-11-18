@@ -45,7 +45,7 @@ class AgentListStep(_AgentViewStep):
 
     async def execute(self):
         if self.parameters():
-            raise ValueError("agent_list accepts no arguments")
+            raise ValueError("list_agents accepts no arguments")
         self.require_paths(self.workspace_path)
         self.context.response.answer = await self.agent_runtime.list_views()
         return self.context.response
@@ -96,7 +96,7 @@ class AgentNewSessionStep(_AgentViewStep):
 
     async def execute(self):
         if self.parameters():
-            raise ValueError("agent_new_session accepts no arguments")
+            raise ValueError("create_chat_session accepts no arguments")
         self.require_paths(self.workspace_path)
         await self.chat_call(NewChatSessionStep)
         self.context.response.answer = await self.agent_runtime.read_agent("Remy")

@@ -16,7 +16,7 @@ class AppendEventStep(BaseAgentStep):
             or not isinstance(arguments["events"], list)
             or not arguments["events"]
         ):
-            raise ValueError("append_event requires agent_name and a nonempty events array")
+            raise ValueError("append_agent_events requires agent_name and a nonempty events array")
         runtime = self.agent_runtime
         self.require_paths(runtime.agents.directory)
         events = [Event.model_validate(event) for event in arguments["events"]]

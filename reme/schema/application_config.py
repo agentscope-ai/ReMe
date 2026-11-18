@@ -24,6 +24,10 @@ class JobConfig(ComponentConfig):
     description: str = Field(default="", description="Human-readable description")
     parameters: dict = Field(default_factory=dict, description="Job-level parameters")
     steps: list[ComponentConfig] = Field(default_factory=list, description="Ordered step configs")
+    init_steps: list[ComponentConfig] = Field(
+        default_factory=list,
+        description="Cron-only steps run before entering the schedule; must be idempotent for supervisor retries",
+    )
     enable_serve: bool = Field(default=True, description="Whether to expose this job through the service layer")
     enabled: bool = Field(default=True, description="Whether to start, serve, and allow execution of this job")
     track_execution: bool | None = Field(

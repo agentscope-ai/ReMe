@@ -68,9 +68,9 @@ Permanent material should remain in user-controlled workspace paths.
 
 ## Scheduled Screen Capture
 
-`config=proactive` includes an opt-in `screen_capture_cron` job. Create an event agent first, configure
-`jobs.screen_capture_cron.agent_name` with its ID, and set `jobs.screen_capture_cron.enabled=true` before restarting.
-It captures every five minutes in the application timezone, without a startup capture.
+`config=proactive` enables `screen_capture_cron` every five minutes in the application timezone, without a startup capture.
+It publishes screenshots to the `work` event Agent, independently of Codex dialogue collection. Set
+`jobs.screen_capture_cron.enabled=false` to disable it or change `jobs.screen_capture_cron.agent_name` to another event Agent.
 
 `BaseConnectorStep` writes payloads directly to their resource directory and atomically writes `metadata.json` last;
 `ScreenCaptureStep` saves one original-size PNG per display. `ResourceEventStep` then appends a stable-ID observation
@@ -97,12 +97,24 @@ the event separately.
 Screenshots compare each display with the latest saved group, measuring similarity as the fraction of pixels with
 identical RGB values. A screenshot package and event are skipped when layouts and image sizes match and every display
 has more than 99% identical pixels. Otherwise, every display is retained for context. Exactly 99% is retained;
-skipped captures do not update the comparison baseline. The Step parameter is `screenshot_similarity_threshold` for work
-observations and `similarity_threshold` for standalone capture, both defaulting to `0.99`. Set it to `1` to skip only
-identical images. Local changes affecting less than 1% of pixels, including small text changes, may be filtered.
+skipped captures do not update the comparison baseline. Configure the Step's `similarity_threshold`, which defaults to
+`0.99`. Set it to `1` to skip only identical images. Local changes affecting less than 1% of pixels, including small text
+changes, may be filtered.
 Filtering screenshots does not prevent delivery of new Codex dialogue.
-Codex dialogue resumes from saved offsets and deduplicates session/message IDs across batches and restarts. An idle
-scan writes no new progress record; tool-only changes still advance offsets without producing dialogue events.
+
+## Scheduled Codex Dialogue Collection
+
+`codex_dialogue_cron` first runs `codex_dialogue_init_step` through its `init_steps` to establish the reading baseline
+at startup without importing old history. Only after successful initialization does it collect new user messages and
+final answers every five minutes from
+`${CODEX_HOME:-~/.codex}/sessions`, publishing them to the same `work` Agent with source `codex_dialogue`.
+It does not capture screens; progress messages, reasoning, tool outputs, subagents and ReMe's own sessions are excluded.
+
+Dialogue packages live under `resource/codex_dialogue/YYYY-MM-DD/HHMMSS_<suffix>/`, with `dialogue.jsonl` and
+`metadata.json`. `resource/codex_dialogue/progress.jsonl` retains committed reading offsets and message IDs.
+`pending.json` freezes an unfinished batch so delivery can be retried before reading further changes. These collector
+files are not included in event paths. Restarting resumes the saved progress without replaying delivered dialogue.
+An idle scan writes no new progress record; tool-only changes still advance offsets without producing dialogue events.
 
 ## Scheduled Finance Collection
 
@@ -122,7 +134,7 @@ Unchanged prices and 24-hour opening prices produce no new resource or event; ad
 alone does not count as new information. Older statistics windows are ignored.
 
 The collectors save `news.jsonl`, `quotes.jsonl` or `btc.jsonl` under `resource/<source>/YYYY-MM-DD/hhmmss_<suffix>/`, then call
-the existing `append_event` Job for the `finance` event Agent. Collection does not use an LLM. Empty batches produce
+the existing `append_agent_events` Job for the `finance` event Agent. Collection does not use an LLM. Empty batches produce
 no files or events. News uses a rolling 24-hour lookback and retained news IDs for deduplication; outages longer than
 the lookback can leave gaps. After a successful fetch, a source-owned progress file narrows subsequent requests to
 the last checked time with a ten-minute overlap, bounded by the 24-hour lookback. Removing this progress file restores

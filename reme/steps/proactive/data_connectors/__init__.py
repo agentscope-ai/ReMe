@@ -6,7 +6,7 @@ from .event import ResourceEventStep
 from .finance_news import FinanceNewsStep
 from .stock_quotes import StockQuotesStep
 from .btc_quotes import BtcQuotesStep
-from .work_observation import WorkObservationInitStep, WorkObservationStep
+from .codex_dialogue import CodexDialogueInitStep, CodexDialogueStep
 
 __all__ = [
     "BaseConnectorStep",
@@ -15,6 +15,6 @@ __all__ = [
     "FinanceNewsStep",
     "StockQuotesStep",
     "BtcQuotesStep",
-    "WorkObservationInitStep",
-    "WorkObservationStep",
+    "CodexDialogueInitStep",
+    "CodexDialogueStep",
 ]

@@ -45,6 +45,10 @@ User feedback can update the relevant task description or configuration for late
 
 ## Current work observations
 
-The current collector captures screenshots and new Codex user messages and final answers. Claude Code and fuller tool execution trajectories require additional connectors. Collected observations must distinguish requested work, attempted actions, and verified results.
+`codex_dialogue_cron` collects new Codex user messages and final answers. `screen_capture_cron` independently captures
+all displays. Both run every five minutes and send observations to the `work` Agent. The dialogue Job first runs its
+`init_steps` at startup to establish the reading baseline without importing old history. Claude Code and fuller tool
+execution trajectories require additional connectors. Collected observations must distinguish requested work, attempted
+actions, and verified results.
 
 See [Services and Deployment](./services.md#agent-runtime) for configuration and interfaces.

@@ -1,7 +1,7 @@
 # LocalAgentRuntime with Chat and Proactive Agent steps.
 # Start with LLM_API_KEY, LLM_BASE_URL and optionally REME_MODEL_NAME.
 # reme start config=proactive
-# Finance and five-minute work observations are enabled. Input files are retained.
+# Desktop jobs and their runtime dependencies. Examples live in demo.yaml.
 language: zh
 reme_agent_dir: reme_agents
 
@@ -11,22 +11,7 @@ service:
   mcp_enabled: true
 
 jobs:
-  speech_demo:
-    backend: base
-    description: "Synthesize text, then transcribe the audio; requires DASHSCOPE_API_KEY."
-    parameters:
-      type: object
-      additionalProperties: false
-      properties:
-        text: {type: string, minLength: 1}
-      required: [text]
-    steps:
-      - backend: tts_step
-        tts: default
-      - backend: asr_step
-        asr: default
-
-  tts_demo:
+  tts:
     backend: base
     description: "Synthesize text; returns Base64 audio, format and sample rate; requires DASHSCOPE_API_KEY."
     parameters:
@@ -39,7 +24,7 @@ jobs:
       - backend: tts_step
         tts: default
 
-  asr_demo:
+  asr:
     backend: base
     description: "Transcribe Base64-encoded audio; requires DASHSCOPE_API_KEY."
     parameters:
@@ -54,75 +39,35 @@ jobs:
       - backend: asr_step
         asr: default
 
-  chat:
-    backend: stream
-    description: "Chat with the fixed Chat Agent using its current session."
-    parameters:
-      type: object
-      additionalProperties: false
-      properties:
-        query: {type: string, minLength: 1}
-      required: [query]
-    steps:
-      - &chat_step
-        backend: chat_agent_step
-        job_tools: [manage_proactive_agent]
-
-  inbox_chat:
+  process_chat_reminders:
     backend: base
     enable_serve: false
     steps:
-      - <<: *chat_step
-        backend: inbox_chat_step
+      - backend: inbox_chat_step
+        job_tools: [manage_proactive_agent]
         timeout_seconds: 120
-
-  new_chat_session:
-    backend: base
-    description: "Create and select an empty chat session; retain all previous session IDs."
-    parameters: {type: object, additionalProperties: false, properties: {}}
-    steps:
-      - <<: *chat_step
-        backend: new_chat_session_step
-
-  list_chat_sessions:
-    backend: base
-    description: "Chat history, newest first. Pure query; cold listing never creates sessions."
-    parameters:
-      type: object
-      additionalProperties: false
-      properties:
-        offset: {type: integer, minimum: 0, default: 0}
-        limit: {type: integer, minimum: 1, default: 10}
-    steps:
-      - backend: list_chat_sessions_step
 
   screen_capture_cron:
     backend: cron
-    enabled: false
+    enabled: true
     cron: "*/5 * * * *"
-    # Optional standalone collector; work_observation_cron already captures every display.
     agent_name: work
     steps:
       - backend: screen_capture_step
         similarity_threshold: 0.99
       - backend: resource_event_step
 
-  work_observation_init:
-    backend: background
-    track_execution: false
-    # Establish the baseline on startup, without importing existing dialogue.
-    steps:
-      - backend: work_observation_init_step
-        codex_home: &work_codex_home ${CODEX_HOME:-~/.codex}
-
-  work_observation_cron:
+  codex_dialogue_cron:
     backend: cron
     cron: "*/5 * * * *"
+    # Establish the baseline on startup, without importing existing dialogue.
+    init_steps:
+      - backend: codex_dialogue_init_step
+        codex_home: &codex_home ${CODEX_HOME:-~/.codex}
     steps:
-      - backend: work_observation_step
+      - backend: codex_dialogue_step
         agent_name: work
-        codex_home: *work_codex_home
-        screenshot_similarity_threshold: 0.99
+        codex_home: *codex_home
 
   finance_news_cron:
     backend: cron
@@ -150,18 +95,11 @@ jobs:
   manage_proactive_agent:
     backend: base
     description: >-
-      Manage tasks by agent_name: list/create/status/update/delete/query. All parameters are top-level.
-      Before creating or changing a task, use list/status to inspect relevant tasks and reuse a matching one.
+      Manage scheduled and event-driven tasks: list/create/status/update/delete/query. All parameters are top-level.
       Create requires agent_name, task_description and agent_type; cron tasks also require cron.
-      Status/update/delete/query require agent_name; query also requires question and an existing queryable task session.
-      Creation writes task_description to TASK.md. List, create and status return task_path. Read the current file before editing, preserve valid information, and read it back after saving.
-      Choose 1-3 simple lowercase English words joined by underscores, describing the task topic or responsibility. Names must be unique regardless of case; Remy and tmp are reserved.
-      Recreating a deleted name restores its task description and history. Read task_path to verify the requirements.
-      Update accepts changed execution settings. Edit TASK.md to change the task description.
-      Optional settings: enabled, cron, min_trigger_interval_seconds for event tasks, notify_window {start,end} in HH:MM.
-      Cron and event tasks can search the web when needed. Event tasks start from incoming observations.
-      Temporary is create-only and independent of agent_type; idle temporary tasks are collected after seven days without new inputs.
-      Query returns an answer from a temporary read-only fork. Delete retains history; external collectors must be stopped separately.
+      Other actions except list require agent_name; query also requires question and an existing queryable task session.
+      Update changes execution settings; edit task requirements in TASK.md at the returned task_path.
+      Follow the manage-proactive-agent skill for workflows and examples.
     parameters:
       type: object
       additionalProperties: false
@@ -195,7 +133,7 @@ jobs:
     steps:
       - backend: manage_proactive_agent_step
 
-  append_event:
+  append_agent_events:
     backend: base
     description: "Durably append observations to a named agent; source belongs to each event."
     parameters:
@@ -221,12 +159,12 @@ jobs:
     steps:
       - backend: append_event_step
 
-  read_inbox:
+  read_chat_reminders:
     backend: base
     enable_serve: false
     description: >-
       Read the selected reminders as agent_name, created_at, message and supporting paths, excluding the reminder Markdown.
-      Successful send_chat_msg decisions consume the batch automatically.
+      Successful submit_chat_reminder decisions consume the batch automatically.
     parameters:
       type: object
       additionalProperties: false
@@ -234,7 +172,7 @@ jobs:
     steps:
       - backend: read_inbox_step
 
-  send_chat_msg:
+  submit_chat_reminder:
     backend: base
     enable_serve: false
     description: Send a concise assistant reminder to the source Chat conversation. Empty content means stay quiet.
@@ -247,7 +185,7 @@ jobs:
     steps:
       - backend: send_chat_msg_step
 
-  proactive_run:
+  run_proactive_agent:
     backend: base
     enable_serve: false
     track_execution: true
@@ -256,18 +194,18 @@ jobs:
         timeout_seconds: 1200
         sandbox: null  # Use the selected wrapper's sandbox setting.
 
-  proactive_query:
+  query_proactive_agent:
     backend: base
     enable_serve: false
     steps:
       - backend: proactive_query_step
 
-  agent_loop:
+  proactive_loop:
     backend: background
     steps:
       - backend: agent_loop_step
 
-  agent_outbox:
+  list_agent_outbox:
     backend: base
     parameters:
       type: object
@@ -280,7 +218,8 @@ jobs:
       required: [agent_name]
     steps:
     - backend: agent_outbox_step
-  agent_reminder:
+
+  read_agent_reminder:
     backend: base
     parameters:
       type: object
@@ -292,7 +231,8 @@ jobs:
       required: [message_id]
     steps:
     - backend: agent_reminder_step
-  agent_inbox:
+
+  list_agent_inbox:
     backend: base
     parameters:
       type: object
@@ -304,7 +244,8 @@ jobs:
         state: {type: string, enum: [all, pending, processing, processed], default: all}
     steps:
     - backend: agent_inbox_step
-  agent_list:
+
+  list_agents:
     backend: base
     parameters:
       type: object
@@ -312,7 +253,8 @@ jobs:
       properties: {}
     steps:
     - backend: agent_list_step
-  agent_session:
+
+  read_agent_session:
     backend: base
     parameters: &agent_request
       type: object
@@ -321,13 +263,15 @@ jobs:
         agent_name: *view_agent_name
     steps:
     - backend: agent_session_step
-  agent_events:
+
+  watch_agent_session:
     backend: stream
     parameters: *agent_request
     steps:
     - backend: agent_events_step
     stream_queue_size: 1
-  agent_chat:
+
+  ask_agent:
     backend: stream
     parameters:
       type: object
@@ -341,46 +285,20 @@ jobs:
       required:
       - query
     steps:
-    - <<: *chat_step
-      backend: agent_chat_step
-  agent_new_session:
+    - backend: agent_chat_step
+      job_tools: [manage_proactive_agent]
+
+  create_chat_session:
     backend: base
     parameters:
       type: object
       additionalProperties: false
       properties: {}
     steps:
-    - <<: *chat_step
-      backend: agent_new_session_step
-  session_read:
-    backend: base
-    description: Read session history, including proactive user and assistant messages.
-    parameters:
-      type: object
-      properties:
-        session_id:
-          type: string
-          description: agent session identifier
-      required:
-      - session_id
-    steps:
-    - backend: session_read_step
-      agent_wrapper: default
-  session_status:
-    backend: base
-    description: Inspect session activity without waiting for generation.
-    parameters:
-      type: object
-      properties:
-        session_id:
-          type: string
-          description: agent session identifier
-      required:
-      - session_id
-    steps:
-    - backend: session_status_step
-      agent_wrapper: default
-  list:
+    - backend: agent_new_session_step
+      job_tools: [manage_proactive_agent]
+
+  list_workspace:
     backend: base
     description: List files under a workspace path.
     parameters:
@@ -410,7 +328,8 @@ jobs:
           default: 100
     steps:
     - backend: list_step
-  load:
+
+  load_file:
     backend: base
     description: Load a complete text file for the local editor without agent-output truncation.
     parameters:
@@ -424,6 +343,7 @@ jobs:
     steps:
     - backend: load_step
       max_bytes: 5242880
+
   read_image:
     backend: base
     description: Read an image file as base64 (workspace-relative path).
@@ -438,6 +358,7 @@ jobs:
     steps:
     - backend: read_image_step
       max_bytes: 5242880
+
   list_tags:
     backend: base
     description: List active tags with file counts. Returns {total_tags, total_pages, page, range, items}; range is the inclusive
@@ -471,7 +392,8 @@ jobs:
           description: items per page
     steps:
     - backend: list_tags_step
-  search:
+
+  search_workspace:
     backend: base
     description: Hybrid workspace search (vector + BM25, RRF-fused).
     parameters:
@@ -510,6 +432,7 @@ jobs:
       candidate_multiplier: 5.0
       expand_links: true
       max_links_per_direction: 10
+
   index_update_loop:
     backend: background
     watch_dirs:
@@ -529,6 +452,7 @@ jobs:
       dispatch_steps:
       - backend: update_index_step
         persist: false
+
   list_tag_files:
     backend: base
     description: Browse existing files matching any selected memory tag, within a workspace directory.
@@ -557,17 +481,11 @@ jobs:
     steps:
     - backend: list_tag_files_step
 
-  app_config:
+  get_app_config:
     backend: base
     description: "Return the effective application config with secrets redacted."
     steps:
       - backend: app_config_step
-
-  version:
-    backend: base
-    description: "Return the ReMe version."
-    steps:
-      - backend: version_step
 
 components:
   asr:
@@ -721,9 +639,6 @@ components:
   file_graph:
     default:
       backend: local
-  file_catalog:
-    default:
-      backend: local
   file_chunker:
     markdown:
       backend: markdown
@@ -733,19 +648,6 @@ components:
       max_ast_sections: 100
       include_frontmatter_in_metadata: false
       include_frontmatter_keys_in_metadata: []
-    json:
-      backend: json
-      supported_extensions:
-      - json
-    jsonl:
-      backend: jsonl
-      supported_extensions:
-      - jsonl
-    default:
-      backend: default
-      supported_extensions:
-      - txt
-      - log
   keyword_index:
     default:
       backend: bm25

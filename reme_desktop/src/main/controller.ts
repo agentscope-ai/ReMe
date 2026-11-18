@@ -276,16 +276,16 @@ export class DesktopController {
               }
             >;
           };
-        }>("app_config", {}, signal);
+        }>("get_app_config", {}, signal);
         if (signal.aborted) return;
         for (const job of [
-          "agent_events",
-          "agent_chat",
-          "agent_session",
-          "agent_new_session",
-          "agent_outbox",
-          "agent_reminder",
-          "agent_inbox",
+          "watch_agent_session",
+          "ask_agent",
+          "read_agent_session",
+          "create_chat_session",
+          "list_agent_outbox",
+          "read_agent_reminder",
+          "list_agent_inbox",
         ]) {
           if (
             !config.jobs?.[job] ||
@@ -305,8 +305,8 @@ export class DesktopController {
           );
         const tts = config.components?.tts?.default;
         this.speech.configure(
-          available("asr_demo"),
-          available("tts_demo"),
+          available("asr"),
+          available("tts"),
           JSON.stringify([
             client.endpoint,
             config.workspace_dir,
@@ -328,7 +328,7 @@ export class DesktopController {
         }
         this.state.workspace = config.workspace_dir;
         await client.stream(
-          "agent_events",
+          "watch_agent_session",
           { agent_name: "Remy" },
           signal,
           (chunk) => {
@@ -1189,7 +1189,7 @@ export class DesktopController {
       for (const [id, receipt] of receipts) {
         try {
           await client.call(
-            "agent_reminder",
+            "read_agent_reminder",
             {
               agent_name: "Remy",
               message_id: id,
@@ -1432,7 +1432,7 @@ export class DesktopController {
     while (!signal.aborted) {
       try {
         await this.client().stream(
-          "agent_events",
+          "watch_agent_session",
           { agent_name: agentName },
           signal,
           (chunk) => {
@@ -1497,7 +1497,7 @@ export class DesktopController {
     const sending = (async () => {
       try {
         await client.stream(
-          "agent_chat",
+          "ask_agent",
           { agent_name: agentName, query: pending.query },
           AbortSignal.any([controller.signal, lifecycle]),
           (chunk) => {
@@ -1549,7 +1549,7 @@ export class DesktopController {
     )
       throw new UiError("sessionBusy");
     this.speech.cancel();
-    await this.client().call("agent_new_session", {}, this.lifecycle!.signal);
+    await this.client().call("create_chat_session", {}, this.lifecycle!.signal);
     this.chatPending = null;
     this.emit();
   }
@@ -1583,7 +1583,7 @@ export class DesktopController {
     this.emit();
     try {
       await this.client().stream(
-        "agent_chat",
+        "ask_agent",
         { query },
         AbortSignal.any([controller.signal, this.lifecycle!.signal]),
         (chunk) => {
