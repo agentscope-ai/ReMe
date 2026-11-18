@@ -111,9 +111,14 @@ test("authoritative subscriptions reconcile replies and endpoint changes respect
   const calls: string[] = [];
   let holdChild = false;
   let waiting = false;
+  let completeClear: (() => void) | undefined;
   let taskStream: ((chunk: StreamChunk) => void) | undefined;
   t.mock.method(ReMeClient.prototype, "call", async (job: string) => {
     calls.push(job);
+    if (job === "create_chat_session")
+      return new Promise<void>((resolve) => {
+        completeClear = resolve;
+      });
     assert.equal(job, "get_app_config");
     return {
       workspace_dir: "/test-workspace",
@@ -249,4 +254,21 @@ test("authoritative subscriptions reconcile replies and endpoint changes respect
   );
   controller.stopReply();
   await sending;
+
+  controller.selectAgent("Remy");
+  const clearing = controller.newSession();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(completeClear);
+  await controller.settings({ endpoint: "http://127.0.0.1:2444" });
+  await new Promise((resolve) => setImmediate(resolve));
+  await controller.send("Keep this new endpoint's reply");
+  const pending = controller.state.pending;
+  assert.ok(pending);
+  completeClear();
+  await assert.rejects(
+    clearing,
+    (error: unknown) =>
+      error instanceof UiError && error.key === "sessionUnavailable",
+  );
+  assert.equal(controller.state.pending, pending);
 });

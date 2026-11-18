@@ -426,6 +426,7 @@ export class DesktopController {
         if (!signal.aborted) throw new UiError("subscriptionEnded");
       } catch (error) {
         if (signal.aborted) return;
+        console.warn("Remy subscription failed:", error);
         this.ready = false;
         this.speech.cancel();
         this.state.connection = "reconnecting";
@@ -1536,9 +1537,11 @@ export class DesktopController {
   }
 
   async newSession(): Promise<void> {
+    const generation = this.generation;
     if ((this.state.selectedAgentName ?? "Remy") !== "Remy")
       throw new UiError("invalidAction");
     await this.settingsWrites;
+    if (generation !== this.generation) throw new UiError("sessionUnavailable");
     if (
       !this.scope ||
       !this.lifecycle ||
@@ -1549,6 +1552,7 @@ export class DesktopController {
       throw new UiError("sessionBusy");
     this.speech.cancel();
     await this.client().call("create_chat_session", {}, this.lifecycle!.signal);
+    if (generation !== this.generation) throw new UiError("sessionUnavailable");
     this.chatPending = null;
     this.emit();
   }

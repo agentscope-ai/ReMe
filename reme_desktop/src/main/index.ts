@@ -627,6 +627,8 @@ else {
             ),
           };
         } catch (error) {
+          if (!(error instanceof UiError && error.key === "speechCancelled"))
+            console.warn("Voice transcription failed:", error);
           return { error: serializeError(error) };
         }
       });
