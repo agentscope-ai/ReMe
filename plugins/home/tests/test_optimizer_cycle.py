@@ -1,4 +1,4 @@
-"""Meta-ReMe cycle timing parity with fake clocks and isolated evaluation evidence."""
+"""Test optimizer cycle timing with fake clocks and isolated evaluation evidence."""
 
 # pylint: disable=missing-function-docstring,missing-class-docstring,protected-access
 # pylint: disable=redefined-outer-name,unused-argument

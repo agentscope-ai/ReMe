@@ -1,4 +1,4 @@
-"""Shared helpers for writing normalized Meta-ReMe datasets."""
+"""Shared helpers for writing normalized datasets."""
 
 from __future__ import annotations
 

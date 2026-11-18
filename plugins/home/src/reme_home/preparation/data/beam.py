@@ -1,4 +1,4 @@
-"""Normalize BEAM cases into the shared Meta-ReMe contracts."""
+"""Normalize BEAM cases into HoMe's shared evaluation format."""
 
 from __future__ import annotations
 

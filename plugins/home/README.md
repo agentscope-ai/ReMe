@@ -267,10 +267,10 @@ for structured error classification.
 Run/case/query `failure.json` files preserve diagnostics. Interrupted/fail-fast
 runs publish `partial_summary.json`, not a completed summary. New executions
 always allocate a new run; they never overwrite previous results. For scored runs, default
-`fail_fast=false` keeps independent cases running. The shared pool executes each
-case's build followed by queries, rather than Meta-ReMe's global construction
-barrier/query-stealing schedule. `max_construction_failure_rate` defaults to the
-old strict-below-3% rule; other pool callers retain strict build-success behavior.
+`fail_fast=false` keeps independent cases running. In the shared pool, each
+case can start its queries as soon as its own build finishes. By default,
+`max_construction_failure_rate` allows a build with a failure rate strictly below
+3%. Other pool callers require all construction jobs to succeed.
 
 `debug=true` selects prepared debug cases and runs smoke inputs without a judge.
 Preparation selects 10% of training cases (rounded up), with a minimum of four
@@ -715,9 +715,9 @@ containment checks; only Bash/Python subprocesses run inside the OS sandbox.
 
 ## Diagnostic and optimizer agents
 
-`home_diagnose` and `home_optimize` provide the minimal Meta-ReMe workflow using
-Home's existing Jobs. Enable Home with a benchmark judge and prepare the
-workspace first. Start the configured service in one terminal:
+`home_diagnose` and `home_optimize` run HoMe's diagnostic and optimization
+workflows. Enable Home with a benchmark judge and prepare the workspace first.
+Start the configured service in one terminal:
 
 ```bash
 reme start config=/absolute/path/to/home.yaml

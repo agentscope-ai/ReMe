@@ -118,7 +118,7 @@ class ValidationCycleTimer(RunTimeBudgetTimer):
 
 
 class OptimizerAgent(RecoverableCompressionAgent):
-    """Add Meta-ReMe's per-validation reminders to Home's bounded agent."""
+    """Add per-validation reminders to HoMe's bounded agent."""
 
     def __init__(self, *args, validation_cycle_timer=None, **kwargs):
         super().__init__(*args, **kwargs)

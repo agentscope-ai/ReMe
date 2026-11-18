@@ -1,4 +1,4 @@
-"""Normalize LongMemEval cases into the shared Meta-ReMe contracts."""
+"""Normalize LongMemEval cases into HoMe's shared evaluation format."""
 
 from __future__ import annotations
 

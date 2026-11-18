@@ -75,9 +75,9 @@ def _dumps_compact_leaf_containers(value) -> str:
                 collect_strings(child)
 
     collect_strings(value)
-    marker_prefix = f"\0meta-reme-singleton-{uuid4().hex}-"
+    marker_prefix = f"\0compact-json-{uuid4().hex}-"
     while any(item.startswith(marker_prefix) for item in strings):
-        marker_prefix = f"\0meta-reme-singleton-{uuid4().hex}-"
+        marker_prefix = f"\0compact-json-{uuid4().hex}-"
 
     replacements: dict[str, str] = {}
 
@@ -165,7 +165,7 @@ def inspect_archive(path: Path, max_bytes: int, destination: Path | None = None)
 
 
 def average_tokens(queries: list[dict]) -> dict:
-    """Average candidate answer total tokens over returned queries, like Meta-ReMe."""
+    """Average candidate answer token totals over all returned queries."""
     totals = {}
     for query in queries:
         usage_by_model = (query.get("answer_result") or {}).get("token_usage", {})
@@ -181,7 +181,7 @@ def average_tokens(queries: list[dict]) -> dict:
 
 
 def summarize(run: Path, cases: list, *, scoring_required: bool = True) -> dict:
-    """Rebuild compact optimizer evidence with Meta-ReMe's expected-query denominator."""
+    """Rebuild optimizer evidence using the expected query count for the overall score."""
     rows, all_scores, query_results = {}, [], []
     case_counts = {"completed": 0, "candidate_failure": 0, "infra_error": 0}
     construction_counts = {"success": 0, "partial_success": 0, "failure": 0}

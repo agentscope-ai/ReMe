@@ -10,7 +10,7 @@ from .artifacts import construction_exception, failure_kind
 
 
 def session_time(session: SessionSpec) -> str:
-    """Match Meta-ReMe's timestamp ordering and date inputs."""
+    """Return the first available message timestamp for session ordering and date inputs."""
     times = [message.get("created_at") for message in session.messages if message.get("created_at")]
     if not times or not isinstance(times[0], str):
         raise ValueError(f"Session {session.session_id!r} has no timestamp")
@@ -62,7 +62,7 @@ def evaluation_query(dataset: str, query: QuerySpec) -> EvaluationQuery:
 
 
 def accepts_build(build: dict, threshold: float) -> bool:
-    """Preserve Meta-ReMe's strict-below-threshold partial-construction rule."""
+    """Accept partial builds below the failure threshold if no infrastructure error occurred."""
     jobs = build.get("jobs", [])
     failed = sum(not isinstance(job.get("result"), dict) or not job["result"].get("success") for job in jobs)
     if failed and failure_kind(construction_exception(build), "construction") == "infra_error":

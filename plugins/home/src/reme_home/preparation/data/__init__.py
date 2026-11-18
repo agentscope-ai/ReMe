@@ -1,4 +1,4 @@
-"""Dataset-specific normalization for Meta-ReMe training data."""
+"""Dataset-specific normalization for HoMe benchmark data."""
 
 from __future__ import annotations
 
