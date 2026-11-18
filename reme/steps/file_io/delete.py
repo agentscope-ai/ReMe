@@ -19,12 +19,17 @@ inbound references on the agent's behalf because there is no
 canonical "new target" — the agent decides per-reference whether
 to rewrite (via ``file_move`` to a merge target), edit the
 citing prose, or accept dangling.
+
+Permission: honors the request-scoped ``_allowed_paths`` constraint
+injected by the server into the RuntimeContext; without it, restricting
+read/edit/write alone would still let a scoped request delete any path
+in the workspace, including whole folders.
 """
 
 import shutil
 from pathlib import Path
 
-from ._path import resolve_path
+from ._path import _check_path_permission, resolve_path
 from ..base_step import BaseStep
 from ...components import R
 from ...utils.wikilink_handler import WikilinkHandler
@@ -74,6 +79,8 @@ class DeleteStep(BaseStep):
         target, err = resolve_path(workspace_dir, path)
         if err or target is None:
             return {"path": path, "error": err or "invalid path"}
+        if not _check_path_permission(workspace_dir, target, self.context.get("_allowed_paths")):
+            return {"path": path, "error": "no permission to delete this path"}
         if target.is_file():
             inbound = await WikilinkHandler.find_inbound(self.file_store, target=path)
             target.unlink()
