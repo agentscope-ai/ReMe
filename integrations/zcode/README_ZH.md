@@ -10,6 +10,9 @@ MCP 记忆工具和 `reme-memory` skill 打包成一个 ZCode 插件。
 - 支持插件与 Hook 的 ZCode 桌面版。插件同时接受两种字段写法（`session_id`/`sessionId`、
   `turnId`/`turn_id`），并从 `last_assistant_message` 或 `responseText` 读取最终回复文本。
 - 启动 ZCode 的环境里需要 Python 3.11 或更新版本，以及 FastMCP 3.1 或更新版本。
+- IANA 时区数据库：`timezone` 默认是 `Asia/Shanghai`，每次事件都会校验。Linux 和 macOS 通常自带；
+  Windows 不自带，需要安装 `tzdata`：`python -m pip install tzdata`。缺数据时报
+  `Timezone data is not installed`，Hook 只记一条 `hook_failed`，不做记录。
 - 一个正在运行的 ReMe 服务，同时暴露 MCP 端点和 HTTP job `search`、`auto_memory`。
 
 Windows、macOS、Linux 均受支持。Hook 脚本只用 Python 标准库，唯一的平台差异是投递进程的脱离方式
@@ -36,6 +39,8 @@ Windows PowerShell：
 ```powershell
 cd E:\path\to\ReMe
 python -m pip install -e ".[core]"
+# Windows 不自带 IANA 时区数据库，而 Hook 会校验 `timezone`。
+python -m pip install tzdata
 ```
 
 自动记忆生成需要模型凭据，按 [Quick Start](../../README.md#environment-variables) 配置

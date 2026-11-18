@@ -17,7 +17,7 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
 
 HOST = "zcode"
 HOME_ENV = "ZCODE_HOME"
@@ -49,6 +49,18 @@ def load_config() -> dict:
     return validate_config(values)
 
 
+def timezone_data_available() -> bool:
+    """Report whether any IANA database is installed; Windows hosts often have none.
+
+    Python returns an empty set (or raises, on older versions) when no data source
+    is configured, so a valid key cannot resolve either way.
+    """
+    try:
+        return bool(available_timezones())
+    except ZoneInfoNotFoundError:
+        return False
+
+
 def validate_config(values: dict) -> dict:
     """Validate user overrides before either transport can use them."""
     if not isinstance(values, dict) or values.keys() - DEFAULTS.keys():
@@ -73,7 +85,11 @@ def validate_config(values: dict) -> dict:
         raise ValueError("Timeout exceeds the lifecycle hook budget")
     try:
         ZoneInfo(config["timezone"])
-    except (KeyError, ValueError) as exc:
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        if not timezone_data_available():
+            raise ValueError(
+                "Timezone data is not installed; install the tzdata package on hosts without an IANA database"
+            ) from exc
         raise ValueError("timezone must be an IANA timezone") from exc
     config["mcp_url"] = validate_url(config["mcp_url"])
     if config["api_url"]:
@@ -222,6 +238,27 @@ def turn_id(payload: dict) -> str | None:
 def queue_root(config: dict) -> Path:
     """Keep queued conversations tied to the service that originally captured them."""
     return data_dir() / "queue" / digest(config["endpoint"])
+
+
+def worker_root(config: dict) -> Path:
+    """Scope worker ownership and its request markers to the endpoint that owns the queue."""
+    return data_dir() / "workers" / digest(config["endpoint"])
+
+
+def claim_request(path: Path) -> bool:
+    """Consume one request marker atomically, so a request this pass did not read survives it.
+
+    Renaming is the single step that both observes and takes the marker. A marker
+    published after the rename is not touched and remains for the next pass, while
+    a marker already present is owned by this pass and reported to the caller.
+    """
+    claimed = path.with_name(f".{path.name}.{os.getpid()}.{time.monotonic_ns()}.claimed")
+    try:
+        os.replace(path, claimed)
+    except FileNotFoundError:
+        return False
+    claimed.unlink(missing_ok=True)
+    return True
 
 
 def prompt_root(config: dict, session: str) -> Path:
@@ -374,7 +411,7 @@ def flush_all(config: dict, *, force: bool) -> None:
             log_status("retry_failed", exc)
 
 
-def request_pass(force: bool) -> None:
+def request_pass(config: dict, force: bool) -> None:
     """Record a delivery request before contending for the worker lock.
 
     The markers are written first on purpose. A competitor that is suspended after
@@ -382,8 +419,11 @@ def request_pass(force: bool) -> None:
     owner can finish its scan, release the lock, find no marker, and exit while the
     request is still unrecorded. Recording first leaves only two outcomes: the owner
     sees the marker and scans again, or the lock is free and this worker takes it.
+
+    Markers live beside the endpoint's lock, so a request is only ever consumed by a
+    worker that scans the queue that request belongs to.
     """
-    root = data_dir()
+    root = worker_root(config)
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     (root / "worker.rerun").touch()
     if force:
@@ -400,10 +440,10 @@ def flush_worker(*, force: bool) -> None:
         # files untouched instead of delivering them behind the user's back.
         log_status("worker_skipped_auto_memory_disabled")
         return
-    root = data_dir()
+    root = worker_root(config)
     rerun = root / "worker.rerun"
     forced = root / "worker.force"
-    request_pass(force)
+    request_pass(config, force)
     while True:
         with lock(root / "worker.lock") as acquired:
             if not acquired:
@@ -412,14 +452,18 @@ def flush_worker(*, force: bool) -> None:
                 # again; the markers stay behind for it.
                 log_status("worker_requeued")
                 return
-            run_force = force or forced.exists()
-            rerun.unlink(missing_ok=True)
-            forced.unlink(missing_ok=True)
             if not load_config()["auto_memory"]:
+                # Recording was disabled while this worker waited; the request
+                # markers stay behind for whichever worker runs once it is back on.
                 log_status("worker_skipped_auto_memory_disabled")
                 return
+            # Claiming the marker is what decides this pass: a request published
+            # after the claim belongs to the next pass and stays on disk instead
+            # of being erased by a pass that never read it.
+            run_force = claim_request(forced) or force
+            claim_request(rerun)
             flush_all(config, force=run_force)
-        if not rerun.exists() and not forced.exists():
+        if not (rerun.exists() or forced.exists()):
             return
 
 

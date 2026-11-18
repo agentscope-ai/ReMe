@@ -31,6 +31,10 @@ def write_config(adapter, values):
     adapter.write_json(adapter.data_dir() / "config.json", values)
 
 
+def worker_marker(adapter, name):
+    return adapter.worker_root(adapter.load_config()) / name
+
+
 def prompt_payload(*, turn="turn-one", prompt="Remember Postgres."):
     return {
         "hook_event_name": "UserPromptSubmit",
@@ -231,6 +235,26 @@ def test_invalid_config_fails_explicitly(adapter, values):
         adapter.load_config()
 
 
+def test_missing_timezone_data_is_reported_separately_from_an_invalid_key(adapter, monkeypatch):
+    def no_database(*_args):
+        raise adapter.ZoneInfoNotFoundError("no database")
+
+    monkeypatch.setattr(adapter, "available_timezones", no_database)
+    monkeypatch.setattr(adapter, "ZoneInfo", no_database)
+    with pytest.raises(ValueError, match="tzdata"):
+        adapter.validate_config({})
+
+    monkeypatch.setattr(adapter, "available_timezones", Mock(return_value=frozenset({"UTC"})))
+    with pytest.raises(ValueError, match="IANA timezone"):
+        adapter.validate_config({})
+
+
+def test_timezone_validation_accepts_the_default_when_data_is_present(adapter):
+    if not adapter.timezone_data_available():
+        pytest.skip("host has no IANA timezone database")
+    assert adapter.validate_config({})["timezone"] == "Asia/Shanghai"
+
+
 def test_disabled_memory_preserves_queue_and_skips_prompt_cache(adapter, monkeypatch):
     write_config(adapter, {"auto_recall": False, "auto_memory": True, "memory_interval": 1})
     capture_one(adapter, monkeypatch)
@@ -279,21 +303,38 @@ def test_worker_honors_disabled_memory_before_delivery(adapter, monkeypatch):
     assert "worker_skipped_auto_memory_disabled" in (adapter.data_dir() / "hooks.log").read_text(encoding="utf-8")
 
 
+def test_worker_scheduling_state_is_scoped_to_the_endpoint(adapter):
+    write_config(adapter, {"auto_recall": False, "auto_memory": True, "memory_interval": 1})
+    old_root = adapter.worker_root(adapter.load_config())
+    write_config(
+        adapter,
+        {"auto_recall": False, "auto_memory": True, "memory_interval": 1, "api_url": "http://127.0.0.1:2334"},
+    )
+    new_root = adapter.worker_root(adapter.load_config())
+
+    adapter.request_pass(adapter.load_config(), True)
+
+    assert old_root != new_root
+    assert (new_root / "worker.rerun").exists()
+    assert (new_root / "worker.force").exists()
+    assert not old_root.exists()
+
+
 def test_worker_leaves_rerun_marker_when_another_pass_holds_the_lock(adapter, monkeypatch):
     write_config(adapter, {"auto_recall": False, "auto_memory": True, "memory_interval": 1})
     monkeypatch.setattr(adapter, "lock", lambda _path: contextlib.nullcontext(False))
 
     adapter.flush_worker(force=True)
 
-    assert (adapter.data_dir() / "worker.rerun").exists()
-    assert (adapter.data_dir() / "worker.force").exists()
+    assert worker_marker(adapter, "worker.rerun").exists()
+    assert worker_marker(adapter, "worker.force").exists()
     assert "worker_requeued" in (adapter.data_dir() / "hooks.log").read_text(encoding="utf-8")
 
 
 def test_contender_records_the_request_before_the_owner_can_exit(adapter, monkeypatch):
     write_config(adapter, {"auto_recall": False, "auto_memory": True, "memory_interval": 1})
     capture_one(adapter, monkeypatch)
-    marker = adapter.data_dir() / "worker.rerun"
+    marker = worker_marker(adapter, "worker.rerun")
     real_lock = adapter.lock
     owner_saw: list[bool] = []
 
@@ -337,16 +378,64 @@ def test_force_contender_then_plain_owner_still_delivers_the_short_batch(adapter
     adapter.flush_worker(force=True)
 
     call.assert_not_called()
-    assert (adapter.data_dir() / "worker.force").exists()
+    assert worker_marker(adapter, "worker.force").exists()
 
     monkeypatch.setattr(adapter, "lock", real_lock)
     adapter.flush_worker(force=False)
 
     assert call.called
-    assert not (adapter.data_dir() / "worker.force").exists()
-    assert not (adapter.data_dir() / "worker.rerun").exists()
+    assert not worker_marker(adapter, "worker.force").exists()
+    assert not worker_marker(adapter, "worker.rerun").exists()
     root = adapter.session_queue(adapter.load_config(), stop_payload())
     assert not list(root.glob("*.json"))
+
+
+def test_force_request_published_while_the_marker_is_removed_is_not_swallowed(adapter, monkeypatch):
+    write_config(adapter, {"auto_recall": False, "auto_memory": True, "memory_interval": 5})
+    capture_one(adapter, monkeypatch)
+    call = Mock(return_value={"success": True})
+    monkeypatch.setattr(adapter, "call", call)
+    real_unlink = Path.unlink
+    published: list[bool] = []
+
+    def unlink_with_contender(self, *args, **kwargs):
+        # A SessionStart contender publishes its request while this pass is
+        # removing the marker it read; the removal must not take that request
+        # with it, which is what the exists-then-unlink sequence did.
+        if "worker.rerun" in self.name and not published:
+            published.append(True)
+            (self.parent / "worker.rerun").touch()
+            (self.parent / "worker.force").touch()
+        return real_unlink(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", unlink_with_contender)
+
+    adapter.flush_worker(force=False)
+
+    assert published == [True]
+    call.assert_called_once()
+    assert not list(adapter.data_dir().rglob("worker.rerun"))
+    assert not list(adapter.data_dir().rglob("worker.force"))
+    root = adapter.session_queue(adapter.load_config(), stop_payload())
+    assert not list(root.glob("*.json"))
+
+
+def test_force_request_published_after_the_claim_forces_the_next_pass(adapter, monkeypatch):
+    write_config(adapter, {"auto_recall": False, "auto_memory": True, "memory_interval": 1})
+    passes: list[bool] = []
+    forced_marker = worker_marker(adapter, "worker.force")
+
+    def flush_all(_config, *, force):
+        passes.append(force)
+        if len(passes) == 1:
+            forced_marker.touch()
+
+    monkeypatch.setattr(adapter, "flush_all", flush_all)
+
+    adapter.flush_worker(force=False)
+
+    assert passes == [False, True]
+    assert not forced_marker.exists()
 
 
 def test_worker_stops_between_batches_when_memory_is_disabled(adapter, monkeypatch):
@@ -379,7 +468,7 @@ def test_worker_stops_between_batches_when_memory_is_disabled(adapter, monkeypat
 
 def test_worker_runs_another_pass_when_a_session_is_captured_during_delivery(adapter, monkeypatch):
     write_config(adapter, {"auto_recall": False, "auto_memory": True, "memory_interval": 1})
-    marker = adapter.data_dir() / "worker.rerun"
+    marker = worker_marker(adapter, "worker.rerun")
     passes: list[bool] = []
 
     def flush_all(_config, *, force):
@@ -392,6 +481,43 @@ def test_worker_runs_another_pass_when_a_session_is_captured_during_delivery(ada
 
     assert passes == [True, True]
     assert not marker.exists()
+
+
+def test_old_endpoint_worker_leaves_new_endpoint_queue_for_its_own_worker(adapter, monkeypatch):
+    write_config(adapter, {"auto_recall": False, "auto_memory": True, "memory_interval": 1})
+    capture_one(adapter, monkeypatch)
+    old_endpoint = adapter.load_config()["endpoint"]
+    spawn = Mock(return_value=True)
+    monkeypatch.setattr(adapter, "spawn_worker", spawn)
+    delivered: list[str] = []
+
+    def call(config, _action, payload, _timeout):
+        delivered.append(config["endpoint"])
+        if len(delivered) == 1:
+            # A turn for another endpoint is captured while this endpoint's worker
+            # waits for its acknowledgement, then the user switches api_url and a
+            # worker for the new endpoint starts.
+            write_config(
+                adapter,
+                {"auto_recall": False, "auto_memory": True, "memory_interval": 1, "api_url": "http://127.0.0.1:2334"},
+            )
+            adapter.handle_event(prompt_payload(turn="turn-new", prompt="Remember the new service."))
+            adapter.handle_event(stop_payload(turn="turn-new", text="New saved."))
+            pending = [
+                turn for root in adapter.queue_root(adapter.load_config()).glob("*/") for turn in root.glob("*.json")
+            ]
+            assert len(pending) == 1
+            adapter.flush_worker(force=False)
+            assert not pending[0].exists()
+        return {"success": True}
+
+    monkeypatch.setattr(adapter, "call", call)
+    adapter.flush_worker(force=False)
+
+    new_config = adapter.load_config()
+    assert new_config["endpoint"] != old_endpoint
+    assert delivered == [old_endpoint, new_config["endpoint"]]
+    assert not list(adapter.queue_root(new_config).rglob("*.json"))
 
 
 def test_stop_without_turn_id_leaves_no_prompt_copy(adapter, monkeypatch):

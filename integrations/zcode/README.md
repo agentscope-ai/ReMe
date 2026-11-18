@@ -12,6 +12,10 @@ one ZCode plugin.
   (`session_id`/`sessionId`, `turnId`/`turn_id`) and reads the final assistant text from
   `last_assistant_message` or `responseText`.
 - Python 3.11 or newer in the environment that launches ZCode, with FastMCP 3.1 or newer.
+- The IANA timezone database, because `timezone` defaults to `Asia/Shanghai` and is validated on every
+  event. Linux and macOS normally ship one; Windows does not, so install the `tzdata` package there:
+  `python -m pip install tzdata`. Without it validation fails with `Timezone data is not installed` and the
+  hooks only log `hook_failed` instead of recording.
 - A running ReMe service exposing the MCP endpoint and the HTTP jobs `search` and `auto_memory`.
 
 The plugin is supported on Windows, macOS and Linux. The Hook script uses only the Python standard
@@ -40,6 +44,8 @@ Windows PowerShell:
 ```powershell
 cd E:\path\to\ReMe
 python -m pip install -e ".[core]"
+# Windows ships no IANA timezone database and the hooks validate `timezone`.
+python -m pip install tzdata
 ```
 
 Automatic memory generation requires model credentials. Configure `LLM_API_KEY` and `LLM_BASE_URL`
