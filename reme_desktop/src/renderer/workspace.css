@@ -203,20 +203,6 @@ html[data-platform="darwin"] .workspace-titlebar {
   color: var(--muted);
   font-size: var(--text-caption);
 }
-.count-pill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 21px;
-  height: 20px;
-  padding: 0 6px;
-  border-radius: var(--radius-sm);
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-size: var(--text-caption);
-  font-weight: var(--weight-medium);
-  letter-spacing: 0;
-}
 .list-section-label {
   display: flex;
   align-items: center;
@@ -234,24 +220,6 @@ html[data-platform="darwin"] .workspace-titlebar {
   color: var(--muted);
   font-size: var(--text-caption);
   margin-top: auto;
-}
-.sidebar-empty {
-  text-align: center;
-  color: var(--muted);
-  padding: 65px 15px;
-}
-.sidebar-empty > svg {
-  opacity: 0.55;
-  margin-bottom: 12px;
-}
-.sidebar-empty h3 {
-  font-size: var(--text-caption);
-  color: var(--ink);
-  font-weight: var(--weight-medium);
-}
-.sidebar-empty p {
-  font-size: var(--text-caption);
-  line-height: 1.9;
 }
 .conversation-pane {
   display: flex;

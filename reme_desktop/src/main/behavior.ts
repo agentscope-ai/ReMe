@@ -7,7 +7,6 @@ import {
 import type { Language, TranslationKey } from "../shared/i18n.ts";
 import type {
   Activities,
-  AgentActivity,
   AnimationIntent,
   AnimationManifest,
   Behavior,

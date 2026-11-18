@@ -22,7 +22,6 @@ import type {
   Presentation,
   Receipt,
   TranscriptMessage,
-  SessionSnapshot,
   AnimationManifest,
   PlaybackStatus,
   SettingsUpdate,
