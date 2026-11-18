@@ -374,7 +374,7 @@ class LocalAgentRuntime(BaseAgentRuntime):
                 if session_id is not None:
                     await finish_cleanup(self.agent_wrapper.release_session(session_id))
 
-    async def run(self, agent_name, execute):
+    async def run(self, agent_name, execute, *, on_failure=None):
         """Commit successful execution before handing asynchronous delivery to the outbox."""
         async with (
             self._agent_task(agent_name),
@@ -449,6 +449,14 @@ class LocalAgentRuntime(BaseAgentRuntime):
             except BaseException as exc:
                 phase = "interrupted" if isinstance(exc, asyncio.CancelledError) else "failed"
                 self.activities[agent_name] = self.activities[agent_name].model_copy(update={"phase": phase})
+                if on_failure is not None:
+
+                    async def restore_uncommitted():
+                        receipt = (await self.inbox.snapshot(agent_name))["receipt"]
+                        if receipt is None or not {item["id"] for item in batch["items"]}.issubset(receipt.item_ids):
+                            await on_failure()
+
+                    await finish_cleanup(restore_uncommitted())
                 raise
             finally:
                 try:

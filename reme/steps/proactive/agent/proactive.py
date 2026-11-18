@@ -23,12 +23,12 @@ class ProactiveAgentStep(BaseAgentStep):
         if type(timeout_seconds) not in (int, float) or not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be a finite positive number")
         self.timeout_seconds = timeout_seconds
+        self._round_files = {}
 
     def _paths(self, agent, now):
         runtime = self.agent_runtime
         daily = runtime.files.path(self.config_value("daily_dir"))
-        agent_dir = runtime.agents.directory_for(agent)
-        reminder_dir = agent_dir / "reminder"
+        reminder_dir = runtime.agents.directory_for(agent) / "reminder"
         day = now.strftime("%Y-%m-%d")
         summary = runtime.files.checked(daily / day / f"{agent.agent_name}.md")
         yesterday = (now.date() - timedelta(days=1)).isoformat()
@@ -44,7 +44,6 @@ class ProactiveAgentStep(BaseAgentStep):
             collision += 1
         return {
             "daily_dir": daily,
-            "reminder_dir": reminder_dir,
             "task_path": runtime.agents.task_path(agent),
             "today_summary_path": summary,
             "yesterday_summary_path": yesterday_summary,
@@ -75,7 +74,7 @@ class ProactiveAgentStep(BaseAgentStep):
             options["sandbox"] = sandbox
         return options
 
-    def _record_query(self, agent, events):
+    def _query(self, agent, events):
         cron = agent.agent_type == "cron"
         files = self.agent_runtime.files
         inputs = []
@@ -94,7 +93,7 @@ class ProactiveAgentStep(BaseAgentStep):
                     ),
                 )
         return self.prompt_format(
-            "query_record",
+            "query",
             input_content="\n\n".join(inputs),
             proactive=not cron,
             cron=cron,
@@ -107,191 +106,144 @@ class ProactiveAgentStep(BaseAgentStep):
         except FileNotFoundError:
             return None
 
-    def _read_document(self, path, *, action=None, allow_empty_skip=False):
+    def _read_document(self, path, *, record=False):
         """Require an explicit decision and validate the body."""
         document = frontmatter.loads(self.agent_runtime.files.read(path))
         if document.get("action") not in ("write", "skip"):
             raise ValueError(f"{path}: action must be write or skip")
-        if not document.content.strip() and not (allow_empty_skip and document["action"] == "skip"):
+        if record and document["action"] == "skip":
+            if document.content.strip():
+                raise ValueError(f"{path}: a skipped record body must be blank")
+        elif not document.content.strip():
             raise ValueError(f"{path}: document body must not be blank")
-        if action is not None and document["action"] != action:
-            raise ValueError(f"{path}: action must remain {action}")
         return document
 
-    def _reminder_result(self, paths):
-        """Read business output from documents, never from the model's reply text."""
+    def _read_artifacts(self, paths, summary_before):
+        """Validate the final branch and derive notifications only from saved documents."""
         files = self.agent_runtime.files
-        document = self._read_document(paths["reminder_path"])
-        if document["action"] == "skip":
-            return ProactiveRunResult(notifications=[])
-        self._read_document(paths["record_path"], action="write")
-        return ProactiveRunResult(
-            notifications=[
-                {
-                    "priority": document.get("priority"),
-                    "message": document.content,
-                    "paths": [
-                        path.relative_to(files.workspace).as_posix()
-                        for path in (paths["reminder_path"], paths["record_path"])
-                    ],
-                },
-            ],
-        )
-
-    def _prepare_reminder(self, paths):
-        """Validate the draft and add framework-owned related paths before summarizing."""
-        result = self._reminder_result(paths)
-        if result.notifications:
-            notification = result.notifications[0]
-            document = frontmatter.Post(
-                notification.message,
-                action="write",
-                priority=notification.priority,
-                paths=notification.paths,
-            )
-            self.agent_runtime.files.write(paths["reminder_path"], frontmatter.dumps(document) + "\n")
-        return result
-
-    def _read_artifacts(self, paths, summary_before, record, reminder):
-        """Require a summary of new progress and preserve already validated documents."""
-        files = self.agent_runtime.files
-        if files.read(paths["record_path"]) != record or files.read(paths["reminder_path"]) != reminder:
-            raise ValueError("summary stage must not change the record or reminder")
-        summary = self._read_optional(paths["today_summary_path"])
-        if not summary or not summary.strip():
-            raise ValueError("new progress must have a nonempty daily summary")
-        if summary == summary_before:
-            raise ValueError("new progress must update its daily summary")
-        return self._reminder_result(paths)
-
-    async def _run_stage(self, agent_name, session_id, stage, query, path, check, options):
-        """Observe one model turn, validate its file, and log the actual content change."""
-        started = monotonic()
-        label = f"Proactive agent={agent_name} session={session_id} stage={stage}"
-        self.logger.info(f"{label} result=started path={path}")
-        try:
-            before = await asyncio.to_thread(self._read_optional, path)
-
-            async def observe(chunk):
-                publish(chunk)
-
-            with self.agent_runtime.live_turns.observe(agent_name, session_id, query) as publish:
-                reply = await collect_reply(
-                    self.agent_runtime.agent_wrapper.reply_stream(
-                        query,
-                        resume=session_id,
-                        activity_source="proactive",
-                        activity_task_id=agent_name,
-                        **options,
-                    ),
-                    on_chunk=observe,
+        record = self._read_document(paths["record_path"], record=True)
+        notifications = []
+        if record["action"] == "skip":
+            if self._read_optional(paths["reminder_path"]) is not None:
+                raise ValueError("a skipped record must not create a reminder")
+        else:
+            reminder = self._read_document(paths["reminder_path"])
+            if reminder["action"] == "write":
+                notifications.append(
+                    {
+                        "priority": reminder.get("priority"),
+                        "message": reminder.content,
+                        "paths": [
+                            paths[key].relative_to(files.workspace).as_posix()
+                            for key in ("reminder_path", "record_path")
+                        ],
+                    },
                 )
-            if reply["status"] != "completed":
-                raise RuntimeError(reply.get("error") or f"Proactive agent {reply['status']}")
-            result = await complete_in_thread(check)
-            after = await asyncio.to_thread(self._read_optional, path)
-            change = "unchanged" if before == after else "created" if before is None else "updated"
-            action = frontmatter.loads(after).get("action") if after is not None else None
-            explanation = frontmatter.loads(after).content if action == "skip" else reply["result"]
-            explanation = " ".join(explanation.split())[:500]
-            self.logger.info(
-                f"{label} result={change} action={action} elapsed={monotonic() - started:.2f}s "
-                f"path={path} bytes={len((after or '').encode('utf-8'))} summary={explanation!r}",
-            )
-            return result
-        except BaseException as exc:
-            outcome = "interrupted" if isinstance(exc, asyncio.CancelledError) else "failed"
-            self.logger.error(
-                f"{label} result={outcome} elapsed={monotonic() - started:.2f}s path={path} error={exc}",
-            )
-            raise
+        result = ProactiveRunResult(notifications=notifications)
+        summary = self._read_optional(paths["today_summary_path"])
+        if not result.notifications:
+            if summary != summary_before:
+                raise ValueError("a round without a reminder must not change the daily summary")
+        elif not summary or not summary.strip():
+            raise ValueError("a reminder requires a nonempty daily summary")
+        elif summary == summary_before:
+            raise ValueError("a reminder must update its daily summary")
+        return result
 
     async def execute(self):
         arguments = self.parameters()
         if set(arguments) != {"agent_name"}:
             raise ValueError("proactive_agent_step requires only agent_name")
         self.require_paths(self.workspace_path)
-        async with asyncio.timeout(self.timeout_seconds):
-            self.context.response.answer = await self.agent_runtime.run(arguments["agent_name"], self._execute)
+        self._round_files = {}
+        self.context.response.answer = await self.agent_runtime.run(
+            arguments["agent_name"],
+            self._execute,
+            on_failure=self._restore_files,
+        )
         return self.context.response
 
+    async def _restore_files(self):
+        """Restore only this round's files when its input receipt was not committed."""
+
+        def restore():
+            files = self.agent_runtime.files
+            for path, before in self._round_files.items():
+                if self._read_optional(path) == before:
+                    continue
+                if before is None:
+                    files.remove(path)
+                else:
+                    files.write(path, before)
+
+        await complete_in_thread(restore)
+
     async def _execute(self, agent, events):
-        """Retain records and summarize only when a fresh run generates a reminder."""
+        """Run the complete workflow in one turn, then validate its saved decisions."""
         runtime = self.agent_runtime
         now = runtime.now()
         paths = await asyncio.to_thread(self._paths, agent, now)
         summary_before = await asyncio.to_thread(self._read_optional, paths["today_summary_path"])
+        self._round_files = {
+            paths["record_path"]: None,
+            paths["reminder_path"]: None,
+            paths["today_summary_path"]: summary_before,
+        }
         if not (await asyncio.to_thread(runtime.files.read, paths["task_path"])).strip():
             raise ValueError("TASK.md must not be blank")
         options = self.session_options(agent, paths, now)
-        session_id = await runtime.sessions.ensure(
-            agent.agent_name,
-            runtime.agent_wrapper,
-            options,
-            now,
-            new=True,
-        )
-        query = await asyncio.to_thread(self._record_query, agent, events)
+        query = await asyncio.to_thread(self._query, agent, events)
+        started = monotonic()
+        label = f"Proactive agent={agent.agent_name}"
+        session_id = None
+        try:
 
-        async def run(stage, path, check):
-            prompt = (
-                query
-                if stage == "record"
-                else self.prompt_format(
-                    f"query_{stage}",
-                    **{key: str(value) for key, value in paths.items()},
-                )
-            )
-            return await self._run_stage(agent.agent_name, session_id, stage, prompt, path, check, options)
+            async def observe(chunk):
+                publish(chunk)
 
-        document = await run(
-            "record",
-            paths["record_path"],
-            lambda: self._read_document(paths["record_path"], allow_empty_skip=True),
-        )
-        if document["action"] == "skip":
-            if await asyncio.to_thread(self._read_optional, paths["today_summary_path"]) != summary_before:
-                raise ValueError("a skipped record must not change the daily summary")
-            await complete_in_thread(runtime.files.remove, paths["record_path"])
-            for stage in ("update", "reminder", "summary"):
-                key = {
-                    "update": "record_path",
-                    "reminder": "reminder_path",
-                    "summary": "today_summary_path",
-                }[stage]
-                self.logger.info(
-                    f"Proactive agent={agent.agent_name} session={session_id} stage={stage} "
-                    f"result=skipped reason=record_skipped path={paths[key]}",
-                )
-            return ProactiveRunResult(notifications=[]), session_id
-
-        await run(
-            "update",
-            paths["record_path"],
-            lambda: self._read_document(paths["record_path"], action="write"),
-        )
-        record = await asyncio.to_thread(runtime.files.read, paths["record_path"])
-        result = await run("reminder", paths["reminder_path"], lambda: self._prepare_reminder(paths))
-        if not result.notifications:
-
-            def discard_draft():
-                if self._read_optional(paths["today_summary_path"]) != summary_before:
-                    raise ValueError("a skipped reminder must not change the daily summary")
-                runtime.files.remove(paths["record_path"])
-                runtime.files.remove(paths["reminder_path"])
-
-            await complete_in_thread(discard_draft)
+            model_error = None
+            try:
+                async with asyncio.timeout(self.timeout_seconds):
+                    session_id = await runtime.sessions.ensure(
+                        agent.agent_name,
+                        runtime.agent_wrapper,
+                        options,
+                        now,
+                        new=True,
+                    )
+                    label += f" session={session_id}"
+                    self.logger.info(f"{label} result=started path={paths['record_path']}")
+                    with runtime.live_turns.observe(agent.agent_name, session_id, query) as publish:
+                        reply = await collect_reply(
+                            runtime.agent_wrapper.reply_stream(
+                                query,
+                                resume=session_id,
+                                activity_source="proactive",
+                                activity_task_id=agent.agent_name,
+                                **options,
+                            ),
+                            on_chunk=observe,
+                        )
+                    if reply["status"] != "completed":
+                        raise RuntimeError(reply.get("error") or f"Proactive agent {reply['status']}")
+            except Exception as exc:
+                model_error = exc
+            try:
+                result = await asyncio.to_thread(self._read_artifacts, paths, summary_before)
+            except Exception as validation_error:
+                if model_error is not None:
+                    raise model_error from validation_error
+                raise
+            if model_error is not None:
+                self.logger.warning(f"{label} result=accepted_artifacts model_error={type(model_error).__name__}")
             self.logger.info(
-                f"Proactive agent={agent.agent_name} session={session_id} stage=summary "
-                f"result=skipped reason=reminder_skipped path={paths['today_summary_path']}",
+                f"{label} result=validated notifications={len(result.notifications)} "
+                f"elapsed={monotonic() - started:.2f}s path={paths['record_path']}",
             )
-            return result, session_id
-        reminder = await asyncio.to_thread(runtime.files.read, paths["reminder_path"])
-        result = await run(
-            "summary",
-            paths["today_summary_path"],
-            lambda: self._read_artifacts(paths, summary_before, record, reminder),
-        )
+        except BaseException as exc:
+            outcome = "interrupted" if isinstance(exc, asyncio.CancelledError) else "failed"
+            self.logger.error(f"{label} result={outcome} elapsed={monotonic() - started:.2f}s error={exc}")
+            raise
         return result, session_id
 
 
@@ -307,5 +259,8 @@ class ProactiveQueryStep(BaseAgentStep):
         reply = await self.query_reply(arguments["agent_name"], arguments["query"])
         if reply["status"] != "completed":
             raise RuntimeError(reply.get("error") or f"Proactive query {reply['status']}")
-        self.context.response.answer = {"agent_name": arguments["agent_name"], "answer": reply["result"]}
+        self.context.response.answer = {
+            "agent_name": arguments["agent_name"],
+            "answer": reply["result"],
+        }
         return self.context.response

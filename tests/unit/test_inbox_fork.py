@@ -13,7 +13,7 @@ from reme.schema import SessionMessage
 from reme.steps.proactive.agent import ChatAgentStep, InboxChatStep, NewChatSessionStep, ProactiveAgentStep
 from reme.steps.proactive.tools.inbox import ReadInboxStep, SendChatMessageStep
 from .test_agent_runtime import completed_result, create_agent, running_runtime
-from .test_proactive_stages import install_round
+from .test_proactive_run import install_round
 
 
 async def prepare(runtime, context, priority="P1"):

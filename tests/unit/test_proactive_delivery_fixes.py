@@ -88,7 +88,7 @@ async def test_automatic_rounds_start_fresh_sessions_while_user_followups_resume
 
         async def reply(query, **kwargs):
             if kwargs.get("sandbox") == "workspace-write":
-                runtime.files.write(paths["record_path"], "---\naction: skip\n---\nNo new information.\n")
+                runtime.files.write(paths["record_path"], "---\naction: skip\n---\n")
             async for chunk in original_reply(query, **kwargs):
                 yield chunk
 

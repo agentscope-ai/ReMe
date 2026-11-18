@@ -17,9 +17,8 @@ system_prompt: |
   - `REMINDER_PATH`: {reminder_path}
 
   # Notes
-  - Use the goals, matters to follow and reminder requirements in `TASK_PATH` as the basis for this task. Do not guess whether the user has already learned about or handled this round's information in other conversations.
-  - If a collected file contains sensitive information, you may delete it. Do not write sensitive information from it into any file in `DAILY_DIR` or into `TASK_PATH` or `REMINDER_PATH`.
-  - When working on a task, read `TASK_PATH` as needed. If execution steps are provided, follow them strictly in order and do not inspect content outside their scope.
+  - Do not write sensitive information into files in `DAILY_DIR`, `TASK_PATH` or `REMINDER_PATH`.
+  - When editing an existing file, update its contents directly. Do not delete and re-add the same file in one patch. To rewrite the entire file, overwrite it directly.
 
   {sleep_reminder_rule}
 
@@ -42,73 +41,49 @@ system_prompt_zh: |
   - `REMINDER_PATH`：{reminder_path}
 
   # 注意事项
-  - 以 `TASK_PATH` 中的任务目标、关注事项和提醒要求为准，不推测用户在其他对话中是否已经知道或处理了本轮信息。
-  - 如果采集到的文件包含敏感信息，可以删除该文件。不要把其中的敏感信息写入 `DAILY_DIR` 中的文件、`TASK_PATH` 或 `REMINDER_PATH`。
-  - 处理任务时，根据需要阅读 `TASK_PATH`。如果提供了执行步骤，就严格按顺序执行，不查看步骤范围之外的内容。
+  - 不要把敏感信息写入 `DAILY_DIR` 中的文件、`TASK_PATH` 或 `REMINDER_PATH`。
+  - 修改已有文件时，直接更新内容，不要在同一个补丁里先删除、再新建同一个文件。需要整篇重写时，直接覆盖写入。
 
   {sleep_reminder_rule}
 
-query_record: |
+query: |
   [proactive] {input_content}
 
-  Follow these steps strictly:
-  1. Read `TASK_PATH` to understand the task, confirmed background, user preferences and reminder requirements.
-  2. Read `TODAY_SUMMARY_PATH` and `YESTERDAY_SUMMARY_PATH`; skip any missing files.
-  [cron] 3. Execute the task in `TASK_PATH`. Use tools such as `web_search` as needed to find or verify information. Keep source URLs when citing online information.
-  [proactive] 3. Read this round's events one by one and review the corresponding original content, including images, to understand the details of each event.
-  4. Compare against the previously read summaries in `TODAY_SUMMARY_PATH` and `YESTERDAY_SUMMARY_PATH` to determine whether there is new information this round. New facts, material changes, task progress, and items whose reminder time has arrived or reminder conditions have been met all count as new information.
-  5. Write this round's record to the Markdown file `RECORD_PATH`.
-    - If there is new information, set `action: write` in the frontmatter. Record only information supported by clear evidence. Write the body concisely and completely in plain language: first outline this round's findings, then explain the relevant facts and changes, include necessary sources, and finish with a brief summary.
-    - If there is no new information, set `action: skip` in the frontmatter and leave the body empty.
+  1. Understand the task and existing context
+    - Read `TASK_PATH` to understand the task, confirmed background, user preferences and reminder requirements.
+    - Read `TODAY_SUMMARY_PATH` and `YESTERDAY_SUMMARY_PATH`; skip any missing files.
 
-query_record_zh: |
-  [proactive] {input_content}
+  2. Complete the task and analyze this round's changes
+  [proactive] - Read this round's events and original content, including images; when there are no attachments, use the event description.
+  [cron] - Execute the task in `TASK_PATH`, leaving reminders to step 4. Use tools as needed to find or verify information, and retain source URLs when citing online information.
+    - Compare against existing summaries to identify new facts, material changes and task progress. A specified reminder time arriving or an explicit reminder condition being met also counts as new information.
+    - When background or duplicate checks are needed, search `DAILY_DIR` for related history using keywords or regular expressions, excluding this round's `RECORD_PATH`. Use relevant records to reconstruct what happened; skip anything unhelpful.
+    - Distinguish facts from inference. Not observing something does not mean it did not happen; collection and recording times may differ from when the event occurred.
+    - If a tool truncates necessary content, read the missing portions before drawing conclusions.
 
-  请严格按以下步骤执行：
-  1. 阅读 `TASK_PATH`，明确任务内容、已确认的背景、用户偏好和提醒要求。
-  2. 阅读 `TODAY_SUMMARY_PATH` 和 `YESTERDAY_SUMMARY_PATH`，跳过不存在的文件。
-  [cron] 3. 执行 `TASK_PATH` 中的任务。根据需要使用 `web_search` 等工具查找或核实资料，引用网络资料时，保留来源 URL。
-  [proactive] 3. 逐一阅读本轮事件，并查看对应的原始内容（包括图片），了解事件的具体情况。
-  4. 对照已经读过的 `TODAY_SUMMARY_PATH` 和 `YESTERDAY_SUMMARY_PATH` 中的总结，判断本轮是否有新增信息。新事实、实质性变化、任务进展，以及到了提醒时间或满足提醒条件的事项，都算新增信息。
-  5. 将本轮记录写入 Markdown 文件 `RECORD_PATH`。
-    - 有新增信息时，在 frontmatter 中设置 `action: write`。只记录有明确依据的信息。正文用简洁、完整的大白话来写：先概括本轮发现，再说明相关事实和变化，附上必要的来源，最后简要总结。
-    - 没有新增信息时，在 frontmatter 中设置 `action: skip`，正文留空。
+  3. Write this round's record
+    - Write the record to `RECORD_PATH`.
+    - If there is new information, set `action: write` in the frontmatter. Describe the facts, changes and necessary background in concise, complete, plain language. Retain source URLs and Markdown links to related historical records.
+    - If there is no new information, set `action: skip`, leave the body empty and end this round.
 
-query_update: |
-  Based on the new information in `RECORD_PATH`, search `DAILY_DIR` for related historical records using keywords or regular expressions, excluding this round's record file `RECORD_PATH`. When you find related events, summarize what happened in chronological order and provide a brief analysis based on the related records found in `DAILY_DIR`.
-  - If there is information worth adding, add it to `RECORD_PATH` in concise, plain language and include Markdown links to the source files.
-  - If no related records are found or there is nothing worth adding, leave `RECORD_PATH` unchanged.
+  4. Decide whether to remind and write the result
+    - Follow the latest reminder times, conditions and interruption preferences in `TASK_PATH`. Use this round's record, existing summaries and related history to decide whether a reminder is worthwhile. Do not guess whether the user has already learned about or handled this information in other conversations.
+    - For the same item, remind only about new, material changes; when the task explicitly requests a reminder at every scheduled occurrence, assess each occurrence separately.
+    - Do not remind when the task explicitly says not to, the content is repetitive, there is no new development worth a reminder, or the content has little value to the task.
+    - For the remaining content, check P0, P1 and P2 in order and choose the first matching level:
+      - P0: The task's specified reminder time has arrived, an explicit reminder condition has been met, or clear evidence shows that an immediate decision or action is needed.
+      - P1: A matter the task asks you to follow, discuss or track has important new progress but does not need immediate attention.
+      - P2: Useful new information within the task's scope is directly related to the user's interests or goals explicitly stated in the task.
+    - If none matches, do not remind. A scheduled trigger, an event trigger or the information source does not by itself make something urgent.
+    - Write the result to `REMINDER_PATH`:
+      - If a reminder is needed, set `action: write` and `priority: Px` in the frontmatter, where `Px` is the selected `P0`, `P1` or `P2`. Write one natural, considerate sentence in plain language describing the new development and any necessary action or timing requirements.
+      - If no reminder is needed, set `action: skip`, briefly explain why in the body and end this round.
 
-query_update_zh: |
-  根据 `RECORD_PATH` 中的新增信息，在 `DAILY_DIR` 中用关键词或正则表达式查找相关的历史记录，排除本轮记录文件 `RECORD_PATH`。找到相关事件后，按时间顺序梳理经过，并结合从 `DAILY_DIR` 检索到的相关记录做简要分析。
-  - 有值得补充的信息时，用简洁的大白话补充到 `RECORD_PATH`，并附上来源文件的 Markdown 链接。
-  - 没有找到相关记录，或没有值得补充的内容时，保持 `RECORD_PATH` 不变。
+  5. Update today's summary
+    - Combine the existing summary, this round's record and the generated reminder to update `TODAY_SUMMARY_PATH`, organized into “Today's journal” and “Today's reminders”.
+    - Merge content about the same item, update outdated information and retain necessary background and record links so the next round can continue from here.
+    - Record only reminders actually generated. Generation does not mean the user has received or read a reminder; do not describe it as already communicated.
 
-query_reminder: |
-  1. Follow the latest reminder times, conditions and interruption preferences in `TASK_PATH`. Use the rules below for anything not specified.
-  2. Compare the new information in `RECORD_PATH` against the previously read summaries in `TODAY_SUMMARY_PATH` and `YESTERDAY_SUMMARY_PATH` and related records found in `DAILY_DIR`. Decide not to remind for information with no new developments worth a reminder, duplicates, content with little relevance or value to the task, and anything `TASK_PATH` explicitly says not to remind the user about. For the same item, remind only about new, material changes.
-  3. For the remaining content, check P0, P1 and P2 in order and choose the first matching level. Do not keep comparing levels; decide not to remind if none matches. A scheduled trigger, an event trigger or the information source does not by itself make something urgent.
-    - P0: The reminder time specified in `TASK_PATH` has arrived, an explicit reminder condition has been met, or clear evidence shows that something needs an immediate decision or action.
-    - P1: A matter `TASK_PATH` asks you to follow, discuss or track has important new progress but does not need immediate attention.
-    - P2: Useful new information within the task's scope is directly related to the user's interests or goals explicitly stated in `TASK_PATH`.
-  4. Whether or not a reminder is needed, write the decision to the Markdown file `REMINDER_PATH`.
-    - If a reminder is needed, set `action: write` in the frontmatter and set `priority` to `P0`, `P1` or `P2`. Write only one concise, natural and considerate sentence in plain language, clearly describing the new development and any necessary action or timing requirements.
-    - If no reminder is needed, set `action: skip` in the frontmatter and briefly explain why in the body.
-
-query_reminder_zh: |
-  1. 按照 `TASK_PATH` 中最新的提醒时间、提醒条件和打扰要求处理。没有说明的部分，再参考下面的规则。
-  2. 将 `RECORD_PATH` 中的新增信息，与已经读过的 `TODAY_SUMMARY_PATH` 和 `YESTERDAY_SUMMARY_PATH` 中的总结，以及从 `DAILY_DIR` 检索到的相关记录对照。没有值得提醒的新变化、内容重复、对任务用处不大或关系不大，或 `TASK_PATH` 明确要求不提醒时，判定为不提醒。同一事项只提醒新的实质性变化。
-  3. 对其余内容，按 P0、P1、P2 的顺序判断，选择第一个符合的等级，不再反复比较；都不符合时，判定为不提醒。定时触发、事件触发或信息来源本身，不代表事情紧急。
-    - P0：`TASK_PATH` 指定的提醒时间已到，或明确的提醒条件已经满足，或有明确依据表明事情需要马上决定或处理。
-    - P1：`TASK_PATH` 中要求关注、讨论或跟进的事项有了重要进展，但不需要马上处理。
-    - P2：任务范围内发现了有用的新信息，与 `TASK_PATH` 中明确的用户兴趣或目标直接相关。
-  4. 无论是否需要提醒，都将判断结果写入 Markdown 文件 `REMINDER_PATH`。
-    - 需要提醒时，在 frontmatter 中设置 `action: write`，将 `priority` 设为 `P0`、`P1` 或 `P2`。正文只写一句简洁、自然、体贴的大白话，说清楚新变化，以及必要的行动或时间要求。
-    - 不需要提醒时，在 frontmatter 中设置 `action: skip`，正文简要说明原因。
-
-query_summary: |
-  Using all context, including the previously read summaries in `TODAY_SUMMARY_PATH` and `YESTERDAY_SUMMARY_PATH` and the actual outcomes for `RECORD_PATH` and `REMINDER_PATH`, prepare a complete, up-to-date daily summary. Write clearly in concise, plain language so the next round can understand the situation and avoid duplicate reminders.
-  - Include this round's record and generated reminder in `TODAY_SUMMARY_PATH`. Merge content about the same item, update outdated information and retain necessary record links. A generated reminder does not mean the user has received or read it; do not describe it as already communicated. In this stage, use only the tools needed to update `TODAY_SUMMARY_PATH`.
     ```markdown
     ## Today's journal
     - Item A xxx. [Progress](xxx.md)
@@ -118,9 +93,44 @@ query_summary: |
     - Item A xxx.
     ```
 
-query_summary_zh: |
-  结合所有上下文，包括此前读过的 `TODAY_SUMMARY_PATH` 和 `YESTERDAY_SUMMARY_PATH` 中的总结，以及 `RECORD_PATH` 和 `REMINDER_PATH` 的实际结果，整理出完整、最新的当天总结。用简洁的大白话写清楚，方便下一轮了解情况，避免重复提醒。
-  - 将本轮记录和已生成的提醒纳入 `TODAY_SUMMARY_PATH`。合并同一事项的内容，更新其中的过时信息，并保留必要的记录链接。生成提醒不代表用户已经收到或读过，不要写成已经告知。本阶段只使用更新 `TODAY_SUMMARY_PATH` 所需的工具。
+query_zh: |
+  [proactive] {input_content}
+
+  1. 了解任务和已有情况
+    - 阅读 `TASK_PATH`，了解任务内容、已确认的背景、用户偏好和提醒要求。
+    - 阅读 `TODAY_SUMMARY_PATH` 和 `YESTERDAY_SUMMARY_PATH`，不存在的文件跳过。
+
+  2. 完成任务，分析本轮变化
+  [proactive] - 阅读本轮事件及其原始内容，包括图片；没有附件时，以事件描述为准。
+  [cron] - 执行 `TASK_PATH` 中的任务，提醒留到第 4 步处理。根据需要使用工具查找或核实资料，引用网络资料时保留来源 URL。
+    - 对照已有总结，找出本轮的新事实、实质性变化和任务进展。到了任务指定的提醒时间，或满足明确提醒条件，也算新增信息。
+    - 需要补充背景或判断是否重复时，在 `DAILY_DIR` 中用关键词或正则表达式查找相关历史记录，排除本轮的 `RECORD_PATH`。结合相关记录梳理事情的经过，没有有用内容时跳过。
+    - 分清事实和推测。没有观察到某件事，不代表它没有发生；采集时间和记录时间也不一定是事件发生时间。
+    - 必要内容被工具截断时，补读缺失部分，再做判断。
+
+  3. 写本轮记录
+    - 将本轮记录写入 `RECORD_PATH`。
+    - 有新增信息时，在 frontmatter 中设置 `action: write`。用简洁、完整的大白话说明事实、变化和必要背景，保留来源 URL 和相关历史记录的 Markdown 链接。
+    - 没有新增信息时，设置 `action: skip`，正文留空，本轮结束。
+
+  4. 判断是否提醒，并写下结果
+    - 按照 `TASK_PATH` 中最新的提醒时间、条件和打扰要求，结合本轮记录、已有总结和相关历史记录，判断是否值得提醒。不要猜测用户是否已经从其他对话知道或处理了本轮信息。
+    - 同一事项只提醒新的实质性变化；任务明确要求每次定时提醒的，每次到期分别判断。
+    - 任务明确要求不提醒、内容重复、没有值得提醒的新变化，或对任务用处不大时，不提醒。
+    - 对其余内容，按 P0、P1、P2 的顺序选择第一个符合的等级：
+      - P0：任务指定的提醒时间已到，明确提醒条件已满足，或有明确依据表明需要马上决定或处理。
+      - P1：任务要求关注、讨论或跟进的事项有重要进展，但不需要马上处理。
+      - P2：任务范围内发现有用的新信息，与任务中明确的用户兴趣或目标直接相关。
+    - 都不符合时，不提醒。定时触发、事件触发或信息来源本身，不代表事情紧急。
+    - 将结果写入 `REMINDER_PATH`：
+      - 需要提醒时，在 frontmatter 中设置 `action: write` 和 `priority: Px`，其中 `Px` 为选定的 `P0`、`P1` 或 `P2`。正文用一句自然、体贴的大白话，说清新变化及必要的行动或时间要求。
+      - 不需要提醒时，设置 `action: skip`，正文简要说明原因，本轮结束。
+
+  5. 更新当天总结
+    - 结合已有总结、本轮记录和生成的提醒，更新 `TODAY_SUMMARY_PATH`，按“今日日记”和“今日提醒”两个部分整理。
+    - 合并同一事项，更新过时状态，保留必要背景和记录链接，让下一轮能接着了解情况。
+    - 记录实际生成的提醒。生成提醒不代表用户已经收到或读过，不要写成已经告知。
+
     ```markdown
     ## 今日日记
     - 事项 A xxx。[进展](xxx.md)
@@ -129,7 +139,6 @@ query_summary_zh: |
     ## 今日提醒
     - 事项 A xxx。
     ```
-
 
 event_input: |
   Event {number}
