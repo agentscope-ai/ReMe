@@ -15,7 +15,7 @@ Start ReMe → Install the ReMe plugin → Use memory in Claude Code
 
 ## Requirements
 
-- Python 3.11+ available as `python3` in the host's environment, with FastMCP >= 3.1 (included with ReMe).
+- Python 3.11+ available as `python3` in the host's environment. Optional stdio mode also needs `fastmcp>=4.1.4,<5`.
 - A current Claude Code version supporting plugin command hooks, `async`, and Stop `last_assistant_message`.
 - A running ReMe HTTP service exposing `search`, `auto_memory`, and `health_check`, with MCP enabled.
 - A working model configuration on the ReMe server for memory extraction. Default BM25 recall does not need embeddings.
@@ -24,7 +24,7 @@ Start ReMe → Install the ReMe plugin → Use memory in Claude Code
 
 ```bash
 pip install "reme-ai[core]"
-reme start workspace_dir=/absolute/path/to/workspace service.backend=http
+reme start config=default workspace_dir=/absolute/path/to/workspace
 ```
 
 The default endpoint is `http://127.0.0.1:2333`, with MCP at `/mcp`. Keep the unauthenticated HTTP
@@ -33,15 +33,29 @@ scopes; sharing one workspace between hosts is intentional cross-agent recall.
 
 ## 2. Install the plugin
 
-In Claude Code, using an absolute path to this checkout:
+In another terminal, prepare a user-owned installation source. HTTP is the default and connects
+directly to the shared ReMe service without a persistent Python MCP proxy:
+
+```bash
+python3 /absolute/path/to/ReMe/integrations/configure_mcp.py claude-code
+```
+
+The command prints the absolute marketplace path. In Claude Code, use that path:
 
 ```text
-/plugin marketplace add /absolute/path/to/ReMe/integrations/claude_code
+/plugin marketplace add /absolute/path/to/claude-config/reme/plugin-marketplace
 /plugin install reme@reme-marketplace
 ```
 
 Restart Claude Code or reload the installed plugin, then open a new conversation. The installation
 loads the bundled hooks, MCP connection, and skill together. Reinstall or reload the plugin after updates.
+When upgrading code, regenerate the source before reinstalling the plugin. To switch to the
+existing Python bridge, regenerate with `--transport stdio` and reinstall the plugin. Both modes use
+the same Hooks, skill, settings, and retry queue. Neither requires changing `default.yaml` or `proactive.yaml`.
+
+If a marketplace with this name was already registered from the checkout, remove the old plugin
+and `/plugin marketplace remove reme-marketplace` before registering the generated source.
+The user settings, retry queue, and logs outside the installation source are preserved.
 
 ## 3. Use memory in Claude Code
 
@@ -94,18 +108,26 @@ For example, use another port and disable automatic recording:
 }
 ```
 
-Both MCP and hooks read addresses from this user configuration. Hooks pick up edits on their next
-invocation. After changing an address or the MCP timeout, reconnect MCP or restart the host so the
-existing MCP process also reads the new settings. No source edits, cache edits, or reinstall are needed.
+The configuration command reads the MCP address from this file. Hooks pick up edits on their next
+invocation. In HTTP mode, rerun the command after an address change, reinstall the
+plugin from the generated source, and restart the host. Alternatively, use
+`python3 /absolute/path/to/ReMe/integrations/configure_mcp.py claude-code --mcp-url http://127.0.0.1:2444/mcp`
+to update the JSON and generated connection together. In stdio mode, reconnect MCP after editing
+the address or `request_timeout`. That timeout configures the stdio bridge; native HTTP tool-call
+timeouts are controlled by Claude Code. No repository source or installed cache is edited.
 For a custom MCP path such as `https://memory.example.com/tools`, also set `api_url` to the HTTP Job
 API base, for example `https://memory.example.com/reme`.
+The configuration command also accepts `--api-url` for this case. If the JSON already contains an
+explicit `api_url`, changing the address with `--mcp-url` requires `--api-url` too, so Hooks cannot
+silently keep sending conversations to an old HTTP service. If an HTTP installation no longer
+matches the saved MCP address, Hooks skip work with `hook_failed` until it is regenerated and reinstalled.
 
 Unknown fields and invalid values fail validation; hooks skip work and log `hook_failed` instead of
 falling back to another service. Disabling `auto_memory` stops automatic capture and retries while
 preserving pending batches; explicit MCP tools remain available. Changing the service address never
 sends old pending conversations to the new service. Remove a field to restore its default.
 
-The plugin uses a host-managed stdio process to forward MCP. Start the host with a `python3`
+Optional stdio mode uses a host-managed process to forward MCP. Start the host with a `python3`
 environment containing FastMCP. If ReMe runs on another machine or in another Python environment,
 run `python3 -m pip install "fastmcp>=4.1.4,<5"` in the host environment. Hooks use only the standard library.
 

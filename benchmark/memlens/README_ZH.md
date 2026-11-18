@@ -3,6 +3,8 @@
 使用官方固定的 195 题 memory-agent 子集。128K、256K 分别读取自己的完整历史，
 每题使用独立 workspace。
 
+[MemLens-256K 评测报告](docs/zh/evaluation.md)汇总四模型结果、固定 189/195 题口径与方法设置。
+
 ## 运行
 
 ```bash

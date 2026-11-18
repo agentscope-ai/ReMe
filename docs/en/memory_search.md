@@ -306,3 +306,14 @@ Typical text structure:
 
 `counts` reports how many vector and keyword candidates were recalled and how many results were ultimately returned.
 With embeddings disabled by default, `vector` is usually `0` and `hybrid` is `false`.
+
+## Traverse return format
+
+`TraverseStep` returns a readable summary of reached nodes and directed edges in `response.answer`. Node lines include
+available frontmatter names and concise descriptions; an unindexed path is marked as lacking indexed frontmatter while noting
+that the file may still exist on disk. When no edges are reached within the requested depth and direction, the answer
+says so explicitly.
+
+The complete structured `TraverseGraph` is available in `response.metadata.graph`. This changes the type of
+`response.answer` from a graph dictionary to a string. Programmatic callers that parsed the old answer should migrate
+to `response.metadata.graph` for seeds, direction, depth, nodes, and edges.

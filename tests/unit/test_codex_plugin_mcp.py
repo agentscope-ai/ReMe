@@ -23,6 +23,7 @@ def plugin(tmp_path, monkeypatch):
     monkeypatch.syspath_prepend(str(PLUGIN))
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / "host"))
     config = importlib.import_module("reme_config")
+    monkeypatch.setattr(config, "MCP_CONNECTION", {"command": "python3"})
     runtime = importlib.import_module("reme_runtime")
     # Protocol tests must never start a scheduled network call at the wall-clock boundary.
     monkeypatch.setattr(runtime, "next_daily_run", lambda *_: datetime(2099, 1, 1, tzinfo=timezone.utc))

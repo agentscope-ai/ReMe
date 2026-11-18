@@ -27,6 +27,7 @@ from test_evaluation import (  # noqa: F401  # pylint: disable=unused-import
     preparation_inputs,
     prepared_home,
     os_sandbox_available,
+    host_network_command,
 )
 from test_workflows import ScriptedModel, final_report, set_model
 
@@ -598,13 +599,9 @@ async def test_real_equivalence_sandbox_allows_only_copied_construction_and_sour
     with pytest.raises(OSError):
         await backend.read_file(str(root / "escape"))
     assert not list(root.rglob(".git")) and not list(root.rglob("queries"))
-    async with await asyncio.start_server(lambda _reader, writer: writer.close(), "127.0.0.1", 0) as server:
-        port = server.sockets[0].getsockname()[1]
-        network = await backend.exec_shell(
-            [sys.executable, "-I", "-B", "-c", f"import socket; socket.create_connection(('127.0.0.1', {port}), 1)"],
-            timeout=10,
-        )
-    assert not network.ok()
+    with host_network_command() as network_command:
+        network = await backend.exec_shell(network_command, timeout=10)
+        assert not network.ok()
     monkeypatch.setenv("HOME_REVIEW_PRIVATE_TOKEN", "private-marker")
     environment = await backend.exec_shell(
         [sys.executable, "-I", "-B", "-c", "import os; print(os.environ.get('HOME_REVIEW_PRIVATE_TOKEN', 'absent'))"],

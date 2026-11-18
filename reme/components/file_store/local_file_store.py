@@ -20,7 +20,7 @@ from ..keyword_index import BaseKeywordIndex
 from ..tag_index import BaseTagIndex
 from ...enumeration import LinkScopeEnum
 from ...schema import FileChunk, FileLink, FileNode
-from ...utils import batch_cosine_similarity
+from ...utils import batch_cosine_similarity, canonical_index_path
 from ...utils.async_utils import complete_in_thread
 from ...utils.jsonl_zst import read_jsonl_zst, write_jsonl_zst
 
@@ -122,11 +122,14 @@ class LocalFileStore(BaseFileStore):
         self.store_version = store_version
         self.file_chunks: dict[str, FileChunk] = {}
         self.chunks_path = self.component_metadata_path / f"file_chunks_{self.name}_{self.store_version}.jsonl.zst"
+        self._keyword_repair_path = self.component_metadata_path / f"keyword_repair_{self.name}_{self.store_version}"
+        self._keyword_indexed_text: dict[str, str] = {}
         self._embedding_backfill_task: asyncio.Task | None = None
         self._embedding_backfill_pending = False
         self._embedding_rebuild_pending = bool(embedding_rebuild_required)
         self._embedding_space_generation = 0
         self._mutation_generation = 0
+        self._keyword_pending_paths: set[str] = set()
         self._tag_index_rebuild_required = False
         self._tag_indexed_file_count = 0
         self._closing = False
@@ -194,6 +197,7 @@ class LocalFileStore(BaseFileStore):
             else:
                 await self.dump()
         self.file_chunks.clear()
+        self._keyword_indexed_text.clear()
         await super()._close()
 
     def _mark_embedding_unhealthy(self, reason: str) -> None:
@@ -301,7 +305,7 @@ class LocalFileStore(BaseFileStore):
                 for line in read_jsonl_zst(self.chunks_path, self.encoding):
                     line = line.strip()
                     if line:
-                        chunk = self._deserialize_chunk(line)
+                        chunk = self._canonical_chunk(self._deserialize_chunk(line))
                         self.file_chunks[chunk.id] = chunk
                 self.logger.info(f"Loaded {len(self.file_chunks)} chunks from {self.chunks_path}")
             except Exception as e:
@@ -312,6 +316,7 @@ class LocalFileStore(BaseFileStore):
         )
 
         graph_repair_started_at = time.monotonic()
+        await self._drop_superseded_chunks()
         graph_repaired = await self._repair_graph_chunk_consistency()
         self.logger.info(
             f"{self.name}: graph consistency check complete: repaired={graph_repaired}, "
@@ -328,6 +333,7 @@ class LocalFileStore(BaseFileStore):
 
         keyword_sync_started_at = time.monotonic()
         await self._sync_keyword_index_from_chunks()
+        self._keyword_pending_paths.clear()
         keyword_backend = type(self.keyword_index).__name__ if self.keyword_index is not None else "disabled"
         keyword_docs = getattr(self.keyword_index, "n_docs", 0) if self.keyword_index is not None else 0
         self.logger.info(
@@ -337,6 +343,31 @@ class LocalFileStore(BaseFileStore):
         self.logger.info(
             f"{self.name}: file store load phases complete: " f"elapsed={time.monotonic() - started_at:.3f}s",
         )
+
+    async def _drop_superseded_chunks(self) -> list[str]:
+        """Remove chunk handles that lost a duplicate path-spelling merge.
+
+        The graph reports the handles no surviving record references any more.
+        Keeping them made the superseded text searchable under the surviving
+        path and tags, and the store then saw them as orphans, which made
+        :meth:`_repair_graph_chunk_consistency` clear the whole derived index
+        on the next start.  The reported handles are returned so native vector
+        indexes can drop their rows too.
+        """
+        assert self.file_graph is not None
+        dropped = await self.file_graph.take_dropped_chunk_ids()
+        if not dropped:
+            return []
+        removed = [chunk_id for chunk_id in dropped if self.file_chunks.pop(chunk_id, None) is not None]
+        for chunk_id in removed:
+            self._keyword_indexed_text.pop(chunk_id, None)
+        if removed and self.keyword_index is not None:
+            with suppress(Exception):
+                await self.keyword_index.delete_docs(removed)
+        self.logger.warning(
+            f"{self.name}: dropped {len(removed)} superseded chunk(s) from a conflicting path spelling",
+        )
+        return dropped
 
     async def _repair_graph_chunk_consistency(self) -> bool:
         """Clear torn graph/chunk state so the filesystem scan rebuilds it.
@@ -365,6 +396,16 @@ class LocalFileStore(BaseFileStore):
         # chunks, and search indexes from the user-owned files.
         await self.clear()
         return True
+
+    @staticmethod
+    def _canonical_chunk(chunk: FileChunk) -> FileChunk:
+        """Return ``chunk`` carrying the canonical workspace-relative POSIX path.
+
+        The chunk id is intentionally left untouched: it is an opaque handle that
+        ``FileNode.chunk_ids`` and every derived index already reference.
+        """
+        path = canonical_index_path(chunk.path)
+        return chunk if path == chunk.path else chunk.model_copy(update={"path": path})
 
     @staticmethod
     def _deserialize_chunk(line: str) -> FileChunk:
@@ -671,7 +712,9 @@ class LocalFileStore(BaseFileStore):
             unindexable_ids = {cid for cid in expected_ids - live_ids if not self.keyword_index.is_indexable(docs[cid])}
             expected_ids -= unindexable_ids
 
-        if live_ids == expected_ids:
+        repair_required = self._keyword_repair_path.exists()
+        if live_ids == expected_ids and not repair_required:
+            self._keyword_indexed_text = docs
             return
 
         missing_count = len(expected_ids - live_ids) if live_ids is not None else len(expected_ids)
@@ -679,9 +722,10 @@ class LocalFileStore(BaseFileStore):
         indexed_count = len(live_ids) if live_ids is not None else getattr(self.keyword_index, "n_docs", -1)
         self.logger.warning(
             f"{self.name}: keyword index mismatch: indexed={indexed_count}, expected={len(expected_ids)}, "
-            f"missing={missing_count}, extra={extra_count}; rebuilding",
+            f"missing={missing_count}, extra={extra_count}, repair_required={repair_required}; rebuilding",
         )
         await self._rebuild_keyword_index(docs)
+        self._keyword_repair_path.unlink(missing_ok=True)
 
     async def _rebuild_keyword_index(self, docs: dict[str, str]) -> None:
         """Synchronously rebuild keyword search in batches with progress logs."""
@@ -711,6 +755,7 @@ class LocalFileStore(BaseFileStore):
             elapsed = time.monotonic() - started_at
             self.logger.exception(f"{self.name}: keyword index rebuild failed after {elapsed:.2f}s")
             raise
+        self._keyword_indexed_text = docs.copy()
         elapsed = time.monotonic() - started_at
         self.logger.info(f"{self.name}: keyword index rebuild complete: total={total}, elapsed={elapsed:.2f}s")
 
@@ -787,9 +832,14 @@ class LocalFileStore(BaseFileStore):
             self.logger.exception(f"{self.name}: incremental tag index delete failed; rebuilding from graph")
             await self._rebuild_tag_index("incremental delete recovery")
 
+    @BaseFileStore.serialized
     async def _dump_owned_state(self) -> None:
         """Persist state owned by this store, excluding dependency snapshots."""
         try:
+            # The chunk snapshot may contain staged text whose postings are still
+            # old. Keep a rebuild marker until startup repairs and persists them.
+            if self.keyword_index and self._keyword_pending_paths:
+                await complete_in_thread(self._keyword_repair_path.touch)
             # Keep snapshotting synchronous so concurrent mutation cannot produce a
             # mixed-generation checkpoint. Move it off-loop only if profiling shows
             # this copy, rather than serialization/compression, is a material stall.
@@ -832,22 +882,104 @@ class LocalFileStore(BaseFileStore):
 
     @BaseFileStore.serialized
     async def upsert(self, files: list[tuple[FileNode, list[FileChunk]]]) -> None:
+        """Replace file chunks, retaining unchanged live keyword documents."""
         if not files:
             return
+        await self._upsert_canonical_batch(self.prepare_upsert_batch(files))
+
+    def prepare_upsert_batch(
+        self,
+        files: list[tuple[FileNode, list[FileChunk]]],
+    ) -> list[tuple[FileNode, list[FileChunk]]]:
+        """Return the batch every backend stages and indexes.
+
+        Persisted spellings and freshly chunked files must share one identity,
+        otherwise the same file is stored and queried as two different paths.
+        Normalizing here keeps the graph, the chunk map, the keyword index and
+        the native vector indexes on the same records and paths.
+        """
+        assert self.file_graph is not None
+        canonical = [
+            (
+                self.file_graph.canonical_node(node),
+                [self._canonical_chunk(chunk) for chunk in chunks],
+            )
+            for node, chunks in files
+        ]
+        return self._dedupe_upsert_batch(canonical)
+
+    async def _upsert_canonical_batch(
+        self,
+        files: list[tuple[FileNode, list[FileChunk]]],
+    ) -> list[str]:
+        """Store a normalized batch; return the handles the graph dropped."""
         assert self.file_graph is not None
 
         old_map = {n.path: n for n in await self.file_graph.get_nodes([node.path for node, _ in files])}
         old_chunk_ids = {cid for n in old_map.values() for cid in n.chunk_ids}
+        # Keep indexed text independent of caller-owned mutable chunks. Retry
+        # files with incomplete updates in full, including stale live postings.
+        old_keyword_docs = {
+            cid: self._keyword_indexed_text[cid]
+            for path, old_node in old_map.items()
+            if path not in self._keyword_pending_paths
+            for cid in old_node.chunk_ids
+            if cid in self._keyword_indexed_text
+        }
+        self._keyword_pending_paths.update(node.path for node, _ in files)
         new_nodes, needs_embed, keyword_docs = self._stage_upsert(files, old_map)
+
+        unchanged_ids: set[str] = set()
+        if self.keyword_index:
+            try:
+                live_ids = self.keyword_index.document_ids
+            except NotImplementedError:
+                # Backends without live IDs keep the full replacement behavior.
+                pass
+            else:
+                # Missing entries must be retried even if staging a previous
+                # failed upsert already replaced the in-memory chunk text.
+                unchanged_ids = {
+                    cid for cid, text in keyword_docs.items() if old_keyword_docs.get(cid) == text and cid in live_ids
+                }
+        deleted_ids = old_chunk_ids - unchanged_ids
+        keyword_docs = {cid: text for cid, text in keyword_docs.items() if cid not in unchanged_ids}
 
         await self.file_graph.upsert_nodes(new_nodes)
         await self._upsert_tag_nodes(new_nodes)
         await self._embed_pending(needs_embed)
-        if self.keyword_index and old_chunk_ids:
-            await self.keyword_index.delete_docs(list(old_chunk_ids))
+        if self.keyword_index and deleted_ids:
+            await self.keyword_index.delete_docs(list(deleted_ids))
         if self.keyword_index and keyword_docs:
             await self.keyword_index.add_docs(keyword_docs)
+        for cid in deleted_ids:
+            self._keyword_indexed_text.pop(cid, None)
+        if self.keyword_index:
+            self._keyword_indexed_text.update(keyword_docs)
+        self._keyword_pending_paths.difference_update(node.path for node, _ in files)
         self._mutation_generation += 1
+        return await self._drop_superseded_chunks()
+
+    def _dedupe_upsert_batch(
+        self,
+        files: list[tuple[FileNode, list[FileChunk]]],
+    ) -> list[tuple[FileNode, list[FileChunk]]]:
+        """Keep only the last entry per canonical path within one write batch.
+
+        Two spellings of the same file in a single batch would stage the first
+        entry's chunks and then publish only the second entry's handles, so the
+        earlier chunks stayed reachable from neither the graph nor the indexes.
+        A later start then treated them as orphans and cleared the index.
+        """
+        latest: dict[str, tuple[FileNode, list[FileChunk]]] = {}
+        for node, chunks in files:
+            if node.path in latest:
+                self.logger.warning(
+                    f"{self.name}: collapsing duplicate upsert of {node.path} in one batch; keeping the last entry",
+                )
+                del latest[node.path]
+            latest[node.path] = (node, chunks)
+        return list(latest.values())
 
     def _stage_upsert(
         self,
@@ -957,6 +1089,9 @@ class LocalFileStore(BaseFileStore):
         await self._delete_tag_paths([str(n.path) for n in nodes])
         if self.keyword_index and deleted_chunk_ids:
             await self.keyword_index.delete_docs(deleted_chunk_ids)
+        for cid in deleted_chunk_ids:
+            self._keyword_indexed_text.pop(cid, None)
+        self._keyword_pending_paths.difference_update(n.path for n in nodes)
 
     async def get_nodes(self, paths: list[str] | None = None) -> list[FileNode]:
         assert self.file_graph is not None
@@ -985,6 +1120,9 @@ class LocalFileStore(BaseFileStore):
         self.chunks_path.unlink(missing_ok=True)
         if self.keyword_index:
             await self.keyword_index.clear()
+        self._keyword_indexed_text.clear()
+        self._keyword_repair_path.unlink(missing_ok=True)
+        self._keyword_pending_paths.clear()
         await self.file_graph.clear()
         if self.tag_index_enabled:
             tag_index = self.require_tag_index()
@@ -1109,9 +1247,11 @@ class LocalFileStore(BaseFileStore):
             for key in ("path", "paths"):
                 if key in search_filter:
                     has_exact_paths = True
-                    exact_paths.update(self._as_filter_values(search_filter[key]))
+                    exact_paths.update(
+                        canonical_index_path(str(value)) for value in self._as_filter_values(search_filter[key])
+                    )
             prefixes = tuple(
-                str(value)
+                canonical_index_path(str(value))
                 for key in ("path_prefix", "path_prefixes", "prefix", "prefixes")
                 if key in search_filter
                 for value in self._as_filter_values(search_filter[key])
@@ -1132,12 +1272,13 @@ class LocalFileStore(BaseFileStore):
             return legacy
 
         def matches(chunk: FileChunk) -> bool:
-            if has_exact_paths and chunk.path not in exact_paths:
+            path = canonical_index_path(chunk.path)
+            if has_exact_paths and path not in exact_paths:
                 return False
-            if prefixes and not chunk.path.startswith(prefixes):
+            if prefixes and not path.startswith(prefixes):
                 return False
             if start_date or end_date:
-                path_date = self._extract_date_from_path(chunk.path)
+                path_date = self._extract_date_from_path(path)
                 if not path_date:
                     if strict_date:
                         return False
@@ -1173,7 +1314,7 @@ class LocalFileStore(BaseFileStore):
 
         Returns a validated YYYY-MM-DD string, or None if no date is found.
         """
-        parts = path.split("/")
+        parts = canonical_index_path(path).split("/")
         if len(parts) < 2:
             return None
         # Accept only exact "YYYY-MM-DD" (dir) or "YYYY-MM-DD.md" (day index).
@@ -1192,20 +1333,23 @@ class LocalFileStore(BaseFileStore):
         if not search_filter:
             return True
 
+        path = canonical_index_path(chunk.path)
         exact_paths = set()
         has_exact_path_filter = False
         for key in ("path", "paths"):
             if key in search_filter:
                 has_exact_path_filter = True
-                exact_paths.update(cls._as_filter_values(search_filter[key]))
-        if has_exact_path_filter and chunk.path not in exact_paths:
+                exact_paths.update(
+                    canonical_index_path(str(value)) for value in cls._as_filter_values(search_filter[key])
+                )
+        if has_exact_path_filter and path not in exact_paths:
             return False
 
         prefixes = []
         for key in ("path_prefix", "path_prefixes", "prefix", "prefixes"):
             if key in search_filter:
-                prefixes.extend(str(v) for v in cls._as_filter_values(search_filter[key]))
-        if prefixes and not any(chunk.path.startswith(prefix) for prefix in prefixes):
+                prefixes.extend(canonical_index_path(str(v)) for v in cls._as_filter_values(search_filter[key]))
+        if prefixes and not any(path.startswith(prefix) for prefix in prefixes):
             return False
 
         # Date range filtering based on date embedded in chunk path.
@@ -1215,7 +1359,7 @@ class LocalFileStore(BaseFileStore):
         end_date = search_filter.get("end_date")
         strict_date = bool(search_filter.get("strict_date_filter", False))
         if start_date or end_date:
-            path_date = cls._extract_date_from_path(chunk.path)
+            path_date = cls._extract_date_from_path(path)
             if not path_date:
                 if strict_date:
                     return False

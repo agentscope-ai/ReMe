@@ -1,4 +1,5 @@
 backends:
+  memlens_benchmark_agent: reme_memlens.benchmark_agent:BenchmarkAsAgentWrapper
   memlens_auto_memory_step: reme_memlens.auto_memory:MemLensAutoMemoryStep
   memlens_agentic_answer_step: reme_memlens.agentic_answer:MemLensAgenticAnswerStep
 

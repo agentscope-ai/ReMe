@@ -4,7 +4,6 @@
 
 import asyncio
 from pathlib import Path
-import sys
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -23,6 +22,7 @@ from test_evaluation import (  # noqa: F401  # pylint: disable=unused-import
     prepared_home,
     rebuild_review,
     os_sandbox_available,
+    host_network_command,
 )
 from test_workflows import ScriptedModel, set_model
 
@@ -293,11 +293,6 @@ async def test_real_gate_sandbox_denies_evidence_live_code_writes_and_network(ap
     (root / "escape").symlink_to(outside)
     with pytest.raises(OSError):
         await backend.read_file(str(root / "escape"))
-    # Linux permits sockets inside its isolated namespace; host services must remain unreachable.
-    async with await asyncio.start_server(lambda _reader, writer: writer.close(), "127.0.0.1", 0) as server:
-        port = server.sockets[0].getsockname()[1]
-        network = await backend.exec_shell(
-            [sys.executable, "-I", "-B", "-c", f"import socket; socket.create_connection(('127.0.0.1', {port}), 1)"],
-            timeout=10,
-        )
-    assert not network.ok()
+    with host_network_command() as network_command:
+        network = await backend.exec_shell(network_command, timeout=10)
+        assert not network.ok()

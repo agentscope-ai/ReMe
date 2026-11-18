@@ -1,8 +1,8 @@
 # ReMe documentation site
 
 This package builds the VitePress site published at <https://reme.agentscope.io>. The canonical documentation lives in
-`docs/`; selected product, integration, plugin, and benchmark READMEs are mirrored into a disposable source tree during
-the build. Do not edit `.generated/` or `dist/`.
+`docs/` and each benchmark's `docs/` directory; selected guides and repository READMEs are mirrored into a disposable
+source tree during the build. Do not edit `.generated/` or `dist/`.
 
 ## Requirements
 
@@ -18,7 +18,7 @@ npm ci --prefix ../reme_studio
 npm run dev
 ```
 
-The development server prints its local URL. Restart it after changing a mirrored README or `reme/config/default.yaml`
+The development server prints its local URL. Restart it after changing a mirrored guide or `reme/config/default.yaml`
 so the generated source tree and Job reference are refreshed. Changes under `docs/` are also refreshed on restart.
 
 ## Validation
@@ -43,11 +43,17 @@ dependencies before running them. The demo needs no ReMe service or model creden
 - `integrations/{dsh,openclaw}/README*.md`: TypeScript host plugins
 - `plugins/*/README*.md`: plugin guides
 - `benchmark/*/README*.md`: benchmark guides
+- `benchmark/{memlens,mobilemem}/docs/{en,zh}/evaluation.md`: multimodal evaluation settings and results
+- `benchmark/memlens/docs/figure/`: multimodal evaluation charts
 - `scripts/generate-content.mjs`: source mirroring and reference generation
 
 When adding a canonical guide, add both `docs/zh/<name>.md` and `docs/en/<name>.md`, then include it in the appropriate
-sidebar in `docs/.vitepress/config.mts`. Add repository-owned READMEs to `externalDocuments` in the generator rather than
+sidebar in `docs/.vitepress/config.mts`. Add repository-owned guides to `externalDocuments` in the generator rather than
 duplicating their full content under `docs/`.
+
+MemLens and MobileMem evaluation notes are published at `/{language}/benchmarks/{memlens,mobilemem}`. Repository-relative
+links to these sources resolve to their site pages, and MemLens figures are copied to `/figures/benchmarks/memlens/`.
+The previous `/{language}/memlens_256k_evaluation` address redirects to the MemLens page while preserving its anchor.
 
 ## Deployment
 

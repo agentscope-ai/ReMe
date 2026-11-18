@@ -20,6 +20,7 @@ from reme.utils.file_watch import build_watch_rules
 def test_workspace_dir_expands_user_home(monkeypatch, tmp_path):
     """Home-relative workspace config is normalized before components consume it."""
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
 
     config = ApplicationConfig(workspace_dir="~/.copaw/workspaces/default")
 

@@ -96,7 +96,32 @@ class MCPClient(BaseClient):
         if self.client is None:
             raise RuntimeError("Client not initialized. Call _start() first.")
         tools = await self.client.list_tools()
-        return [tool.model_dump() for tool in tools]
+        actions = []
+        for tool in tools:
+            action = tool.model_dump()
+            # SDK 1 uses wire names as Python fields; preserve the SDK 2 catalog
+            # contract without rewriting user-owned schemas or metadata.
+            for wire, field in (("inputSchema", "input_schema"), ("outputSchema", "output_schema"), ("_meta", "meta")):
+                if wire in action:
+                    action[field] = action.pop(wire)
+            annotations = action.get("annotations")
+            if isinstance(annotations, dict):
+                for wire, field in (
+                    ("readOnlyHint", "read_only_hint"),
+                    ("destructiveHint", "destructive_hint"),
+                    ("idempotentHint", "idempotent_hint"),
+                    ("openWorldHint", "open_world_hint"),
+                ):
+                    if wire in annotations:
+                        annotations[field] = annotations.pop(wire)
+            execution = action.get("execution")
+            if isinstance(execution, dict) and "taskSupport" in execution:
+                execution["task_support"] = execution.pop("taskSupport")
+            for icon in action.get("icons") or []:
+                if isinstance(icon, dict) and "mimeType" in icon:
+                    icon["mime_type"] = icon.pop("mimeType")
+            actions.append(action)
+        return actions
 
     # pylint: disable=unnecessary-dunder-call
     async def _close(self) -> None:

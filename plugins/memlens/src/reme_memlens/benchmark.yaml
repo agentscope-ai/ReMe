@@ -20,6 +20,7 @@ components:
       <<: *memory_model
   agent_wrapper:
     default: &memory_agent
+      backend: memlens_benchmark_agent
       react_config: {max_iters: 30}
       context_config: {trigger_ratio: 0.8, reserve_ratio: 0.1, tool_result_limit: 50000, max_image_num: 4096}
       model_config: {max_retries: 0}

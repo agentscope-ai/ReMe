@@ -11,7 +11,7 @@ from ..base_step import BaseStep
 from ..file_io import extract_daily_date
 from ...components import R
 from ...schema import FileChunk
-from ...utils import expand_links, render_expansion_lines
+from ...utils import expand_links, render_expansion_lines, canonical_index_path
 
 _RRF_K: Final = 60
 _MAX_CANDIDATES: Final = 200
@@ -182,7 +182,7 @@ class SearchStep(_ToolContextMixin, BaseStep):
         for key in ("path", "paths"):
             if key in search_filter:
                 has_exact_path_filter = True
-                exact_paths.update(_filter_values(search_filter.pop(key)))
+                exact_paths.update(canonical_index_path(str(value)) for value in _filter_values(search_filter.pop(key)))
         if has_exact_path_filter:
             allowed_paths.intersection_update(exact_paths)
         search_filter["paths"] = sorted(allowed_paths)
