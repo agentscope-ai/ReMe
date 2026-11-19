@@ -436,22 +436,3 @@ class ProactiveAgentStep(BaseAgentStep):
             stats["session_id"] = session_id
             update_counts()
         return result, session_id
-
-
-@R.register("proactive_query_step")
-class ProactiveQueryStep(BaseAgentStep):
-    """Fork the latest queryable session and ask directly, without a mode prompt."""
-
-    async def execute(self):
-        arguments = self.parameters()
-        if set(arguments) != {"agent_name", "query"} or not str(arguments["query"]).strip():
-            raise ValueError("proactive_query_step requires agent_name and query")
-        self.require_paths(self.workspace_path)
-        reply = await self.query_reply(arguments["agent_name"], arguments["query"])
-        if reply["status"] != "completed":
-            raise RuntimeError(reply.get("error") or f"Proactive query {reply['status']}")
-        self.context.response.answer = {
-            "agent_name": arguments["agent_name"],
-            "answer": reply["result"],
-        }
-        return self.context.response

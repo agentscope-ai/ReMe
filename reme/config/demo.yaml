@@ -119,27 +119,6 @@ jobs:
       - backend: asr_step
         asr: default
 
-  chat:
-    backend: stream
-    description: "Chat with the fixed Chat Agent using its current session."
-    parameters:
-      type: object
-      additionalProperties: false
-      properties:
-        query: {type: string, minLength: 1}
-      required: [query]
-    steps:
-      - backend: chat_agent_step
-        job_tools: [manage_proactive_agent]
-
-  new_chat_session:
-    backend: base
-    description: "Create and select an empty chat session; retain all previous session IDs."
-    parameters: {type: object, additionalProperties: false, properties: {}}
-    steps:
-      - backend: new_chat_session_step
-        job_tools: [manage_proactive_agent]
-
   list_chat_sessions:
     backend: base
     description: "Chat history, newest first. Pure query; cold listing never creates sessions."

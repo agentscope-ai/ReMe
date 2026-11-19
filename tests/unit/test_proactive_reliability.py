@@ -15,7 +15,7 @@ from reme.components.job import CronJob
 from reme.enumeration import ChunkEnum
 from reme.schema import Response, StreamChunk
 from reme.schema.proactive_agent import ProactiveRunResult
-from reme.steps.proactive.agent import ChatAgentStep, InboxChatStep, ProactiveAgentStep
+from reme.steps.proactive.agent import AgentChatStep, InboxChatStep, ProactiveAgentStep
 from reme.steps.proactive.tools.inbox import ReadInboxStep, SendChatMessageStep
 from .test_agent_runtime import inbox_path, completed_result, create_agent, running_runtime
 from .test_inbox_fork import append_message, prepare
@@ -31,7 +31,7 @@ async def test_latest_foreground_instruction_invalidates_same_session_reminder(t
             bound = options["injected_job_kwargs"]
             await ReadInboxStep(app_context=context)(**bound)
             before = await runtime.sessions.current("Remy")
-            await ChatAgentStep(app_context=context)(
+            await AgentChatStep(app_context=context)(
                 RuntimeContext(stream_queue=asyncio.Queue()),
                 query="Cancel the reminder",
             )
@@ -202,7 +202,7 @@ async def test_session_setup_preserves_workspace_documents(tmp_path):
         agent = await runtime.definition("monitor")
         step = ProactiveAgentStep(app_context=context)
         documents = (
-            ("Remy", "MEMORY.md", ChatAgentStep(app_context=context).session_options()),
+            ("Remy", "MEMORY.md", AgentChatStep(app_context=context).session_options()),
             ("monitor", "TASK.md", step.session_options(agent)),
         )
         for name, filename, item in documents:

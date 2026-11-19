@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1780" height="1120" viewBox="0 0 1780 1120" role="img" aria-labelledby="title desc">
   <title id="title">Personal Runtime</title>
-  <desc id="desc">The foreground Chat Agent manages independent named proactive tasks through six management actions. The task description initializes TASK.md. Later edits use native file tools. Pause and resume update enabled. Query requires an existing queryable task session and uses its read-only fork. Background Outboxes deliver events linking to saved reminder files into Chat Inbox. A separate ephemeral read-only fork of the current Chat calls read_chat_reminders with no arguments to obtain the selected reminders and supporting paths, reads the original evidence, and submits a decision with submit_chat_reminder. A text decision appends an assistant message to Chat. An empty decision consumes the batch silently. File cards show personal memory, Chat and task session references, unread and read Inbox logs, task configuration and description, dated reminders and daily outputs. Temporary task descriptions live at reme_agents/tmp/{agent_name}/TASK.md. All messages are illustrative.</desc>
+  <desc id="desc">Remy manages named tasks through manage_proactive_agent. Each task owns its description, settings and session references. Remy's Inbox derives its state from committed reminder files and acknowledgement fields. A read-only fork reads the selected batch and its evidence, then submits a decision. A text decision appends an assistant message to Chat. An empty decision acknowledges the batch silently. The workspace cards show personal memory, session references, the derived Chat Inbox, task files and daily records.</desc>
   <metadata>Source: reme/schema/proactive_agent.py; reme/config/proactive.yaml; reme/components/agent_inbox/; reme/components/agent_runtime/_internal/registry.py; reme/components/agent_runtime/_internal/sessions.py; reme/components/agent_runtime/_internal/outbox.py; reme/components/agent_runtime/_internal/notifications.py; reme/steps/proactive/agent/proactive.py; reme/steps/proactive/agent/inbox.py; reme/steps/proactive/agent/inbox.yaml; reme/steps/proactive/tools/manage_proactive_agent.py; reme/steps/proactive/tools/inbox.py. Drawn from the current working tree. Paths are relative to the configured workspace root; {date} is an application-local calendar date. Permanent task paths shown.</metadata>
   <defs>
     <style>
@@ -206,6 +206,5 @@
     </g>
   </g>
   <text x="64" y="1050" font-size="12" class="muted">Paths are relative to the workspace root (default: .reme/). Directory settings may be overridden.</text>
-  <text x="64" y="1072" font-size="12" class="muted">Task files and history remain user-owned. Legacy tmp/ task directories are retained in place.</text>
   <text x="1716" y="1103" font-size="12" class="muted" text-anchor="end">REME / PERSONAL RUNTIME</text>
 </svg>

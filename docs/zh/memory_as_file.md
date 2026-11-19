@@ -212,7 +212,7 @@ search 命中    -> 可展开出入链，帮助理解上下文
 
 解析结果：
 
-`FileLink` 只保存来源、目标和可选锚点。仍包含已移除 `predicate` 字段的派生图索引需要重建，源 Markdown 文件无需修改。
+`FileLink` 保存来源、目标和可选锚点。
 
 ```text
 FileLink

@@ -613,8 +613,9 @@ thread with the current configuration. Rejected or cancelled preparation retains
 Proactive reminders are evaluated in a disposable read-only fork with only `read_chat_reminders` and `submit_chat_reminder` tools.
 Only explicitly submitted text is appended to the foreground conversation; fork reasoning and ordinary replies stay
 outside it. Codex stores injected content in its native rollout without a second application-authored message copy.
-`reme_agents/` retains Agent configuration, memory, session IDs and
-inbox references; full recovery also requires native conversation histories and source reminder files.
+`reme_agents/` contains task configuration, event inboxes, reminder Markdown, personal memory and session
+references. Remy's inbox derives its state from reminder files and their acknowledgement fields. Native
+conversation histories retain the conversation content.
 
 The Agent runtime owns transient execution activity and live output. Desktop clients observe `watch_agent_session`; native Codex status notifications remain internal to operation completion and disconnect handling.
 All three wrappers support `append_session(..., role="user" | "assistant")` without generating a reply; the default role
@@ -625,8 +626,8 @@ Pass it as `expected_revision` to reject an append if the content changed, inclu
 model turn. `expected_turn_id` checks only the model-turn anchor. Both guards are checked inside the session writer
 lease; an already committed matching `message_id` remains retryable with an old guard. Reminder forks carry the
 source revision when submitting text, so stale decisions leave inbox items pending for reassessment.
-`append_session(..., delivery="idle" | "immediate")` retains a presentation policy and source session in the message;
-both policies wait for the native session to become idle before injection. Recoverable SDK errors from session
+`append_session(..., delivery="idle" | "immediate")` records the delivery mode and source session in the message.
+`idle` waits for generation to finish. `immediate` can submit during a native turn. Recoverable SDK errors from session
 reading and status in Codex are exposed as `ConnectionError`; validation errors and cancellation propagate.
 
 Claude Code uses native streaming input and a zero-inference flush receipt to persist appended messages.
@@ -677,8 +678,8 @@ the complete API-key setup using `LLM_API_KEY` and `LLM_BASE_URL`.
 Configure `auth_mode`, `api_key`, `base_url`, `codex_home`, `codex_bin`, `config_overrides` and `experimental_api`
 under `components.codex_app_server.<name>` (`backend: sdk`). The default Codex home is `{workspace_dir}/.codex`.
 Configure separate `codex_home` values when servers need independent account or session storage.
-Remove `mcp_config` and `release_threads`. Job tools run against the current Application through a
-session-scoped MCP endpoint, reusing its plain HTTP listener when available. TLS, CLI and embedded applications use
+Job tools run against the current Application through a session-scoped MCP endpoint, reusing its plain HTTP
+listener when available. TLS, CLI and embedded applications use
 a lifecycle-managed loopback listener. Tool selection and injected arguments remain bound to each loaded thread; an unloaded
 thread can be resumed with a new binding. Internal jobs are available only through the explicitly selected tools,
 without changing their public service exposure. Closing a wrapper leaves the shared server running; application

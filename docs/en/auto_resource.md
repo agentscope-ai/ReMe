@@ -142,11 +142,10 @@ the full lookback; retained news IDs still prevent duplicates. Saved batches wit
 before collecting new inputs, subject to stock trading hours.
 Per-package `delivery-finance.json` receipts prevent replaying successful deliveries; resources are retained.
 
-Start the service in one terminal with `reme start config=proactive`. Initial Agent settings and memory are created
-only once. For a workspace whose finance Agent still uses cron, run this in another terminal:
+Start the service in one terminal with `reme start config=proactive`. The default `finance` task runs on incoming
+observations. Check the task in another terminal:
 
 ```bash
-reme manage_proactive_agent action=update agent_name=finance
 reme manage_proactive_agent action=status agent_name=finance
 ```
 

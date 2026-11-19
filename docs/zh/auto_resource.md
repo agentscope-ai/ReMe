@@ -123,11 +123,9 @@ BTC 使用滚动 24 小时涨跌幅，保存统计窗口和采集时间；USDT �
 已落盘但缺少投递回执的批次会在采集新数据前补投，股票批次还受交易时段限制；
 每个资源包的 `delivery-finance.json` 记录成功投递，资源文件继续保留。
 
-先在一个终端运行 `reme start config=proactive`。初始 Agent 配置和记忆只创建一次；已有工作区的 finance
-若仍为 cron 类型，在另一个终端执行：
+先在一个终端运行 `reme start config=proactive`。内置 `finance` 任务收到观察事件后执行。在另一个终端查询任务：
 
 ```bash
-reme manage_proactive_agent action=update agent_name=finance
 reme manage_proactive_agent action=status agent_name=finance
 ```
 

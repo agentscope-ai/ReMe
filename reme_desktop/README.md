@@ -18,8 +18,8 @@ deleting stops it and retains history. Event-driven tasks still need an event so
   run in temporary read-only forks and leave the task's current execution session unchanged. A task needs an existing
   session before it can answer questions. Only Remy offers **Clear conversation**, through its toolbar or `/clear`,
   while retaining personal memory and the backend's conversation history.
-- Each Agent has a conversation, Memory and a mailbox. Task Agents also expose Events. Task workspaces show the latest
-  native execution turn; query replies are displayed separately. Related links open original workspace files.
+- Remy has a conversation, Memory and Updates. Task workspaces show the latest execution turn, the task description,
+  input events and outgoing reminders. Query replies are displayed separately. Related links open original workspace files.
 - Each task executes one automatic run at a time. A query can inspect the current task session while it runs on a backend
   that supports active forks. Switching Agents retains separate drafts and in-progress query replies.
 - Remy's Updates tab retains reminder browsing, document details, replay, narration and explicit user-read receipts.
@@ -68,21 +68,21 @@ Closing the workspace hides the window; use the character or tray to reopen it. 
 
 The client uses the following jobs from the same checkout:
 
-| Job                                                                                            | Behavior                                                                               |
-| ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `list_agents`                                                                                  | Remy and task identities, current formal session IDs and lightweight status            |
-| `read_agent_session`                                                                           | Current session snapshot for `agent_name`, or a null snapshot before the first session |
-| `ask_agent`                                                                                    | Continue main Chat, or stream a read-only fork query of the latest task session        |
-| `create_chat_session`                                                                          | Start a fresh main Chat session; accepts no arguments                                  |
-| `watch_agent_session`                                                                          | Observe current messages and state; Remy also carries the Agent roster                 |
-| `list_agent_inbox`                                                                             | Page every Agent's pending, processing and processed input events                      |
-| `list_agent_outbox`                                                                            | Page a task Agent's committed reminders                                                |
-| `read_agent_reminder`                                                                          | Read canonical reminders and acknowledge user reading independently of processing      |
-| `list_workspace`, `load_file`, `read_image`, `list_tags`, `list_tag_files`, `search_workspace` | Read-only Knowledge browsing                                                           |
-| `asr` / `tts`                                                                                  | Voice input and playback                                                               |
-| `get_client_info`                                                                              | Discover backend capabilities and workspace settings                                   |
-| `manage_proactive_agent` / `agent_task`                                                        | Manage task settings and read/save the original task description with revision checks  |
-| `todo` / `idea`                                                                                | Manage Tree Hollow records and progress                                                |
+| Job                                                                                            | Behavior                                                                              |
+| ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `list_agents`                                                                                  | Remy and task identities, current formal session IDs and lightweight status           |
+| `read_agent_session`                                                                           | Agent view, messages and activities. Session ID is null before the first session.     |
+| `ask_agent`                                                                                    | Continue main Chat, or stream a read-only fork query of the latest task session       |
+| `create_chat_session`                                                                          | Start a fresh main Chat session; accepts no arguments                                 |
+| `watch_agent_session`                                                                          | Observe current messages and state; Remy also carries the Agent roster                |
+| `list_agent_inbox`                                                                             | Page task input events or Remy's derived reminder inbox                               |
+| `list_agent_outbox`                                                                            | Page a task Agent's committed reminders                                               |
+| `read_agent_reminder`                                                                          | Read canonical reminders and acknowledge user reading independently of processing     |
+| `list_workspace`, `load_file`, `read_image`, `list_tags`, `list_tag_files`, `search_workspace` | Read-only Knowledge browsing                                                          |
+| `asr` / `tts`                                                                                  | Voice input and playback                                                              |
+| `get_client_info`                                                                              | Discover backend capabilities and workspace settings                                  |
+| `manage_proactive_agent` / `agent_task`                                                        | Manage task settings and read/save the original task description with revision checks |
+| `todo` / `idea`                                                                                | Manage Tree Hollow records and progress                                               |
 
 Subscriptions use `snapshot`, `update` and `heartbeat`. Session changes are atomic snapshots; updates batch complete-message upserts.
 Text, tool activity, public reasoning summaries and attachments retain their order within each turn. Repeated updates

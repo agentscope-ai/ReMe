@@ -586,7 +586,8 @@ Codex wrapper 通过 `app_server: default` 或 `app_server: oauth` 引用共享�
 
 主动提醒在临时只读分身中评估，仅绑定 `read_chat_reminders` 和 `submit_chat_reminder`；只有明确提交的文本追加到前台会话，
 分身推理过程与普通回复留在分身中。Codex 把追加内容保存在原生 rollout，不保存另一份应用消息副本。
-`reme_agents/` 保存 Agent 配置、记忆、会话 ID 和收件箱引用；恢复完整对话与提醒还需要原生会话历史和提醒源文件。
+`reme_agents/` 保存任务配置、事件收件箱、提醒 Markdown、个人记忆和会话引用。Remy 收件箱从提醒文件及其确认字段生成，
+对话内容保存在原生会话历史中。
 
 Agent Runtime 统一管理临时活动状态与实时输出；桌面通过 `watch_agent_session` 订阅。Codex 原生状态通知只负责操作完成与断连处理。
 三个 wrapper 都支持 `append_session(..., role="user" | "assistant")`，只追加上下文，不触发模型生成，默认角色为 `assistant`。
@@ -595,8 +596,9 @@ Agent Runtime 统一管理临时活动状态与实时输出；桌面通过 `watc
 即使没有新的模型轮次，追加 user 消息等内容变化也会使旧决策失败；`expected_turn_id` 仅检查模型轮次锚点。
 两种检查都在会话写锁内执行；已提交且内容一致的 `message_id` 可携带旧版本安全重试。
 提醒分身提交文本时传递来源版本，过期决策保留收件箱消息，等待重新评估。
-`append_session(..., delivery="idle" | "immediate")` 在消息中保留展示策略与来源会话；两种策略都等待原生会话
-空闲后再注入。Codex 读取会话、查询状态时，可恢复的 SDK 异常统一为 `ConnectionError`；校验错误与取消继续传播。
+`append_session(..., delivery="idle" | "immediate")` 在消息中保留投递方式与来源会话。`idle` 等待生成结束，
+`immediate` 可以在原生轮次执行期间提交。Codex 读取会话、查询状态时，可恢复的 SDK 异常统一为
+`ConnectionError`；校验错误与取消继续传播。
 
 Claude Code 使用原生流式输入和零推理回执保存追加消息。
 `{mem_session_dir}/claude_sessions/<UUID>.json` 保留原生存储位置、来源及跨重启的重试标识，继续支持显式配置
@@ -643,7 +645,7 @@ thread 的模型。OAuth 使用账号支持的模型，通过独立的 `CODEX_OA
 在 `components.codex_app_server.<名称>`（`backend: sdk`）中配置 `auth_mode`、`api_key`、`base_url`、`codex_home`、
 `codex_bin`、`config_overrides` 和 `experimental_api`。默认 Codex 目录为 `{workspace_dir}/.codex`。
 多个服务组件需要独立账号或会话存储时，分别显式配置 `codex_home`。
-删除 `mcp_config` 和 `release_threads`。job 工具通过受限 MCP 入口调用当前 Application 中的原有 job，明文 HTTP 模式复用现有
+Job 工具通过受限 MCP 入口调用当前 Application 中的 Job，明文 HTTP 模式复用现有
 监听器，TLS、CLI 和嵌入式模式使用随组件关闭的本地监听器。工具白名单及隐藏参数绑定到已加载的 thread；thread 卸载后可在
 恢复时重新绑定。内部 job 仅对显式选择的工具开放，不改变其公共服务可见性。关闭 wrapper 不关闭共享进程，由 Application
 统一关闭。连接断开时当前请求报错且不重放工具，后续请求可以重连并恢复会话。

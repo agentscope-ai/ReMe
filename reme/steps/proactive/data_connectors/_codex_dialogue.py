@@ -166,8 +166,8 @@ class CodexDialogueIndex:
         source = payload.get("source")
         return {
             "thread_id": payload["id"],
-            "session_id": payload.get("session_id") or payload["id"],
-            "cwd": payload.get("cwd", ""),
+            "session_id": payload["session_id"],
+            "cwd": payload["cwd"],
             "user": payload.get("thread_source", "user") == "user"
             and not isinstance(source, dict)
             and payload.get("originator") != "reme",
@@ -182,26 +182,28 @@ class CodexDialogueIndex:
             return None
         item = payload.get("item", {})
         kind = item.get("type")
-        if kind != "UserMessage" and not (kind == "AgentMessage" and item.get("phase") == "final_answer"):
+        is_user = kind == "UserMessage"
+        if not is_user and not (kind == "AgentMessage" and item.get("phase") == "final_answer"):
             return None
         timestamp = datetime.fromisoformat(record["timestamp"].replace("Z", "+00:00"))
         if timestamp.tzinfo is None:
             raise ValueError("Codex message timestamps must include a timezone")
         if timestamp < started_at:
             return None
-        parts = item.get("content", [])
-        text = "\n".join(part["text"] for part in parts if part.get("type") in {"text", "Text"})
-        attachments = sum(part.get("type") in {"image", "local_image", "Image"} for part in parts)
+        parts = item["content"]
+        text_type = "text" if is_user else "Text"
+        text = "\n".join(part["text"] for part in parts if part["type"] == text_type)
+        attachments = sum(part["type"] in {"image", "local_image"} for part in parts) if is_user else 0
         if not text and not attachments:
             return None
         return {
             "timestamp": timestamp.isoformat(),
             "thread_id": meta["thread_id"],
             "session_id": meta["session_id"],
-            "turn_id": payload.get("turn_id"),
+            "turn_id": payload["turn_id"],
             "message_id": item["id"],
             "cwd": meta["cwd"],
-            "role": "user" if kind == "UserMessage" else "assistant",
+            "role": "user" if is_user else "assistant",
             "content": text,
             "image_attachments": attachments,
         }

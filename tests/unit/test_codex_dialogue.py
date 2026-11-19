@@ -55,7 +55,7 @@ def record(kind, text="hello", identifier="user-1", *, phase=None, when=None, th
             "item": {
                 "type": kind,
                 "id": identifier,
-                "content": [{"type": "text", "text": text}],
+                "content": [{"type": "text" if kind == "UserMessage" else "Text", "text": text}],
                 "phase": phase,
             },
         },

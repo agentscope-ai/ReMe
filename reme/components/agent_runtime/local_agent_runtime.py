@@ -23,7 +23,6 @@ from ..agent_inbox import BaseAgentInbox
 from ..component_registry import R
 from ...schema.agent_runtime import (
     ChatAgentConfig,
-    CreateChatAgentConfig,
     NotificationConfig,
 )
 from ...schema.agent_activity import AgentActivity
@@ -68,7 +67,7 @@ class LocalAgentRuntime(BaseAgentRuntime):
         self.initial_agents = [CreateProactiveAgentConfig.model_validate(value) for value in agents or []]
         if len({agent.agent_name.casefold() for agent in self.initial_agents}) != len(self.initial_agents):
             raise ValueError("initial Agent names must be unique, including case")
-        self.initial_chat = CreateChatAgentConfig.model_validate(chat if chat is not None else {})
+        self.initial_chat = ChatAgentConfig.model_validate(chat if chat is not None else {})
         self.agent_wrapper = self.bind(agent_wrapper, BaseAgentWrapper, optional=False)
         self.inbox = self.bind(inbox, BaseAgentInbox, optional=False)
         self.files = WorkspaceFiles(self.workspace_path)
@@ -130,18 +129,12 @@ class LocalAgentRuntime(BaseAgentRuntime):
     async def _start(self):
         if self.app_context is None:
             raise RuntimeError("LocalAgentRuntime requires an ApplicationContext")
-        chat = self.agents.path("Remy") / "config.json"
-        config = self.files.read_json(chat, None)
-        config = (
-            ChatAgentConfig.model_validate(config) if config is not None else ChatAgentConfig(created_at=self.now())
-        )
         await complete_in_thread(
             self.files.write,
             self.agents.chat_memory_path(),
             self.initial_chat.initial_memory,
             create_only=True,
         )
-        await complete_in_thread(self.files.write_json, chat, config.model_dump(mode="json"))
         existing = {name.casefold() for name in await asyncio.to_thread(self.agents.load, include_deleted=True)}
         for initial in self.initial_agents:
             if initial.agent_name.casefold() not in existing:

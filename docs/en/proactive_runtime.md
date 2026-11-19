@@ -14,7 +14,7 @@ The [full illustrated guide is available in Chinese](../zh/proactive_runtime.md)
 Five parts support the workflow:
 
 - **Event inbox:** stores inputs in workspace files. Each agent processes one batch at a time; successful runs acknowledge their inputs, while failed runs leave them available for retry.
-- **Scheduled triggers:** add a timer event to the task inbox when a configured schedule is due. The agent follows the task description, with the current time supplied in the system prompt; trigger times remain in scheduler records.
+- **Scheduled triggers:** add a timer event to the task inbox when a configured schedule is due. The task prompt supplies the current time and application timezone.
 - **Workspace files:** keep task requirements in `TASK.md`, progress and evidence in daily records, and previous reminders in reminder files. Each run reads the latest requirements and progress before continuing.
 - **Permissions:** the framework and Harness control file access, tools, and network access. Chat, event tasks, and scheduled tasks can search the web and open pages.
 - **Outbox:** publishes reminder references after the reminder has been saved and input completion has been committed. Failed delivery can be retried independently of task execution. A full Chat Inbox defers publication while already queued reminders continue to be consumed.
@@ -45,7 +45,7 @@ Event tasks follow `TASK.md` and first exclude content that does not need a remi
 
 Before adding reminder metadata, Outbox checks the round's published file version under the file jobs' shared path lock. A concurrent user save preserves the user's file and leaves the input available for retry.
 
-Chat Inbox admits reminders by priority and creation time within shared capacity, preserving batches already being processed. Reminders from disabled or deleted tasks, or outside their notification window, release scheduling capacity while retaining their canonical files and unread state. They can rejoin the queue when eligible again; overflow remains in Outbox for retry.
+Remy's inbox is derived from committed reminder files and their acknowledgement fields. It selects one eligible batch by priority and creation time within the configured item and byte limits. Reminders outside the selected batch remain available for later evaluation. Disabled tasks, deleted tasks and notification windows affect eligibility.
 
 Sending and silent decisions revalidate the reminder's message, priority and related paths under the file jobs' shared path locks, held through decision commit and acknowledgement. If the user has saved new content, the stale decision fails and the updated reminder remains unprocessed.
 
@@ -57,7 +57,7 @@ skill instructions; the main Chat Agent retains skills. Global instructions unde
 
 Personal Runtime connects the main Chat Agent, background tasks, and reminder handling. Users manage tasks through Chat and can change their requirements, inspect progress, pause execution, or end a task.
 
-Each Agent has one stable `agent_name`. Background tasks use an optional `cron` schedule; their display-only `agent_type` is derived. The main Chat Agent is `Remy`; task names use 1–3 simple lowercase English words joined by underscores. Creation writes `task_description` verbatim to `TASK.md` only if the file is absent. Create, list and status return `task_path`; read the current file before updating the task description and read it back after saving. Use the configuration to change execution settings.
+Each Agent has one stable `agent_name`. Background tasks use an optional `cron` schedule, which also determines their display type. `Remy` is reserved for the main Chat Agent. Creation writes `task_description` verbatim when `TASK.md` is absent. Use the returned `task_path` to read and edit requirements. Use `manage_proactive_agent action=update` to change execution settings.
 
 Committed reminders reach the Chat Inbox. Priority, Chat idle time, and the task's notification window determine when reminders become eligible for processing. A temporary Reminder fork receives the selected batch and uses the current conversation and the backend's read-only mode to decide whether the user still needs to be told. It skips known, duplicate, handled or outdated information without assigning a new priority or adding action requirements. Explicit requests for reminders at a specified time or condition still apply. A silent Chat decision preserves the task's generated record, reminder and summary.
 
@@ -93,9 +93,10 @@ with `snapshot`; reconnects, session changes and history replacements use the sa
 contains complete-message upserts and current Agent/activity state. `heartbeat` carries no application state. Only
 Remy's subscription includes the global Agent roster and background activities.
 
-The backend projects native history and live replies into the same text, summary, tool and attachment blocks.
-`ask_agent` streams complete messages in DATA chunks; DONE only closes transport. Provider payloads stay behind
-the backend boundary. Native transcripts and workspace files remain authoritative; display projections are rebuildable.
+The backend projects native history and live output into text, summary, tool and attachment blocks. For Remy, the
+session subscription carries live message updates and `ask_agent` reports turn boundaries and failures. For task
+questions, `ask_agent` streams complete message upserts in DATA chunks. DONE closes the stream. Native transcripts
+and workspace files remain authoritative.
 
 Python client schemas generate `reme_desktop/src/shared/wire.ts` and an executable serialization fixture. Regenerate
 with `python -m reme_desktop.scripts.client-contract`; `--check` verifies that committed artifacts match the schemas.

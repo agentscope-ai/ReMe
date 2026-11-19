@@ -56,19 +56,16 @@ The `proactive` preset uses `list_workspace`, `search_workspace`, `load_file` an
 The default configuration provides `list`, `search`, `load` and `app_config`.
 
 The `proactive` configuration exposes `ask_agent(query, agent_name=Remy)` for the fixed Chat Agent. It resumes the current
-native session; `create_chat_session` selects a fresh session. The `demo` preset additionally exposes `chat`,
-`new_chat_session`, `list_chat_sessions`, `session_read` and `session_status` for standalone examples.
+native session; `create_chat_session` selects a fresh session. The `demo` preset inherits both Jobs and adds
+`list_chat_sessions`, `session_read` and `session_status` for history and native session inspection.
 MCP does not expose Stream Jobs. Studio integration is separate from this backend.
 
 ## Agent Runtime
 
-The `agent_runtime` Component coordinates sessions, the shared Agent Inbox, outputs and scheduling. `ChatAgentStep` and
-`ProactiveAgentStep` define the two Agent behaviors under `reme/steps/proactive/agent/`.
-Configure the Component through `components.agent_runtime.default` and the workspace-relative `reme_agent_dir`
-(default `reme_agents`). Each Agent owns `config.json`, `sessions.jsonl` and `inbox/`. Remy stores personal memory in
-`MEMORY.md`. Event and cron Agents own `TASK.md` and `reminder/YYYY-MM-DD/HHMMSS.md`. Temporary Agents use
-`reme_agents/<agent_name>/`.
-There is no global definition index or checkpoint file: startup rebuilds runtime state from source files.
+The `agent_runtime` Component coordinates native sessions, task event inboxes, reminder delivery and scheduling.
+Configure it through `components.agent_runtime.default`. The workspace-relative `reme_agent_dir` defaults to
+`reme_agents`. Each task directory contains `config.json`, `TASK.md`, `sessions.jsonl`, `inbox/` and dated reminder
+files. `Remy/` owns `MEMORY.md` and its own `sessions.jsonl`. Startup reconstructs runtime state from these files.
 Session registries preserve complete records across an interrupted append; an incomplete tail is ignored on read
 and removed by the next append. Corrupt complete records fail explicitly.
 Validated reminders are saved before input consumption is committed; the outbox retries delivery independently.
@@ -110,12 +107,13 @@ reme list_agent_inbox
 ```
 
 `manage_proactive_agent` supports `list/create/status/update/delete/query` with top-level parameters and a task `agent_name`.
-Choose 1–3 simple lowercase English words joined by underscores. `Remy` and `tmp` are reserved. Creation requires
+Prefer simple lowercase English words joined by underscores. `Remy` is reserved. Creation requires
 `task_description`; supply `cron` for a scheduled task. Send changed execution settings to `update`.
 `query` takes a `question` and answers from a temporary read-only fork of a queryable task session.
 See `skills/manage-proactive-agent/SKILL.md` for all six actions.
 
-Creation writes `task_description` verbatim to `TASK.md`. Create, list and status return its workspace-relative `task_path`.
+Creation writes `task_description` verbatim when `TASK.md` is absent. Create, status and update return an Agent view
+with its workspace-relative `task_path`. List wraps those views in `{items,total}`.
 Read the latest file before editing requirements, keep useful background and verify the saved result. When changing an
 agreed time, update both `cron` and the description. Changes apply to subsequent rounds. Deletion stops owned work
 and retains history. Stop external collectors separately. Recreating a deleted task reuses its task description and history. Check the description against the new request.
@@ -127,7 +125,7 @@ its Step configuration.
 
 The fixed Chat Agent uses `agent_name=Remy` and `agent_type=chat`. Agent names are stable identities;
 API requests, responses, workspace directories and Desktop use the same name. Its files live under
-`{reme_agent_dir}/Remy/`. Task names must be unique regardless of case; `Remy` and `tmp` are reserved.
+`{reme_agent_dir}/Remy/`. Task names must be unique regardless of case.
 
 Declare initial tasks under `components.agent_runtime.default.agents` in the proactive preset using the same creation
 fields, including `task_description`. Startup creates missing identities and preserves existing descriptions, settings
@@ -160,7 +158,8 @@ completion. Inputs remain queued during this cooldown. The built-in finance task
 
 With `config=proactive`, Chat, proactive, cron, and temporary forks share the Codex app server's native tool settings, including `web_search`.
 Temporary `query` forks use the backend's read-only mode.
-`notify_window={start,end}` limits automatic inbox wakeups; messages can still be processed and saved outside it.
+`notify_window={start,end}` limits reminder delivery and automatic Chat evaluation. Tasks can run and save results
+outside that window.
 Tasks remain in their stable directories until explicitly deleted; deletion retains source files and history. On restart cron schedules the next future trigger; queued events still run, but missed offline triggers are not backfilled.
 Chat idle and retry timers restart in memory. Daily handoffs use `daily/YYYY-MM-DD/<agent_name>.md`; round details use
 `<agent_name>_HHMMSS.md`, with numeric suffixes for same-second collisions. The framework keeps each reminder body in Markdown and
@@ -168,14 +167,13 @@ updates delivery and read timestamps in its frontmatter under the Agent's `remin
 Round details and reminders share the same time and collision suffix. Existing reminder files keep their original paths.
 
 `components.agent_inbox.default` uses the `event` backend (`AgentEventInbox`), inheriting the generic local
-inbox implementation. `components.agent_runtime.default.inbox` selects that component. Each Agent stores pending
+inbox implementation. `components.agent_runtime.default.inbox` selects that component. Each task stores pending
 inputs in `inbox/inbox_unread.jsonl` and processed batches in `inbox/inbox_read.jsonl`; each batch contains `items`,
 `consume_ts` and `metadata`. Claims reserve selected IDs without consuming them; successful execution commits a receipt.
-All Agents receive `Event` records. Observations and cron triggers target task Agents; Chat events use the sender as
-`source` and reference the reminder Markdown in `paths`, without copying its body. At most 1,000 processed inputs are
-retained by default. Reminder Markdown remains the source for content and acknowledgement
-timestamps; Chat reference views are rebuildable. Change reminder frontmatter to acknowledge messages externally.
-One lifecycle-owned watcher and periodic rescans reconcile those source edits and interrupted handoffs.
+The tasks receive `Event` records for observations and cron triggers. The processed history limit defaults to
+1,000 events. Remy's inbox view is derived from committed reminder Markdown and its acknowledgement fields. The
+runtime selects one eligible batch at a time by priority and creation time, subject to the configured inbox item
+and byte limits. A file watcher and periodic scans reconcile edits and interrupted handoffs.
 
 Missing or corrupt individual reminders
 retain their source files and event receipts, report their paths, and are isolated without blocking other reminders
@@ -216,9 +214,9 @@ pages a task's committed reminders. `read_agent_reminder message_id=<id>` reads 
 acknowledges user reading without consuming its Inbox event.
 Chat Inbox entries include a resolved `reminder` view from the canonical Markdown for display.
 
-`read_agent_session` and `watch_agent_session` expose full Chat history, but only the latest native turn for proactive/cron Agents,
-including its input and all partial/final assistant messages. Task subscriptions replace the whole view with each
-`snapshot`; `heartbeat` carries no messages. Each automatic event or cron run starts a fresh native session and rebuilds
+`read_agent_session` and `watch_agent_session` expose the selected Chat session's history and the latest native turn of
+each task. Subscriptions use `snapshot` for whole-view replacement and `update` for complete-message upserts. A
+`heartbeat` carries no application state. Each automatic event or cron run starts a fresh native session and rebuilds
 context from the task description and daily summaries. Earlier sessions remain available as history. Main Chat continues its
 current session; task questions fork the latest task session read-only without changing task execution history.
 
@@ -227,12 +225,10 @@ Event tasks accept `max_batch_events` (default 20); retries within the same proc
 `read_agent_reminder agent_name=Remy` also accepts a combined Chat message ID and returns `{id,items}`. `mark_read=true` acknowledges all retained source reminders, linked through their `chat_message_ids` frontmatter. Acknowledgement remains successful with an empty list after the sources have been removed. Only explicit user reading is synchronized; historical initialization, suppression and bubble presentation do not imply reading.
 
 One background `proactive_loop` schedules task execution and Chat reminder decisions with independent workers and retries.
-Chat Inbox logs are rebuilt from reminder Markdown on startup; task input logs use the Event format.
 
-`run_proactive_agent`, `query_proactive_agent` and `process_chat_reminders` are service-private Jobs. `proactive` includes the Desktop runtime,
-finance, Codex dialogue and screenshot collectors, and initial tasks. Codex and screenshots use independent collection
-jobs, sources and workspace directories. No resource watcher or automatic TTL deletion
-participates in this flow. `demo` extends this preset with standalone examples.
+`run_proactive_agent` and `process_chat_reminders` are service-private Jobs. The `proactive` preset includes the
+Desktop runtime, initial tasks and independent finance, Codex dialogue and screenshot collectors. Collectors publish
+observations explicitly and retain the source files. `demo` extends this preset with standalone examples.
 
 The built-in proactive configuration selects CodexAgentWrapper. Claude Code and AgentScope implement the same session APIs and scheduling behavior.
 

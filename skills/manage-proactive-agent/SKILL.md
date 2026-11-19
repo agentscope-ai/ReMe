@@ -1,25 +1,26 @@
 ---
 name: manage-proactive-agent
-description: 创建和管理主人交办的定时任务与事件监控，包括接入采集代码、投递观察、查询进展、修改、暂停和删除。适用于实验监控、异常或结束提醒、每日早报。
+description: 通过 ReMe 管理定时任务和事件监控，包括任务要求、运行设置、进展问答和采集接入。适用于实验监控、异常或结束提醒及每日早报。
 ---
 
 # 管理主动任务
 
-使用 `manage_proactive_agent`，参数直接放在顶层，通过 `agent_name` 指定任务。名称使用 1–3 个简单、常见的小写英文单词，多个单词用下划线 `_` 连接，简洁表达任务主题或职责，能用一个单词说明时优先使用一个，例如 `finance`、`work`、`tech_news`、`experiment_watch`。忽略大小写不能重名；`Remy`、`tmp` 是保留名。先 `list`，再按需 `status`，优先复用相关任务。
+使用 `manage_proactive_agent`，参数放在顶层，通过 `agent_name` 指定任务。先 `list` 查看是否已有相关任务，
+按需用 `status` 查状态。名称建议用下划线连接简短的小写英文单词，如 `experiment_watch`。名称忽略大小写必须唯一，
+`Remy` 保留给主对话。
 
 ## 任务要求与运行配置
 
-- 创建时提供任务名称和说明；不传 `cron` 为事件任务，传 `cron` 为定时任务。系统内置的 `Remy` 负责主对话，不能通过此工具创建。
-- 创建时用 `task_description` 写清背景、目标、工作内容、提醒条件、时间和打扰偏好，只把已确认的信息写成要求。
-- `create`、`list`、`status` 返回工作区相对的 `task_path`。修改任务说明前，先读取该路径指向的当前文件；根据用户最新要求更新内容，保留仍有效的背景、要求和长期信息，保存后重新读取核对。任务内容以 `TASK.md` 为准。
-- 创建后读取任务说明，确认符合主人要求。恢复同名任务时沿用原任务说明和历史。
-- `update` 只传需要修改的运行参数，不能修改 `task_description`或名称。修改任务要求时直接编辑 `TASK.md`。改执行时间时同步修改 `cron` 和任务说明中的约定时间。
-- `cron` 使用应用时区；`notify_window` 使用 `{start,end}`，格式为 HH:MM，设为 null 可取消时段限制。事件任务可设置 `min_trigger_interval_seconds` 控制处理间隔，它不等于采集频率。
-- 任务长期保留，删除操作保留源文件与历史，不自动回收任务目录。暂停、删除或结束事件监控时，也要停止该任务的采集作业，保留原始资料，不影响共用采集器。
+- 创建时用 `task_description` 写清已确认的目标、背景、提醒条件和时间。传 `cron` 创建定时任务，省略则创建事件任务。
+- 需求以 `task_path` 指向的 `TASK.md` 为准。编辑前读取当前内容，保留有效背景，保存后重新读取核对。重建同名已删除任务会复用原文件和历史。
+- `update` 修改运行设置。调整约定执行时间时同步修改 `cron` 与 `TASK.md`。`cron` 使用应用时区。
+  `notify_window` 使用 HH:MM 格式的 `{start,end}`，传 `null` 取消限制。事件任务的
+  `min_trigger_interval_seconds` 从上一轮成功完成时计时，采集频率由采集器配置。
 
 ## 六个 action 示例
 
-以下给出六种请求。`create`、`status`、`update` 返回统一的 Agent 视图；`list` 返回 `{items,total}`。视图包含任务设置、`task_path`、`status`、事件计数、执行时间和错误；`status=active` 表示执行中。
+`create`、`status`、`update` 的 `answer` 是同一 Agent 视图，包含 `task_path`、运行设置、事件计数和时间。
+`list` 返回 `{items,total}`，其中 `items` 为任务视图。`status=active` 表示执行中。
 
 ### list：查找任务
 
@@ -33,7 +34,7 @@ description: 创建和管理主人交办的定时任务与事件监控，包括�
 {"action":"create","agent_name":"tech_news","task_description":"每天早上整理重要科技新闻，简洁说明事实和影响，保留来源；每天08:00提醒。","cron":"0 8 * * *"}
 ```
 
-创建成功后核对任务说明和执行时间，定时任务由框架触发，无需外部投递事件。
+创建成功后核对 `task_path` 和 `next_trigger_at`。框架按日程触发定时任务。
 
 ### status：查看配置和执行情况
 
@@ -49,11 +50,8 @@ description: 创建和管理主人交办的定时任务与事件监控，包括�
 {"action":"update","agent_name":"tech_news","cron":"0 9 * * *"}
 ```
 
-```json
-{"agent_name":"tech_news","updated":{"cron":"0 9 * * *"},"next_trigger_at":"2026-11-18T09:00:00+08:00"}
-```
-
-暂停设置 `enabled=false`，恢复设置 `enabled=true`。切换到定时任务时设置 `cron`，系统清除旧事件触发间隔；显式传入非零间隔会报错；切换到事件任务时设置 `cron=null`。
+以返回视图的 `cron` 和 `next_trigger_at` 核对新安排。暂停设置 `enabled=false`，恢复设置 `enabled=true`。
+切换到定时时设置 `cron`，事件间隔归零。切回事件任务时设置 `cron=null`。
 
 ### query：询问任务进展
 
@@ -61,7 +59,7 @@ description: 创建和管理主人交办的定时任务与事件监控，包括�
 {"action":"query","agent_name":"tech_news","question":"今天的早报完成了吗？有什么需要继续跟进？"}
 ```
 
-此操作从最新任务会话创建临时只读分支，沿用原有上下文直接回答。运行中使用当前会话，等待下次触发时使用最近一次会话；查询不替换任务主会话，不执行任务或修改任务说明。尚无可查询会话的任务暂不能使用 `query`，先通过 `status` 和任务说明了解情况。
+此操作从最新任务会话创建临时只读分支，直接返回回答。尚无会话时，通过 `status` 和任务说明了解情况。
 
 ### delete：删除任务
 
@@ -69,7 +67,7 @@ description: 创建和管理主人交办的定时任务与事件监控，包括�
 {"action":"delete","agent_name":"tech_news"}
 ```
 
-删除停止框架内的调度和执行，保留历史文件；外部采集器仍需按其停止方式关闭。
+删除停止框架内的调度和执行，并保留历史文件。暂停或结束监控时，按需停止该任务独占的外部采集作业。
 
 ## 事件监控：创建后完成采集接入
 
@@ -79,7 +77,7 @@ description: 创建和管理主人交办的定时任务与事件监控，包括�
 {"action":"create","agent_name":"experiment_watch","task_description":"跟进本次实验，分析持续投递的实验日志；确认异常或结束时提醒，说明依据与影响。正常进展只记录，没有新日志不能单独作为结束依据。"}
 ```
 
-创建任务不等于已经开始监控，还须完成以下工作：
+创建事件任务后接入来源：
 
 1. 复用当前 HTTP 服务，通过 `POST /get_client_info`（请求体 `{}`）确认 `workspace_dir`、`resource_dir`，确认输入来源和已有采集宿主。
 2. 在返回的 `task_path` 所在目录下编写采集代码和运行配置，或复用现有采集器。先将完整资料原子保存到服务工作区，再通过 `POST /append_agent_events` 投递观察；是否异常或结束由任务根据资料判断。

@@ -188,9 +188,8 @@ Chat 会在同一个标签工作区中打开，因此对话进行时仍可保留
 默认配置通过 `chat(query, session_id?)` 提供普通对话，每个 Studio 标签页拥有独立会话。
 默认 Chat Job 读取工作区上下文；对话需要有效的 Agent/模型配置，文件浏览、编辑、图谱和服务检查不需要模型。
 
-独立的 `config=proactive` 后端使用 `LocalAgentRuntime` 组件和 `ChatAgentStep`、`ProactiveAgentStep`，
-通过 `ask_agent(agent_name, query)` 对话，使用 `manage_proactive_agent` 管理任务。
-Chat 身份为 `Remy`，原生会话选择与收件箱历史可跨服务重启保留。
+`config=proactive` 后端通过 `ask_agent(agent_name, query)` 对话，使用 `manage_proactive_agent` 管理任务。
+Chat 身份为 `Remy`，会话选择与提醒状态从工作区文件恢复。
 提示词位于 `reme/steps/proactive/agent/chat.yaml` 和 `reme/steps/proactive/agent/proactive.yaml`，支持 `language=zh/en`。
 
 该配置设置 `service.web_enabled=false`，连接 ReMe Desktop；服务接口与通知流程见

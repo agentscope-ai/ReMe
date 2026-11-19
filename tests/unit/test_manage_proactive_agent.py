@@ -12,7 +12,6 @@ import jsonschema
 import pytest
 
 from reme.config import resolve_app_config
-from reme.schema import Response
 from reme.schema.proactive_agent import ManageProactiveAgentRequest
 from reme.steps.proactive.tools.manage_proactive_agent import ManageProactiveAgentStep
 from .test_agent_runtime import running_runtime
@@ -89,17 +88,12 @@ async def test_all_actions_expose_only_their_results_and_keep_task_files(tmp_pat
         assert not paused["enabled"] and paused["cron"] == "0 9 * * *"
         assert task_file.read_text() == arguments["task_description"]
 
-        query = AsyncMock(return_value=Response(answer={"agent_name": "tech_news", "answer": "今天的早报已经完成。"}))
-        monkeypatch.setattr(tool, "run_job", query)
+        query = AsyncMock(return_value={"status": "completed", "result": "今天的早报已经完成。"})
+        monkeypatch.setattr(tool, "query_reply", query)
         assert (
             await tool(action="query", agent_name="tech_news", question="进展如何？")
         ).answer == "今天的早报已经完成。"
-        query.assert_awaited_once_with(
-            "query_proactive_agent",
-            agent_name="tech_news",
-            query="进展如何？",
-            _allowed_paths=None,
-        )
+        query.assert_awaited_once_with("tech_news", "进展如何？")
         deleted = (await tool(action="delete", agent_name="tech_news")).answer
         assert deleted == "Deleted task 'tech_news'; history files retained."
         assert (await tool(action="list")).answer == {"items": [], "total": 0}
@@ -142,7 +136,11 @@ async def test_trigger_changes_clear_old_settings_without_ignoring_explicit_conf
 async def test_query_errors_remain_failed_tool_results(tmp_path, monkeypatch):
     async with running_runtime(tmp_path) as (_, context, _):
         tool = ManageProactiveAgentStep(app_context=context)
-        monkeypatch.setattr(tool, "run_job", AsyncMock(return_value=Response(success=False, answer="No completed run")))
+        monkeypatch.setattr(
+            tool,
+            "query_reply",
+            AsyncMock(return_value={"status": "failed", "error": "No completed run"}),
+        )
         result = await tool(action="query", agent_name="experiment_watch", question="进展如何？")
         assert not result.success and result.answer == "No completed run"
 

@@ -213,9 +213,8 @@ The default configuration exposes `chat(query, session_id?)`; each Studio Chat t
 The built-in default Chat job reads workspace context. Chat requires a valid Agent/model configuration; file browsing,
 editing, graphs and service inspection do not.
 
-The separate `config=proactive` backend uses the `LocalAgentRuntime` Component with `ChatAgentStep` and
-`ProactiveAgentStep`. Use `ask_agent(agent_name, query)` for conversation and `manage_proactive_agent` for task
-management. Its Chat identity is `Remy`, and native session selection and inbox history survive restarts.
+The `config=proactive` backend uses `ask_agent(agent_name, query)` for conversation and `manage_proactive_agent`
+for task management. Its Chat identity is `Remy`. It restores session selection and reminder state from workspace files.
 Prompts live in `reme/steps/proactive/agent/chat.yaml` and `reme/steps/proactive/agent/proactive.yaml` and support `language=zh/en`.
 
 This configuration sets `service.web_enabled=false` and connects to ReMe Desktop. See

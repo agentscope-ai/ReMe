@@ -64,23 +64,12 @@ class AgentSession(BaseModel):
     signature: str | None = None
 
 
-class CreateChatAgentConfig(BaseModel):
-    """Initial personal memory text, separate from the retained Chat identity."""
+class ChatAgentConfig(BaseModel):
+    """Startup settings for Remy's personal memory."""
 
     model_config = ConfigDict(extra="forbid")
 
     initial_memory: str = Field(default="", max_length=100000)
-
-
-class ChatAgentConfig(BaseModel):
-    """The fixed foreground identity has no task trigger or temporary lifetime."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    agent_name: Literal["Remy"] = "Remy"
-    agent_type: Literal["chat"] = "chat"
-    temporary: Literal[False] = False
-    created_at: AwareDatetime
 
 
 class AgentNotification(BaseModel):

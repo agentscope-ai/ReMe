@@ -11,14 +11,11 @@ from reme.components import RuntimeContext
 from reme.enumeration import ChunkEnum
 from reme.schema import SessionMessage, SessionSnapshot, SessionStatus, StreamChunk
 from reme.components.agent_runtime._internal.views import AgentViews
-from reme.steps.proactive.agent import AgentChatStep, ChatAgentStep
+from reme.steps.proactive.agent import AgentChatStep
 from .test_agent_runtime import create_agent, running_runtime
 
 
-@pytest.mark.parametrize(
-    "step_class,agent_name",
-    [(ChatAgentStep, "Remy"), (AgentChatStep, "Remy"), (AgentChatStep, "monitor")],
-)
+@pytest.mark.parametrize("agent_name", ["Remy", "monitor"])
 @pytest.mark.parametrize(
     "status,stream_error",
     [("completed", False), ("failed", False), ("interrupted", False), ("waiting", False), ("completed", True)],
@@ -27,7 +24,6 @@ from .test_agent_runtime import create_agent, running_runtime
 async def test_conversation_streams_preserve_outcomes_metadata_and_caller_inputs(
     tmp_path,
     monkeypatch,
-    step_class,
     agent_name,
     status,
     stream_error,
@@ -65,8 +61,7 @@ async def test_conversation_streams_preserve_outcomes_metadata_and_caller_inputs
         monkeypatch.setattr(wrapper, "reply_stream", reply_stream)
         request = RuntimeContext(stream_queue=asyncio.Queue())
         request.response.metadata["previous_step"] = "retained"
-        arguments = {} if step_class is ChatAgentStep else {"agent_name": agent_name}
-        response = await step_class(app_context=context)(request, query="Hello", **arguments)
+        response = await AgentChatStep(app_context=context)(request, query="Hello", agent_name=agent_name)
 
         assert response is request.response
         assert response.success is (status == "completed" and not stream_error)
@@ -80,15 +75,12 @@ async def test_conversation_streams_preserve_outcomes_metadata_and_caller_inputs
         emitted = []
         while not request.stream_queue.empty():
             emitted.append(request.stream_queue.get_nowait())
-        if step_class is ChatAgentStep:
-            assert emitted == chunks
-        else:
-            assert all(chunk.chunk_type == ChunkEnum.DATA for chunk in emitted)
-            assert emitted[-1].chunk["outcome"] == status
-            assert emitted[-1].chunk["content"] == "final answer"
-            assert "native" not in str(emitted[-1].chunk)
+        assert all(chunk.chunk_type == ChunkEnum.DATA for chunk in emitted)
+        assert emitted[-1].chunk["outcome"] == status
+        assert emitted[-1].chunk["content"] == "final answer"
+        assert "native" not in str(emitted[-1].chunk)
 
-        assert request.get("agent_name") == arguments.get("agent_name")
+        assert request.get("agent_name") == agent_name
         assert not runtime.chat_lock.locked() and not runtime.agent_tasks
         assert (await runtime.status("monitor"))["pending_events"] == 1
         if agent_name == "Remy":

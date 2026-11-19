@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1780" height="1120" viewBox="0 0 1780 1120" role="img" aria-labelledby="title desc">
   <title id="title">Proactive Runtime</title>
-  <desc id="desc">A work example connects Codex dialogue, externally submitted Claude Code trajectories and screenshots to an Event Inbox. Independent Codex dialogue and screenshot collectors run every five minutes and deliver to the work Agent. The Agent waits between rounds, then claims the oldest pending inputs and starts a fresh session. The session reads TASK.md, the available summaries for today and yesterday, and the original inputs. A skipped record is removed and ends the round early. A new record can be enriched with up to five history searches. The round decides whether to remind the user and merges new records and generated reminders into today's summary. A skipped reminder draft is removed after summary validation. The Outbox publishes only committed reminders, which reach Chat Inbox as events linking to the saved files. Collector progress and unfinished delivery stay under their source roots. All messages are illustrative.</desc>
+  <desc id="desc">Independent collectors publish Codex dialogue and screenshots to the work Agent. External sources can submit observations through the same Event Inbox. The Agent claims a batch and starts a fresh native session using TASK.md and the original inputs. It saves an empty skip record if there is no new information. A written record can include related history, with ten local searches allowed by default. The agent saves the reminder decision and updates today's summary. Remy's inbox derives its state from committed reminders and their acknowledgements.</desc>
   <metadata>Source: reme/config/proactive.yaml; reme/schema/application_config.py; reme/steps/proactive/data_connectors/base_connector.py; reme/steps/proactive/data_connectors/codex_dialogue.py; reme/steps/proactive/data_connectors/_codex_dialogue.py; reme/steps/proactive/agent/proactive.py; reme/steps/proactive/agent/proactive.yaml; reme/components/agent_runtime/_internal/outbox.py; reme/components/agent_inbox/agent_event_inbox.py. Drawn from the current working tree. Claude Code is an illustrative external source. Paths use the defaults workspace_dir=.reme, resource_dir=resource, daily_dir=daily and reme_agent_dir=reme_agents; directory settings may be overridden. {today} and {yesterday} are application-local calendar dates; {batch} is HHMMSS_random6. Permanent work Agent shown. All events and decisions are illustrative.</metadata>
   <defs>
     <style>
@@ -143,8 +143,8 @@
     <path d="M774 450H786" class="line" stroke="#91BCBF" stroke-width="1.3" marker-end="url(#light)" />
     <path d="M988 450H1000" class="line" stroke="#91BCBF" stroke-width="1.3" marker-end="url(#light)" />
     <path d="M576 521H1200" class="line" stroke="#36565E" />
-    <text x="576" y="547" class="body" style="fill:#D3E6E5">If there is no new information, remove the draft and end the round.</text>
-    <text x="576" y="574" class="small" style="fill:#9CBBC0">Search daily history up to five times when enriching a new record.</text>
+    <text x="576" y="547" class="body" style="fill:#D3E6E5">If there is no new information, save an empty skip record.</text>
+    <text x="576" y="574" class="small" style="fill:#9CBBC0">Local search budget: ten calls per run by default.</text>
     <text x="576" y="598" class="small" style="fill:#9CBBC0">Merge new records and generated reminders into today's summary.</text>
   </g>
 
@@ -240,7 +240,7 @@
       <rect x="1420" y="796" width="150" height="24" rx="6" fill="#EEE9F5" />
       <text x="1495" y="813" font-size="11" font-weight="650" letter-spacing=".5" class="purple" text-anchor="middle">WRITE DECISION</text>
       <text x="1420" y="856" font-size="22" font-weight="650">Reminders</text>
-      <text x="1420" y="883" font-size="15" class="muted">Remove drafts for skipped reminders</text>
+      <text x="1420" y="883" font-size="15" class="muted">Keep the decision to skip delivery</text>
       <text x="1420" y="916" class="file"><tspan x="1420">reme_agents/work/</tspan><tspan x="1420" dy="20">reminder/{date}/</tspan><tspan x="1420" dy="20">HHMMSS.md</tspan></text>
       <text x="1420" y="998" font-size="13" class="muted">Collision suffix matches the record</text>
     </g>

@@ -10,14 +10,14 @@ import pytest
 
 from reme.components import RuntimeContext
 from reme.schema import SessionMessage
-from reme.steps.proactive.agent import ChatAgentStep, InboxChatStep, NewChatSessionStep, ProactiveAgentStep
+from reme.steps.proactive.agent import AgentChatStep, AgentNewSessionStep, InboxChatStep, ProactiveAgentStep
 from reme.steps.proactive.tools.inbox import ReadInboxStep, SendChatMessageStep
 from .test_agent_runtime import completed_result, create_agent, running_runtime
 from .test_proactive_run import install_round
 
 
 async def prepare(runtime, context, priority="P1"):
-    await NewChatSessionStep(app_context=context)()
+    await AgentNewSessionStep(app_context=context)()
     await create_agent(runtime)
     result, session = completed_result(runtime)
     result.notifications[0].priority = priority
@@ -154,7 +154,7 @@ async def test_read_inbox_exposes_unique_supporting_paths_without_changing_inter
     expected_paths,
 ):
     async with running_runtime(tmp_path) as (runtime, context, _):
-        await NewChatSessionStep(app_context=context)()
+        await AgentNewSessionStep(app_context=context)()
         await create_agent(runtime)
         result, session = completed_result(runtime)
         reminder = result.notifications[0]
@@ -240,12 +240,12 @@ async def test_fork_allows_foreground_chat_and_rejects_a_rotated_session(tmp_pat
             bound = options["injected_job_kwargs"]
             await ReadInboxStep(app_context=context)(**bound)
             async with asyncio.timeout(1):
-                response = await ChatAgentStep(app_context=context)(
+                response = await AgentChatStep(app_context=context)(
                     RuntimeContext(stream_queue=asyncio.Queue()),
                     query="Another topic",
                 )
             assert response.success
-            await NewChatSessionStep(app_context=context)()
+            await AgentNewSessionStep(app_context=context)()
             await SendChatMessageStep(app_context=context)(content="Stale reminder", **bound)
 
         wrapper.reply = AsyncMock(side_effect=reply)

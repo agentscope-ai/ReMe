@@ -28,12 +28,9 @@ from reme.steps.proactive.agent import (
     AgentNewSessionStep,
     AgentReminderStep,
     AgentSessionStep,
-    ChatAgentStep,
     InboxChatStep,
     ListChatSessionsStep,
-    NewChatSessionStep,
     ProactiveAgentStep,
-    ProactiveQueryStep,
 )
 from reme.steps.proactive.tools.inbox import ReadInboxStep, SendChatMessageStep
 from reme.steps.proactive.tools.manage_proactive_agent import ManageProactiveAgentStep
@@ -126,7 +123,7 @@ async def test_runtime_initializes_chat_memory_and_preserves_it_across_turns_and
         memory = runtime.agents.path("Remy") / "MEMORY.md"
         assert memory.read_text() == initial
         assert not wrapper.turns
-        assert "initial_memory" not in json.loads((memory.parent / "config.json").read_text())
+        assert not (memory.parent / "config.json").exists()
         content = "# Personal memory\nUpdated interests and an explicit forgetting request\n"
         runtime.files.write(memory, content)
         before = memory.stat().st_mtime_ns
@@ -138,8 +135,8 @@ async def test_runtime_initializes_chat_memory_and_preserves_it_across_turns_and
             return write(path, *args, **kwargs)
 
         monkeypatch.setattr(runtime.files, "write", reject_turn_initialization)
-        await ChatAgentStep(app_context=context)(RuntimeContext(stream_queue=asyncio.Queue()), query="Hello")
-        await NewChatSessionStep(app_context=context)()
+        await AgentChatStep(app_context=context)(RuntimeContext(stream_queue=asyncio.Queue()), query="Hello")
+        await AgentNewSessionStep(app_context=context)()
         assert memory.read_text() == content and memory.stat().st_mtime_ns == before
     async with running_runtime(tmp_path, chat={"initial_memory": "Changed startup text"}, language=language) as (
         runtime,
@@ -183,7 +180,7 @@ def inbox_history(runtime):
     return [{**outbox.records[ref].model_dump(mode="json"), "from_agent_name": outbox.owners[ref]} for ref in refs]
 
 
-@pytest.mark.parametrize("name,backend", [("proactive", "codex"), ("proactive_cc", "claude_code")])
+@pytest.mark.parametrize("name,backend", [("proactive", "codex"), ("proactive_cc", "claude_code"), ("demo", "codex")])
 def test_configuration_registers_runtime_and_agent_steps_without_legacy_aliases(name, backend):
     config = resolve_app_config(config=name, log_config=False)
     components = config["components"]
@@ -205,7 +202,7 @@ def test_configuration_registers_runtime_and_agent_steps_without_legacy_aliases(
     assert config["components"]["agent_inbox"]["default"]["backend"] == "event"
     assert R.get(ComponentEnum.AGENT_INBOX, "event") is AgentEventInbox
     assert R.get("proactive", "local") is None
-    assert R.get(ComponentEnum.STEP, "chat_agent_step") is ChatAgentStep
+    assert R.get(ComponentEnum.STEP, "agent_chat_step") is AgentChatStep
     assert R.get(ComponentEnum.STEP, "proactive_agent_step") is ProactiveAgentStep
     assert R.get(ComponentEnum.STEP, "proactive_chat_step") is None
     for job_name, job in config["jobs"].items():
@@ -215,6 +212,9 @@ def test_configuration_registers_runtime_and_agent_steps_without_legacy_aliases(
             assert R.get(ComponentEnum.STEP, step["backend"]) is not None
     assert not config["jobs"]["run_proactive_agent"]["enable_serve"]
     assert not config["jobs"]["process_chat_reminders"]["enable_serve"]
+    assert config["jobs"]["ask_agent"]["steps"][0]["backend"] == "agent_chat_step"
+    assert config["jobs"]["create_chat_session"]["steps"][0]["backend"] == "agent_new_session_step"
+    assert {"chat", "new_chat_session", "query_proactive_agent"}.isdisjoint(config["jobs"])
     assert config["jobs"]["proactive_loop"]["steps"] == [{"backend": "agent_loop_step"}]
     assert "agent_loop" not in config["jobs"]
     for job_name in ("inbox_loop", "agent_event_list", "agent_mailbox"):
@@ -266,7 +266,7 @@ async def test_formal_agents_inherit_web_search_from_shared_codex_server(tmp_pat
         assert options["approval_mode"] == "deny_all"
         assert options["config"] == {"skills.include_instructions": False}
         chat_tools = config["jobs"]["ask_agent"]["steps"][0]["job_tools"]
-        chat = ChatAgentStep(app_context=context, job_tools=chat_tools).session_options()
+        chat = AgentChatStep(app_context=context, job_tools=chat_tools).session_options()
         assert chat["job_tools"] == ["manage_proactive_agent", "todo", "idea"]
         assert "sandbox" not in chat
         assert "config" not in chat
@@ -296,7 +296,7 @@ async def test_chat_tool_changes_fork_existing_history_and_then_reuse_session(tm
         )
         tools = resolve_app_config(config="proactive", log_config=False)["jobs"]["ask_agent"]["steps"][0]["job_tools"]
         for _ in range(2):
-            await ChatAgentStep(app_context=context, job_tools=tools)(
+            await AgentChatStep(app_context=context, job_tools=tools)(
                 RuntimeContext(stream_queue=asyncio.Queue()),
                 query="Hello",
             )
@@ -313,7 +313,7 @@ async def test_chat_tools_are_selected_only_from_step_configuration(tmp_path):
     async with running_runtime(tmp_path) as (_, context, wrapper):
         for tools in ([], ["manage_proactive_agent"]):
             kwargs = {"job_tools": tools} if tools else {}
-            await ChatAgentStep(app_context=context, **kwargs)(
+            await AgentChatStep(app_context=context, **kwargs)(
                 RuntimeContext(stream_queue=asyncio.Queue()),
                 query="Hello",
             )
@@ -697,7 +697,7 @@ async def test_chat_rotation_preserves_inbox_and_wakeup_uses_current_session(tmp
         listing = ListChatSessionsStep(app_context=context)
         assert (await listing()).answer["total"] == 0
         assert not wrapper.created
-        chat = ChatAgentStep(app_context=context)
+        chat = AgentChatStep(app_context=context)
         response = await chat(RuntimeContext(stream_queue=asyncio.Queue()), query="Hello")
         assert response.success and response.answer == "Processed"
         first = (await runtime.sessions.current("Remy")).session_id
@@ -706,7 +706,7 @@ async def test_chat_rotation_preserves_inbox_and_wakeup_uses_current_session(tmp
         await runtime.run("monitor", execute)
         await runtime.outbox.sync()
         identifier = (await runtime.notifications.read())["items"][0]["id"]
-        assert (await NewChatSessionStep(app_context=context)()).success
+        assert (await AgentNewSessionStep(app_context=context)()).success
         current = (await runtime.sessions.current("Remy")).session_id
         assert current != first and (await listing()).answer["total"] == 2
         assert (await runtime.notifications.read())["items"][0]["id"] == identifier
@@ -772,7 +772,7 @@ async def test_agent_directories_and_reference_only_inbox(tmp_path):
         assert refs[0]["source"] == "monitor" and "message" not in refs[0]
         receipt = (await runtime.inbox.snapshot("monitor"))["receipt"]
         assert receipt.metadata["reminders"] == [{"id": refs[0]["id"], "file": refs[0]["paths"][0]}]
-        await ChatAgentStep(app_context=context)(RuntimeContext(stream_queue=asyncio.Queue()), query="Hello")
+        await AgentChatStep(app_context=context)(RuntimeContext(stream_queue=asyncio.Queue()), query="Hello")
         assert (tmp_path / "reme_agents/Remy/MEMORY.md").is_file()
         assert (tmp_path / "reme_agents/Remy/sessions.jsonl").is_file()
         assert not (tmp_path / "session").exists()
@@ -1015,8 +1015,12 @@ async def test_query_forks_latest_session_without_selecting_the_temporary_branch
         result, _ = completed_result(runtime)
         await runtime.run("monitor", AsyncMock(return_value=(result, source)))
         current = await runtime.sessions.ensure("monitor", wrapper, {}, runtime.now(), new=True)
-        response = await ProactiveQueryStep(app_context=context)(agent_name="monitor", query="What happened?")
-        assert response.success and response.answer["answer"] == "Processed"
+        response = await ManageProactiveAgentStep(app_context=context)(
+            action="query",
+            agent_name="monitor",
+            question="What happened?",
+        )
+        assert response.success and response.answer == "Processed"
         assert wrapper.created[-1]["resume"] == current
         assert wrapper.created[-1]["fork_session"]
         assert wrapper.created[-1]["sandbox"] == "read-only"
@@ -1071,7 +1075,7 @@ async def test_query_registration_owns_requests_during_checkpoint_selection(tmp_
         monkeypatch.setattr(runtime.sessions, "current", checkpoint)
         monkeypatch.setattr(wrapper, "reply_stream", answer)
         querying = asyncio.create_task(
-            ProactiveQueryStep(app_context=context)(agent_name="experiment", query="Status?"),
+            ManageProactiveAgentStep(app_context=context)(action="query", agent_name="experiment", question="Status?"),
         )
         collecting = None
         try:
@@ -1099,7 +1103,11 @@ async def test_query_without_a_queryable_session_releases_ownership(tmp_path):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         with pytest.raises(ValueError, match="no queryable session"):
-            await ProactiveQueryStep(app_context=context)(agent_name="monitor", query="Status?")
+            await ManageProactiveAgentStep(app_context=context)(
+                action="query",
+                agent_name="monitor",
+                question="Status?",
+            )
         assert not runtime.agent_tasks and not wrapper.created
 
 
@@ -1123,7 +1131,11 @@ async def test_failed_query_releases_only_its_fork_and_preserves_primary(tmp_pat
 
             monkeypatch.setattr(wrapper, "reply_stream", fail)
         with pytest.raises(RuntimeError, match=f"{failure} failed"):
-            await ProactiveQueryStep(app_context=context)(agent_name="monitor", query="Progress?")
+            await ManageProactiveAgentStep(app_context=context)(
+                action="query",
+                agent_name="monitor",
+                question="Progress?",
+            )
         assert (await runtime.sessions.current("monitor")).session_id == source
         assert not runtime.agent_tasks
         if failure == "fork":
@@ -1148,7 +1160,9 @@ async def test_cancelled_query_finishes_fork_registration_and_cleanup(tmp_path):
 
         wrapper.create_session = fork
         wrapper.release_session = AsyncMock()
-        querying = asyncio.create_task(ProactiveQueryStep(app_context=context)(agent_name="monitor", query="Status?"))
+        querying = asyncio.create_task(
+            ManageProactiveAgentStep(app_context=context)(action="query", agent_name="monitor", question="Status?"),
+        )
         try:
             await asyncio.wait_for(entered.wait(), 2)
             querying.cancel()

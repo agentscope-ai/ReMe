@@ -35,13 +35,12 @@ class ManageProactiveAgentStep(BaseAgentStep):
             await runtime.delete(request.agent_name)
             answer = f"Deleted task '{request.agent_name}'; history files retained."
         else:
-            response = await self.run_job(
-                self.kwargs.get("query_job", "query_proactive_agent"),
-                agent_name=request.agent_name,
-                query=request.question,
-                _allowed_paths=self.context.get("_allowed_paths"),
+            reply = await self.query_reply(request.agent_name, request.question)
+            self.context.response.success = reply["status"] == "completed"
+            answer = (
+                reply["result"]
+                if self.context.response.success
+                else reply.get("error") or f"Proactive query {reply['status']}"
             )
-            self.context.response.success = response.success
-            answer = response.answer["answer"] if response.success else response.answer
         self.context.response.answer = answer
         return self.context.response

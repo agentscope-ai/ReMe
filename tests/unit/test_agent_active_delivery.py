@@ -10,15 +10,22 @@ import pytest
 from reme.schema import SessionSnapshot, SessionStatus
 from reme.schema.proactive_agent import ProactiveRunResult
 from reme.components import RuntimeContext
-from reme.steps.proactive.agent import AgentChatStep, InboxChatStep, ProactiveQueryStep
+from reme.steps.proactive.agent import AgentChatStep, InboxChatStep
 from reme.steps.proactive.tools.inbox import ReadInboxStep, SendChatMessageStep
+from reme.steps.proactive.tools.manage_proactive_agent import ManageProactiveAgentStep
 from .test_agent_runtime import create_agent, running_runtime
 from .test_inbox_fork import append_message, prepare
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("step_class", [AgentChatStep, ProactiveQueryStep])
-async def test_query_forks_latest_running_session_instead_of_previous_receipt(tmp_path, step_class):
+@pytest.mark.parametrize(
+    "step_class, arguments",
+    [
+        (AgentChatStep, {"query": "Current progress?"}),
+        (ManageProactiveAgentStep, {"action": "query", "question": "Current progress?"}),
+    ],
+)
+async def test_query_forks_latest_running_session_instead_of_previous_receipt(tmp_path, step_class, arguments):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         previous = await runtime.sessions.ensure("monitor", wrapper, {}, runtime.now())
@@ -44,7 +51,7 @@ async def test_query_forks_latest_running_session_instead_of_previous_receipt(tm
                 step_class(app_context=context)(
                     RuntimeContext(stream_queue=asyncio.Queue()),
                     agent_name="monitor",
-                    query="Current progress?",
+                    **arguments,
                 ),
                 1,
             )
