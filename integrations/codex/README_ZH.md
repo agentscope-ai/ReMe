@@ -5,6 +5,52 @@
 将 Codex 接入自己的 ReMe 服务，即可跨会话记住项目决策、个人偏好和待办事项。
 ReMe 可以自动记录、召回记忆，并每天整理。记忆文件保存在你自己的 ReMe 工作区中。
 
+## HTTP 连接（默认）
+
+默认插件直接连接 ReMe 的 HTTP MCP，不再为每个会话启动常驻 Python 代理。
+自动召回和记录仍由按需运行的 Python Hook 完成，因此宿主仍需要 Python 3.11+ 和 `fastmcp>=4.1.4,<5`。
+
+在一个终端启动共享服务。`default` 和 `proactive` 配置都保持 HTTP；桌面端 API 和流式聊天也依赖它。
+
+```bash
+reme start config=default workspace_dir=/absolute/path/to/reme-workspace service.tool_error_on_failure=true
+```
+
+在另一个终端，从仓库生成用户自己持有的插件安装源：
+
+```bash
+python3 /absolute/path/to/ReMe/integrations/configure_mcp.py codex
+codex plugin marketplace add "${CODEX_HOME:-$HOME/.codex}/reme/plugin-marketplace"
+codex plugin add reme@reme-codex
+```
+
+脚本读取 `${CODEX_HOME:-~/.codex}/reme/config.json`，文件只需保留覆盖项。
+要同时修改原生 MCP 和 Hook 的地址，可重新运行并加上 `--mcp-url http://127.0.0.1:2444/mcp`；
+已有 JSON 中的地址会直接沿用。修改地址或传输方式后，从该安装源重新安装插件，再重启 Codex。
+其他 Hook 配置在下次调用时生效。生成的安装源可以重建，设置、待提交队列和日志始终保存在它之外，
+脚本不会编辑插件缓存。若 HTTP 安装包与 JSON 地址不一致，Hook 会跳过并记录 `hook_failed`，
+待重新生成、安装后恢复，避免两种调用使用不同的记忆服务。
+
+如果已从仓库路径注册旧 marketplace，先运行 `codex plugin remove reme@reme-codex` 和
+`codex plugin marketplace remove reme-codex`，再注册上面的生成路径。宿主 `reme/` 下的设置和待提交记忆会保留。
+安装后，在 `/hooks` 或桌面端 Hook 设置中审核、信任全部 ReMe 条目。
+
+可要求 Codex 使用 `health_check` 检查连接、`search` 检索记忆；只有用户明确要求整理时调用 `auto_dream`。
+通过 `reme/hooks.log`、本机队列和服务端每日笔记验证自动记录，连接健康不代表某轮对话已经保存。
+HTTP 模式由服务端 `dream_cron` 管理整理计划；插件的 `autoDreamEnabled`、`dreamCron`、`dreamHint`
+只用于 stdio 模式。HTTP 显式搜索使用服务端工具默认值；插件的 `searchLimit`、`recallMinScore` 仍用于自动召回。
+
+| 连接方式 | 显式工具 | 设置和本机诊断 | 每日整理 |
+| --- | --- | --- | --- |
+| HTTP（默认） | 服务端工具，包括 `search`、`health_check`、`status`、`auto_dream` | JSON 设置、本机队列和日志 | ReMe 服务端计划 |
+| stdio（可选） | 服务端工具，以及 `reme_search`、`reme_status`、`reme_run_dream` | JSON，以及原有设置表单和状态卡片 | 原有插件调度器，或服务端计划 |
+
+要使用现有 stdio 实现，在相同配置命令上加 `--transport stdio`，重新安装插件后重启 Codex。
+该模式仍通过 Python 代理连接共享 HTTP 服务。下面保留完整使用指南和截图。
+
+<details>
+<summary>可选 stdio 模式：原生设置、状态卡片和插件调度器</summary>
+
 下方为真实 Codex 桌面端截图，点击图片可查看原图。
 
 ## 开始前
@@ -51,7 +97,8 @@ reme start \
 将路径替换为仓库所在的绝对路径：
 
 ```bash
-codex plugin marketplace add /absolute/path/to/ReMe/integrations/codex
+python3 /absolute/path/to/ReMe/integrations/configure_mcp.py codex --transport stdio
+codex plugin marketplace add "${CODEX_HOME:-$HOME/.codex}/reme/plugin-marketplace"
 codex plugin add reme@reme-codex
 ```
 
@@ -248,11 +295,14 @@ curl -i --max-time 20 https://web-sandbox.oaiusercontent.com/mcp-app.html
 需要进一步排查时，查看 `~/.codex/reme/hooks.log`。如果设置过 `CODEX_HOME`，用该目录替换 `~/.codex`。
 排错时不要直接删除 `reme/` 目录，其中还保存着你的配置和尚未写入的对话。
 
-更新仓库后重新安装：
+更新仓库后，重新生成 stdio 安装源并重新安装：
 
 ```bash
+python3 /absolute/path/to/ReMe/integrations/configure_mcp.py codex --transport stdio
 codex plugin remove reme@reme-codex
 codex plugin add reme@reme-codex
 ```
 
 重启 Codex 并重新审核发生变化的 Hook。已保存的设置和待提交记忆会继续保留。
+
+</details>

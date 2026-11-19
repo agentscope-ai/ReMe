@@ -1,10 +1,13 @@
 """Return the effective application configuration."""
 
 from typing import Any
+from hashlib import sha256
+import json
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from ..base_step import BaseStep
 from ...components import R
+from ...schema.agent_view import ClientInfo
 
 _SECRET_KEYS = {
     "api_key",
@@ -82,4 +85,56 @@ class AppConfigStep(BaseStep):
 
         config = self.app_context.app_config.model_dump(mode="json", exclude={"environment"})
         self.context.response.answer = _redact(config)
+        return self.context.response
+
+
+@R.register("client_info_step")
+class ClientInfoStep(BaseStep):
+    """Publish client capabilities without exposing component configuration."""
+
+    async def execute(self):
+        config = self.app_context.app_config
+        allowlist = getattr(self.app_context.service, "jobs", None)
+        jobs = sorted(
+            name
+            for name, job in config.jobs.items()
+            if job.enabled
+            and job.enable_serve
+            and job.backend != "background"
+            and (allowlist is None or name in allowlist)
+        )
+        components = config.components
+        store = components.get("file_store", {}).get("default")
+        index_name = getattr(store, "tag_index", "default")
+        index = components.get("tag_index", {}).get(index_name)
+        tts = components.get("tts", {}).get("default")
+        speech = (
+            {
+                key: value
+                for key, value in tts.model_dump().items()
+                if key
+                in {
+                    "backend",
+                    "model",
+                    "voice",
+                    "audio_format",
+                    "sample_rate",
+                    "parameters",
+                }
+            }
+            if tts
+            else {}
+        )
+        self.context.response.answer = ClientInfo(
+            workspace_dir=config.workspace_dir,
+            timezone=config.timezone,
+            resource_dir=config.resource_dir,
+            daily_dir=config.daily_dir,
+            digest_dir=config.digest_dir,
+            tag_key=getattr(index, "tag_key", "memory_tags"),
+            jobs=jobs,
+            asr="asr" in jobs,
+            tts="tts" in jobs,
+            speech_revision=sha256(json.dumps(speech, sort_keys=True).encode()).hexdigest(),
+        ).model_dump(mode="json")
         return self.context.response

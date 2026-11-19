@@ -57,13 +57,17 @@ decision = [
 web = [
     "reme_studio",
 ]
+finance = [
+    "exchange-calendars>=4.13.3,<5",
+]
 core = [
     "reme-ai[as]",
+    "reme-ai[finance]",
     "dashscope>=1.26.0",
     "pillow>=13.0.0",
-    "mss>=9.0.0",
-    "claude-agent-sdk>=0.2.174",
-    "openai-codex>=0.163.0",
+    "mss>=10.2.0",
+    "claude-agent-sdk>=0.2.182",
+    "openai-codex>=0.169.0",
     "pproxy>=2.7.9,<3",
     "faiss-cpu>=1.15.1",
     "zvec>=0.8.0",
@@ -130,7 +134,3 @@ asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
-
-[tool.coverage.run]
-# Tests import temporary plugin copies that are removed before reporting.
-source = ["."]

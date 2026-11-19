@@ -15,6 +15,8 @@ One class, :class:`WikilinkHandler`, owning every wikilink concern:
   :meth:`~WikilinkHandler.retarget_links` (called by ``file_move``
   post-rename to point inbound ``[[src]]`` at the new path). Source
   candidates come from the file_graph's reverse index — no fs scan.
+  ``retarget_links`` takes an optional per-target ``write_guard`` so
+  callers with a permission scope can veto rewrites at write time.
 
 Wikilink targets are taken **literally** — ``[[X]]`` →
 ``target="X"``, no implicit ``.md``, no short-form basename search,
@@ -29,6 +31,7 @@ will miss those sources — keep the watcher in sync.
 """
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -265,12 +268,23 @@ class WikilinkHandler:
         dst: str,
         scope: str = "",
         dry_run: bool = False,
+        write_guard: Callable[[str], str | None] | None = None,
     ) -> dict:
         """Rewrite every wikilink pointing at ``src`` to point at ``dst``.
 
         Pure helper — called directly by ``file_move`` post-rename. Literal
         matching only; candidate sources come from the file_graph's reverse
         index.
+
+        ``write_guard`` optionally vets every file the rewrite is about to
+        modify: it receives the workspace-relative path and returns ``None``
+        to allow the write or a denial reason to abort. The guard runs in the
+        real pass as well as in ``dry_run`` — files are re-read at rewrite
+        time, so a referencing file whose content changed since an earlier
+        dry run (concurrent save, lagging graph backend) is still checked
+        before anything is written. On denial the loop aborts with
+        ``{"error": reason, "retarget_blocked_path": path}``; files already
+        rewritten stay rewritten.
         """
         src = _normalize_workspace_path(src)
         dst = _normalize_workspace_path(dst)
@@ -306,6 +320,17 @@ class WikilinkHandler:
                 continue
             new_text, count = cls.scan_and_rewrite(text, old=src, new=dst)
             if count > 0:
+                if write_guard is not None:
+                    denial = write_guard(rel)
+                    if denial is not None:
+                        return {
+                            "src": src,
+                            "dst": dst,
+                            "scope": scope or None,
+                            "error": denial,
+                            "retarget_blocked_path": rel,
+                            "by_file": by_file,
+                        }
                 by_file.append({"path": rel, "count": count})
                 total_changes += count
                 if not dry_run:

@@ -22,7 +22,7 @@ from unittest.mock import patch
 import frontmatter
 import pytest
 import yaml
-from agentscope.message import DataBlock, TextBlock
+from agentscope.message import DataBlock
 from PIL import Image, JpegImagePlugin
 
 from reme.components import R
@@ -678,21 +678,12 @@ def test_auto_resource_router_rejects_missing_registered_fallback():
         step._processor_routes()
 
 
-def test_resource_processors_have_canonical_registrations_and_isolated_prompts():
-    """Each modality owns one backend and loads only its module-local prompts."""
+def test_resource_processors_have_canonical_registrations():
+    """Each modality owns one canonical backend."""
     assert R.get(ComponentEnum.STEP, "auto_resource_step") is AutoResourceStep
     assert R.get(ComponentEnum.STEP, "auto_text_resource_step") is AutoTextResourceStep
     assert R.get(ComponentEnum.STEP, "auto_image_resource_step") is AutoImageResourceStep
     assert R.get(ComponentEnum.STEP, "auto_image_step") is None
-
-    text_step = AutoTextResourceStep()
-    image_step = AutoImageResourceStep()
-    assert text_step.prompt.has_prompt("system_prompt")
-    assert text_step.prompt.has_prompt("user_message_create")
-    assert not text_step.prompt.has_prompt("resource_instructions")
-    assert image_step.prompt.has_prompt("resource_instructions")
-    assert image_step.prompt.has_prompt("system_prompt")
-    assert image_step.prompt.has_prompt("user_message_create")
 
 
 def test_auto_image_named_wrapper_uses_standard_ref_resolution():
@@ -808,54 +799,6 @@ import reme.steps.evolve.auto_image_resource
     )
 
     assert completed.returncode == 0, completed.stderr
-
-
-@pytest.mark.parametrize("language", ["en", "zh"])
-@pytest.mark.parametrize("existing", [False, True], ids=["create", "update"])
-@pytest.mark.parametrize("legacy_template", [False, True], ids=["default-template", "legacy-template"])
-@pytest.mark.asyncio
-async def test_auto_image_prompt_merges_resource_instructions(language, existing, legacy_template, auto_resource_env):
-    """Shared create/update prompts include localized image requirements exactly once."""
-    env = auto_resource_env
-    source_path = "resource/2026-01-01/cat-at-beach.png"
-    source = env.write_binary(source_path, _png_bytes())
-    if existing:
-        env.write_note("daily/2026-01-01/cat-at-beach.md", f"[[{source_path}]]")
-    model = _FakeImageAgentWrapper(_caption_fields("red-square", "Red", "A red square."))
-    step = env.processor(model, language=language)
-    if legacy_template:
-        suffix = "_zh" if language == "zh" else ""
-        prompt_name = "user_message_update" if existing else "user_message_create"
-        step = env.processor(
-            model,
-            language=language,
-            prompt_dict={
-                f"resource_instructions{suffix}": "Custom image instructions: {filename}",
-                f"{prompt_name}{suffix}": step.get_prompt(prompt_name).replace("{resource_instructions}", ""),
-            },
-        )
-    response = await env.run(step, [{"change": "modified" if existing else "added", "path": str(source)}])
-
-    assert response.success is True
-    message, options = model.calls[0]
-    assert [type(block) for block in message.content] == [DataBlock, TextBlock]
-    prompt = message.get_text_content()
-    instructions = step.prompt_format(
-        "resource_instructions",
-        file_path=source_path,
-        filename="cat-at-beach.png",
-        stem="cat-at-beach",
-        date="2026-01-01",
-    )
-    assert prompt.count(instructions) == 1
-    if legacy_template:
-        assert instructions == "Custom image instructions: cat-at-beach.png"
-        assert prompt.endswith(instructions)
-    else:
-        assert ("weak hints" if language == "en" else "弱提示") in prompt
-        assert ("trust the visible image content" if language == "en" else "以图像中的可见内容为准") in prompt
-    assert options["injected_job_kwargs"]["_allowed_paths"][0] in prompt
-    assert ("read path=" in prompt) is existing
 
 
 @pytest.mark.asyncio

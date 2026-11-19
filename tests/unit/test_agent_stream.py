@@ -19,7 +19,7 @@ from openai_codex.generated.v2_all import (
 from reme.components.agent_wrapper.as_agent_wrapper import AsAgentWrapper
 from reme.components.agent_wrapper.cc_agent_wrapper import CcAgentWrapper
 from reme.components.agent_wrapper.codex_agent_wrapper import CodexAgentWrapper
-from reme.components.agent_wrapper.codex_session_history import item_chunks
+from reme.components.codex_app_server._session_history import item_chunks
 from reme.components.application_context import ApplicationContext
 from reme.components.client.http_client import HttpClient
 from reme.components.runtime_context import RuntimeContext
@@ -72,14 +72,16 @@ def test_codex_reasoning_deltas_correlate_with_their_final_sections():
 
 def test_agentscope_block_boundaries_final_correction_and_url_data():
     start = AsAgentWrapper._event_to_chunk(TextBlockStartEvent(reply_id="reply", block_id="block"))
-    end = AsAgentWrapper._event_to_chunk(TextBlockEndEvent(reply_id="reply", block_id="block", text="corrected"))
+    end = AsAgentWrapper._event_to_chunk(
+        TextBlockEndEvent(reply_id="reply", block_id="block").model_copy(update={"text": "corrected"}),
+    )
     url = AsAgentWrapper._event_to_chunk(
         DataBlockDeltaEvent(
             reply_id="reply",
             block_id="image",
             media_type="image/png",
-            url="https://example.com/a.png",
-        ),
+            data="",
+        ).model_copy(update={"url": "https://example.com/a.png"}),
     )
     assert start.event == "start" and start.chunk is None
     assert end.event == "end" and end.chunk == "corrected"
@@ -141,7 +143,7 @@ async def test_claude_multiple_model_messages_have_one_invocation_end(tmp_path, 
             session_id="session",
         )
 
-    monkeypatch.setattr("claude_agent_sdk.query", query)
+    monkeypatch.setattr(CcAgentWrapper, "_stream_messages", staticmethod(query))
     wrapper = CcAgentWrapper(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
     chunks = [chunk async for chunk in wrapper.reply_stream("hello")]
     assert sum(chunk.chunk_type == ChunkEnum.REPLY_START for chunk in chunks) == 1
@@ -178,7 +180,7 @@ async def test_claude_interleaved_child_events_keep_their_own_block_state(tmp_pa
             session_id="session",
         )
 
-    monkeypatch.setattr("claude_agent_sdk.query", query)
+    monkeypatch.setattr(CcAgentWrapper, "_stream_messages", staticmethod(query))
     wrapper = CcAgentWrapper(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
     chunks = [chunk async for chunk in wrapper.reply_stream("hello")]
     deltas = [chunk for chunk in chunks if chunk.chunk_type == ChunkEnum.CONTENT and chunk.event == "delta"]
@@ -261,7 +263,7 @@ async def test_agentscope_closing_stream_records_reported_usage_and_closes_sdk(t
     agent = SimpleNamespace(state=SimpleNamespace(session_id="session"), reply_stream=native_stream)
     wrapper = AsAgentWrapper(app_context=ApplicationContext(workspace_dir=str(tmp_path)), as_llm="")
     monkeypatch.setattr(wrapper, "_build_agent", AsyncMock(return_value=(agent, "hello")))
-    monkeypatch.setattr(wrapper, "_dump_state", AsyncMock())
+    monkeypatch.setattr(wrapper._sessions, "save", AsyncMock())  # pylint: disable=protected-access
     stream = wrapper.reply_stream("hello")
     await anext(stream)
     await stream.aclose()

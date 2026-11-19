@@ -56,6 +56,13 @@ def test_register_rejects_missing_component_type():
         reg.register(_NoComponentType, "bad")
 
 
+def test_register_rejects_base_component_type():
+    reg = ComponentRegistry()
+    with pytest.raises(TypeError, match="non-BASE"):
+        reg.register(_BaseComponentType, "bad")
+    assert not reg.get_all(ComponentEnum.BASE)
+
+
 def test_register_plugin_defined_component_type():
     reg = ComponentRegistry()
 

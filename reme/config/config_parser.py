@@ -39,21 +39,16 @@ def _repl(m: re.Match) -> str:
     return v
 
 
-def _expand_env_vars(value: Any) -> Any:
+def expand_env_vars(value: Any) -> Any:
     """Recursively expand `${VAR}` / `${VAR:-default}` placeholders in strings."""
     if isinstance(value, str):
         expanded = _ENV_VAR_RE.sub(_repl, value)
         return _convert_value(expanded) if expanded != value else value
     if isinstance(value, dict):
-        return {k: _expand_env_vars(v) for k, v in value.items()}
+        return {k: expand_env_vars(v) for k, v in value.items()}
     if isinstance(value, list):
-        return [_expand_env_vars(v) for v in value]
+        return [expand_env_vars(v) for v in value]
     return value
-
-
-def expand_env_vars(value: Any) -> Any:
-    """Expand environment placeholders in an arbitrary plugin config value."""
-    return _expand_env_vars(value)
 
 
 def _discover_configs() -> dict[str, Path]:
@@ -207,7 +202,7 @@ def _read_config_file(path: Path, encoding: str = "utf-8") -> dict:
         return {}
     if not isinstance(result, dict):
         raise ValueError(f"Config root must be a mapping/object: {path}")
-    return _expand_env_vars(result)
+    return expand_env_vars(result)
 
 
 def deep_merge_config(base: Mapping[str, Any], update: Mapping[str, Any]) -> dict[str, Any]:

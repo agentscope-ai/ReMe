@@ -2229,7 +2229,7 @@ async def test_auto_memory_reports_unreadable_index_after_durable_note_write():
         )
         wrapper.on_reply = lambda *_: note.write_text(new_note_text, encoding="utf-8")
         step = AutoMemoryStep(app_context=app_ctx, agent_wrapper=wrapper)
-        step.file_store = SimpleNamespace(workspace_path=cwd)
+        app_ctx.components = {"file_store": {"default": SimpleNamespace(workspace_path=cwd)}}
         step._save_session_messages = save_session
         step._list_session_note = list_note
         step._ensure_session_frontmatter = ensure_frontmatter

@@ -104,8 +104,9 @@ Validation imports plugin code, so run it only for trusted sources.
 
 The repository's Daily Paper, Auto Fin, LME, and BEAM plugins are complete examples.
 
-## Compatibility
+## Entry-point contract
 
-Legacy Python Plugin descriptors and the `reme.configs` entry point remain supported during migration, but new plugins should use `plugin.yaml`. Enablement always belongs to an Application rather than a process-global switch.
+Plugins must use a package-only `reme.plugins` entry point and declare contributions in `plugin.yaml`.
+The separate `reme.configs` entry point provides named configuration presets. Enablement belongs to an Application.
 
 See [Plugin Management](./plugin_management.md) for installation, upgrades, and removal.

@@ -143,9 +143,7 @@ class BaseComponent(ComponentMixin, ABC):
     @property
     def dependencies(self) -> list[Dependency]:
         """All declared dependencies, including bindings resolved at start."""
-        bindings = dict(self._binding_specs)
-        bindings.update((attr, value) for attr, value in self.__dict__.items() if isinstance(value, Dependency))
-        return list(bindings.values())
+        return list(self.dependency_bindings.values())
 
     @property
     def dependency_bindings(self) -> dict[str, Dependency]:

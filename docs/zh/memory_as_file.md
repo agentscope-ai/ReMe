@@ -212,6 +212,8 @@ search 命中    -> 可展开出入链，帮助理解上下文
 
 解析结果：
 
+`FileLink` 保存来源、目标和可选锚点。
+
 ```text
 FileLink
   source_path = 当前文件
