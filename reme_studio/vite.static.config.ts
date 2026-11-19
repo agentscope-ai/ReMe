@@ -2,6 +2,7 @@ import react from "@vitejs/plugin-react";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig, loadEnv, type Plugin } from "vite";
+import { patchedMonacoSanitizer } from "./tooling/patched-monaco-sanitizer.ts";
 
 const staticDir = fileURLToPath(new URL("./static/", import.meta.url));
 
@@ -41,7 +42,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     base: demo ? "./" : "/",
-    plugins: [browserApi, react()],
+    plugins: [patchedMonacoSanitizer(), browserApi, react()],
     resolve: {
       alias: {
         "next/dynamic": path.resolve(staticDir, "next-dynamic.tsx"),

@@ -82,5 +82,10 @@
     "openclaw",
     "plugin"
   ],
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "overrides": {
+    "@modelcontextprotocol/sdk": "1.32.0",
+    "undici": "8.12.2",
+    "zod": "4.6.7"
+  }
 }

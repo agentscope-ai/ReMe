@@ -2,18 +2,30 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-async function render() {
-  const workerUrl = new URL("../../dist/server/index.js", import.meta.url);
-  workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
-  const { default: worker } = await import(workerUrl.href);
+process.env.WRANGLER_LOG_PATH ??= ".wrangler/wrangler.log";
+process.env.MINIFLARE_REGISTRY_PATH ??= ".wrangler/registry";
+const { createTestHarness } = await import("wrangler");
 
-  return worker.fetch(
-    new Request("http://localhost/", { headers: { accept: "text/html" } }),
+const workerServer = createTestHarness({
+  workers: [
     {
-      ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) },
+      configPath: new URL("../../dist/server/wrangler.json", import.meta.url),
     },
-    { waitUntil() {}, passThroughOnException() {} },
-  );
+  ],
+});
+
+test.before(async () => {
+  await workerServer.listen();
+});
+
+test.after(async () => {
+  await workerServer.close();
+});
+
+async function render() {
+  return workerServer.fetch("http://localhost/", {
+    headers: { accept: "text/html" },
+  });
 }
 
 test("server-renders the ReMe Studio shell", async () => {
