@@ -166,8 +166,21 @@ async def test_recovered_native_reminder_finishes_ack_without_regenerating(tmp_p
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         args = await prepare(runtime, context)
         if partial:
-            await runtime.create({"agent_name": "other", "task_description": "Observe", "agent_type": "proactive"})
-            await runtime.append("other", {"event_ts": runtime.now(), "source": "test", "description": "Finished"})
+            await runtime.create(
+                {
+                    "agent_name": "other",
+                    "task_description": "Observe",
+                    "agent_type": "proactive",
+                },
+            )
+            await runtime.append(
+                "other",
+                {
+                    "event_ts": runtime.now(),
+                    "source": "test",
+                    "description": "Finished",
+                },
+            )
             result, session = completed_result(runtime, "other")
             result.notifications[0].priority = "P1"
             await runtime.run("other", AsyncMock(return_value=(result, session)))
@@ -186,14 +199,19 @@ async def test_recovered_native_reminder_finishes_ack_without_regenerating(tmp_p
         async with runtime.notifications.turn(source, "P1", args["msg_ids"]) as turn:
             await runtime.notifications.read_turn(turn)
 
-            async def fail_consume(identifiers):
-                if partial:
-                    ref = runtime.notifications.pending[identifiers[0]]
-                    await runtime.outbox.update(ref, read_at=runtime.now())
-                raise OSError("ack failed")
+            write = runtime.outbox._write
+            acknowledged = 0
+
+            def fail_ack(path, item, **kwargs):
+                nonlocal acknowledged
+                if item.read_at is not None:
+                    if not partial or acknowledged:
+                        raise OSError("ack failed")
+                    acknowledged += 1
+                return write(path, item, **kwargs)
 
             with monkeypatch.context() as patch:
-                patch.setattr(runtime.notifications, "consume", fail_consume)
+                patch.setattr(runtime.outbox, "_write", fail_ack)
                 with pytest.raises(OSError, match="ack failed"):
                     await runtime.notifications.send(turn, "The experiment has finished.")
         await runtime.outbox.refresh()

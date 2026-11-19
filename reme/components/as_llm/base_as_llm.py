@@ -1,5 +1,7 @@
 """Shared lifecycle for lazy AgentScope chat providers."""
 
+import asyncio
+
 from agentscope.credential import CredentialBase
 from agentscope.model import ChatModelBase
 
@@ -24,12 +26,14 @@ class BaseAsLLM(BaseComponent):
         self._owns_model = False
         self._closed = False
         self._closing_depth = 0
+        self._lifecycle_gate = asyncio.Lock()
 
     async def start(self) -> None:
         """Start without cleaning up resources owned by another lifecycle call."""
-        await super().start()
-        if not self._closing_depth:
-            self._closed = False
+        async with self._lifecycle_gate:
+            await super().start()
+            if not self._closing_depth:
+                self._closed = False
 
     async def _rollback_start(
         self,
@@ -60,14 +64,15 @@ class BaseAsLLM(BaseComponent):
         self._closing_depth += 1
         self._closed = True
         try:
-            async with self._lock:
-                if not self._is_started:
-                    await self._close()
-                    return
-            await super().close()
+            async with self._lifecycle_gate:
+                async with self._lock:
+                    if not self._is_started:
+                        await self._close()
+                        return
+                await super().close()
         finally:
-            self._closed = True
             self._closing_depth -= 1
+            self._closed = self._closing_depth > 0 or not self._is_started
 
     async def _start(self) -> None:
         """Keep service startup independent of provider credentials."""

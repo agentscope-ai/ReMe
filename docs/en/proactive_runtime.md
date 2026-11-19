@@ -45,6 +45,10 @@ Event tasks follow `TASK.md` and first exclude content that does not need a remi
 
 Before adding reminder metadata, Outbox checks the round's published file version under the file jobs' shared path lock. A concurrent user save preserves the user's file and leaves the input available for retry.
 
+Chat Inbox admits reminders by priority and creation time within shared capacity, preserving batches already being processed. Reminders from disabled or deleted tasks, or outside their notification window, release scheduling capacity while retaining their canonical files and unread state. They can rejoin the queue when eligible again; overflow remains in Outbox for retry.
+
+Sending and silent decisions revalidate the reminder's message, priority and related paths under the file jobs' shared path locks, held through decision commit and acknowledgement. If the user has saved new content, the stale decision fails and the updated reminder remains unprocessed.
+
 The default `proactive` configuration sets `project_doc_max_bytes=0` on the shared Codex app-server, disabling automatic
 repository `AGENTS.md` loading for all Agents. Event and scheduled task execution sessions do not automatically inject
 skill instructions; the main Chat Agent retains skills. Global instructions under `CODEX_HOME` load independently of this setting.

@@ -699,7 +699,19 @@ class LocalAgentInbox(BaseAgentInbox):
         except TimeoutError:
             return False
 
-    async def reconcile(self, name: str, pending: list[dict], processed: list[dict]) -> None:
+    async def pending_ids(self, name: str) -> set[str]:
+        """Read scheduling membership without copying or paging event bodies."""
+        async with self._changed:
+            return {entry.item["id"] for entry in self._inbox(name).pending}
+
+    async def reconcile(
+        self,
+        name: str,
+        pending: list[dict],
+        processed: list[dict],
+        *,
+        defer_overflow: bool = False,
+    ) -> None:
         """Rebuild reference views only; durable input inboxes cannot be replaced this way."""
         if name not in self.rebuildable:
             raise ValueError("only explicitly rebuildable inboxes can be reconciled")
@@ -715,6 +727,27 @@ class LocalAgentInbox(BaseAgentInbox):
             inbox = self._inbox(name)
             if inbox.retained:
                 raise ValueError("cannot rebuild an inbox with pending result handoffs")
+            records = [item for batch in history for item in batch.items] + [item for item, _, _ in unread]
+            if len({item["id"] for item in records}) != len(records):
+                raise ValueError("duplicate reconciled item ID")
+            fingerprints = {item["id"]: fingerprint for item, _, fingerprint in unread}
+            claim = inbox.claim
+            if claim and any(inbox.seen[identifier] != fingerprints.get(identifier) for identifier in claim[1]):
+                claim = None
+            if defer_overflow:
+                available_count = self.max_pending_items - (self._pending_count - len(inbox.pending))
+                available_bytes = self.max_pending_bytes - (self._pending_bytes - inbox.pending_bytes)
+                claimed = set(claim[1]) if claim else set()
+                admitted = []
+                # Do not preempt an unchanged batch that already has a consumer.
+                for entry in sorted(unread, key=lambda entry: entry[0]["id"] not in claimed):
+                    if available_count > 0 and len(entry[1]) <= available_bytes:
+                        admitted.append(entry)
+                        available_count -= 1
+                        available_bytes -= len(entry[1])
+                    elif entry[0]["id"] in claimed:
+                        raise TimeoutError("inbox exceeds its pending capacity")
+                unread = admitted
             count, size = len(unread), sum(len(raw) for _, raw, _ in unread)
             if (
                 self._pending_count - len(inbox.pending) + count > self.max_pending_items
@@ -722,14 +755,7 @@ class LocalAgentInbox(BaseAgentInbox):
             ):
                 raise TimeoutError("inbox exceeds its pending capacity")
             records = [item for batch in history for item in batch.items] + [item for item, _, _ in unread]
-            if len({item["id"] for item in records}) != len(records):
-                raise ValueError("duplicate reconciled item ID")
-
             pending_items = deque(_Pending(item, len(raw)) for item, raw, _ in unread)
-            fingerprints = {item["id"]: fingerprint for item, _, fingerprint in unread}
-            claim = inbox.claim
-            if claim and any(inbox.seen[identifier] != fingerprints.get(identifier) for identifier in claim[1]):
-                claim = None
 
             async def commit():
                 try:

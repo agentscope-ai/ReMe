@@ -1,6 +1,8 @@
 """Canonical Markdown reminders with delivery state in frontmatter."""
 
 import asyncio
+from contextlib import AsyncExitStack, asynccontextmanager
+from contextvars import ContextVar
 from datetime import date
 
 import frontmatter
@@ -25,6 +27,7 @@ class AgentOutbox:
         self.committed: set[ReminderRef] = set()
         self.cache = {}
         self.issues: dict[str, str] = {}
+        self._decision_scope = ContextVar("reminder_decision", default=None)
 
     def _scan(self):
         records, owners, cache, issues = {}, {}, {}, {}
@@ -119,16 +122,26 @@ class AgentOutbox:
                 await self.runtime.inbox.retain(name, released, release=True)
 
     async def reconcile(self):
-        """Rebuild Chat reference views from canonical reminder acknowledgements."""
+        """Admit eligible reminders by priority without consuming deferred canonical files."""
+        agents = await asyncio.to_thread(self.runtime.agents.load)
         pending, processed = [], []
-        for ref in sorted(self.committed, key=lambda ref: ref.id):
+        for ref in sorted(self.committed, key=self._order):
             item = self.records[ref]
             event = self._event(ref)
             if item.read_at is not None:
                 processed.append({"item": event, "consume_ts": item.read_at.isoformat()})
-            elif item.delivered_at is not None:
+            elif self.allows(ref, agents, self.runtime.now()):
                 pending.append(event)
-        await self.runtime.inbox.reconcile("Remy", pending, processed)
+        await self.runtime.inbox.reconcile("Remy", pending, processed, defer_overflow=True)
+
+    def _order(self, ref):
+        item = self.records[ref]
+        return item.priority, item.created_at, ref.id
+
+    def allows(self, ref, agents, now):
+        """Share sender eligibility between queue admission, scheduling and decision commit."""
+        agent = agents.get(self.owners.get(ref))
+        return agent is not None and agent.enabled and (agent.notify_window is None or agent.notify_window.allows(now))
 
     def _event(self, ref):
         return Event(
@@ -143,52 +156,105 @@ class AgentOutbox:
         """Save validated model output before its event consumption receipt is committed."""
         directory = self.runtime.agents.directory_for(agent) / "reminder"
         refs = []
-        async with self.lock:
-            for index, notification in enumerate(result.notifications):
-                path = self.files.path(notification.paths[0])
-                if path.parent.parent != directory or path.suffix != ".md":
-                    raise ValueError("the first notification path must be the Agent's dated reminder Markdown")
-                if date.fromisoformat(path.parent.name).isoformat() != path.parent.name:
-                    raise ValueError("reminder directories must use YYYY-MM-DD names")
-                item = AgentReminder(**notification.model_dump(), id=f"{run_id}-{index}", created_at=now)
-                async with await get_path_lock(path):
-                    if before_write is not None:
-                        await asyncio.to_thread(before_write, path)
-                    previous = await asyncio.to_thread(self._read, path)
-                    if previous is not None:
-                        if previous.id != item.id:
-                            raise ValueError("cannot overwrite another reminder")
-                        item = previous
-                    await complete_in_thread(
-                        self._write,
-                        path,
-                        item,
-                        **({"on_write": on_write} if on_write is not None else {}),
-                    )
-                refs.append(ReminderRef(file=path.relative_to(self.files.workspace).as_posix(), id=item.id))
+        for index, notification in enumerate(result.notifications):
+            path = self.files.path(notification.paths[0])
+            if path.parent.parent != directory or path.suffix != ".md":
+                raise ValueError("the first notification path must be the Agent's dated reminder Markdown")
+            if date.fromisoformat(path.parent.name).isoformat() != path.parent.name:
+                raise ValueError("reminder directories must use YYYY-MM-DD names")
+            item = AgentReminder(**notification.model_dump(), id=f"{run_id}-{index}", created_at=now)
+            async with await get_path_lock(path):
+                if before_write is not None:
+                    await asyncio.to_thread(before_write, path)
+                previous = await asyncio.to_thread(self._read, path)
+                if previous is not None:
+                    if previous.id != item.id:
+                        raise ValueError("cannot overwrite another reminder")
+                    item = previous
+                await complete_in_thread(
+                    self._write,
+                    path,
+                    item,
+                    **({"on_write": on_write} if on_write is not None else {}),
+                )
+            refs.append(ReminderRef(file=path.relative_to(self.files.workspace).as_posix(), id=item.id))
+            async with self.lock:
                 self.cache.pop(path, None)
         return refs
 
     async def update(self, ref, **changes):
         """Atomically update acknowledgement fields in the canonical Markdown."""
-        if set(changes) - {"delivered_at", "read_at", "user_read_at", "chat_message_ids"}:
+        scope = self._decision_scope.get()
+        if scope is not None and scope["active"] and ref in scope["refs"]:
+            # Native delivery callbacks may immediately acknowledge user reading.
+            # They inherit the guarded scope, which only permits metadata merges.
+            scope["updates"] += 1
+            scope["idle"].clear()
+            try:
+                await self._update(ref, **changes)
+            finally:
+                scope["updates"] -= 1
+                if not scope["updates"]:
+                    scope["idle"].set()
+            return
+        async with await get_path_lock(self.files.path(ref.file)):
+            await self._update(ref, **changes)
+
+    @asynccontextmanager
+    async def decision(self, items):
+        """Keep the fork's content stable from validation through native delivery and acknowledgement."""
+        refs = {ReminderRef(file=item["reminder_path"], id=item["id"]): item for item in items}
+        async with AsyncExitStack() as stack:
+            for path in sorted({self.files.path(ref.file) for ref in refs}):
+                await stack.enter_async_context(await get_path_lock(path))
+            for ref, expected in refs.items():
+                latest = await asyncio.to_thread(self._read, self.files.path(ref.file))
+                if (
+                    latest is None
+                    or latest.id != ref.id
+                    or latest.read_at is not None
+                    or any(getattr(latest, key) != expected[key] for key in ("priority", "message", "paths"))
+                ):
+                    raise RuntimeError("reminders changed; reassess the current inbox before submitting")
+
+            scope = {"refs": frozenset(refs), "active": True, "updates": 0, "idle": asyncio.Event()}
+            scope["idle"].set()
+            token = self._decision_scope.set(scope)
+            try:
+                yield
+            finally:
+                # Children may outlive the decision; inherited scopes cannot bypass
+                # path locks after this guard releases them.
+                scope["active"] = False
+                try:
+                    await finish_cleanup(scope["idle"].wait())
+                finally:
+                    self._decision_scope.reset(token)
+
+    async def _update(self, ref, **changes):
+        """Merge runtime metadata while the caller holds the canonical file's path lock."""
+        if set(changes) - {
+            "delivered_at",
+            "read_at",
+            "user_read_at",
+            "chat_message_ids",
+        }:
             raise ValueError("only reminder acknowledgements can be updated")
         async with self.lock:
             path = self.files.path(ref.file)
-            async with await get_path_lock(path):
-                item = await asyncio.to_thread(self._read, path)
-                if item is None or item.id != ref.id:
-                    raise ValueError("reminder identity is missing or changed")
-                message_ids = changes.pop("chat_message_ids", [])
-                changes = {key: value for key, value in changes.items() if getattr(item, key) is None}
-                if message_ids:
-                    combined = list(dict.fromkeys([*item.chat_message_ids, *message_ids]))
-                    if combined != item.chat_message_ids:
-                        changes["chat_message_ids"] = combined
-                if changes:
-                    item = AgentReminder.model_validate({**item.model_dump(), **changes})
-                    await complete_in_thread(self._write, path, item)
-                    self.cache.pop(path, None)
+            item = await asyncio.to_thread(self._read, path)
+            if item is None or item.id != ref.id:
+                raise ValueError("reminder identity is missing or changed")
+            message_ids = changes.pop("chat_message_ids", [])
+            changes = {key: value for key, value in changes.items() if getattr(item, key) is None}
+            if message_ids:
+                combined = list(dict.fromkeys([*item.chat_message_ids, *message_ids]))
+                if combined != item.chat_message_ids:
+                    changes["chat_message_ids"] = combined
+            if changes:
+                item = AgentReminder.model_validate({**item.model_dump(), **changes})
+                await complete_in_thread(self._write, path, item)
+                self.cache.pop(path, None)
             if ref in self.records:
                 self.records[ref] = item
 
@@ -196,22 +262,26 @@ class AgentOutbox:
         """Stable references make receiver publication safe to repeat after interruption."""
         agents = await asyncio.to_thread(self.runtime.agents.load)
         async with self.lock:
-            refs = sorted(self.committed, key=lambda ref: (self.records[ref].created_at, ref.id))
+            refs = sorted(self.committed, key=self._order)
         for ref in refs:
             async with self.lock:
                 item = self.records.get(ref)
                 owner = self.owners.get(ref)
-                agent = agents.get(owner)
-                if ref not in self.committed or item is None or item.delivered_at is not None:
+                if (
+                    ref not in self.committed
+                    or item is None
+                    or item.delivered_at is not None
+                    or item.read_at is not None
+                ):
                     continue
-                if agent is None or not agent.enabled:
+                if not self.allows(ref, agents, self.runtime.now()):
                     continue
                 event = self._event(ref)
             # Let the caller schedule existing consumers before retrying a full receiver.
             try:
                 await self.runtime.inbox.append("Remy", event, wait=False)
             except TimeoutError:
-                break
+                continue
             await self.update(ref, delivered_at=self.runtime.now())
             self.runtime.logger.info(
                 f"Proactive agent={owner} reminder={ref.id} result=delivered path={ref.file}",

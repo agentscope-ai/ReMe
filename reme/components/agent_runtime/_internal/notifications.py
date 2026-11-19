@@ -110,17 +110,21 @@ class ChatNotifications:
     async def consume(self, msg_ids):
         """Automatically acknowledge the messages covered by a committed decision."""
         async with self.lock:
-            identifiers = list(dict.fromkeys(msg_ids))
-            refs = {**self.read_refs, **self.pending}
-            if any(identifier not in refs for identifier in identifiers):
-                raise ValueError("unknown inbox message ID")
+            await self._consume(msg_ids)
 
-            async def save():
-                for identifier in identifiers:
-                    await self.runtime.outbox.update(refs[identifier], read_at=self.runtime.now())
-                await self.runtime.outbox.reconcile()
+    async def _consume(self, msg_ids):
+        """Finish acknowledgements with the caller's notification and optional file locks held."""
+        identifiers = list(dict.fromkeys(msg_ids))
+        refs = {**self.read_refs, **self.pending}
+        if any(identifier not in refs for identifier in identifiers):
+            raise ValueError("unknown inbox message ID")
 
-            await finish_cleanup(save())
+        async def save():
+            for identifier in identifiers:
+                await self.runtime.outbox.update(refs[identifier], read_at=self.runtime.now())
+            await self.runtime.outbox.reconcile()
+
+        await finish_cleanup(save())
 
     @asynccontextmanager
     async def turn(self, session_id, priority, msg_ids):
@@ -215,23 +219,6 @@ class ChatNotifications:
                     if self.chat_revision != turn.chat_revision:
                         raise RuntimeError("Chat conversation changed; reassess reminders after the latest user turn")
                     await self.runtime.outbox.refresh()
-                    for item in turn.items:
-                        ref = self.pending.get(item["id"])
-                        latest = self.runtime.outbox.records.get(ref)
-                        if (
-                            latest is None
-                            or latest.read_at is not None
-                            or any(getattr(latest, key) != item[key] for key in ("priority", "message", "paths"))
-                        ):
-                            raise RuntimeError("reminders changed; reassess the current inbox before submitting")
-                    if content:
-                        agents = await asyncio.to_thread(self.runtime.agents.load)
-                        if not all(
-                            item["id"] in self.pending
-                            and self._allows(self.pending[item["id"]], agents, self.runtime.now())
-                            for item in turn.items
-                        ):
-                            raise RuntimeError("reminders are no longer eligible for delivery")
 
                     async def commit():
                         if content:
@@ -246,9 +233,9 @@ class ChatNotifications:
                                 content,
                                 message_id=turn.message_id,
                                 role="assistant",
-                                expected_turn_id=turn.session_turn_id if turn.active_delivery else None,
-                                expected_revision=None if turn.active_delivery else turn.session_revision,
-                                delivery="immediate" if turn.priority == "P0" else "idle",
+                                expected_turn_id=(turn.session_turn_id if turn.active_delivery else None),
+                                expected_revision=(None if turn.active_delivery else turn.session_revision),
+                                delivery=("immediate" if turn.priority == "P0" else "idle"),
                             )
                         current = await self.runtime.sessions.current("Remy")
                         if (
@@ -257,7 +244,7 @@ class ChatNotifications:
                             or self.chat_revision != turn.chat_revision
                         ):
                             raise RuntimeError("Chat conversation changed during delivery; reassess reminders")
-                        await self.consume([item["id"] for item in turn.items])
+                        await self._consume([item["id"] for item in turn.items])
                         turn.done = True
 
                     guard = (
@@ -268,14 +255,27 @@ class ChatNotifications:
                         if not content
                         else nullcontext()
                     )
-                    async with guard:
+                    async with (
+                        guard,
+                        self.lock,
+                        self.runtime.outbox.decision(turn.items),
+                    ):
+                        agents = await asyncio.to_thread(self.runtime.agents.load)
+                        if not all(
+                            item["id"] in self.pending
+                            and self._allows(self.pending[item["id"]], agents, self.runtime.now())
+                            for item in turn.items
+                        ):
+                            raise RuntimeError("reminders are no longer eligible for delivery")
                         await finish_cleanup(commit())
-            return {"sent": bool(content), "message_id": turn.message.id if turn.message else None}
+            return {
+                "sent": bool(content),
+                "message_id": turn.message.id if turn.message else None,
+            }
 
     def _allows(self, ref, agents, now):
         """Apply current sender settings when scheduling and immediately before sending."""
-        agent = agents.get(self.runtime.outbox.owners.get(ref))
-        return agent is not None and agent.enabled and (agent.notify_window is None or agent.notify_window.allows(now))
+        return self.runtime.outbox.allows(ref, agents, now)
 
     async def tick(self, run_job):
         """Coalesce eligible messages into one lifecycle-owned Chat wakeup."""
@@ -288,6 +288,7 @@ class ChatNotifications:
         if self.retry_at is not None and now < self.retry_at:
             return
         agents = await asyncio.to_thread(self.runtime.agents.load)
+        admitted = await self.runtime.inbox.pending_ids("Remy")
         async with self.lock:
             if self.worker is not None or self.runtime.closed:
                 return
@@ -296,7 +297,7 @@ class ChatNotifications:
             candidates = []
             for ref in self.pending.values():
                 item = self.runtime.outbox.records[ref]
-                if not self._allows(ref, agents, now):
+                if ref.id not in admitted or not self._allows(ref, agents, now):
                     continue
                 if item.priority == "P0":
                     if (now - item.created_at).total_seconds() < self.config.p0_delay_seconds:
@@ -306,7 +307,12 @@ class ChatNotifications:
                 candidates.append(ref)
             if candidates:
                 priority = min(self.runtime.outbox.records[ref].priority for ref in candidates)
-                candidates.sort(key=lambda ref: (self.runtime.outbox.records[ref].created_at, ref.id))
+                candidates.sort(
+                    key=lambda ref: (
+                        self.runtime.outbox.records[ref].created_at,
+                        ref.id,
+                    ),
+                )
                 identifiers = [ref.id for ref in candidates if self.runtime.outbox.records[ref].priority == priority][
                     :20
                 ]

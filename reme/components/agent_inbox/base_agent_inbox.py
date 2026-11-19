@@ -34,6 +34,10 @@ class BaseAgentInbox(BaseComponent):
         """Read the retained execution receipt and pending counts."""
 
     @abstractmethod
+    async def pending_ids(self, name: str) -> set[str]:
+        """Read the identifiers currently admitted to the pending queue."""
+
+    @abstractmethod
     async def read(self, name: str, *, state: str = "all", offset: int = 0, limit: int = 20) -> dict:
         """Page retained inputs and their real processing state without consuming them."""
 
@@ -80,5 +84,12 @@ class BaseAgentInbox(BaseComponent):
         """Wait for claimable inputs or shutdown."""
 
     @abstractmethod
-    async def reconcile(self, name: str, pending: list[dict], processed: list[dict]) -> None:
-        """Rebuild an explicitly derived inbox from canonical pending items and dated processed items."""
+    async def reconcile(
+        self,
+        name: str,
+        pending: list[dict],
+        processed: list[dict],
+        *,
+        defer_overflow: bool = False,
+    ) -> None:
+        """Rebuild a derived inbox; optionally admit inputs in order within shared capacity, preserving claims."""

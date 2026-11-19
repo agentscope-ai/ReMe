@@ -606,6 +606,43 @@ async def test_rebuilding_changed_content_revokes_the_original_claim(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_deferred_rebuild_respects_shared_count_and_preserves_active_claim(tmp_path):
+    async with make_inbox(tmp_path, rebuildable=["mail"], max_pending_items=2) as inbox:
+        await inbox.create("mail")
+        await inbox.create("observations")
+        await inbox.append("observations", {"id": "source"})
+        low, urgent = {"id": "low"}, {"id": "urgent"}
+        await inbox.reconcile("mail", [low], [])
+        with pytest.raises(TimeoutError, match="capacity"):
+            await inbox.reconcile("mail", [urgent, low], [])
+        batch = await inbox.claim("mail")
+        await inbox.reconcile("mail", [urgent, low], [], defer_overflow=True)
+        assert await inbox.pending_ids("mail") == {"low"}
+        await inbox.nack("mail", batch["token"])
+        await inbox.reconcile("mail", [urgent, low], [], defer_overflow=True)
+        assert await inbox.pending_ids("mail") == {"urgent"}
+        assert await inbox.pending_ids("observations") == {"source"}
+        await consume(inbox, "observations")
+        await inbox.reconcile("mail", [urgent, low], [], defer_overflow=True)
+        assert await inbox.pending_ids("mail") == {"urgent", "low"}
+
+
+@pytest.mark.asyncio
+async def test_deferred_rebuild_applies_byte_budget_and_revokes_changed_claim(tmp_path):
+    async with make_inbox(tmp_path, rebuildable=["mail"]) as inbox:
+        await inbox.create("mail")
+        low = {"id": "low", "content": "original"}
+        await inbox.reconcile("mail", [low], [])
+        batch = await inbox.claim("mail")
+        small = {"id": "small"}
+        inbox.max_pending_bytes = len(inbox._encode(small))
+        await inbox.reconcile("mail", [small, {**low, "content": "changed"}], [], defer_overflow=True)
+        assert await inbox.pending_ids("mail") == {"small"}
+        with pytest.raises(ValueError, match="token"):
+            await inbox.ack("mail", batch["token"])
+
+
+@pytest.mark.asyncio
 async def test_removed_reference_directory_rebuilds_without_disabling_other_inboxes(tmp_path):
     import shutil
 
