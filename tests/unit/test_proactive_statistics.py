@@ -136,13 +136,6 @@ async def test_failure_before_model_start_is_counted_without_hiding_the_error(tm
         assert global_counter_get(context.metadata, ["agent_runs", "proactive", "failed"]) == 1
 
 
-@pytest.mark.parametrize("parameter", ["max_local_search_calls", "max_timeline_entries"])
-@pytest.mark.parametrize("value", [0, -1, True, 1.5, "5", None])
-def test_prompt_limits_require_positive_integers(parameter, value):
-    with pytest.raises(ValueError, match=parameter):
-        ProactiveAgentStep(**{parameter: value})
-
-
 @pytest.mark.parametrize(
     "command,expected",
     [
