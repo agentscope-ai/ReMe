@@ -42,6 +42,12 @@ For LongMemEval, set `benchmark.name: longmemeval`, point `benchmark.source` at
 the dataset JSON, remove `benchmark.variant`, and set `runtime.plugins: [lme]`
 and `candidate.paths: [plugins/lme/src]`. Use case IDs from that dataset.
 
+**Using your own dataset.** Convert your conversation histories and questions
+to LongMemEval format if you have reference answers, or to BEAM format if you
+have grading rubrics. Point `benchmark.source` at the converted data and use
+the corresponding benchmark configuration and judge. Supporting a different
+input format or scoring rule requires extending the dataset loader or judge.
+
 Start ReMe in the first terminal:
 
 ```bash
