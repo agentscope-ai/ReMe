@@ -192,10 +192,10 @@
       <text x="502" y="904" class="file"><tspan x="502">reme_agents/Remy/</tspan><tspan x="502" dy="22">sessions.jsonl</tspan></text>
       <text x="502" y="966" class="file"><tspan x="502">reme_agents/{agent_name}/</tspan><tspan x="502" dy="22">sessions.jsonl</tspan></text>
     </g>
-    <g data-role="inbox-files" data-box="900,816,398,208" data-path="reme_agents/Remy/inbox/">
+    <g data-role="inbox-files" data-box="900,816,398,208" data-path="reme_agents/">
       <rect x="900" y="816" width="398" height="208" rx="14" fill="#FFFFFF" stroke="#E2DBEC" />
       <text x="920" y="860" font-size="22" font-weight="650">Chat Inbox</text>
-      <text x="920" y="904" class="file"><tspan x="920">reme_agents/Remy/</tspan><tspan x="920" dy="22">inbox/inbox_unread.jsonl</tspan><tspan x="920" dy="22">inbox/inbox_read.jsonl</tspan></text>
+      <text x="920" y="904" class="file"><tspan x="920">Reminder files + receipts</tspan><tspan x="920" dy="22">Derived receiver view</tspan><tspan x="920" dy="22">One in-memory batch</tspan></text>
       <text x="920" y="988" font-size="13" class="muted">Reminder content stays in task files</text>
     </g>
     <g data-role="task-files" data-box="1318,816,398,208" data-path="reme_agents/{agent_name}/TASK.md" data-daily-path="daily/{date}/{agent_name}.md">
@@ -206,6 +206,6 @@
     </g>
   </g>
   <text x="64" y="1050" font-size="12" class="muted">Paths are relative to the workspace root (default: .reme/). Directory settings may be overridden.</text>
-  <text x="64" y="1072" font-size="12" class="muted">Temporary task descriptions use reme_agents/tmp/{agent_name}/TASK.md. Daily records remain under daily/.</text>
+  <text x="64" y="1072" font-size="12" class="muted">Task files and history remain user-owned. Legacy tmp/ task directories are retained in place.</text>
   <text x="1716" y="1103" font-size="12" class="muted" text-anchor="end">REME / PERSONAL RUNTIME</text>
 </svg>

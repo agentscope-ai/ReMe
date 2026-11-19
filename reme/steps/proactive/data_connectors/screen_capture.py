@@ -7,7 +7,7 @@ from stat import S_ISREG
 from .base_connector import BaseConnectorStep
 from ...file_io import check_path_permission, get_path_lock
 from ....components import R
-from ....components.agent_runtime._internal.files import AgentFiles
+from ....utils.workspace_files import WorkspaceFiles
 from ....schema import ResourceMetadata
 from ....schema.resource_metadata import ResourceFile
 
@@ -37,7 +37,7 @@ class ScreenCaptureStep(BaseConnectorStep):
     def _image(self, folder, entry):
         from PIL import Image
 
-        files = AgentFiles(self.workspace_path)
+        files = WorkspaceFiles(self.workspace_path)
         path = files.checked(folder / entry.path)
         if not check_path_permission(self.workspace_path, path, self.context.get("_allowed_paths")):
             raise PermissionError("no permission to read screenshot history")
@@ -70,7 +70,7 @@ class ScreenCaptureStep(BaseConnectorStep):
         return True
 
     def _unchanged(self, directory, entries):
-        files = AgentFiles(self.workspace_path)
+        files = WorkspaceFiles(self.workspace_path)
         latest = None
         for manifest in directory.parent.parent.glob("*/*/metadata.json"):
             files.checked(manifest)

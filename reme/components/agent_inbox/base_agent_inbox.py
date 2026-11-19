@@ -16,6 +16,10 @@ class BaseAgentInbox(BaseComponent):
 
     component_type = ComponentEnum.AGENT_INBOX
     max_read_items: int
+    max_pending_items: int
+    max_pending_bytes: int
+    claim_max_items: int
+    claim_max_bytes: int
 
     @abstractmethod
     async def create(self, name: str) -> None:
@@ -82,14 +86,3 @@ class BaseAgentInbox(BaseComponent):
     @abstractmethod
     async def wait(self, names: str | list[str] | None = None, timeout: float | None = None) -> bool:
         """Wait for claimable inputs or shutdown."""
-
-    @abstractmethod
-    async def reconcile(
-        self,
-        name: str,
-        pending: list[dict],
-        processed: list[dict],
-        *,
-        defer_overflow: bool = False,
-    ) -> None:
-        """Rebuild a derived inbox; optionally admit inputs in order within shared capacity, preserving claims."""

@@ -10,7 +10,6 @@ export default function DocumentPreview({
   content,
   mtime,
   tagKey,
-  supportsTags,
   onTag,
   onLink,
   language,
@@ -19,8 +18,7 @@ export default function DocumentPreview({
   content: string;
   mtime?: string;
   tagKey: string;
-  supportsTags: boolean;
-  onTag: (tag: string) => void;
+  onTag?: (tag: string) => void;
   onLink: (href: string) => void;
   language: Language;
 }) {
@@ -42,7 +40,7 @@ export default function DocumentPreview({
   const timestamp = created ?? mtime;
   const date = timestamp ? new Date(timestamp) : null;
   const tag = (value: string) =>
-    supportsTags ? (
+    onTag ? (
       <button key={value} className="document-tag" onClick={() => onTag(value)}>
         # {value}
       </button>

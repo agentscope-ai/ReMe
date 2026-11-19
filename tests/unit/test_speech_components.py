@@ -491,7 +491,7 @@ async def test_http_speech_contract_for_desktop(provider, tmp_path):
     app = Application(
         workspace_dir=str(tmp_path),
         components={name: config["components"][name] for name in ["asr", "tts"]},
-        jobs={name: config["jobs"][name] for name in ["asr", "tts", "get_app_config"]},
+        jobs={name: config["jobs"][name] for name in ["asr", "tts", "get_client_info"]},
         service={"backend": "http", "mcp_enabled": False, "web_enabled": False},
         enable_logo=False,
         log_to_file=False,
@@ -501,10 +501,10 @@ async def test_http_speech_contract_for_desktop(provider, tmp_path):
         service.build_service(app)
         service.add_jobs(app)
         async with AsyncClient(transport=ASGITransport(app=service.service), base_url="http://reme.test") as client:
-            payload = (await client.post("/get_app_config", json={})).json()["answer"]
-            assert payload["jobs"]["asr"]["enabled"]
-            assert payload["jobs"]["tts"]["enable_serve"]
-            assert payload["components"]["tts"]["default"]["api_key"] == "***"
+            payload = (await client.post("/get_client_info", json={})).json()["answer"]
+            assert payload["asr"] and payload["tts"]
+            assert payload["jobs"] == ["asr", "get_client_info", "tts"]
+            assert "components" not in payload and "api_key" not in str(payload)
 
             provider[0].append(sse_response(EventStream([event(b"encoded-audio"), event(done=True)])))
             response = await client.post("/tts", json={"text": "hello"})

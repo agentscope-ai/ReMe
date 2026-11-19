@@ -1,3 +1,4 @@
+import { snapshot, clientInfo } from "./fixtures.ts";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -9,11 +10,11 @@ import { Storage } from "../src/main/storage.ts";
 import { UiError } from "../src/shared/i18n.ts";
 import type {
   Presentation,
-  SessionMessage,
+  AgentMessage,
   StreamChunk,
 } from "../src/shared/protocol.ts";
 
-const reminder: SessionMessage = {
+const reminder: AgentMessage = {
   id: "reme-proactive-reminder-combined",
   role: "assistant",
   source: "proactive",
@@ -21,7 +22,13 @@ const reminder: SessionMessage = {
   completed: true,
   delivery: "idle",
   notification_eligible: true,
-  chunks: [],
+  origin_session_id: null,
+  session_id: "session",
+  items: [],
+  turn_id: null,
+  created_at: null,
+  outcome: "completed",
+  error: null,
 };
 
 test("explicit chat reading retries durable acknowledgements; historical suppression never sends them", async (t) => {
@@ -42,21 +49,7 @@ test("explicit chat reading retries durable acknowledgements; historical suppres
     ReMeClient.prototype,
     "call",
     async (job: string, body: unknown) => {
-      if (job === "get_app_config")
-        return {
-          workspace_dir: "/receipt-test",
-          jobs: Object.fromEntries(
-            [
-              "watch_agent_session",
-              "ask_agent",
-              "read_agent_session",
-              "create_chat_session",
-              "list_agent_outbox",
-              "read_agent_reminder",
-              "list_agent_inbox",
-            ].map((name) => [name, {}]),
-          ),
-        };
+      if (job === "get_client_info") return clientInfo;
       assert.equal(job, "read_agent_reminder");
       calls.push(body);
       if (offline) throw new Error("temporary offline");
@@ -75,19 +68,7 @@ test("explicit chat reading retries durable acknowledgements; historical suppres
       receive = listener;
       listener({
         chunk_type: "data",
-        chunk: {
-          type: "snapshot",
-          agent_name: "Remy",
-          session_id: "session",
-          status: "idle",
-          agents: [],
-          activities: {},
-          snapshot: {
-            session_id: "session",
-            state: { session_id: "session", status: "idle", active_flags: [] },
-            messages: [reminder],
-          },
-        },
+        chunk: snapshot([reminder]),
       });
       await new Promise<void>((resolve) => {
         if (signal.aborted) resolve();
@@ -126,19 +107,7 @@ test("explicit chat reading retries durable acknowledgements; historical suppres
   assert.equal(receipt.readSynced, false);
   receive({
     chunk_type: "data",
-    chunk: {
-      type: "snapshot",
-      agent_name: "Remy",
-      session_id: "next-session",
-      status: "idle",
-      agents: [],
-      activities: {},
-      snapshot: {
-        session_id: "next-session",
-        state: { session_id: "next-session", status: "idle", active_flags: [] },
-        messages: [],
-      },
-    },
+    chunk: snapshot([], "next-session"),
   });
   offline = false;
   (controller as unknown as { readRetryAt: number }).readRetryAt = 0;

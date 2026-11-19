@@ -13,7 +13,6 @@ import type {
   DesktopState,
   PlaybackStatus,
   Settings,
-  TaskActivities,
 } from "../shared/protocol.ts";
 
 import { terminal } from "../shared/messages.ts";
@@ -61,7 +60,6 @@ export class BehaviorController {
   };
   dragging = false;
   private activities: Activities = {};
-  private taskActivities: TaskActivities = {};
   private key = "idle";
   private owner: Owner = "base";
   private sequence = 0;
@@ -105,7 +103,7 @@ export class BehaviorController {
 
   get foregroundActive(): boolean {
     return Boolean(
-      this.activities.chat && !terminal(this.activities.chat.phase),
+      this.activities.Remy && !terminal(this.activities.Remy.phase),
     );
   }
 
@@ -117,7 +115,6 @@ export class BehaviorController {
 
   reset(now = Date.now()): void {
     this.activities = {};
-    this.taskActivities = {};
     this.cue = null;
     this.preview = null;
     this.reminder = null;
@@ -128,15 +125,9 @@ export class BehaviorController {
     this.touch(now);
   }
 
-  observe(
-    activities: Activities,
-    live: boolean,
-    now = Date.now(),
-    tasks: TaskActivities = {},
-  ): void {
+  observe(activities: Activities, live: boolean, now = Date.now()): void {
     this.activities = activities;
-    this.taskActivities = tasks;
-    const activity = activities.chat;
+    const activity = activities.Remy;
     if (!activity) {
       this.cue = null;
       return;
@@ -353,7 +344,7 @@ export class BehaviorController {
         label,
       );
     }
-    const activity = this.activities.chat;
+    const activity = this.activities.Remy;
     const active = activity && !terminal(activity.phase);
     const starting =
       input.pending?.streaming &&
@@ -425,12 +416,10 @@ export class BehaviorController {
       );
     if (input.chatFocused && now - this.touched < 15_000)
       return select("base", "listening", "listening", "loop", t("listening"));
-    const task = Object.values(this.taskActivities).find(
-      (item) => !terminal(item.phase),
+    const task = Object.entries(this.activities).find(
+      ([name, item]) => name !== "Remy" && !terminal(item.phase),
     );
-    const proactive = this.activities.proactive;
-    const background =
-      task ?? (proactive && !terminal(proactive.phase) ? proactive : undefined);
+    const background = task?.[1];
     const quiet = input.settings.quietUntil > now;
     if (input.chatFocused || quiet) {
       this.ambient = null;
@@ -442,12 +431,10 @@ export class BehaviorController {
       this.nextAmbient = this.nextIdle(now);
     }
     if (background && !input.chatFocused && !quiet) {
-      const label = task
-        ? t("taskBackground", { task: task.task_id! })
-        : t("background");
+      const label = t("taskBackground", { task: task![0] });
       return select(
         "background",
-        `background:${background.task_id ?? background.session_id}:${background.started_at ?? background.turn_id}:${background.phase}`,
+        `background:${task![0]}:${background.started_at ?? background.turn_id}:${background.phase}`,
         background.phase === "answering"
           ? "remembering"
           : clips[background.phase],

@@ -249,40 +249,6 @@ html[data-platform="darwin"] .workspace-titlebar {
   height: 100%;
   min-width: 0;
 }
-.conversation-header {
-  height: 77px;
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  padding: 0 32px;
-  flex-shrink: 0;
-  border-bottom: 1px solid var(--line);
-}
-.avatar-mark {
-  width: 33px;
-  height: 33px;
-  border: 1px solid var(--accent-line);
-  border-radius: var(--radius-md);
-  display: grid;
-  place-items: center;
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-.conversation-heading {
-  flex: 1;
-}
-.conversation-heading h2 {
-  font-size: var(--text-ui);
-  font-weight: var(--weight-medium);
-  margin: 0;
-  letter-spacing: 0.1px;
-}
-.conversation-heading > span {
-  display: block;
-  font-size: var(--text-caption);
-  color: var(--muted);
-  margin-top: 1px;
-}
 .chat-history {
   padding: var(--space-8) max(32px, calc((100% - 760px) / 2)) var(--space-3);
   color: var(--ink);
@@ -1450,9 +1416,6 @@ html[data-platform="darwin"] .workspace-titlebar {
   }
   .sidebar-heading {
     padding-inline: 18px;
-  }
-  .conversation-header {
-    padding-inline: 20px;
   }
 }
 @media (prefers-reduced-transparency: reduce) {

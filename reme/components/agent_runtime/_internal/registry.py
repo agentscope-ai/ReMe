@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 import re
 
-from .files import AgentFiles
+from ....utils.workspace_files import WorkspaceFiles
 from ....schema.agent_runtime import validate_agent_name
 from ....schema.proactive_agent import CreateProactiveAgentConfig, ProactiveAgent, ProactiveAgentConfig
 
@@ -12,16 +12,15 @@ from ....schema.proactive_agent import CreateProactiveAgentConfig, ProactiveAgen
 class AgentRegistry:
     """Keep one editable config per agent and no duplicate global index."""
 
-    def __init__(self, files: AgentFiles, directory: str):
+    def __init__(self, files: WorkspaceFiles, directory: str):
         self.files = files
         self.directory = files.path(directory)
         if self.directory == files.workspace:
             raise ValueError("reme_agent_dir must be a workspace subdirectory")
 
     def directory_for(self, agent: ProactiveAgent):
-        """Temporary status determines a stable location for the identity."""
-        parent = self.directory / "tmp" if agent.temporary else self.directory
-        return self.files.checked(parent / agent.agent_name)
+        """Every task owns one stable directory directly under the Agent root."""
+        return self.files.checked(self.directory / agent.agent_name)
 
     def path(self, agent_name: str):
         """Resolve chat or a retained task identity, including deleted tasks."""
@@ -33,14 +32,13 @@ class AgentRegistry:
     def load(self, *, include_deleted=False) -> dict[str, ProactiveAgent]:
         """Validate every config, including directory identity and global uniqueness."""
         agents = []
-        for pattern in ("*/config.json", "tmp/*/config.json"):
-            for path in sorted(self.directory.glob(pattern)):
-                if path.parent == self.directory / "Remy":
-                    continue
-                agent = ProactiveAgent.model_validate_json(self.files.read(path))
-                if path.parent != self.directory_for(agent):
-                    raise ValueError(f"agent config does not match its directory: {path}")
-                agents.append(agent)
+        for path in sorted(self.directory.glob("*/config.json")):
+            if path.parent == self.directory / "Remy":
+                continue
+            agent = ProactiveAgent.model_validate_json(self.files.read(path))
+            if path.parent != self.directory_for(agent):
+                raise ValueError(f"agent config does not match its directory: {path}")
+            agents.append(agent)
         self._validate_names(agents)
         return {agent.agent_name: agent for agent in agents if include_deleted or agent.deleted_at is None}
 
@@ -74,9 +72,18 @@ class AgentRegistry:
         """Locate the task's editable description."""
         return self.files.checked(self.directory_for(agent) / "TASK.md")
 
+    @staticmethod
+    def _validate_cron(config: ProactiveAgentConfig, now: datetime) -> None:
+        """Reject schedules without a next occurrence before publishing configuration."""
+        if config.cron is not None:
+            from croniter import croniter
+
+            croniter(config.cron, now).get_next(datetime)
+
     def create(self, config, now: datetime):
         """Publish the task and report restoration from the same registry snapshot."""
         config = CreateProactiveAgentConfig.model_validate(config)
+        self._validate_cron(config, now)
         agents = self.load(include_deleted=True)
         previous = next(
             (agent for key, agent in agents.items() if key.casefold() == config.agent_name.casefold()),
@@ -85,8 +92,6 @@ class AgentRegistry:
         if previous is not None:
             if previous.agent_name != config.agent_name or previous.deleted_at is None:
                 raise ValueError(f"proactive agent name already exists: {config.agent_name}")
-            if previous.temporary != config.temporary:
-                raise ValueError("temporary is immutable for an existing agent")
         agent = ProactiveAgent(
             **config.model_dump(exclude={"task_description"}),
             created_at=previous.created_at if previous else now,
@@ -97,15 +102,18 @@ class AgentRegistry:
         self.save(agent)
         return agent, previous is not None
 
-    def update(self, agent_name, patch):
+    def update(self, agent_name, patch, now: datetime):
         """Update execution settings independently of TASK.md."""
         agent = self.get(agent_name)
-        for key, expected in (("agent_name", agent.agent_name), ("temporary", agent.temporary)):
-            if key in patch and patch[key] != expected:
-                raise ValueError(f"{key} is immutable")
-        values = {key: getattr(agent, key) for key in ProactiveAgentConfig.model_fields}
+        if patch.get("agent_name", agent.agent_name) != agent.agent_name:
+            raise ValueError("agent_name is immutable")
+        if patch.get("cron") is not None:
+            patch = {"min_trigger_interval_seconds": 0, **patch}
+        values = agent.model_dump(include=set(ProactiveAgentConfig.model_fields))
         config = ProactiveAgentConfig.model_validate({**values, **patch})
-        agent = ProactiveAgent.model_validate({**agent.model_dump(), **config.model_dump()})
+        if config.enabled or "cron" in patch:
+            self._validate_cron(config, now)
+        agent = agent.model_copy(update={key: getattr(config, key) for key in ProactiveAgentConfig.model_fields})
         self.save(agent)
         return agent
 

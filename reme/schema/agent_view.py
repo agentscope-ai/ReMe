@@ -5,22 +5,22 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 
 from .agent_runtime import AgentName, AgentType
-from .agent_session import SessionSnapshot
+from .agent_activity import ActivityPhase
+from .agent_message import AgentMessage, ClientModel
+from .proactive_agent import TaskSettings
 
 
-class AgentView(BaseModel):
+class AgentView(TaskSettings):
     """A visible identity; paths refer to original workspace files, never copies."""
 
     model_config = ConfigDict(extra="forbid")
 
     agent_name: AgentName
     agent_type: AgentType
-    enabled: bool = True
-    running: bool = False
     status: Literal["active", "idle", "not_loaded", "error"] = "idle"
     session_id: str | None = None
-    memory_path: str | None = Field(default=None, exclude_if=lambda value: value is None)
-    task_path: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    memory_path: str | None = None
+    task_path: str | None = None
     directory: str
     pending_events: int = 0
     in_flight_events: int = 0
@@ -65,15 +65,57 @@ class AgentTaskRequest(BaseModel):
         return self
 
 
-class AgentSessionView(BaseModel):
-    """Chat retains full history; event/cron views contain only the latest native turn.
+class ClientActivity(ClientModel):
+    """An activity is identified by its Agent map key, not by redundant task IDs."""
 
-    The snapshot is absent before the Agent has a native session. This view never trims persisted history.
-    """
+    session_id: str
+    turn_id: str
+    phase: ActivityPhase
+    tool: str | None = None
+    started_at: str | None = None
+
+
+class AgentSessionView(ClientModel):
+    """An authoritative Agent state and its ordered display messages."""
 
     agent: AgentView
-    session_id: str | None = None
-    snapshot: SessionSnapshot | None = None
+    messages: list[AgentMessage] = Field(default_factory=list)
+    activities: dict[str, ClientActivity] = Field(default_factory=dict)
+
+
+class AgentSnapshot(AgentSessionView):
+    """Replace state atomically on connection, session switch or history replacement."""
+
+    type: Literal["snapshot"] = "snapshot"
+    agents: list[AgentView] | None = None
+
+
+class AgentUpdate(AgentSessionView):
+    """Replace state and upsert complete messages without replaying token deltas."""
+
+    type: Literal["update"] = "update"
+    agents: list[AgentView] | None = None
+
+
+class AgentHeartbeat(ClientModel):
+    """Transport liveness carries no application state."""
+
+    type: Literal["heartbeat"] = "heartbeat"
+
+
+class ClientInfo(ClientModel):
+    """Client capabilities independent of component wiring and model credentials."""
+
+    workspace_dir: str
+    timezone: str | None
+    resource_dir: str
+    daily_dir: str
+    digest_dir: str
+    tag_key: str
+    jobs: list[str]
+    asr: bool
+    tts: bool
+    speech_revision: str
 
 
 class AgentPageRequest(AgentRequest):

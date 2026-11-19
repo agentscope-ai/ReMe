@@ -8,7 +8,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { createServer } from "vite";
 import { DesktopController } from "../src/main/controller.ts";
 import { Storage } from "../src/main/storage.ts";
-import type { AgentView } from "../src/shared/protocol.ts";
+import { agent as makeAgent, clientInfo } from "./fixtures.ts";
 
 test("main Chat and task workspaces expose their scoped pages and current conversation", async (t) => {
   const directory = await mkdtemp(path.join(tmpdir(), "reme-agent-workspace-"));
@@ -36,35 +36,17 @@ test("main Chat and task workspaces expose their scoped pages and current conver
     "/src/renderer/remy.tsx",
   );
   for (const agentName of ["Remy", "finance"]) {
-    const agent: AgentView = {
-      agent_name: agentName,
-      ...(agentName === "Remy"
-        ? { agent_type: "chat", memory_path: "reme_agents/Remy/MEMORY.md" }
-        : {
-            agent_type: "proactive",
-            task_path: `reme_agents/${agentName}/TASK.md`,
-          }),
-      enabled: true,
-      running: false,
-      status: "idle",
-      session_id: "session",
-      directory: `reme_agents/${agentName}`,
-      pending_events: 0,
-      next_trigger_at: null,
-      last_completed_at: null,
-      error: null,
-    };
+    const agent = makeAgent(agentName);
     const html = renderToStaticMarkup(
       createElement(Remy, {
         state: {
           ...controller.state,
           connection: "connected",
-          workspace: "/workspace",
+          clientInfo,
           selectedAgentName: agentName,
           agents: [agent],
           sessionId: "session",
         },
-        onSettings: () => {},
       }),
     );
     assert.match(

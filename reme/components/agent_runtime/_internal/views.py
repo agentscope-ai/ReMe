@@ -3,7 +3,15 @@
 import asyncio
 from time import monotonic
 
-from ....schema.agent_view import AgentSessionView, AgentView
+from ....schema.agent_view import (
+    AgentSessionView,
+    AgentView,
+    AgentSnapshot,
+    AgentUpdate,
+    AgentHeartbeat,
+    ClientActivity,
+)
+from ....utils.agent_transcript import project_messages
 from ....schema.agent_session import SessionSnapshot, SessionStatus
 
 
@@ -65,7 +73,9 @@ class AgentViews:
             agent_name=agent_name,
             agent_type=agent_type,
             enabled=config.get("enabled", True),
-            running=running or status == "active",
+            cron=config.get("cron"),
+            min_trigger_interval_seconds=config.get("min_trigger_interval_seconds", 0),
+            notify_window=config.get("notify_window"),
             status=status,
             session_id=session.session_id if session else None,
             directory=directory.relative_to(runtime.workspace_path).as_posix(),
@@ -87,7 +97,7 @@ class AgentViews:
             "total": len(items),
         }
 
-    async def read(self, agent_name, *, include_live=True):
+    async def native(self, agent_name):
         """Keep Chat history; task workspaces expose only their latest native turn."""
         agent = await self.view(agent_name)
         snapshot = None
@@ -111,32 +121,55 @@ class AgentViews:
                     session_id=agent.session_id,
                     state=SessionStatus(session_id=agent.session_id, status="not_loaded"),
                 )
-        value = AgentSessionView(agent=agent, session_id=agent.session_id, snapshot=snapshot).model_dump(mode="json")
-        if value["snapshot"]:
-            for message in value["snapshot"]["messages"]:
-                message["notification_eligible"] = (
-                    agent_name == "Remy"
-                    and message["source"] == "proactive"
-                    and message["role"] == "assistant"
-                    and message["completed"]
-                    and bool(message["content"].strip())
-                )
-        return self.runtime.live_turns.overlay(agent_name, value) if include_live else value
+        return {
+            "agent": agent.model_dump(mode="json"),
+            "session_id": agent.session_id,
+            "snapshot": snapshot.model_dump(mode="json") if snapshot else None,
+        }
+
+    def project(self, agent_name, value):
+        """Keep native reconciliation internal; publish only canonical display messages."""
+        current = self.runtime.live_turns.overlay(agent_name, value)
+        activities = {}
+        for name, activity in self.runtime.activities.items():
+            if name != agent_name and (agent_name != "Remy" or name not in self.runtime.workers):
+                continue
+            if name == agent_name and activity.session_id != current["session_id"]:
+                continue
+            activities[name] = ClientActivity(
+                session_id=activity.session_id,
+                turn_id=activity.turn_id,
+                phase=activity.phase,
+                tool=activity.tool,
+                started_at=activity.started_at.isoformat() if activity.started_at else None,
+            )
+        return AgentSessionView(
+            agent=current["agent"],
+            messages=project_messages(
+                current["session_id"] or "",
+                (current["snapshot"] or {}).get("messages", []),
+                notifications=agent_name == "Remy",
+            ),
+            activities=activities,
+        ).model_dump(mode="json")
+
+    async def read(self, agent_name):
+        """Read exactly the state used by the subscription's authoritative snapshot."""
+        return self.project(agent_name, await self.native(agent_name))
 
     async def events(self, agent_name, interval=1, heartbeat=15):
-        """Diff bounded polling views; every new connection receives an authoritative snapshot.
+        """Replace on reconnect/session change; otherwise batch complete-message upserts.
 
-        Polling also observes external file changes and works with every session-capable wrapper.
-        Cancellation belongs to the request; observing never acquires a generation lock.
+        Polling observes external edits. Live output wakes observers without rereading native files.
+        Only the main subscription carries the global Agent roster and background activities.
         """
         wake = asyncio.Event()
         self.runtime.live_turns.listeners.add(wake)
         try:
             previous: dict = {}
-            last_emit = monotonic()
-            next_poll = 0
-            polled_epoch = -1
-            value, agents = {}, []
+            last_emit, next_poll, polled_epoch = monotonic(), 0, -1
+            value: dict = {}
+            agents = None
             while not self.runtime.closed:
                 wake.clear()
                 live = self.runtime.live_turns.turns.get(agent_name)
@@ -147,82 +180,29 @@ class AgentViews:
                     or epoch != polled_epoch
                     or (live and live.session_id != value["session_id"])
                 ):
-                    value = await self.read(agent_name, include_live=False)
-                    agents = (await self.list())["items"]
+                    value = await self.native(agent_name)
+                    agents = (await self.list())["items"] if agent_name == "Remy" else None
                     if epoch != self.runtime.live_turns.epoch:
                         continue
-                    polled_epoch = epoch
-                    next_poll = monotonic() + interval
-                current = self.runtime.live_turns.overlay(agent_name, value)
-                snapshot = current["snapshot"]
-                activity = self.runtime.activities.get(agent_name)
-                activities = (
-                    {"chat": activity.model_dump(mode="json")}
-                    if activity and activity.source == "chat" and activity.session_id == value["session_id"]
-                    else {}
-                )
-                event = {
-                    "type": "snapshot",
-                    "agent_name": agent_name,
-                    "session_id": value["session_id"],
-                    "status": value["agent"]["status"],
-                    "activities": activities,
-                    "task_activities": {
-                        name: activity.model_dump(mode="json")
-                        for name, activity in self.runtime.activities.items()
-                        if activity.source == "task" and name in self.runtime.workers
-                    },
-                    "agents": agents,
-                    "snapshot": snapshot,
-                }
-                if event != previous:
-                    # A task turn replaces its predecessor atomically, including its live partial output.
-                    if not previous or agent_name != "Remy":
-                        yield event
-                    elif previous["session_id"] != event["session_id"]:
-                        yield {**event, "type": "session_changed", "snapshot": None}
-                        yield {**event, "type": "status_changed", "snapshot": None}
-                        for message in (snapshot or {}).get("messages", []):
-                            yield {
-                                **event,
-                                "type": "message_upsert",
-                                "snapshot": None,
-                                "message": message,
-                            }
+                    polled_epoch, next_poll = epoch, monotonic() + interval
+                current = {**self.project(agent_name, value), "agents": agents}
+                if current != previous:
+                    old = {message["id"]: message for message in previous["messages"]} if previous else {}
+                    messages = current["messages"]
+                    ids = [message["id"] for message in messages]
+                    replace = (
+                        not previous
+                        or previous["agent"]["session_id"] != current["agent"]["session_id"]
+                        or list(old) != ids[: len(old)]
+                    )
+                    if replace:
+                        yield AgentSnapshot.model_validate(current).model_dump(mode="json")
                     else:
-                        old = {message["id"]: message for message in (previous["snapshot"] or {}).get("messages", [])}
-                        messages = (snapshot or {}).get("messages", [])
-                        ids = [message["id"] for message in messages]
-                        if list(old) != ids[: len(old)]:
-                            # Compaction/removal/reordering is one atomic replacement.
-                            yield event
-                        else:
-                            if any(
-                                event[key] != previous[key]
-                                for key in (
-                                    "status",
-                                    "activities",
-                                    "task_activities",
-                                    "agents",
-                                )
-                            ):
-                                yield {**event, "type": "status_changed", "snapshot": None}
-                            for message in messages:
-                                if message != old.get(message["id"]):
-                                    yield {
-                                        **event,
-                                        "type": "message_upsert",
-                                        "snapshot": None,
-                                        "message": message,
-                                    }
-                    previous, last_emit = event, monotonic()
+                        changed = [message for message in messages if message != old.get(message["id"])]
+                        yield AgentUpdate.model_validate({**current, "messages": changed}).model_dump(mode="json")
+                    previous, last_emit = current, monotonic()
                 elif monotonic() - last_emit >= heartbeat:
-                    yield {
-                        "type": "heartbeat",
-                        "agent_name": agent_name,
-                        "activities": {},
-                        "agents": agents,
-                    }
+                    yield AgentHeartbeat().model_dump(mode="json")
                     last_emit = monotonic()
                 try:
                     await asyncio.wait_for(wake.wait(), timeout=max(0, next_poll - monotonic()))

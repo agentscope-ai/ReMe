@@ -14,7 +14,7 @@ from ...enumeration import ComponentEnum
 if TYPE_CHECKING:
     import asyncio
 
-    from ._internal.files import AgentFiles
+    from ...utils.workspace_files import WorkspaceFiles
     from ._internal.notifications import ChatNotifications
     from ._internal.outbox import AgentOutbox
     from ._internal.registry import AgentRegistry
@@ -31,7 +31,7 @@ class BaseAgentRuntime(BaseComponent):
 
     component_type = ComponentEnum.AGENT_RUNTIME
     agent_wrapper: BaseAgentWrapper
-    files: AgentFiles
+    files: WorkspaceFiles
     agents: AgentRegistry
     sessions: AgentSessions
     live_turns: LiveTurns
@@ -100,6 +100,10 @@ class BaseAgentRuntime(BaseComponent):
         """Read all foreground and task identities with current session state."""
 
     @abstractmethod
+    async def view_agent(self, agent_name: str) -> dict:
+        """Read one Agent's public settings and state without loading its transcript."""
+
+    @abstractmethod
     async def read_agent(self, agent_name: str) -> dict:
         """Read one current session without creating it."""
 
@@ -130,7 +134,11 @@ class BaseAgentRuntime(BaseComponent):
 
     @abstractmethod
     async def tick(self, run_job: Callable) -> None:
-        """Schedule task and Chat work and collect idle temporary Agents."""
+        """Schedule task and Chat work."""
+
+    @abstractmethod
+    async def stop_workers(self) -> None:
+        """Stop the owned scheduler workers and notification task."""
 
     @abstractmethod
     async def wait(self, stop: asyncio.Event, seconds=1) -> None:

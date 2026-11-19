@@ -3,9 +3,18 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StrictBool, field_validator, model_validator
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    field_validator,
+    model_validator,
+)
 
 from .agent_runtime import AgentName, AgentNotification
+from .agent_message import ClientModel
 
 
 class NotificationWindow(BaseModel):
@@ -26,27 +35,15 @@ class NotificationWindow(BaseModel):
         return current >= self.start or current < self.end
 
 
-class ProactiveAgentConfig(BaseModel):
-    """User-owned execution settings. Task requirements live in TASK.md."""
+class TaskSettings(ClientModel):
+    """One set of editable settings shared by task definitions and client views."""
 
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
-    agent_name: AgentName
-    agent_type: Literal["proactive", "cron"]
     enabled: StrictBool = True
-    temporary: StrictBool = False
     cron: str | None = None
     min_trigger_interval_seconds: float = Field(default=0, ge=0)
-    max_batch_events: int = Field(default=20, ge=1, strict=True)
     notify_window: NotificationWindow | None = None
-
-    @field_validator("agent_name")
-    @classmethod
-    def safe_name(cls, value: str) -> str:
-        """Names also identify workspace files, including non-English names."""
-        if value.casefold() in {"remy", "tmp"}:
-            raise ValueError("Remy and tmp are reserved agent names")
-        return value
 
     @field_validator("min_trigger_interval_seconds", mode="before")
     @classmethod
@@ -59,16 +56,34 @@ class ProactiveAgentConfig(BaseModel):
     @model_validator(mode="after")
     def validate_trigger(self):
         """Validate the final task after creation or a partial update."""
-        if self.agent_type == "cron":
+        if self.cron is not None:
             from croniter import croniter
 
             if not self.cron or not croniter.is_valid(self.cron):
                 raise ValueError("cron tasks require a valid cron expression")
             if self.min_trigger_interval_seconds:
                 raise ValueError("cron tasks do not accept an event trigger interval")
-        elif self.cron is not None:
-            raise ValueError("event tasks do not accept cron")
         return self
+
+
+class ProactiveAgentConfig(TaskSettings):
+    """A named task with internal batching limits; requirements live in TASK.md."""
+
+    agent_name: AgentName
+    max_batch_events: int = Field(default=20, ge=1, strict=True)
+
+    @property
+    def agent_type(self) -> Literal["proactive", "cron"]:
+        """Classify tasks by their trigger."""
+        return "cron" if self.cron is not None else "proactive"
+
+    @field_validator("agent_name")
+    @classmethod
+    def safe_name(cls, value: str) -> str:
+        """Task names identify workspace files; Remy owns the main conversation."""
+        if value.casefold() == "remy":
+            raise ValueError("Remy is a reserved agent name")
+        return value
 
 
 class CreateProactiveAgentConfig(ProactiveAgentConfig):
@@ -102,7 +117,7 @@ class ProactiveRunResult(BaseModel):
     notifications: list[AgentNotification]
 
 
-class ManageProactiveAgentRequest(BaseModel):
+class ManageProactiveAgentRequest(TaskSettings):
     """Named task operations expose only the fields relevant to each action."""
 
     model_config = ConfigDict(extra="forbid")
@@ -110,12 +125,6 @@ class ManageProactiveAgentRequest(BaseModel):
     action: Literal["list", "create", "status", "update", "delete", "query"]
     agent_name: AgentName | None = None
     task_description: str | None = Field(default=None, min_length=1, max_length=100000)
-    agent_type: Literal["proactive", "cron"] | None = None
-    enabled: StrictBool = True
-    temporary: StrictBool = False
-    cron: str | None = None
-    min_trigger_interval_seconds: float = Field(default=0, ge=0, strict=True)
-    notify_window: NotificationWindow | None = None
     question: str | None = Field(default=None, min_length=1, max_length=100000)
 
     @field_validator("task_description", "question")
@@ -129,12 +138,12 @@ class ManageProactiveAgentRequest(BaseModel):
     @model_validator(mode="after")
     def action_arguments(self):
         """Reject unused fields instead of silently ignoring misspecified calls."""
-        settings = {"agent_type", "enabled", "cron", "min_trigger_interval_seconds", "notify_window"}
+        settings = {"enabled", "cron", "min_trigger_interval_seconds", "notify_window"}
         required, allowed = {
             "list": (set(), set()),
             "create": (
-                {"agent_name", "task_description", "agent_type"},
-                settings | {"agent_name", "task_description", "temporary"},
+                {"agent_name", "task_description"},
+                settings | {"agent_name", "task_description"},
             ),
             "status": ({"agent_name"}, {"agent_name"}),
             "update": ({"agent_name"}, settings | {"agent_name"}),

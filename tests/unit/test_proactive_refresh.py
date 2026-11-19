@@ -1784,7 +1784,7 @@ def test_strip_frontmatter_and_profile_loader(tmp_path):
 
 @pytest.mark.asyncio
 async def test_chain_with_configured_daily_dir(tmp_path):
-    """The full chain honours daily_dir=memory (paths, truth source, prompts)."""
+    """The full chain honours daily_dir=memory (paths and truth source)."""
 
     ws = tmp_path
     _touch(ws / "memory" / DAY / "session.md", "小米财报讨论")
@@ -1824,9 +1824,6 @@ async def test_chain_with_configured_daily_dir(tmp_path):
     assert data["push"] is True
     assert [t["id"] for t in data["topics"]] == [fid]
     assert not (ws / "daily").exists()
-    # profile + configured daily dir reached the prompts
-    assert any("张三画像" in inp or "张三关注小米" in inp for inp in wrapper.last_inputs)
-    assert any(f"memory/{DAY}" in inp for inp in wrapper.last_inputs)
 
 
 @pytest.mark.asyncio

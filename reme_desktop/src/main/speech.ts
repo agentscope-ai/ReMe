@@ -2,9 +2,9 @@ import { replyText } from "../shared/surface.ts";
 import { serializeError, UiError } from "../shared/i18n.ts";
 import { narrationParts, validRecording } from "../shared/speech.ts";
 import type {
-  AgentActivity,
+  ClientActivity,
   DesktopCommand,
-  TranscriptMessage,
+  AgentMessage,
   Settings,
   SpeechAudio,
   SpeechState,
@@ -53,7 +53,7 @@ export class SpeechController {
   } | null = null;
   private playback: Playback | null = null;
   private readonly seen = new Set<string>();
-  private readonly candidates = new Map<string, TranscriptMessage>();
+  private readonly candidates = new Map<string, AgentMessage>();
   private readonly tasks = new Set<Promise<void>>();
   private readonly cache = new Map<
     string,
@@ -112,13 +112,13 @@ export class SpeechController {
     if (this.state.error) this.update({ error: null });
   }
 
-  baseline(messages: TranscriptMessage[]): void {
+  baseline(messages: AgentMessage[]): void {
     this.candidates.clear();
     for (const message of messages)
       if (message.completed) this.seen.add(message.id);
   }
 
-  observe(message: TranscriptMessage): void {
+  observe(message: AgentMessage): void {
     if (
       message.role !== "assistant" ||
       message.source !== "chat" ||
@@ -130,7 +130,7 @@ export class SpeechController {
     this.candidates.set(message.id, message);
   }
 
-  finish(activity: AgentActivity | undefined): void {
+  finish(activity: ClientActivity | undefined): void {
     if (!activity) return;
     if (!["completed", "failed", "interrupted"].includes(activity.phase)) {
       if (
@@ -167,7 +167,7 @@ export class SpeechController {
   }
 
   speak(
-    message: TranscriptMessage,
+    message: AgentMessage,
     kind: NonNullable<SpeechState["playback"]>["kind"] = "manual",
   ): void {
     if (

@@ -1,4 +1,4 @@
-import type { AgentActivity } from "../shared/protocol.ts";
+import type { ClientActivity } from "../shared/protocol.ts";
 import { defaultLanguage, translate } from "../shared/i18n.ts";
 import type { Language, TranslationKey } from "../shared/i18n.ts";
 
@@ -25,13 +25,13 @@ export class NotificationPolicy {
   }
 
   observe(
-    activity: AgentActivity | undefined,
+    activity: ClientActivity | undefined,
     live: boolean,
     eligible: boolean,
     now = Date.now(),
     language: Language = defaultLanguage,
   ): Pick<SystemNotice, "id" | "title" | "body"> | null {
-    if (!activity || activity.source !== "chat") return null;
+    if (!activity) return null;
     const turn = `${activity.session_id}:${activity.turn_id}`;
     if (turn !== this.turn) {
       this.turn = turn;

@@ -3,34 +3,21 @@ import test from "node:test";
 import { DesktopController } from "../src/main/controller.ts";
 import { SessionModel } from "../src/main/session-model.ts";
 import { displayMessages } from "../src/shared/messages.ts";
-import type {
-  AgentEvent,
-  PendingTurn,
-  SessionMessage,
-} from "../src/shared/protocol.ts";
-
-const reply = (turn: string): SessionMessage => ({
-  id: `${turn}:assistant`,
-  role: "assistant",
-  turn_id: turn,
-  source: "chat",
-  content: turn,
-  completed: true,
-  delivery: "idle",
-  notification_eligible: false,
-  chunks: [],
-});
-const snapshot = (turn: string, sessionId = "session"): AgentEvent => ({
-  type: "snapshot",
-  session_id: sessionId,
-  status: "idle",
-  activities: {},
-  snapshot: {
-    session_id: sessionId,
-    state: { session_id: sessionId, status: "idle", active_flags: [] },
-    messages: [reply(turn)],
-  },
-});
+import type { PendingTurn } from "../src/shared/protocol.ts";
+import { message, snapshot as makeSnapshot } from "./fixtures.ts";
+const snapshot = (turn: string, sessionId = "session") =>
+  makeSnapshot(
+    [
+      message({
+        id: `${turn}:assistant`,
+        turn_id: turn,
+        content: turn,
+        session_id: sessionId,
+      }),
+    ],
+    sessionId,
+    "monitor",
+  );
 
 test("automatic task inputs are distinguished from ordinary chat and task follow-ups", () => {
   const model = new SessionModel();

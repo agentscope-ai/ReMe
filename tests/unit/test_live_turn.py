@@ -110,18 +110,17 @@ async def test_live_subscription_recovers_partial_output_without_polling_each_to
             assert (await anext(events))["type"] == "snapshot"
             with runtime.live_turns.observe("Remy", sid, "Hello") as publish:
                 publish(StreamChunk(turn_id="live-turn", block_id="text", chunk="Partial"))
-                user = await asyncio.wait_for(anext(events), 1)
-                assert user["message"]["role"] == "user"
                 reply = await asyncio.wait_for(anext(events), 1)
-                assert reply["message"]["content"] == "Partial"
+                assert reply["messages"][0]["role"] == "user"
+                assert reply["messages"][-1]["content"] == "Partial"
                 assert wrapper.read_session.await_count == 1
                 publish(StreamChunk(turn_id="live-turn", block_id="text", chunk=" output"))
                 update = await asyncio.wait_for(anext(events), 1)
-                assert update["message"]["content"] == "Partial output"
+                assert update["messages"][-1]["content"] == "Partial output"
                 assert wrapper.read_session.await_count == 1
                 # Reading/reconnecting observes the same partial turn, without generating anything.
                 restored = await runtime.read_agent("Remy")
-                assert restored["snapshot"]["messages"][-1]["content"] == "Partial output"
+                assert restored["messages"][-1]["content"] == "Partial output"
                 assert not wrapper.turns
         finally:
             await events.aclose()
@@ -161,8 +160,8 @@ async def test_native_handoff_invalidates_every_subscribers_cached_snapshot(tmp_
             assert not runtime.live_turns.turns
             for events in (first, second):
                 update = await asyncio.wait_for(anext(events), 1)
-                assert update["message"]["content"] == "Final"
-                assert update["message"]["id"] == "native"
+                assert update["messages"][-1]["content"] == "Final"
+                assert update["messages"][-1]["id"] == "turn:assistant"
         finally:
             await first.aclose()
             await second.aclose()

@@ -11,6 +11,7 @@ import { Storage } from "../src/main/storage.ts";
 import { requestWorkspace } from "../src/main/workspace.ts";
 import type { ReMeClient } from "../src/main/reme-client.ts";
 import type { WorkspaceRequest } from "../src/shared/protocol.ts";
+import { clientInfo } from "./fixtures.ts";
 import {
   DEFAULT_PROJECT,
   projectLabel,
@@ -208,13 +209,14 @@ test("Tree Hollow shares Knowledge's default split and preserves Remy's narrower
     ...controller.state,
     activePage: "notebook",
     connection: "connected",
-    workspace: "/workspace",
+    clientInfo: {
+      ...clientInfo,
+      jobs: [...clientInfo.jobs, "todo", "idea", "list_workspace", "load_file"],
+    },
   };
   const notebook = renderToStaticMarkup(createElement(Notebook, { state }));
   const knowledge = renderToStaticMarkup(createElement(Knowledge, { state }));
-  const remy = renderToStaticMarkup(
-    createElement(Remy, { state, onSettings: () => {} }),
-  );
+  const remy = renderToStaticMarkup(createElement(Remy, { state }));
   assert.match(notebook, /--sidebar-width:292px/);
   assert.match(knowledge, /--sidebar-width:292px/);
   assert.match(remy, /--sidebar-width:224px/);

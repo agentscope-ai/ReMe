@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import { fromMarkdown } from "mdast-util-from-markdown";
-import type { ResourcePage, WorkspaceRequest } from "../shared/protocol.ts";
+import type {
+  JobResponse,
+  ResourcePage,
+  WorkspaceRequest,
+} from "../shared/protocol.ts";
 import { deserializeError, translator, type Language } from "../shared/i18n.ts";
 
 export function resourceSource(source: string, language: Language): string {
@@ -13,11 +17,17 @@ export function resourceSource(source: string, language: Language): string {
   return key ? translator(language)(key) : source;
 }
 
-export async function requestResource<T>(value: WorkspaceRequest): Promise<T> {
+export async function requestWorkspace<T>(
+  value: WorkspaceRequest,
+): Promise<JobResponse<T>> {
   const response = await window.desktop.workspace(value);
   if ("error" in response) throw deserializeError(response.error);
   if (!response.success) throw new Error(String(response.answer));
-  return response.answer as T;
+  return response as JobResponse<T>;
+}
+
+export async function requestResource<T>(value: WorkspaceRequest): Promise<T> {
+  return (await requestWorkspace<T>(value)).answer;
 }
 
 export function formatDate(
@@ -58,7 +68,6 @@ export function plainText(content: string): string {
 /** One visible resource page owns one polling loop; details reuse its canonical rows. */
 export function useResourcePage<T>(
   request: WorkspaceRequest,
-  scope: string,
   active: boolean,
   revision: number,
 ) {
@@ -71,7 +80,7 @@ export function useResourcePage<T>(
     setPage(null);
     setError(null);
     setLoading(true);
-  }, [key, scope]);
+  }, [key]);
   useEffect(() => {
     if (!active) return;
     let live = true;
@@ -100,7 +109,7 @@ export function useResourcePage<T>(
       live = false;
       clearInterval(timer);
     };
-  }, [key, scope, active, revision, retry]);
+  }, [key, active, revision, retry]);
   return {
     page,
     error,

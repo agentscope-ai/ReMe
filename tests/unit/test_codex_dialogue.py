@@ -15,7 +15,7 @@ import pytest
 from reme.components import ApplicationContext, LocalAgentRuntime, R, RuntimeContext
 from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.agent_inbox import AgentEventInbox
-from reme.components.agent_runtime._internal.files import AgentFiles
+from reme.utils.workspace_files import WorkspaceFiles
 from reme.components.job import BaseJob, CronJob
 from reme.config import resolve_app_config
 from reme.enumeration import ComponentEnum
@@ -110,7 +110,6 @@ async def runtime(tmp_path):
         agents=[
             {
                 "agent_name": "work",
-                "agent_type": "proactive",
                 "task_description": "跟踪项目进展和难点",
             },
         ],
@@ -153,7 +152,7 @@ def progress(context):
 
 
 def dialogue_index(context, home):
-    return CodexDialogueIndex(AgentFiles(workspace(context)), progress(context).parent, home, lambda: None)
+    return CodexDialogueIndex(WorkspaceFiles(workspace(context)), progress(context).parent, home, lambda: None)
 
 
 def messages(context):
@@ -312,7 +311,7 @@ async def test_progress_replays_a_journal_larger_than_the_record_limit(tmp_path,
     async with runtime(tmp_path) as (context, _, _):
         index = dialogue_index(context, home)
         state = index.load(_NOW)
-        monkeypatch.setattr("reme.components.agent_runtime._internal.files.DEFAULT_MAX_FILE_BYTES", 2048)
+        monkeypatch.setattr("reme.utils.workspace_files.DEFAULT_MAX_FILE_BYTES", 2048)
         for number in range(30):
             index.commit(
                 state,
@@ -488,14 +487,14 @@ async def test_partial_resource_publication_resumes_without_rescanning(tmp_path,
     async with runtime(tmp_path) as (context, inbox, _):
         await CodexDialogueInitStep(**options(context, home))()
         append(path, record("UserMessage", "recover"))
-        write_json = AgentFiles.write_json
+        write_json = WorkspaceFiles.write_json
 
         def fail_dialogue_once(store, target, value):
             if target.name == "metadata.json" and "codex_dialogue" in target.parts:
                 raise OSError("publish interrupted")
             return write_json(store, target, value)
 
-        monkeypatch.setattr(AgentFiles, "write_json", fail_dialogue_once)
+        monkeypatch.setattr(WorkspaceFiles, "write_json", fail_dialogue_once)
         with pytest.raises(OSError, match="interrupted"):
             await CodexDialogueStep(**options(context, home))()
         assert (await inbox.snapshot("work"))["pending_count"] == 0
@@ -506,7 +505,7 @@ async def test_partial_resource_publication_resumes_without_rescanning(tmp_path,
         assert {path.name for path in pending.parent.iterdir() if path.is_file()} == {"progress.jsonl", "pending.json"}
         assert not list(workspace(context).glob("resource/*/*/*/metadata.json"))
         assert len(messages(context)) == 1
-        monkeypatch.setattr(AgentFiles, "write_json", write_json)
+        monkeypatch.setattr(WorkspaceFiles, "write_json", write_json)
         monkeypatch.setattr(CodexDialogueIndex, "scan", Mock(side_effect=AssertionError("must retry the frozen batch")))
         await CodexDialogueStep(**options(context, home))()
         devices.assert_not_called()
@@ -708,7 +707,7 @@ async def test_failed_dialogue_pending_write_preserves_screenshots_and_retries_d
         append(path, record("UserMessage", "not lost"))
         pending = progress(context).with_name("pending.json")
         before = progress(context).read_bytes()
-        write_json = AgentFiles.write_json
+        write_json = WorkspaceFiles.write_json
 
         def fail_dialogue(store, target, value):
             if target == pending:
@@ -716,7 +715,7 @@ async def test_failed_dialogue_pending_write_preserves_screenshots_and_retries_d
             return write_json(store, target, value)
 
         with monkeypatch.context() as patch:
-            patch.setattr(AgentFiles, "write_json", fail_dialogue)
+            patch.setattr(WorkspaceFiles, "write_json", fail_dialogue)
             with pytest.raises(OSError, match="persistence failed"):
                 await CodexDialogueStep(**options(context, home))()
         assert not pending.exists() and progress(context).read_bytes() == before

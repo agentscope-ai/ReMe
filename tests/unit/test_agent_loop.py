@@ -49,7 +49,7 @@ async def test_shared_loop_runs_both_consumers_and_releases_their_claims_on_stop
                 await task_started.wait()
                 await chat_started.wait()
                 assert (await runtime.inbox.snapshot("monitor"))["in_flight_count"] == 1
-                assert (await runtime.inbox.snapshot("Remy"))["in_flight_count"] == 1
+                assert (await runtime.list_inputs("Remy", state="processing"))["total"] == 1
                 stop.set()
                 await loop
         finally:
@@ -58,9 +58,9 @@ async def test_shared_loop_runs_both_consumers_and_releases_their_claims_on_stop
         assert not runtime.workers and runtime.notifications.worker is None
         assert runtime.notifications.active_turn is None
         assert list(runtime.notifications.pending) == arguments["msg_ids"]
-        for name in ("monitor", "Remy"):
-            snapshot = await runtime.inbox.snapshot(name)
-            assert snapshot["pending_count"] == 1 and snapshot["in_flight_count"] == 0
+        snapshot = await runtime.inbox.snapshot("monitor")
+        assert snapshot["pending_count"] == 1 and snapshot["in_flight_count"] == 0
+        assert (await runtime.list_inputs("Remy", state="pending"))["total"] == 1
 
 
 @pytest.mark.asyncio
@@ -86,7 +86,7 @@ async def test_scheduler_failure_does_not_starve_the_other_consumer(tmp_path, mo
         failure = AsyncMock(side_effect=OSError("scheduler unavailable"))
         if failed == "task":
             await runtime.create(
-                {"agent_name": "timer", "task_description": "Report", "agent_type": "cron", "cron": "* * * * *"},
+                {"agent_name": "timer", "task_description": "Report", "cron": "* * * * *"},
             )
             monkeypatch.setattr(runtime, "_schedule_cron", failure)
         else:

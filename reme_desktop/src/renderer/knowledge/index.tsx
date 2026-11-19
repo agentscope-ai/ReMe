@@ -14,30 +14,13 @@ import {
   ArrowLeft,
   ArrowRight,
 } from "lucide-react";
-import type {
-  DesktopState,
-  JobResponse,
-  WorkspaceConfig,
-  WorkspaceRequest,
-  TagFiles,
-} from "../../shared/protocol.ts";
-import {
-  deserializeError,
-  errorText,
-  translator,
-  UiError,
-} from "../../shared/i18n.ts";
+import type { DesktopState, TagFiles } from "../../shared/protocol.ts";
+import { errorText, translator, UiError } from "../../shared/i18n.ts";
 import { action } from "../desktop.ts";
+import { requestWorkspace as request } from "../resources.ts";
 import SplitPane from "../split-pane.tsx";
 import { buildTree, type FileTree } from "./model.ts";
 import DocumentPreview from "./DocumentPreview.tsx";
-
-async function request<T>(value: WorkspaceRequest): Promise<JobResponse<T>> {
-  const result = await window.desktop.workspace(value);
-  if ("error" in result) throw deserializeError(result.error);
-  if (!result.success) throw new Error(String(result.answer));
-  return result as JobResponse<T>;
-}
 
 function Tree({
   nodes,
@@ -124,8 +107,11 @@ export default function Knowledge({
 }) {
   const t = translator(state.settings.language);
   const active = state.activePage === "knowledge";
-  const scope = state.settings.endpoint + "\n" + state.workspace;
-  const [config, setConfig] = useState<WorkspaceConfig>();
+  const config = state.clientInfo;
+  const available = Boolean(
+    config?.jobs.includes("list_workspace") &&
+    config.jobs.includes("load_file"),
+  );
   const [source, setSource] = useState("workspace");
   const [paths, setPaths] = useState<string[]>([]);
   const [limited, setLimited] = useState(false);
@@ -147,7 +133,9 @@ export default function Knowledge({
   const [refresh, setRefresh] = useState(0);
   const [loading, setLoading] = useState(false);
   const [fileLoading, setFileLoading] = useState(false);
-  const [error, setError] = useState<unknown>(null);
+  const [requestError, setError] = useState<unknown>(null);
+  const error =
+    config && !available ? new UiError("workspaceUnavailable") : requestError;
   const [fileError, setFileError] = useState<unknown>(null);
   const loadedPath = useRef("");
   const documentScroll = useRef<HTMLDivElement>(null);
@@ -165,21 +153,6 @@ export default function Knowledge({
     config.jobs.includes("list_tag_files"),
   );
   useEffect(() => {
-    setConfig(undefined);
-    setPaths([]);
-    setSelected("");
-    setDocument(undefined);
-    loadedPath.current = "";
-    setTags([]);
-    setTagsPage(1);
-    setSelectedTags([]);
-    setPage(1);
-    setQuery("");
-    setDraft("");
-    setError(null);
-    setTagError(null);
-  }, [scope]);
-  useEffect(() => {
     if (!state.documentTarget) return;
     setSource("workspace");
     setQuery("");
@@ -189,27 +162,6 @@ export default function Knowledge({
     setSelected(state.documentTarget.path);
     setRefresh((value) => value + 1);
   }, [state.documentTarget]);
-  useEffect(() => {
-    if (!active || state.connection !== "connected" || config) return;
-    let live = true;
-    void request<WorkspaceConfig>({ type: "config" })
-      .then((result) => {
-        if (!live) return;
-        if (
-          !result.answer.jobs.includes("list_workspace") ||
-          !result.answer.jobs.includes("load_file")
-        )
-          throw new UiError("workspaceUnavailable");
-        setConfig(result.answer);
-        setError(null);
-      })
-      .catch((error) => {
-        if (live) setError(error);
-      });
-    return () => {
-      live = false;
-    };
-  }, [active, state.connection, config, scope, refresh]);
   useEffect(() => {
     if (!active || !config || !supportsTags) return;
     let live = true;
@@ -241,7 +193,7 @@ export default function Knowledge({
     };
   }, [active, config, supportsTags, tagsPage, refresh]);
   useEffect(() => {
-    if (!active || !config || state.connection !== "connected") return;
+    if (!active || !available || state.connection !== "connected") return;
     let live = true;
     setLoading(true);
     setError(null);
@@ -310,7 +262,7 @@ export default function Knowledge({
     };
   }, [
     active,
-    config,
+    available,
     state.connection,
     root,
     selectedTags,
@@ -348,14 +300,9 @@ export default function Knowledge({
           loadedPath.current = selected;
           setDocument({
             content: image ? "" : result.answer,
-            image:
-              image &&
-              /^image\/(png|jpeg|webp|gif|bmp)$/.test(
-                String(result.metadata.mime),
-              ) &&
-              !result.metadata.oversized
-                ? `data:${result.metadata.mime};base64,${result.answer}`
-                : undefined,
+            image: image
+              ? `data:${result.metadata.mime};base64,${result.answer}`
+              : undefined,
             mtime: result.metadata.mtime as string | undefined,
           });
         }
@@ -372,7 +319,7 @@ export default function Knowledge({
     return () => {
       live = false;
     };
-  }, [selected, scope, refresh]);
+  }, [selected, refresh]);
   const tree = useMemo(
     () =>
       buildTree(
@@ -592,8 +539,7 @@ export default function Knowledge({
                   content={document.content}
                   mtime={document.mtime}
                   tagKey={config?.tag_key ?? "memory_tags"}
-                  supportsTags={supportsTags}
-                  onTag={chooseTag}
+                  onTag={supportsTags ? chooseTag : undefined}
                   onLink={openLink}
                   language={state.settings.language}
                 />

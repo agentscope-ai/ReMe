@@ -8,8 +8,8 @@ The top bar contains **Remy**, **Tree Hollow** and **Knowledge**, with Settings 
 Tree Hollow manages one-sentence Todos and Ideas, including progress notes, deadlines, archives and links from
 Ideas to Todos. It uses the `todo` and `idea` jobs in the `proactive` configuration; workspace JSON files own the records.
 
-Task groups offer a **+** action to create tasks. Each task's **…** button and context menu share editing,
-pause/enable, run details, folder and delete actions. The task panel saves execution settings and `TASK.md`
+Task groups offer a **+** action to create tasks. Each task's **…** button and context menu share management,
+pause/enable, folder and delete actions. Run details appear under Settings in the management panel, which saves execution settings and `TASK.md`
 separately; description writes detect concurrent file edits. Pausing leaves the current round running, while
 deleting stops it and retains history. Event-driven tasks still need an event source configured separately.
 
@@ -74,17 +74,17 @@ The client uses the following jobs from the same checkout:
 | `read_agent_session`                                                                           | Current session snapshot for `agent_name`, or a null snapshot before the first session |
 | `ask_agent`                                                                                    | Continue main Chat, or stream a read-only fork query of the latest task session        |
 | `create_chat_session`                                                                          | Start a fresh main Chat session; accepts no arguments                                  |
-| `watch_agent_session`                                                                          | Observe one Agent's current session plus global sidebar status                         |
+| `watch_agent_session`                                                                          | Observe current messages and state; Remy also carries the Agent roster                 |
 | `list_agent_inbox`                                                                             | Page every Agent's pending, processing and processed input events                      |
 | `list_agent_outbox`                                                                            | Page a task Agent's committed reminders                                                |
 | `read_agent_reminder`                                                                          | Read canonical reminders and acknowledge user reading independently of processing      |
 | `list_workspace`, `load_file`, `read_image`, `list_tags`, `list_tag_files`, `search_workspace` | Read-only Knowledge browsing                                                           |
 | `asr` / `tts`                                                                                  | Voice input and playback                                                               |
-| `get_app_config`                                                                               | Discover backend capabilities and workspace settings                                   |
+| `get_client_info`                                                                              | Discover backend capabilities and workspace settings                                   |
 | `manage_proactive_agent` / `agent_task`                                                        | Manage task settings and read/save the original task description with revision checks  |
 | `todo` / `idea`                                                                                | Manage Tree Hollow records and progress                                                |
 
-Subscriptions start with an authoritative snapshot and coalesce live updates into replaceable message snapshots.
+Subscriptions use `snapshot`, `update` and `heartbeat`. Session changes are atomic snapshots; updates batch complete-message upserts.
 Text, tool activity, public reasoning summaries and attachments retain their order within each turn. Repeated updates
 replace the same item; final text does not remove earlier progress. Every reconnect reconstructs the current view,
 including unfinished output; requests are never resent to recover a display. Native transcripts remain the durable
@@ -97,7 +97,7 @@ independent Markdown document. The conversation follows new output only while th
 return-to-latest action, and loads older messages in batches.
 
 Normal progress messages remain in the conversation. Reasoning summaries stay inside expandable process details;
-they do not separate adjacent tool calls. Native command actions identify reads, directory listings and searches,
+they do not separate adjacent tool calls. The backend normalizes command actions into reads, directory listings and searches,
 including their paths and queries. Completed turns show a localized completion row with the retained process details.
 
 Task questions through `ask_agent` and `manage_proactive_agent(action=query)` share the same temporary read-only fork.
@@ -129,3 +129,8 @@ Remy's artwork, source sheets, prompts and rebuild script live in [`assets/remy/
 Packages contain the Electron client plus Remy's manifest and runtime frames; Python, credentials and workspace data
 stay separately managed.
 Native microphone access and system notification delivery additionally depend on operating-system permissions.
+
+The Python schemas own the network contract. Run `python -m reme_desktop.scripts.client-contract` from the repository
+root after changing it; `--check` detects drift. Generated wire types are separate from desktop IPC and presentation types.
+The main connection publishes client capabilities and workspace settings with desktop state. Workspace pages derive
+availability from that state and reset their drafts and pending reads when the endpoint or workspace changes.

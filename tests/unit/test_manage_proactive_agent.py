@@ -23,18 +23,27 @@ from .test_agent_runtime import running_runtime
     [
         {"action": "list", "agent_name": "task"},
         {"action": "list", "agent_name": None},
-        {"action": "create", "agent_name": "task", "agent_type": "proactive"},
-        {"action": "create", "agent_name": "task", "task_description": " ", "agent_type": "proactive"},
+        {"action": "create", "agent_name": "task", "task_description": "Observe", "agent_type": "proactive"},
         {
             "action": "create",
-            "config": {"agent_name": "task", "task_description": "Do work", "agent_type": "proactive"},
+            "agent_name": "task",
+            "task_description": "Observe",
+            "agent_type": "cron",
+            "cron": "0 8 * * *",
+        },
+        {"action": "create", "agent_name": "task", "task_description": "Observe", "temporary": True},
+        {"action": "create", "agent_name": "task"},
+        {"action": "create", "agent_name": "task", "task_description": " "},
+        {
+            "action": "create",
+            "config": {"agent_name": "task", "task_description": "Do work"},
         },
         {"action": "status", "agent_id": "task"},
         {"action": "status", "name": "task"},
         {"action": "create", "agent_name": "task", "task_description": "Observe", "agent_type": "event"},
         {"action": "create", "agent_name": "task", "task_description": "Observe", "agent_type": "chat"},
-        {"action": "create", "agent_name": "task", "instructions": "Observe", "agent_type": "proactive"},
-        {"action": "create", "agent_name": "task", "description": "Observe", "agent_type": "proactive"},
+        {"action": "create", "agent_name": "task", "instructions": "Observe"},
+        {"action": "create", "agent_name": "task", "description": "Observe"},
         {"action": "create", "agent_name": "task", "task_description": "Observe", "trigger_type": "event"},
         {"action": "status"},
         {"action": "status", "agent_name": "task", "enabled": True},
@@ -63,49 +72,21 @@ async def test_all_actions_expose_only_their_results_and_keep_task_files(tmp_pat
             "action": "create",
             "agent_name": "tech_news",
             "task_description": "每天08:00整理科技新闻。\n保留来源。\n",
-            "agent_type": "cron",
             "cron": "0 8 * * *",
         }
         created = (await tool(**arguments)).answer
-        assert created == {
-            "agent_name": "tech_news",
-            "task_path": "reme_agents/tech_news/TASK.md",
-            "next_trigger_at": "2026-11-17T08:00:00+08:00",
-        }
+        assert created == (await runtime.read_agent("tech_news"))["agent"]
+        assert created["agent_type"] == "cron" and created["cron"] == "0 8 * * *"
+        assert created["next_trigger_at"] == "2026-11-17T08:00:00+08:00"
         task_file = tmp_path / created["task_path"]
         assert task_file.read_text() == arguments["task_description"]
         assert not runtime.cron  # Inspecting the next trigger must not schedule or run work.
-        assert (await tool(action="list")).answer == {
-            "items": [
-                {
-                    "agent_name": "tech_news",
-                    "agent_type": "cron",
-                    "enabled": True,
-                    "cron": "0 8 * * *",
-                    "task_path": created["task_path"],
-                },
-            ],
-        }
-        status = (await tool(action="status", agent_name="tech_news")).answer
-        assert status == {
-            **created,
-            "agent_type": "cron",
-            "enabled": True,
-            "temporary": False,
-            "cron": "0 8 * * *",
-            "running": False,
-            "pending_events": 0,
-            "in_flight_events": 0,
-            "last_completed_at": None,
-        }
+        assert (await tool(action="list")).answer == {"items": [created], "total": 1}
+        assert (await tool(action="status", agent_name="tech_news")).answer == created
         updated = (await tool(action="update", agent_name="tech_news", cron="0 9 * * *")).answer
-        assert updated == {
-            "agent_name": "tech_news",
-            "updated": {"cron": "0 9 * * *"},
-            "next_trigger_at": "2026-11-17T09:00:00+08:00",
-        }
+        assert updated["cron"] == "0 9 * * *" and updated["next_trigger_at"] == "2026-11-17T09:00:00+08:00"
         paused = (await tool(action="update", agent_name="tech_news", enabled=False)).answer
-        assert paused == {"agent_name": "tech_news", "updated": {"enabled": False}}
+        assert not paused["enabled"] and paused["cron"] == "0 9 * * *"
         assert task_file.read_text() == arguments["task_description"]
 
         query = AsyncMock(return_value=Response(answer={"agent_name": "tech_news", "answer": "今天的早报已经完成。"}))
@@ -121,10 +102,10 @@ async def test_all_actions_expose_only_their_results_and_keep_task_files(tmp_pat
         )
         deleted = (await tool(action="delete", agent_name="tech_news")).answer
         assert deleted == "Deleted task 'tech_news'; history files retained."
-        assert (await tool(action="list")).answer == {"items": []}
+        assert (await tool(action="list")).answer == {"items": [], "total": 0}
         assert task_file.read_text() == arguments["task_description"]
         restored = (await tool(**{**arguments, "task_description": "Changed request"})).answer
-        assert restored == {**created, "restored": True}
+        assert restored == (await runtime.read_agent("tech_news"))["agent"]
         assert task_file.read_text() == arguments["task_description"]
 
 
@@ -136,18 +117,16 @@ async def test_trigger_changes_clear_old_settings_without_ignoring_explicit_conf
             action="create",
             agent_name="experiment_watch",
             task_description="跟进实验",
-            agent_type="proactive",
             min_trigger_interval_seconds=30,
         )
-        await tool(action="update", agent_name="experiment_watch", agent_type="cron", cron="0 * * * *")
+        await tool(action="update", agent_name="experiment_watch", cron="0 * * * *", min_trigger_interval_seconds=0)
         assert (await runtime.definition("experiment_watch")).min_trigger_interval_seconds == 0
-        await tool(action="update", agent_name="experiment_watch", agent_type="proactive")
+        await tool(action="update", agent_name="experiment_watch", cron=None)
         assert (await runtime.definition("experiment_watch")).cron is None
         with pytest.raises(ValueError, match="trigger interval"):
             await tool(
                 action="update",
                 agent_name="experiment_watch",
-                agent_type="cron",
                 cron="0 * * * *",
                 min_trigger_interval_seconds=30,
             )
@@ -155,7 +134,7 @@ async def test_trigger_changes_clear_old_settings_without_ignoring_explicit_conf
         await tool(action="update", agent_name="experiment_watch", notify_window={"start": "09:00", "end": "18:00"})
         assert (await runtime.definition("experiment_watch")).notify_window.start == "09:00"
         cleared = (await tool(action="update", agent_name="experiment_watch", notify_window=None)).answer
-        assert cleared == {"agent_name": "experiment_watch", "updated": {"notify_window": None}}
+        assert cleared["notify_window"] is None
         assert (await runtime.definition("experiment_watch")).notify_window is None
 
 

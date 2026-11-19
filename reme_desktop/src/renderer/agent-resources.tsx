@@ -45,7 +45,6 @@ export default function AgentResources({
     AgentMail | InputEvent
   >(
     request,
-    `${state.settings.endpoint}:${state.workspace}`,
     state.activePage === "remy" && state.connection === "connected",
     state.mailboxRevision,
   );

@@ -58,7 +58,7 @@ curl -N http://127.0.0.1:2333/chat \
   -d '{"query":"总结我的长期偏好"}'
 ```
 
-`proactive` 的工作区接口为 `list_workspace`、`search_workspace`、`load_file` 和 `get_app_config`；
+`proactive` 的工作区接口为 `list_workspace`、`search_workspace`、`load_file` 和 `get_client_info`；
 默认配置提供 `list`、`search`、`load` 和 `app_config`。
 
 `proactive` 配置提供 `ask_agent(query, agent_name=Remy)`，使用固定 Chat Agent 的当前原生会话，
@@ -73,7 +73,7 @@ curl -N http://127.0.0.1:2333/chat \
 `ProactiveAgentStep` 分别定义两种 Agent 行为。组件配置使用 `components.agent_runtime.default`，
 工作区相对配置 `reme_agent_dir` 默认是 `reme_agents`。每个 Agent 拥有 `config.json`、`sessions.jsonl` 和
 `inbox/`。Remy 的个人记忆保存在 `MEMORY.md`，事件与定时 Agent 使用 `TASK.md` 和
-`reminder/YYYY-MM-DD/HHMMSS.md`。临时 Agent 位于 `reme_agents/tmp/<agent_name>/`，运行状态在启动时从源文件重建。
+`reminder/YYYY-MM-DD/HHMMSS.md`。临时 Agent 位于 `reme_agents/<agent_name>/`，运行状态在启动时从源文件重建。
 会话登记保留追加中断前的完整记录；读取时忽略不完整尾行，下次追加时清理尾行，完整记录损坏时明确报错。
 先保存校验通过的提醒，再提交事件消费回执，Outbox 独立重试投递；未提交就中断的轮次允许重新执行。
 消费回执关联提醒引用，在接收方完成交接前保留对应确认记录。
@@ -105,21 +105,20 @@ Claude Code 使用默认工具，包括受支持的原生 `WebSearch` 和 `WebFe
 
 ```bash
 reme manage_proactive_agent action=list
-reme manage_proactive_agent action=create agent_name=experiment_watch agent_type=proactive \
+reme manage_proactive_agent action=create agent_name=experiment_watch \
   'task_description=分析实验日志，失败或结束时提醒我。'
 reme list_agent_inbox
 ```
 
 `manage_proactive_agent` 支持 `list/create/status/update/delete/query`，参数直接放在顶层，以 `agent_name` 指定任务。
 名称使用 1–3 个常见的小写英文单词，多个单词以下划线连接。`Remy` 和 `tmp` 是保留名。创建时传入
-`task_description` 和 `agent_type`，定时任务另传 `cron`。更新只传需要修改的运行配置。询问进展时传入
+`task_description`，定时任务另传 `cron`。更新只传需要修改的运行配置。询问进展时传入
 `question`，通过已有任务会话的临时只读分支回答。
 六个 action 的完整请求与返回示例见 `skills/manage-proactive-agent/SKILL.md`。
 
 创建时将 `task_description` 原样写入 `TASK.md`，创建、列表和状态查询返回工作区相对的 `task_path`。
 修改任务要求前先读取文件，保留有效背景，保存后核对结果。调整约定时间时同时更新 `cron` 和任务说明。
-修改对后续轮次生效。删除停止框架内的调度和执行，保留历史文件。外部采集器需单独停止。恢复同名任务时返回
-`restored=true`，沿用原任务说明和历史，按新要求核对任务说明。
+修改对后续轮次生效。删除停止框架内的调度和执行，保留历史文件。外部采集器需单独停止。恢复同名任务时沿用原任务说明和历史，按新要求核对任务说明。
 `reme_agent_dir` 指定工作区相对的 Agent 目录，默认是 `reme_agents`。
 
 通过 `components.agent_runtime.default.chat.initial_memory` 配置 Chat 的初始个人记忆。Runtime 启动时创建缺失的
@@ -143,8 +142,7 @@ Remy `MEMORY.md`，重启和切换会话保留已有个人记忆。Chat 的 `job
   <img src="../figure/proactive-runtime.svg" alt="工作 Proactive Runtime：Codex 与 Claude Code 轨迹、截图、带时间的事件、提醒和工作区文件路径" width="100%">
 </p>
 
-Agent 配置统一使用 `agent_type`，取值为 `chat`、`proactive` 或 `cron`。管理工具只能创建后两种任务，
-Chat 由 Runtime 初始化。
+任务配置仅以 `cron` 决定事件或定时触发，客户端视图中的 `agent_type` 由后端推导，不接受写入。Remy 由 Runtime 初始化。
 
 `proactive` 通过 `append_agent_events(agent_name, events)` 接收观察，每条包含 `event_ts`、`source`、`description`，
 可附工作区相对 `paths`、`id` 和 `metadata`。`cron` 要求 cron 表达式，到点执行完整任务，不接收外部观察。
@@ -152,10 +150,7 @@ Chat 由 Runtime 初始化。
 
 使用 `config=proactive` 时，Chat、proactive、cron 和临时分支共用 Codex App Server 的原生工具配置，包括 `web_search`。
 临时 `query` 分支使用后端的只读模式。`notify_window={start,end}` 限制自动唤醒时段，
-时段外仍可分析并保存消息。`temporary=true` 与触发类型独立，连续七天没有新接收输入后允许清理；
-cron 触发也算输入，重复事件和重试不续期。有执行、待处理事件、未投递消息或保留的 Inbox 引用时暂缓删除，
-日记和原始资源保持不变。消费回执保存累计的最新输入接收时间，优先处理和重启不会使临时 Agent 提前过期。
-重启后从下一次未来时间恢复 cron，已入队事件继续处理，不补跑停机期间未入队的触发；
+时段外仍可分析并保存消息。任务目录长期保留；显式删除任务会停止执行并保留源文件和历史。重启后从下一次未来时间恢复 cron，已入队事件继续处理，不补跑停机期间未入队的触发；
 Chat 空闲计时和失败重试计时在内存中重新开始。
 日记 `daily/YYYY-MM-DD/<agent_name>.md` 保存累计交接，`<agent_name>_HHMMSS.md` 保存本轮明细，
 Agent 自己的 `reminder/YYYY-MM-DD/HHMMSS.md` 以 Markdown 正文保存唯一的提醒内容，以 frontmatter 保存投递和已读时间，

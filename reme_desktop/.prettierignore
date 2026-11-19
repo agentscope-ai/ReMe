@@ -4,3 +4,5 @@ dist/
 reports/
 package-lock.json
 assets/remy/manifest.json
+src/shared/wire.ts
+tests/contract-fixture.ts

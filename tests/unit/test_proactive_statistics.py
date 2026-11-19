@@ -20,13 +20,13 @@ from .test_proactive_run import install_round
 async def test_statistics_separate_agent_types_and_count_snapshots_once(tmp_path, monkeypatch):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         for mode in ("proactive", "cron"):
-            await runtime.create({"agent_name": mode, "agent_type": "proactive", "task_description": "Check results"})
+            await runtime.create({"agent_name": mode, "task_description": "Check results"})
             await runtime.append(
                 mode,
                 {"id": mode, "event_ts": runtime.now(), "source": "experiment", "description": "Done"},
             )
             if mode == "cron":
-                await runtime.update(mode, {"agent_type": "cron", "cron": "0 * * * *"})
+                await runtime.update(mode, {"cron": "0 * * * *"})
             now = runtime.now()
             monkeypatch.setattr(runtime, "now", lambda current=now: current)
             step = ProactiveAgentStep(app_context=context)
@@ -169,7 +169,7 @@ async def test_separate_search_budgets_warn_once_and_do_not_interrupt(tmp_path, 
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         if agent_type == "cron":
-            await runtime.update("monitor", {"agent_type": "cron", "cron": "0 * * * *"})
+            await runtime.update("monitor", {"cron": "0 * * * *"})
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)
         step = ProactiveAgentStep(app_context=context, max_web_lookup_calls=2, max_local_search_calls=3)

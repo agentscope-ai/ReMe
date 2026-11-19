@@ -146,7 +146,7 @@ Start the service in one terminal with `reme start config=proactive`. Initial Ag
 only once. For a workspace whose finance Agent still uses cron, run this in another terminal:
 
 ```bash
-reme manage_proactive_agent action=update agent_name=finance agent_type=proactive
+reme manage_proactive_agent action=update agent_name=finance
 reme manage_proactive_agent action=status agent_name=finance
 ```
 

@@ -39,7 +39,7 @@ export default function AgentSidebar({
   const row = (
     agent: Pick<
       AgentView,
-      "agent_name" | "agent_type" | "running" | "enabled" | "error"
+      "agent_name" | "agent_type" | "status" | "enabled" | "error"
     >,
   ) => {
     const isChat = agent.agent_type === "chat";
@@ -49,7 +49,7 @@ export default function AgentSidebar({
         ? "agentDisabled"
         : agent.error
           ? "agentError"
-          : agent.running
+          : agent.status === "active"
             ? "agentRunning"
             : "agentIdle",
     );
@@ -95,11 +95,13 @@ export default function AgentSidebar({
               <span className="agent-caption">{t("personalAssistant")}</span>
             )}
           </span>
-          {(agent.running || agent.error || !agent.enabled) && (
+          {(agent.status === "active" || agent.error || !agent.enabled) && (
             <span
-              className={`agent-status-dot ${!agent.enabled ? "disabled" : agent.error ? "error" : agent.running ? "running" : ""}`}
+              className={`agent-status-dot ${!agent.enabled ? "disabled" : agent.error ? "error" : agent.status === "active" ? "running" : ""}`}
               title={
-                !agent.enabled && agent.running ? t("taskPauseHint") : status
+                !agent.enabled && agent.status === "active"
+                  ? t("taskPauseHint")
+                  : status
               }
               aria-label={status}
             />
@@ -133,7 +135,7 @@ export default function AgentSidebar({
           chat ?? {
             agent_name: "Remy",
             agent_type: "chat",
-            running: false,
+            status: "idle",
             enabled: true,
             error: null,
           },
@@ -195,7 +197,7 @@ export default function AgentSidebar({
           items={[
             {
               id: "edit",
-              label: t("taskEdit"),
+              label: t("taskManage"),
               disabled: busy,
               select: () =>
                 onManage({ mode: "edit", agentName: menuAgent.agent_name }),
@@ -205,12 +207,6 @@ export default function AgentSidebar({
               label: t(menuAgent.enabled ? "taskPause" : "taskEnable"),
               disabled: busy || state.connection !== "connected",
               select: () => onToggle(menuAgent),
-            },
-            {
-              id: "status",
-              label: t("taskDetails"),
-              select: () =>
-                onManage({ mode: "status", agentName: menuAgent.agent_name }),
             },
             {
               id: "directory",

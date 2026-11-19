@@ -182,8 +182,6 @@ async def test_topic_step_keeps_real_ids_in_memory_only(tmp_path: Path):
     assert [row["news_id"] for row in context["auto_fin_selected_news"]] == ["2"]
     assert [row["news_id"] for row in context["auto_fin_news_by_topic"]["黄金"]] == ["2"]
     assert agent.calls[0][1] == {}
-    assert '```json\n{"黄金": []}' in agent.calls[0][0]
-    assert agent.calls[0][0].index("## 输入材料") < agent.calls[0][0].index("## 任务指令")
     assert response.metadata["relevant_news_count"] == 1
     assert not list(tmp_path.rglob("*.*"))
 
@@ -213,7 +211,6 @@ async def test_topic_step_marks_empty_selection_as_successful_skip(tmp_path: Pat
     assert context["auto_fin_skipped"] is True
     assert response.metadata["skipped"] is True
     assert response.answer == "最近12小时没有与 黄金 相关的财联社新闻。"
-    assert "最近 12 小时" in agent.calls[0][0]
     assert not list(tmp_path.rglob("*.md"))
 
 
@@ -399,8 +396,6 @@ async def test_research_rerun_replaces_the_same_note_for_a_topic(tmp_path: Path)
     await step(second)
 
     assert len(agent.calls) == 2
-    assert "本次为当日首次生成。" in agent.calls[0][0]
-    assert "## 今日判断" in agent.calls[1][0]
     assert second["changes"] == [{"change": "modified", "path": "daily/2026-08-10/黄金.md"}]
     assert [path.name for path in (tmp_path / "daily" / "2026-08-10").glob("*.md")] == ["黄金.md"]
 

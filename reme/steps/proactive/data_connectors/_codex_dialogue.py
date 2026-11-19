@@ -8,7 +8,7 @@ from pathlib import Path
 from stat import S_ISREG
 from typing import Callable
 
-from ....components.agent_runtime._internal.files import AgentFiles
+from ....utils.workspace_files import WorkspaceFiles
 from ....constants import DEFAULT_MAX_FILE_BYTES
 
 _WINDOW = 4096
@@ -17,7 +17,7 @@ _WINDOW = 4096
 class CodexDialogueIndex:
     """Keep Codex collection progress and unfinished delivery under its resource source."""
 
-    def __init__(self, files: AgentFiles, directory: Path, home: Path, check_stopped: Callable):
+    def __init__(self, files: WorkspaceFiles, directory: Path, home: Path, check_stopped: Callable):
         self.files = files
         self.directory = files.checked(directory)
         self.root = (home.expanduser().absolute() / "sessions").resolve()

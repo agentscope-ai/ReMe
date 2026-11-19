@@ -532,8 +532,6 @@ async def test_local_inbox_accepts_generic_inputs_without_an_agent_runtime(tmp_p
         assert batch["items"] == [{"id": "ref", "file": "reminders/result.md"}, {"id": "task", "value": 42}]
         await inbox.ack("mail", batch["token"])
         assert (await inbox.snapshot("mail"))["receipt"].item_ids == ["ref", "task"]
-        with pytest.raises(ValueError, match="rebuildable"):
-            await inbox.reconcile("mail", [], [])
 
 
 @pytest.mark.asyncio
@@ -575,96 +573,12 @@ async def test_selected_commit_recovers_after_interrupted_unread_rewrite(tmp_pat
 
 
 @pytest.mark.asyncio
-async def test_rebuilt_views_preserve_claims_and_repair_corrupt_files(tmp_path):
-    values = [{"id": "low", "file": "low.md"}, {"id": "urgent", "file": "urgent.md"}]
-    async with make_inbox(tmp_path, rebuildable=["mail"]) as inbox:
-        await inbox.create("mail")
-        await inbox.reconcile("mail", values, [])
-        batch = await inbox.claim("mail", item_ids=["urgent"])
-        await inbox.reconcile("mail", values + [{"id": "new", "file": "new.md"}], [])
-        assert (await inbox.snapshot("mail"))["in_flight_count"] == 1
-        await inbox.nack("mail", batch["token"])
-        path = tmp_path / "agent_inbox/mail/inbox_unread.jsonl"
-        path.write_text("{corrupt}\n", encoding="utf-8")
-        await inbox.reconcile("mail", values, [])
-        assert lines(path) == values
-    async with make_inbox(tmp_path, rebuildable=["mail"]) as inbox:
-        await inbox.reconcile("mail", values, [])
-        assert (await inbox.snapshot("mail"))["pending_count"] == 2
-
-
-@pytest.mark.asyncio
-async def test_rebuilding_changed_content_revokes_the_original_claim(tmp_path):
-    async with make_inbox(tmp_path, rebuildable=["mail"]) as inbox:
-        await inbox.create("mail")
-        await inbox.reconcile("mail", [{"id": "task", "value": "old"}], [])
-        batch = await inbox.claim("mail")
-        await inbox.reconcile("mail", [{"id": "task", "value": "new"}], [])
-        with pytest.raises(ValueError, match="token"):
-            await inbox.ack("mail", batch["token"])
-        assert (await inbox.claim("mail"))["items"] == [{"id": "task", "value": "new"}]
-
-
-@pytest.mark.asyncio
-async def test_deferred_rebuild_respects_shared_count_and_preserves_active_claim(tmp_path):
-    async with make_inbox(tmp_path, rebuildable=["mail"], max_pending_items=2) as inbox:
-        await inbox.create("mail")
-        await inbox.create("observations")
-        await inbox.append("observations", {"id": "source"})
-        low, urgent = {"id": "low"}, {"id": "urgent"}
-        await inbox.reconcile("mail", [low], [])
-        with pytest.raises(TimeoutError, match="capacity"):
-            await inbox.reconcile("mail", [urgent, low], [])
-        batch = await inbox.claim("mail")
-        await inbox.reconcile("mail", [urgent, low], [], defer_overflow=True)
-        assert await inbox.pending_ids("mail") == {"low"}
-        await inbox.nack("mail", batch["token"])
-        await inbox.reconcile("mail", [urgent, low], [], defer_overflow=True)
-        assert await inbox.pending_ids("mail") == {"urgent"}
-        assert await inbox.pending_ids("observations") == {"source"}
-        await consume(inbox, "observations")
-        await inbox.reconcile("mail", [urgent, low], [], defer_overflow=True)
-        assert await inbox.pending_ids("mail") == {"urgent", "low"}
-
-
-@pytest.mark.asyncio
-async def test_deferred_rebuild_applies_byte_budget_and_revokes_changed_claim(tmp_path):
-    async with make_inbox(tmp_path, rebuildable=["mail"]) as inbox:
-        await inbox.create("mail")
-        low = {"id": "low", "content": "original"}
-        await inbox.reconcile("mail", [low], [])
-        batch = await inbox.claim("mail")
-        small = {"id": "small"}
-        inbox.max_pending_bytes = len(inbox._encode(small))
-        await inbox.reconcile("mail", [small, {**low, "content": "changed"}], [], defer_overflow=True)
-        assert await inbox.pending_ids("mail") == {"small"}
-        with pytest.raises(ValueError, match="token"):
-            await inbox.ack("mail", batch["token"])
-
-
-@pytest.mark.asyncio
-async def test_removed_reference_directory_rebuilds_without_disabling_other_inboxes(tmp_path):
-    import shutil
-
-    async with make_inbox(tmp_path, rebuildable=["mail"]) as inbox:
-        await inbox.create("mail")
-        await inbox.create("observations")
-        values = [{"id": "message", "file": "result.md"}]
-        await inbox.reconcile("mail", values, [])
-        shutil.rmtree(tmp_path / "agent_inbox/mail")
-        await inbox.reconcile("mail", values, [])
-        assert (await inbox.claim("mail"))["items"] == values
-        await inbox.append("observations", {"id": "observation"})
-        assert (await inbox.snapshot("observations"))["pending_count"] == 1
-
-
-@pytest.mark.asyncio
 async def test_event_inbox_validates_sources_and_supports_unicode_waits(tmp_path):
     context = ApplicationContext(workspace_dir=str(tmp_path))
     async with AgentEventInbox(app_context=context) as inbox:
         await inbox.create("观察")
-        await inbox.append("观察", event(metadata={"_received_at": "first"}))
-        await inbox.append("观察", event(metadata={"_received_at": "retry"}))
+        await inbox.append("观察", event(metadata={"status": "ready"}))
+        await inbox.append("观察", event(metadata={"status": "ready"}))
         assert (await inbox.snapshot("观察"))["pending_count"] == 1
         assert await inbox.wait("观察", timeout=0.01)
         with pytest.raises(ValidationError):
@@ -673,5 +587,8 @@ async def test_event_inbox_validates_sources_and_supports_unicode_waits(tmp_path
             await inbox.append("观察", {"id": "escape", "file": "../outside.md"})
         with pytest.raises(ValidationError):
             await inbox.append("观察", {"id": "old-reference", "file": "reminders/result.md"})
+    async with AgentEventInbox(app_context=context) as inbox:
+        await inbox.append("观察", event(metadata={"status": "ready"}))
+        assert (await inbox.snapshot("观察"))["pending_count"] == 1
         batch = await inbox.claim("观察")
-        assert batch["items"][0]["metadata"]["_received_at"] == "first"
+        assert batch["items"][0]["metadata"] == {"status": "ready"}

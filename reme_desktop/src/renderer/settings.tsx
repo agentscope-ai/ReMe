@@ -159,7 +159,9 @@ export default function Settings({
                   <div className="setting-row">
                     <div>
                       <h3>{t("workspaceLocation")}</h3>
-                      <p className="workspace-path">{state.workspace || "—"}</p>
+                      <p className="workspace-path">
+                        {state.clientInfo?.workspace_dir ?? "—"}
+                      </p>
                     </div>
                     <Cable size={18} />
                   </div>

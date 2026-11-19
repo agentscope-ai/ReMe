@@ -264,8 +264,8 @@ async def test_failed_session_read_releases_selected_inbox_claim(tmp_path):
         with pytest.raises(OSError, match="unavailable"):
             async with runtime.notifications.turn(session, arguments["priority"], arguments["msg_ids"]):
                 raise AssertionError("session selection must fail before inference")
-        snapshot = await runtime.inbox.snapshot("Remy")
-        assert snapshot["pending_count"] == 1 and snapshot["in_flight_count"] == 0
+        page = await runtime.list_inputs("Remy")
+        assert [item["state"] for item in page["items"]] == ["pending"]
         assert runtime.notifications.active_turn is None
 
 
@@ -283,8 +283,8 @@ async def test_inbox_timeout_covers_native_session_setup_and_releases_claim(tmp_
             async with asyncio.timeout(1) as outer:
                 await InboxChatStep(app_context=context, timeout_seconds=0.01)(**arguments)
         assert not outer.expired()
-        snapshot = await runtime.inbox.snapshot("Remy")
-        assert snapshot["pending_count"] == 1 and snapshot["in_flight_count"] == 0
+        page = await runtime.list_inputs("Remy")
+        assert [item["state"] for item in page["items"]] == ["pending"]
         assert runtime.notifications.active_turn is None
 
 
@@ -293,7 +293,7 @@ async def test_priority_wakeup_can_overtake_older_low_priority_reminders(tmp_pat
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         low = await prepare(runtime, context, "P2")
         await runtime.create(
-            {"agent_name": "urgent", "agent_type": "proactive", "task_description": "Urgent observations"},
+            {"agent_name": "urgent", "task_description": "Urgent observations"},
         )
         await runtime.append(
             "urgent",
@@ -317,7 +317,7 @@ async def test_priority_wakeup_can_overtake_older_low_priority_reminders(tmp_pat
         wrapper.reply = AsyncMock(side_effect=reply)
         await InboxChatStep(app_context=context)(priority="P0", msg_ids=urgent)
         assert list(runtime.notifications.pending) == low["msg_ids"]
-        assert (await runtime.inbox.snapshot("Remy"))["pending_count"] == 1
+        assert (await runtime.list_inputs("Remy", state="pending"))["total"] == 1
         assert runtime.notifications.active_turn is None
 
 
@@ -391,7 +391,7 @@ async def test_tools_cannot_read_other_priorities_or_consume_later_arrivals(tmp_
                 await ReadInboxStep(app_context=context)(priority="P2", **bound)
             await ReadInboxStep(app_context=context)(**bound)
             await runtime.create(
-                {"agent_name": "other", "agent_type": "proactive", "task_description": "Other observations"},
+                {"agent_name": "other", "task_description": "Other observations"},
             )
             await runtime.append(
                 "other",

@@ -77,7 +77,17 @@ async def test_conversation_streams_preserve_outcomes_metadata_and_caller_inputs
         assert response.metadata["usage"] == {"input_tokens": 3, "output_tokens": 2}
         assert response.metadata["previous_step"] == "retained"
         assert response.metadata["events"] == [chunk.model_dump(mode="json") for chunk in chunks]
-        assert [request.stream_queue.get_nowait() for _ in chunks] == chunks
+        emitted = []
+        while not request.stream_queue.empty():
+            emitted.append(request.stream_queue.get_nowait())
+        if step_class is ChatAgentStep:
+            assert emitted == chunks
+        else:
+            assert all(chunk.chunk_type == ChunkEnum.DATA for chunk in emitted)
+            assert emitted[-1].chunk["outcome"] == status
+            assert emitted[-1].chunk["content"] == "final answer"
+            assert "native" not in str(emitted[-1].chunk)
+
         assert request.get("agent_name") == arguments.get("agent_name")
         assert not runtime.chat_lock.locked() and not runtime.agent_tasks
         assert (await runtime.status("monitor"))["pending_events"] == 1
@@ -125,14 +135,14 @@ async def test_subscription_reports_portable_tool_activity_and_cancellation(tmp_
             events = AgentViews(runtime).events("Remy", interval=0)
             try:
                 value = await anext(events)
-                activity = value["activities"]["chat"]
+                activity = value["activities"]["Remy"]
                 assert activity["phase"] == "working" and activity["tool"] == "read_file"
-                assert activity["turn_id"] == "turn" and value["status"] == "active"
+                assert activity["turn_id"] == "turn" and value["agent"]["status"] == "active"
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
                 value = await anext(events)
-                assert value["activities"]["chat"]["phase"] == "interrupted"
-                assert value["status"] == "idle"
+                assert value["activities"]["Remy"]["phase"] == "interrupted"
+                assert value["agent"]["status"] == "idle"
             finally:
                 await events.aclose()
         finally:
@@ -147,7 +157,7 @@ async def test_task_views_keep_only_latest_turn_without_mutating_native_history(
     async with running_runtime(tmp_path) as (runtime, _, wrapper):
         await create_agent(runtime)
         await runtime.create(
-            {"agent_name": "timer", "task_description": "Daily report", "agent_type": "cron", "cron": "0 8 * * *"},
+            {"agent_name": "timer", "task_description": "Daily report", "cron": "0 8 * * *"},
         )
         sid = await runtime.sessions.ensure(agent_name, wrapper, {}, runtime.now())
         snapshot = SessionSnapshot(
@@ -172,10 +182,14 @@ async def test_task_views_keep_only_latest_turn_without_mutating_native_history(
         original = snapshot.model_dump()
         wrapper.read_session = AsyncMock(return_value=snapshot)
         value = await runtime.read_agent(agent_name)
-        expected = snapshot.messages if agent_name == "Remy" else snapshot.messages[2:]
-        assert [message["id"] for message in value["snapshot"]["messages"]] == [message.id for message in expected]
-        assert value["snapshot"]["messages"][-1]["completed"] is completed
-        assert value["snapshot"]["messages"][-1]["chunks"][0]["block_id"] == "answer"
+        expected_ids = (
+            ["old-user", "old:assistant", "latest-user", "latest:assistant"]
+            if agent_name == "Remy"
+            else ["latest-user", "latest:assistant"]
+        )
+        assert [message["id"] for message in value["messages"]] == expected_ids
+        assert value["messages"][-1]["completed"] is completed
+        assert value["messages"][-1]["items"][0]["id"] == "answer"
         assert snapshot.model_dump() == original
         wrapper.read_session.assert_awaited_once_with(sid)
         assert (await runtime.sessions.current(agent_name)).session_id == sid
@@ -189,7 +203,6 @@ async def test_task_subscription_atomically_replaces_turns_and_reconnects_withou
             {
                 "agent_name": "monitor",
                 "task_description": "Report",
-                "agent_type": agent_type,
                 **({"cron": "0 8 * * *"} if agent_type == "cron" else {}),
             },
         )
@@ -204,10 +217,10 @@ async def test_task_subscription_atomically_replaces_turns_and_reconnects_withou
         views = AgentViews(runtime)
         events = views.events("monitor", interval=0, heartbeat=0)
         try:
-            assert (await anext(events))["snapshot"]["messages"][0]["id"] == "old"
+            assert (await anext(events))["messages"][0]["id"] == "old:assistant"
             snapshot.last_turn_id = "new"
             empty = await anext(events)
-            assert empty["type"] == "snapshot" and empty["snapshot"]["messages"] == []
+            assert empty["type"] == "snapshot" and empty["messages"] == []
             snapshot.messages.extend(
                 [
                     SessionMessage(id="new-user", role="user", content="New input", turn_id="new"),
@@ -221,18 +234,18 @@ async def test_task_subscription_atomically_replaces_turns_and_reconnects_withou
                 ],
             )
             latest = await anext(events)
-            assert latest["type"] == "snapshot"
-            assert [message["id"] for message in latest["snapshot"]["messages"]] == ["new-user", "new-answer"]
+            assert latest["type"] == "update"
+            assert [message["id"] for message in latest["messages"]] == ["new-user", "new:assistant"]
             assert (await anext(events))["type"] == "heartbeat"
             reconnected = views.events("monitor", interval=0)
             try:
-                assert (await anext(reconnected)) == latest
+                assert (await anext(reconnected)) == {**latest, "type": "snapshot"}
             finally:
                 await reconnected.aclose()
             next_sid = await runtime.sessions.ensure("monitor", wrapper, {}, runtime.now(), new=True)
             snapshot.session_id = next_sid
             snapshot.state.session_id = next_sid
             changed = await anext(events)
-            assert changed["type"] == "snapshot" and changed["session_id"] == next_sid
+            assert changed["type"] == "snapshot" and changed["agent"]["session_id"] == next_sid
         finally:
             await events.aclose()

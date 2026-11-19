@@ -3,11 +3,12 @@
 from contextlib import aclosing
 
 from .base import BaseAgentStep
-from .chat import ChatAgentStep, NewChatSessionStep
+from .chat import BaseChatAgentStep
 from ...file_io import get_path_lock
 from ....components import R
 from ....enumeration import ChunkEnum
 from ....schema import StreamChunk
+from ....utils.agent_transcript import TranscriptProjector
 from ....schema.agent_view import (
     AgentChatRequest,
     AgentRequest,
@@ -26,19 +27,6 @@ class _AgentViewStep(BaseAgentStep):
         request = schema.model_validate(self.parameters())
         self.require_paths(self.workspace_path)
         return request
-
-    async def chat_call(self, step_class):
-        """Reuse the chat job while preserving the caller's shared runtime inputs."""
-        supplied = "agent_name" in self.context.data
-        agent_name = self.context.data.pop("agent_name", None)
-        try:
-            return await step_class(
-                app_context=self.app_context,
-                **{**self.kwargs, "agent_runtime": self.agent_runtime},
-            )(self.context)
-        finally:
-            if supplied:
-                self.context.data["agent_name"] = agent_name
 
 
 @R.register("agent_list_step")
@@ -108,16 +96,33 @@ class AgentEventsStep(_AgentViewStep):
 
 
 @R.register("agent_chat_step")
-class AgentChatStep(_AgentViewStep):
+class AgentChatStep(_AgentViewStep, BaseChatAgentStep):
     """Continue Chat or ask a read-only fork of the latest task session."""
 
     async def execute(self):
         request = self.request(AgentChatRequest)
         if not request.query.strip():
             raise ValueError("query must not be blank")
+        projector = TranscriptProjector()
+
+        async def publish(chunk):
+            projector.update(chunk)
+            if projector.error:
+                self.context.stream_error = projector.error
+            # Main Chat content has one authority: the session subscription.
+            if request.agent_name == "Remy" and chunk.chunk_type not in {
+                ChunkEnum.REPLY_START,
+                ChunkEnum.REPLY_END,
+                ChunkEnum.ERROR,
+            }:
+                return
+            await self.context.add_stream_chunk(
+                StreamChunk(chunk_type=ChunkEnum.DATA, chunk=projector.message().model_dump(mode="json")),
+            )
+
         if request.agent_name == "Remy":
-            return await self.chat_call(ChatAgentStep)
-        reply = await self.query_reply(request.agent_name, request.query)
+            return await self.chat(request.query, on_chunk=publish)
+        reply = await self.query_reply(request.agent_name, request.query, on_chunk=publish)
         self.context.response.success = reply["status"] == "completed" and self.context.stream_error is None
         self.context.response.answer = reply["result"]
         self.context.response.metadata.update(reply, agent_name=request.agent_name)
@@ -125,14 +130,14 @@ class AgentChatStep(_AgentViewStep):
 
 
 @R.register("agent_new_session_step")
-class AgentNewSessionStep(_AgentViewStep):
+class AgentNewSessionStep(_AgentViewStep, BaseChatAgentStep):
     """Start a fresh main Chat session while retaining earlier history."""
 
     async def execute(self):
         if self.parameters():
             raise ValueError("create_chat_session accepts no arguments")
         self.require_paths(self.workspace_path)
-        await self.chat_call(NewChatSessionStep)
+        await self.new_session()
         self.context.response.answer = await self.agent_runtime.read_agent("Remy")
         return self.context.response
 

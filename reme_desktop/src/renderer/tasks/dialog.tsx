@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { errorText, translator } from "../../shared/i18n.ts";
-import type { DesktopState, WorkspaceConfig } from "../../shared/protocol.ts";
+import type { DesktopState } from "../../shared/protocol.ts";
 import type {
   TaskDocument,
   TaskSettings,
-  TaskStatus,
   TaskType,
 } from "../../shared/tasks.ts";
 import { formatDate, requestResource } from "../resources.ts";
@@ -15,7 +14,7 @@ import "./tasks.css";
 
 export type TaskTarget =
   | { mode: "create"; agentType: TaskType }
-  | { mode: "edit" | "status" | "delete"; agentName: string };
+  | { mode: "edit" | "delete"; agentName: string };
 
 export default function TaskDialog({
   target,
@@ -34,22 +33,22 @@ export default function TaskDialog({
   const t = translator(language);
   const create = target.mode === "create";
   const agentName = create ? "" : target.agentName;
+  const agent = state.agents?.find((value) => value.agent_name === agentName);
   const [name, setName] = useState("");
   const [content, setContent] = useState("");
   const [document, setDocument] = useState<TaskDocument>();
-  const [status, setStatus] = useState<TaskStatus>();
-  const [settings, setSettings] = useState<TaskSettings>({
-    agent_type: create ? target.agentType : "cron",
-    enabled: true,
-    cron: create && target.agentType === "proactive" ? null : "0 8 * * *",
-    min_trigger_interval_seconds: 0,
-    notify_window: null,
-  });
-  const [tab, setTab] = useState(
-    target.mode === "status" ? "status" : "description",
+  const [baseline, setBaseline] = useState(() => agent && taskSettings(agent));
+  const [settings, setSettings] = useState<TaskSettings>(
+    () =>
+      baseline ?? {
+        enabled: true,
+        cron: create && target.agentType === "proactive" ? null : "0 8 * * *",
+        min_trigger_interval_seconds: 0,
+        notify_window: null,
+      },
   );
-  const [timezone, setTimezone] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<"description" | "settings">("description");
+  const [loading, setLoading] = useState(target.mode === "edit");
   const [retry, setRetry] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -66,37 +65,21 @@ export default function TaskDialog({
     };
   }, []);
   useEffect(() => {
+    if (target.mode !== "edit") return;
     let current = true;
     setLoading(true);
     setError(null);
-    const load = async () => {
-      const [config, value] = await Promise.all([
-        requestResource<WorkspaceConfig>({ type: "config" }),
-        create
-          ? undefined
-          : requestResource<TaskStatus>({
-              type: "task",
-              action: "status",
-              agent_name: agentName,
-            }),
-      ]);
-      if (!current) return;
-      setTimezone(config.timezone);
-      setStatus(value);
-      if (value) setSettings(taskSettings(value));
-      if (!create && target.mode !== "delete") {
-        const text = await requestResource<TaskDocument>({
-          type: "task",
-          action: "read",
-          agent_name: agentName,
-        });
+    void requestResource<TaskDocument>({
+      type: "task",
+      action: "read",
+      agent_name: agentName,
+    })
+      .then((text) => {
         if (current) {
           setDocument(text);
           setContent(text.content);
         }
-      }
-    };
-    void load()
+      })
       .catch((reason) => {
         if (current) setError(reason);
       })
@@ -106,9 +89,7 @@ export default function TaskDialog({
     return () => {
       current = false;
     };
-  }, [agentName, create, retry, target.mode]);
-  const latest = state.agents?.find((agent) => agent.agent_name === agentName);
-  const facts = status ? { ...status, ...latest } : undefined;
+  }, [agentName, retry, target.mode]);
   const perform = async (operation: () => Promise<void>) => {
     if (busy) return;
     setBusy(true);
@@ -149,7 +130,7 @@ export default function TaskDialog({
           onSaved();
         }
       } else {
-        const changes = changedTaskSettings(taskSettings(status!), settings);
+        const changes = changedTaskSettings(baseline!, settings);
         if (Object.keys(changes).length)
           await requestResource({
             type: "task",
@@ -158,11 +139,7 @@ export default function TaskDialog({
             settings: changes,
           });
         if (live.current) {
-          setStatus({
-            ...status!,
-            ...settings,
-            cron: settings.cron ?? undefined,
-          });
+          setBaseline(settings);
           setSaved(true);
         }
       }
@@ -210,7 +187,7 @@ export default function TaskDialog({
       </header>
       {!create && target.mode !== "delete" && (
         <nav className="task-dialog-tabs" aria-label={t("taskManage")}>
-          {(["description", "settings", "status"] as const).map((id) => (
+          {(["description", "settings"] as const).map((id) => (
             <button
               type="button"
               key={id}
@@ -221,13 +198,7 @@ export default function TaskDialog({
                 setSaved(false);
               }}
             >
-              {t(
-                id === "description"
-                  ? "taskTab"
-                  : id === "settings"
-                    ? "taskSettings"
-                    : "taskDetails",
-              )}
+              {t(id === "description" ? "taskTab" : "taskSettings")}
             </button>
           ))}
         </nav>
@@ -239,7 +210,16 @@ export default function TaskDialog({
             type="button"
             className="subtle"
             disabled={busy}
-            onClick={() => setRetry((value) => value + 1)}
+            onClick={() => {
+              setError(null);
+              setSaved(false);
+              if (agent) {
+                const value = taskSettings(agent);
+                setBaseline(value);
+                setSettings(value);
+              }
+              setRetry((value) => value + 1);
+            }}
           >
             {t("taskReload")}
           </button>
@@ -262,45 +242,12 @@ export default function TaskDialog({
             <button
               type="button"
               className="task-danger"
-              disabled={busy || !status}
+              disabled={busy || !agent}
               onClick={() => void remove()}
             >
               {t("taskDelete")}
             </button>
           </footer>
-        </div>
-      ) : !create && tab === "status" ? (
-        <div className="task-dialog-body">
-          {facts && (
-            <dl className="task-facts">
-              <dt>{t("taskState")}</dt>
-              <dd>
-                {t(
-                  !facts.enabled
-                    ? "agentDisabled"
-                    : facts.error
-                      ? "agentError"
-                      : facts.running
-                        ? "agentRunning"
-                        : "agentIdle",
-                )}
-              </dd>
-              <dt>{t("taskLastStarted")}</dt>
-              <dd>{formatDate(facts.last_started_at, language)}</dd>
-              <dt>{t("taskLastCompleted")}</dt>
-              <dd>{formatDate(facts.last_completed_at, language)}</dd>
-              <dt>{t("nextTrigger")}</dt>
-              <dd>{formatDate(facts.next_trigger_at, language)}</dd>
-              <dt>{t("pendingEvents")}</dt>
-              <dd>{facts.pending_events}</dd>
-              <dt>{t("taskInFlight")}</dt>
-              <dd>{facts.in_flight_events}</dd>
-            </dl>
-          )}
-          {facts?.error && <p className="action-error">{facts.error}</p>}
-          {facts?.running && !facts.enabled && (
-            <p className="task-hint">{t("taskPauseHint")}</p>
-          )}
         </div>
       ) : (
         <form
@@ -310,7 +257,7 @@ export default function TaskDialog({
             void save();
           }}
         >
-          <fieldset disabled={busy || (!create && !status)}>
+          <fieldset disabled={busy || (!create && !agent)}>
             {create && (
               <div className="task-field-row">
                 <label className="task-field">
@@ -328,12 +275,11 @@ export default function TaskDialog({
                   <label htmlFor="task-type">{t("taskType")}</label>
                   <select
                     id="task-type"
-                    value={settings.agent_type}
+                    value={settings.cron === null ? "proactive" : "cron"}
                     onChange={(event) => {
                       const agent_type = event.target.value as TaskType;
                       setSettings({
                         ...settings,
-                        agent_type,
                         cron: agent_type === "cron" ? "0 8 * * *" : null,
                         min_trigger_interval_seconds: 0,
                       });
@@ -364,9 +310,9 @@ export default function TaskDialog({
             )}
             {(create || tab === "settings") && (
               <TaskSettingsFields
-                key={settings.agent_type}
+                key={`${retry}:${settings.cron === null ? "proactive" : "cron"}`}
                 value={settings}
-                timezone={timezone}
+                timezone={state.clientInfo?.timezone ?? null}
                 language={language}
                 onChange={(value) => {
                   setSettings(value);
@@ -374,8 +320,28 @@ export default function TaskDialog({
                 }}
               />
             )}
-            {facts?.running && (
-              <p className="task-hint">{t("taskChangesHint")}</p>
+            {agent && tab === "settings" && (
+              <details className="task-advanced">
+                <summary>{t("taskDetails")}</summary>
+                <dl className="task-facts">
+                  <dt>{t("taskLastStarted")}</dt>
+                  <dd>{formatDate(agent.last_started_at, language)}</dd>
+                  <dt>{t("taskLastCompleted")}</dt>
+                  <dd>{formatDate(agent.last_completed_at, language)}</dd>
+                  <dt>{t("nextTrigger")}</dt>
+                  <dd>{formatDate(agent.next_trigger_at, language)}</dd>
+                  <dt>{t("pendingEvents")}</dt>
+                  <dd>{agent.pending_events}</dd>
+                  <dt>{t("taskInFlight")}</dt>
+                  <dd>{agent.in_flight_events}</dd>
+                </dl>
+                {agent.error && <p className="action-error">{agent.error}</p>}
+              </details>
+            )}
+            {agent?.status === "active" && (
+              <p className="task-hint">
+                {t(agent.enabled ? "taskChangesHint" : "taskPauseHint")}
+              </p>
             )}
           </fieldset>
           <footer>
@@ -386,7 +352,8 @@ export default function TaskDialog({
                 busy ||
                 (create
                   ? !name.trim() || !content.trim()
-                  : !status ||
+                  : !agent ||
+                    !baseline ||
                     (tab === "description" && (!document || !content.trim())))
               }
             >

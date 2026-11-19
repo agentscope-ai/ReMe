@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 
 from ...base_step import BaseStep
 from ...file_io import check_path_permission, resolve_path
-from ....components.agent_runtime._internal.files import AgentFiles
+from ....utils.workspace_files import WorkspaceFiles
 from ....schema import ApplicationConfig, ResourceMetadata
 from ....utils.async_utils import finish_cleanup
 from ....utils.file_sync import sync_directory, sync_file
@@ -77,7 +77,7 @@ class BaseConnectorStep(BaseStep):
 
     def _collect_and_publish(self, target: Path, created_at: datetime, cancelled: Event) -> dict | None:
         """Write resources in place, then atomically publish their manifest before event delivery."""
-        store = AgentFiles(self.workspace_path)
+        store = WorkspaceFiles(self.workspace_path)
         store.checked(target.parent).mkdir(parents=True, exist_ok=True)
         store.checked(target).mkdir()
         published = False

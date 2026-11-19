@@ -112,7 +112,7 @@ async def test_missing_reminder_isolated_across_restart_and_recovers_when_restor
         path = tmp_path / ref.file
         original = path.read_bytes()
         path.unlink()
-        await runtime.create({"agent_name": "other", "agent_type": "proactive", "task_description": "Other"})
+        await runtime.create({"agent_name": "other", "task_description": "Other"})
         await runtime.append(
             "other",
             {"id": "other", "event_ts": runtime.now(), "source": "test", "description": "Other"},
@@ -130,7 +130,7 @@ async def test_missing_reminder_isolated_across_restart_and_recovers_when_restor
 
 @pytest.mark.parametrize("read", [False, True])
 @pytest.mark.asyncio
-async def test_corrupt_inbox_views_rebuild_from_canonical_reminders(tmp_path, read):
+async def test_inbox_view_rebuilds_from_canonical_reminders_on_restart(tmp_path, read):
     async with running_runtime(tmp_path) as (runtime, _, _):
         await create_agent(runtime)
         await runtime.run("monitor", AsyncMock(return_value=completed_result(runtime)))
@@ -138,7 +138,7 @@ async def test_corrupt_inbox_views_rebuild_from_canonical_reminders(tmp_path, re
         ref = next(iter(runtime.notifications.pending.values()))
         if read:
             await runtime.notifications.consume([ref.id])
-        runtime.files.write(inbox_path(runtime, read), "{corrupt}\n")
+    async with running_runtime(tmp_path) as (runtime, _, _):
         await runtime.outbox.sync()
         assert (ref.id in runtime.notifications.read_refs) is read
         assert (ref.id in runtime.notifications.pending) is not read
@@ -146,11 +146,11 @@ async def test_corrupt_inbox_views_rebuild_from_canonical_reminders(tmp_path, re
 
 
 @pytest.mark.asyncio
-async def test_missing_result_blocks_temporary_collection_before_source_deletion(tmp_path):
+async def test_missing_result_preserves_task_sources(tmp_path):
     async with running_runtime(tmp_path) as (runtime, _, _):
         start = runtime.now()
         await runtime.create(
-            {"agent_name": "experiment", "task_description": "Observe", "agent_type": "proactive", "temporary": True},
+            {"agent_name": "experiment", "task_description": "Observe"},
         )
         await runtime.append("experiment", {"event_ts": start, "source": "lab", "description": "Finished"})
         await runtime.run("experiment", AsyncMock(return_value=completed_result(runtime, "experiment")))
@@ -166,12 +166,12 @@ async def test_missing_result_blocks_temporary_collection_before_source_deletion
 
 
 @pytest.mark.asyncio
-async def test_temporary_lifetime_survives_priority_consumption_and_restart(tmp_path, monkeypatch):
+async def test_partial_priority_consumption_survives_restart(tmp_path, monkeypatch):
     async with running_runtime(tmp_path) as (runtime, _, _):
         now = runtime.now()
         runtime.now = lambda: now - timedelta(days=8)
         await runtime.create(
-            {"agent_name": "experiment", "task_description": "Observe", "agent_type": "proactive", "temporary": True},
+            {"agent_name": "experiment", "task_description": "Observe"},
         )
         await runtime.append("experiment", {"id": "old", "event_ts": now, "source": "lab", "description": "Old"})
         recent = now - timedelta(days=1)
@@ -191,7 +191,8 @@ async def test_temporary_lifetime_survives_priority_consumption_and_restart(tmp_
         await runtime.tick(AsyncMock())
         assert directory.is_dir()
         receipt = (await runtime.inbox.snapshot("experiment"))["receipt"]
-        assert receipt.metadata["last_received_at"] == recent.isoformat()
+        assert receipt.item_ids == ["old"]
+        assert (await runtime.inbox.snapshot("experiment"))["pending_count"] == 0
 
 
 @pytest.mark.asyncio
@@ -289,11 +290,11 @@ async def test_canonical_acknowledgement_rebuilds_reference_views(tmp_path):
         document = frontmatter.loads(runtime.files.read(runtime.files.path(ref.file)))
         assert ref.file.endswith(".md")
         assert document.content == "Experiment finished"
+        assert document["action"] == "P0"
         assert set(document.metadata) == {
             "action",
             "id",
             "created_at",
-            "priority",
             "paths",
             "delivered_at",
             "read_at",
@@ -303,8 +304,8 @@ async def test_canonical_acknowledgement_rebuilds_reference_views(tmp_path):
         assert document["user_read_at"] is None
         assert document["read_at"] and document["delivered_at"]
         assert not list((runtime.agents.path("monitor") / "reminder").glob("*.jsonl"))
-        inbox_path(runtime).unlink()
-        inbox_path(runtime, True).unlink()
+        assert not inbox_path(runtime).exists()
+        assert not inbox_path(runtime, True).exists()
         await runtime.outbox.sync()
         assert not runtime.notifications.pending
         assert ref.id in runtime.notifications.read_refs
@@ -334,19 +335,19 @@ async def test_publication_rechecks_reminders_removed_during_delivery(tmp_path, 
     async with running_runtime(tmp_path) as (runtime, _, _):
         await create_agent(runtime)
         await runtime.run("monitor", AsyncMock(return_value=completed_result(runtime)))
-        await runtime.create({"agent_name": "other", "agent_type": "proactive", "task_description": "Other"})
+        await runtime.create({"agent_name": "other", "task_description": "Other"})
         await runtime.append("other", {"event_ts": runtime.now(), "source": "test", "description": "Next"})
         await runtime.run("other", AsyncMock(return_value=completed_result(runtime, "other")))
         await runtime.outbox.refresh()
         refs = sorted(runtime.outbox.committed, key=lambda ref: (runtime.outbox.records[ref].created_at, ref.id))
-        append = runtime.inbox.append
+        update = runtime.outbox.update
 
-        async def refresh_during_append(name, event, **kwargs):
+        async def refresh_during_delivery(ref, **changes):
             runtime.files.path(refs[1].file).unlink()
             await runtime.outbox.refresh()
-            return await append(name, event, **kwargs)
+            await update(ref, **changes)
 
-        monkeypatch.setattr(runtime.inbox, "append", refresh_during_append)
+        monkeypatch.setattr(runtime.outbox, "update", refresh_during_delivery)
         await runtime.outbox.publish()
         assert refs[0] in runtime.outbox.records and refs[1] not in runtime.outbox.records
         assert runtime.outbox.records[refs[0]].delivered_at is not None

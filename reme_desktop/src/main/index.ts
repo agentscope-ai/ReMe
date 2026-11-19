@@ -465,13 +465,10 @@ else {
             const agent = controller!.state.agents?.find(
               (item) => item.agent_name === action.agentName,
             );
-            if (
-              !agent ||
-              agent.agent_type === "chat" ||
-              !controller!.state.workspace
-            )
+            const workspace = controller!.state.clientInfo?.workspace_dir;
+            if (!agent || agent.agent_type === "chat" || !workspace)
               throw new UiError("invalidAction");
-            const root = await realpath(controller!.state.workspace);
+            const root = await realpath(workspace);
             const directory = await realpath(
               path.resolve(root, agent.directory),
             );
@@ -580,7 +577,7 @@ else {
               const target = resolveWorkspaceLink(
                 href,
                 action.type === "link.open" ? action.sourcePath : "",
-                controller!.state.workspace,
+                controller!.state.clientInfo?.workspace_dir,
               );
               if (!target) throw new UiError("invalidWorkspaceRequest");
               windows!.openChat();

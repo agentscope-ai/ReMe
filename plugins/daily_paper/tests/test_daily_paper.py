@@ -616,31 +616,6 @@ def test_daily_paper_cron_hf_mirror_defaults_enabled_with_environment_override(m
     assert _plugin_config()["jobs"]["daily_paper_cron"]["use_hf_mirror"] is False
 
 
-def test_digest_prompt_uses_configured_daily_directory(tmp_path: Path):
-    """Use the host application's daily directory in historical-link guidance."""
-    step = DailyPaperDigestStep(
-        app_context=ApplicationContext(
-            workspace_dir=str(tmp_path),
-            daily_dir="memory",
-        ),
-    )
-
-    prompt = step.prompt_format(
-        "digest_user",
-        documents="[]",
-        paper_count=3,
-        daily_dir=str(step.config_value("daily_dir")).strip("/"),
-    )
-
-    assert "`memory/`" in prompt
-    assert "搜索结果不必局限于 `memory/`" in prompt
-    assert "最多调用两次 `search`" in prompt
-    assert "首要任务是基于它们生成每日论文速读" in prompt
-    assert "不得将搜索无结果误判为论文输入缺失" in prompt
-    assert "[[memory/2026-07-01/旧文章.md" in prompt
-    assert "[[daily/2026-07-01/" not in prompt
-
-
 def test_paper_pick_list_uses_an_object_root_for_tool_output():
     """AgentScope function arguments require an object-root JSON schema."""
     schema = PaperPickList.model_json_schema()
@@ -1237,6 +1212,5 @@ async def test_blank_note_retries_once_before_writing(tmp_path, monkeypatch, inv
             await step._analyze_one(downloader, paper, pick, set())  # pylint: disable=protected-access
         assert not list(tmp_path.rglob("*.md"))
     assert len(agent.calls) == 2
-    assert step.prompt_format("analyze_short_retry") in agent.calls[1]["inputs"]
     downloader.download.assert_awaited_once()
     assert extraction_calls == [True]

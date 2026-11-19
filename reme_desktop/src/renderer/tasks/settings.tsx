@@ -31,7 +31,7 @@ export default function TaskSettingsFields({
   const daily = kind === "daily" || kind === "weekdays";
   return (
     <>
-      {value.agent_type === "cron" ? (
+      {value.cron !== null ? (
         <div className="task-field">
           <label htmlFor="task-schedule">{t("taskSchedule")}</label>
           <div className="task-field-row">
@@ -99,7 +99,7 @@ export default function TaskSettingsFields({
       </label>
       <details className="task-advanced">
         <summary>{t("taskAdvanced")}</summary>
-        {value.agent_type === "proactive" && (
+        {value.cron === null && (
           <label className="task-field">
             <span>{t("taskMinInterval")}</span>
             <input

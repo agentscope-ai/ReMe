@@ -88,7 +88,7 @@ function boundary(message: DisplayMessage): string {
       item.id,
       item.type,
       item.status,
-      item.type === "text" || item.type === "summary" ? item.phase : undefined,
+      item.type === "text" ? item.phase : undefined,
     ]),
   ]);
 }

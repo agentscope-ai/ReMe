@@ -10,7 +10,6 @@ from ..component_registry import R
 from ...schema.agent_runtime import validate_agent_name
 from ...schema.application_config import ApplicationConfig
 from ...schema.event import Event
-from ...utils.async_utils import finish_cleanup
 
 
 @R.register("event")
@@ -20,48 +19,21 @@ class AgentEventInbox(LocalAgentInbox):
     def __init__(self, **kwargs):
         context = kwargs.get("app_context")
         directory = context.app_config.reme_agent_dir if context else ApplicationConfig().reme_agent_dir
-        super().__init__(directory=directory, rebuildable=["Remy"], **kwargs)
-        self.paths = {}
+        super().__init__(directory=directory, **kwargs)
 
     @staticmethod
     def _normalize_name(value):
         return validate_agent_name(value)
 
     def _names(self):
-        self.paths.clear()
-        for pattern in ("*/inbox", "tmp/*/inbox"):
-            for path in sorted(self._root.glob(pattern)):
-                name = self._normalize_name(path.parent.name)
-                if name in self.paths:
-                    raise ValueError(f"duplicate Agent inbox directories: {name}")
-                self.paths[name] = path
-        return list(self.paths)
+        return [
+            self._normalize_name(path.parent.name)
+            for path in sorted(self._root.glob("*/inbox"))
+            if path.parent.name != "Remy"
+        ]
 
     def _inbox_path(self, name):
-        return self.paths.setdefault(name, self._root / name / "inbox")
-
-    def _fingerprint(self, item):
-        value = {**item, "metadata": dict(item["metadata"])} if "metadata" in item else item
-        if "metadata" in value:
-            value["metadata"].pop("_received_at", None)
-        return super()._fingerprint(value)
-
-    async def mount(self, name, directory):
-        """Mount a Runtime-selected directory under the permanent or temporary root."""
-        self._normalize_name(name)
-        Event.validate_paths([directory])
-        path = self._workspace / directory
-        if path not in {self._root / name / "inbox", self._root / "tmp" / name / "inbox"}:
-            raise ValueError("directory does not match the Agent inbox storage layout")
-        async with self._changed:
-            if name in self.paths and self.paths[name] != path:
-                raise ValueError("cannot change a mounted inbox's storage directory")
-            self.paths[name] = path
-            await finish_cleanup(self._mount(name))
-
-    async def forget(self, name):
-        await super().forget(name)
-        self.paths.pop(name, None)
+        return self._root / name / "inbox"
 
     @staticmethod
     def _validate(value):

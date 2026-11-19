@@ -7,7 +7,7 @@ import math
 import re
 import shlex
 from time import monotonic
-from urllib.parse import unquote, urlsplit
+from typing import get_args
 
 import frontmatter
 
@@ -15,10 +15,12 @@ from .base import BaseAgentStep
 from ._artifacts import RoundArtifacts
 from ....components import R
 from ....enumeration import ChunkEnum
+from ....schema.agent_runtime import InboxPriority
 from ....schema.proactive_agent import ProactiveRunResult
 from ....schema import TokenUsage, collect_reply
 from ....utils.async_utils import complete_in_thread
 from ....utils.counter import global_counter_add_many
+from ....utils.wikilink_handler import WikilinkHandler
 
 
 @R.register("proactive_agent_step")
@@ -81,8 +83,10 @@ class ProactiveAgentStep(BaseAgentStep):
     def _query(self, agent, events, paths, now, task_content):
         """Build the task type's Markdown query with its task snapshot and round inputs."""
         files = self.agent_runtime.files
+        is_cron = agent.cron is not None
         inputs = []
-        for number, event in enumerate(events if agent.agent_type == "proactive" else [], 1):
+        for number, event in enumerate(() if is_cron else events, 1):
+            attachments = event["paths"]
             inputs.append(
                 self.prompt_format(
                     "event_input",
@@ -90,21 +94,22 @@ class ProactiveAgentStep(BaseAgentStep):
                     event_ts=event["event_ts"],
                     source=event["source"],
                     description=event["description"],
-                    paths="\n".join(f"- {files.path(path)}" for path in event["paths"]),
-                    has_files=bool(event["paths"]),
-                    no_files=not event["paths"],
+                    paths="\n".join(
+                        f"- {files.path(path).relative_to(files.workspace).as_posix()}" for path in attachments
+                    ),
+                    has_files=bool(attachments),
+                    no_files=not attachments,
                 ),
             )
         return self.prompt_format(
-            f"{agent.agent_type}_query",
+            "cron_query" if is_cron else "proactive_query",
             workspace_dir=self.workspace_path,
             app_timezone=self.app_context.app_config.timezone or str(now.tzinfo),
             task_content=task_content,
             input_content="\n\n".join(inputs),
-            **{key: str(value) for key, value in paths.items()},
             now=now.isoformat(),
-            max_web_lookup_calls=self.max_web_lookup_calls,
             max_local_search_calls=self.max_local_search_calls,
+            **{key: value.relative_to(files.workspace).as_posix() for key, value in paths.items() if key != "task_path"},
         )
 
     def _read_optional(self, path):
@@ -130,32 +135,37 @@ class ProactiveAgentStep(BaseAgentStep):
                 arguments = json.loads(arguments)
             except json.JSONDecodeError:
                 return None
-        if isinstance(arguments, dict):
-            command = arguments.get("cmd") or arguments.get("command")
-            if isinstance(command, str):
-                lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|()\n")
-                lexer.whitespace, lexer.whitespace_split = " \t\r", True
-                try:
-                    tokens = list(lexer)
-                except ValueError:
-                    return None
-                separators = {";", "&&", "||", "|", "&", "(", ")", "\n", "then", "do"}
-                for index, token in enumerate(tokens):
-                    if token.rsplit("/", 1)[-1] not in {"rg", "grep"} or (
-                        index and tokens[index - 1] not in separators
-                    ):
-                        continue
-                    end = next((i for i in range(index + 1, len(tokens)) if tokens[i] in separators), len(tokens))
-                    if token.rsplit("/", 1)[-1] != "rg" or "--files" not in tokens[index + 1 : end]:
-                        return "local_search_calls"
+        if not isinstance(arguments, dict):
+            return None
+        command = arguments.get("cmd") or arguments.get("command")
+        if not isinstance(command, str):
+            return None
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|()\n")
+        lexer.whitespace, lexer.whitespace_split = " \t\r", True
+        try:
+            tokens = list(lexer)
+        except ValueError:
+            return None
+        separators = {";", "&&", "||", "|", "&", "(", ")", "\n", "then", "do"}
+        for index, token in enumerate(tokens):
+            tool = token.rsplit("/", 1)[-1]
+            if tool not in {"rg", "grep"} or (index and tokens[index - 1] not in separators):
+                continue
+            end = next((i for i in range(index + 1, len(tokens)) if tokens[i] in separators), len(tokens))
+            if tool == "grep" or "--files" not in tokens[index + 1 : end]:
+                return "local_search_calls"
         return None
 
     def _read_document(self, path, *, record=False):
         """Require an explicit decision and validate the body."""
         document = frontmatter.loads(self.agent_runtime.files.read(path))
-        if document.get("action") not in ("write", "skip"):
-            raise ValueError(f"{path}: action must be write or skip")
-        if record and document["action"] == "skip":
+        action = document.get("action")
+        actions = ("write", "skip") if record else (*get_args(InboxPriority), "skip")
+        if action not in actions:
+            raise ValueError(f"{path}: action must be one of {', '.join(actions)}")
+        if not record and set(document.metadata) != {"action"}:
+            raise ValueError(f"{path}: reminder frontmatter must contain only action")
+        if record and action == "skip":
             if document.content.strip():
                 raise ValueError(f"{path}: a skipped record body must be blank")
         elif not document.content.strip():
@@ -163,77 +173,61 @@ class ProactiveAgentStep(BaseAgentStep):
         return document
 
     @staticmethod
-    def _markdown_links(content):
-        """Extract inline Markdown targets, ignoring fenced and inline code examples."""
+    def _workspace_links(content):
+        """Extract workspace wikilinks outside code examples."""
         content = re.sub(
             r"^ {0,3}(`{3,}|~{3,})[^\n]*\n.*?(?:^ {0,3}\1[ \t]*$|\Z)|(`+).*?\2",
             "",
             content,
             flags=re.MULTILINE | re.DOTALL,
         )
-        pattern = r"""\[[^\]\n]*\]\(\s*
-            (<[^>\n]+>|(?:\\.|[^\s()\\]|\([^()\n]*\))+)
-            (?:\s+(?:"[^"\n]*"|'[^'\n]*'))?\s*\)"""
-        return {
-            re.sub(r"\\([\\() ])", r"\1", target.strip("<>"))
-            for target in re.findall(pattern, content, flags=re.VERBOSE)
-        }
+        return {match.target for match in WikilinkHandler.iter_matches(content)}
 
     def _warn_local_links(self, path, content, before=""):
-        """Warn about new broken local links without rejecting otherwise valid artifacts."""
+        """Resolve local links from the workspace and warn without rejecting valid artifacts."""
         files = self.agent_runtime.files
-        for target in sorted(self._markdown_links(content) - self._markdown_links(before)):
+        for target in sorted(self._workspace_links(content) - self._workspace_links(before)):
             try:
-                url = urlsplit(target)
-                if url.scheme or url.netloc or not url.path:
-                    continue
-                resolved = files.checked((path.parent / unquote(url.path)).resolve())
-                if resolved.exists():
+                if files.path(target).exists():
                     continue
                 reason = "target does not exist"
             except (OSError, ValueError, RuntimeError) as exc:
                 reason = str(exc)
             self.logger.warning(f"Proactive local link source={path} target={target!r}: {reason}")
 
-    def _read_artifacts(self, agent, paths, summary_before, *, warn_links=True):
+    def _read_artifacts(self, paths, summary_before, *, warn_links=True):
         """Validate the final branch and derive notifications only from saved documents."""
         files = self.agent_runtime.files
         record = self._read_document(paths["record_path"], record=True)
-        if agent.agent_type == "cron" and record["action"] != "write":
-            raise ValueError("a cron task must write its execution record")
-        notifications = []
+        summary = self._read_optional(paths["today_summary_path"])
         if record["action"] == "skip":
             if self._read_optional(paths["reminder_path"]) is not None:
                 raise ValueError("a skipped record must not create a reminder")
-        else:
-            reminder = self._read_document(paths["reminder_path"])
-            if agent.agent_type == "cron" and (reminder["action"] != "write" or reminder.get("priority") != "P0"):
-                raise ValueError("a cron task must write a P0 report")
-            if reminder["action"] == "write":
-                notifications.append(
-                    {
-                        "priority": reminder.get("priority"),
-                        "message": reminder.content,
-                        "paths": [
-                            paths[key].relative_to(files.workspace).as_posix()
-                            for key in ("reminder_path", "record_path")
-                        ],
-                    },
-                )
-        result = ProactiveRunResult(notifications=notifications)
-        summary = self._read_optional(paths["today_summary_path"])
-        if record["action"] == "skip":
             if summary != summary_before:
                 raise ValueError("a skipped record must not change the daily summary")
-        else:
-            if not summary or not summary.strip():
-                raise ValueError("a new record requires a nonempty daily summary")
-            if summary == summary_before:
-                raise ValueError("a new record must update its daily summary")
-            if warn_links:
-                self._warn_local_links(paths["record_path"], record.content)
-                self._warn_local_links(paths["reminder_path"], reminder.content)
-                self._warn_local_links(paths["today_summary_path"], summary, summary_before or "")
+            return ProactiveRunResult(notifications=[])
+
+        reminder = self._read_document(paths["reminder_path"])
+        if not summary or not summary.strip():
+            raise ValueError("a new record requires a nonempty daily summary")
+        if summary == summary_before:
+            raise ValueError("a new record must update its daily summary")
+        notifications = []
+        if reminder["action"] != "skip":
+            notifications.append(
+                {
+                    "priority": reminder["action"],
+                    "message": reminder.content,
+                    "paths": [
+                        paths[key].relative_to(files.workspace).as_posix() for key in ("reminder_path", "record_path")
+                    ],
+                },
+            )
+        result = ProactiveRunResult(notifications=notifications)
+        if warn_links:
+            self._warn_local_links(paths["record_path"], record.content)
+            self._warn_local_links(paths["reminder_path"], reminder.content)
+            self._warn_local_links(paths["today_summary_path"], summary, summary_before or "")
         return result
 
     async def execute(self):
@@ -298,6 +292,9 @@ class ProactiveAgentStep(BaseAgentStep):
 
     async def _execute(self, agent, events):
         """Run the complete workflow in one turn, then validate its saved decisions."""
+        limits = {"local_search_calls": self.max_local_search_calls}
+        if agent.cron is not None:
+            limits["web_lookup_calls"] = self.max_web_lookup_calls
         stats = {
             "agent_type": agent.agent_type,
             "session_id": None,
@@ -306,8 +303,8 @@ class ProactiveAgentStep(BaseAgentStep):
             "tool_calls": 0,
             "web_lookup_calls": 0,
             "local_search_calls": 0,
-            "max_web_lookup_calls": self.max_web_lookup_calls if agent.agent_type == "cron" else None,
-            "max_local_search_calls": self.max_local_search_calls,
+            "max_web_lookup_calls": limits.get("web_lookup_calls"),
+            "max_local_search_calls": limits["local_search_calls"],
         }
         self.context.response.metadata["reme.agent_run"] = stats
         runtime = self.agent_runtime
@@ -326,9 +323,6 @@ class ProactiveAgentStep(BaseAgentStep):
         session_id = None
         calls = {}
         turn_id, warned = None, set()
-        limits = {"local_search_calls": self.max_local_search_calls}
-        if agent.agent_type == "cron":
-            limits["web_lookup_calls"] = self.max_web_lookup_calls
 
         def update_counts():
             stats["tool_calls"] = len(calls)
@@ -340,42 +334,39 @@ class ProactiveAgentStep(BaseAgentStep):
                     self.logger.warning(f"{label} {key}={stats[key]} exceeds limit={limit}; continuing")
                     warned.add(key)
 
+        async def observe(chunk):
+            nonlocal turn_id
+            turn_id = chunk.turn_id or turn_id
+            kind, payload = chunk.chunk_type, chunk.chunk
+            if kind in {ChunkEnum.TOOL_CALL, ChunkEnum.TOOL_RESULT}:
+                identifier = chunk.tool_call_id or chunk.block_id or chunk.message_id
+                if identifier and (chunk.tool_call_name or identifier in calls):
+                    call = calls.setdefault(identifier, {})
+                    call["name"] = chunk.tool_call_name or call.get("name")
+                    if kind == ChunkEnum.TOOL_CALL or (
+                        call["name"] == "commandExecution"
+                        and isinstance(payload, dict)
+                        and ("command" in payload or "commandActions" in payload)
+                    ):
+                        if isinstance(payload, dict):
+                            call["arguments"] = payload
+                            call["actions"] = payload.get("commandActions") or call.get("actions", [])
+                        elif isinstance(payload, str):
+                            previous = call.get("arguments")
+                            call["arguments"] = (
+                                previous + payload if chunk.event == "delta" and isinstance(previous, str) else payload
+                            )
+                    if chunk.event != "delta":
+                        update_counts()
+            elif kind in {ChunkEnum.USAGE, ChunkEnum.REPLY_END} and isinstance(payload, dict):
+                if kind == ChunkEnum.REPLY_END:
+                    stats["model_status"] = payload.get("status", "failed")
+                    payload = payload.get("usage")
+                if payload is not None:
+                    stats["usage"] = TokenUsage.from_provider(payload).model_dump()
+            publish(chunk)
+
         try:
-
-            async def observe(chunk):
-                nonlocal turn_id
-                turn_id = chunk.turn_id or turn_id
-                if chunk.chunk_type in {ChunkEnum.TOOL_CALL, ChunkEnum.TOOL_RESULT}:
-                    if identifier := chunk.tool_call_id or chunk.block_id or chunk.message_id:
-                        if chunk.tool_call_name or identifier in calls:
-                            call = calls.setdefault(identifier, {})
-                            call["name"] = chunk.tool_call_name or call.get("name")
-                            payload = chunk.chunk
-                            if chunk.chunk_type == ChunkEnum.TOOL_CALL or (
-                                call["name"] == "commandExecution"
-                                and isinstance(payload, dict)
-                                and ("command" in payload or "commandActions" in payload)
-                            ):
-                                if isinstance(payload, dict):
-                                    call["arguments"] = payload
-                                    call["actions"] = payload.get("commandActions") or call.get("actions", [])
-                                elif isinstance(payload, str):
-                                    previous = call.get("arguments")
-                                    call["arguments"] = (
-                                        previous + payload
-                                        if chunk.event == "delta" and isinstance(previous, str)
-                                        else payload
-                                    )
-                            if chunk.event != "delta":
-                                update_counts()
-                elif chunk.chunk_type == ChunkEnum.USAGE and isinstance(chunk.chunk, dict):
-                    stats["usage"] = TokenUsage.from_provider(chunk.chunk).model_dump()
-                elif chunk.chunk_type == ChunkEnum.REPLY_END and isinstance(chunk.chunk, dict):
-                    stats["model_status"] = chunk.chunk.get("status", "failed")
-                    if chunk.chunk.get("usage") is not None:
-                        stats["usage"] = TokenUsage.from_provider(chunk.chunk["usage"]).model_dump()
-                publish(chunk)
-
             model_error = None
             try:
                 async with asyncio.timeout(self.timeout_seconds):
@@ -393,8 +384,6 @@ class ProactiveAgentStep(BaseAgentStep):
                             runtime.agent_wrapper.reply_stream(
                                 query,
                                 resume=session_id,
-                                activity_source="proactive",
-                                activity_task_id=agent.agent_name,
                                 **options,
                             ),
                             on_chunk=observe,
@@ -407,7 +396,6 @@ class ProactiveAgentStep(BaseAgentStep):
             try:
                 await asyncio.to_thread(
                     self._read_artifacts,
-                    agent,
                     self._round_files.drafts,
                     summary_before,
                     warn_links=False,
@@ -419,7 +407,7 @@ class ProactiveAgentStep(BaseAgentStep):
             if model_error is not None:
                 self.logger.warning(f"{label} result=accepted_artifacts model_error={type(model_error).__name__}")
             await self._round_files.publish()
-            result = await asyncio.to_thread(self._read_artifacts, agent, paths, summary_before)
+            result = await asyncio.to_thread(self._read_artifacts, paths, summary_before)
             self.logger.info(
                 f"{label} result=validated notifications={len(result.notifications)} "
                 f"elapsed={monotonic() - started:.2f}s path={paths['record_path']}",

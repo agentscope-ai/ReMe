@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { viewState } from "../src/main/view-state.ts";
 import type { DesktopState, DisplayMessage } from "../src/shared/protocol.ts";
+import { clientInfo } from "./fixtures.ts";
 
 test("the companion receives final text without tool details or full history", () => {
   const message: DisplayMessage = {
@@ -39,6 +40,7 @@ test("the companion receives final text without tool details or full history", (
     ],
   };
   const state = {
+    clientInfo,
     agents: [],
     sessionId: "session",
     messages: [message],
@@ -51,6 +53,7 @@ test("the companion receives final text without tool details or full history", (
   } as DesktopState;
   const companion = viewState(state, true);
   assert.deepEqual(companion.messages, []);
+  assert.equal(companion.clientInfo, null);
   assert.equal(companion.surface?.kind, "message");
   if (companion.surface?.kind === "message") {
     assert.equal(companion.surface.message.content, "Done");

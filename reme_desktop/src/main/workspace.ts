@@ -1,8 +1,4 @@
-import type {
-  JobResponse,
-  WorkspaceConfig,
-  WorkspaceRequest,
-} from "../shared/protocol.ts";
+import type { JobResponse, WorkspaceRequest } from "../shared/protocol.ts";
 import { UiError } from "../shared/i18n.ts";
 import type { ReMeClient } from "./reme-client.ts";
 import { notebookPayload } from "../shared/notebook.ts";
@@ -31,41 +27,6 @@ export async function requestWorkspace(
 ): Promise<JobResponse> {
   if (!request || typeof request.type !== "string")
     throw new UiError("invalidWorkspaceRequest");
-  if (request.type === "config") {
-    const config = await client.call<{
-      workspace_dir: string;
-      timezone?: string | null;
-      daily_dir: string;
-      digest_dir: string;
-      jobs: Record<
-        string,
-        { enabled?: boolean; enable_serve?: boolean; backend: string }
-      >;
-      components?: {
-        file_store?: Record<string, { tag_index?: string }>;
-        tag_index?: Record<string, { tag_key?: string }>;
-      };
-    }>("get_app_config", {}, signal);
-    const answer: WorkspaceConfig = {
-      workspace_dir: config.workspace_dir,
-      timezone: config.timezone ?? null,
-      daily_dir: config.daily_dir ?? "daily",
-      digest_dir: config.digest_dir ?? "digest",
-      tag_key:
-        config.components?.tag_index?.[
-          config.components?.file_store?.default?.tag_index ?? "default"
-        ]?.tag_key ?? "memory_tags",
-      jobs: Object.entries(config.jobs ?? {})
-        .filter(
-          ([, job]) =>
-            job.enabled !== false &&
-            job.enable_serve !== false &&
-            job.backend !== "background",
-        )
-        .map(([name]) => name),
-    };
-    return { success: true, answer, metadata: {} };
-  }
   const page = "page" in request ? request.page : 1;
   if (!Number.isSafeInteger(page) || page < 1)
     throw new UiError("invalidWorkspaceRequest");

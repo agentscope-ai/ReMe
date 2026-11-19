@@ -271,25 +271,13 @@ async def system(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_session_listener_observes_native_activity_and_disconnect_without_a_turn(system):
+async def test_native_disconnect_marks_the_shared_client_failed(system):
     first, _second, server, _job = system
-    session_id = await first.create_session(job_tools=[])
-    notifications = []
-    unsubscribe = server.watch_session(session_id, notifications.append)
-    native = _Codex.instances[0]
-    native.notify_status(session_id, "active")
-    native.notify_status(session_id, "notLoaded")
+    await first.create_session(job_tools=[])
+    _Codex.instances[0].notifications.put_nowait(ConnectionError("upstream disconnected"))
     async with asyncio.timeout(1):
-        while len(notifications) < 2:
+        while not server._failed:
             await asyncio.sleep(0)
-    assert [status.status for status in notifications] == ["active", "not_loaded"]
-    native.notifications.put_nowait(ConnectionError("upstream disconnected"))
-    async with asyncio.timeout(1):
-        while notifications[-1] is not None:
-            await asyncio.sleep(0)
-    assert server._failed
-    unsubscribe()
-    assert session_id not in server._session_listeners
 
 
 def _usage_event(last, total, *, turn_id="turn-2", estimate=None):
@@ -1826,87 +1814,6 @@ async def test_application_bound_tool_approval_preserves_native_read_only_and_ex
 
 
 @pytest.mark.asyncio
-async def test_reply_activity_reaches_the_selected_proactive_session(system):
-    from reme.schema import AgentActivity
-
-    first, _second, server, _job = system
-    selected = await first.create_session(job_tools=[])
-    observed = []
-    unsubscribe = server.watch_session(selected, observed.append)
-    try:
-        result = await first.reply(
-            "background result",
-            job_tools=[],
-            activity_source="proactive",
-            activity_session_id=selected,
-        )
-        activities = [event for event in observed if isinstance(event, AgentActivity)]
-        assert activities[0].phase == "thinking"
-        assert activities[-1].phase == "completed"
-        assert all(event.session_id == selected and event.source == "proactive" for event in activities)
-        assert all(event.execution_session_id == result["session_id"] for event in activities)
-        assert result["session_id"] != selected
-        assert len({event.turn_id for event in activities}) == 1
-    finally:
-        unsubscribe()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("outcome", ["interrupted", "failed"])
-async def test_activity_closes_when_the_consumer_stops_or_the_provider_fails(system, outcome):
-    from reme.schema import AgentActivity
-
-    first, _second, server, _job = system
-    session_id = await first.create_session(job_tools=[])
-    observed = []
-    unsubscribe = server.watch_session(session_id, observed.append)
-    try:
-        stream = first.reply_stream("test", session_id=session_id)
-        await anext(stream)
-        if outcome == "failed":
-
-            async def fail(_thread, _inputs):
-                raise ValueError("provider failed")
-
-            _Codex.instances[0].run_hook = fail
-            with pytest.raises(ValueError, match="provider failed"):
-                await anext(stream)
-        else:
-            await stream.aclose()
-        phases = [event.phase for event in observed if isinstance(event, AgentActivity)]
-        assert phases[0] == "thinking"
-        assert phases[-1] == outcome
-        assert "completed" not in phases
-    finally:
-        unsubscribe()
-
-
-@pytest.mark.asyncio
-async def test_task_activity_publishes_to_application_observers_without_a_selected_session(system):
-    from datetime import datetime
-
-    started = datetime.fromisoformat("2026-11-09T12:00:00+08:00")
-    first, _second, server, _job = system
-    observed = []
-    unsubscribe = server.watch_activity(observed.append)
-    try:
-        await first.reply(
-            "task result",
-            job_tools=[],
-            activity_source="task",
-            activity_started_at=started,
-            activity_task_id="research",
-        )
-        assert observed[0].phase == "thinking" and observed[-1].phase == "completed"
-        assert all(
-            item.source == "task" and item.started_at == started and item.task_id == "research" for item in observed
-        )
-        assert len({item.session_id for item in observed}) == 1
-    finally:
-        unsubscribe()
-
-
-@pytest.mark.asyncio
 async def test_native_session_liveness_handles_empty_and_missing_history(system, monkeypatch, tmp_path):
     first, _, server, _ = system
     identifier = await first.create_session()
@@ -1925,24 +1832,6 @@ async def test_native_session_liveness_handles_empty_and_missing_history(system,
     server.get_session_path.side_effect = ConnectionError("offline")
     with pytest.raises(ConnectionError, match="offline"):
         await first.session_exists(identifier)
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "options",
-    [
-        {"activity_source": "task"},
-        {"activity_source": "task", "activity_task_id": "research"},
-        {"activity_source": "unknown"},
-    ],
-)
-async def test_invalid_activity_never_starts_a_native_turn(system, monkeypatch, options):
-    first, _, server, _ = system
-    turn = AsyncMock(side_effect=AssertionError("Do not start native work"))
-    monkeypatch.setattr(server, "turn", turn)
-    with pytest.raises(ValueError):
-        await first.reply("must not run", **options)
-    turn.assert_not_awaited()
 
 
 @pytest.mark.asyncio

@@ -442,10 +442,8 @@ async def test_read_and_status_do_not_wait_behind_generation(runtime):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("cancelled", [False, True])
-async def test_turn_owner_publishes_readable_history_when_the_lease_finishes(runtime, cancelled):
+async def test_turn_history_remains_readable_when_the_lease_finishes(runtime, cancelled):
     server, native = runtime
-    notifications = []
-    server.watch_session("session-1", notifications.append)
     native.handle.turn = AsyncMock(return_value=SimpleNamespace())
     entered = asyncio.Event()
 
@@ -466,24 +464,21 @@ async def test_turn_owner_publishes_readable_history_when_the_lease_finishes(run
             await task
     else:
         await task
-    assert isinstance(notifications[0], SessionStatus) and notifications[0].status == "active"
-    assert isinstance(notifications[-1], SessionSnapshot)
-    assert [item.content for item in notifications[-1].messages] == ["A", "B", "next", "answer"]
+    snapshot = await server.read_session("session-1")
+    assert [item.content for item in snapshot.messages] == ["A", "B", "next", "answer"]
 
 
 @pytest.mark.asyncio
-async def test_failed_final_idle_check_invalidates_subscribers_instead_of_hiding_committed_history(
+async def test_failed_final_idle_check_preserves_committed_history(
     runtime,
     monkeypatch,
 ):
     server, native = runtime
-    notifications = []
-    server.watch_session("session-1", notifications.append)
     native.handle.turn = AsyncMock(return_value=SimpleNamespace())
     wait_idle = server.wait_idle
 
     async def fail_final_check(thread):
-        if server._threads[thread.id].history_changed:
+        if native.handle.turn.await_count:
             raise RuntimeError("status temporarily unavailable")
         await wait_idle(thread)
 
@@ -493,7 +488,6 @@ async def test_failed_final_idle_check_invalidates_subscribers_instead_of_hiding
             await server.turn(loaded, "committed")
             native.thread.turns.append(turn("turn-2", "committed", "answer"))
             server._threads["session-1"].completion.set_result(None)
-    assert notifications[-1] is None
     assert (await server.read_session("session-1")).messages[-1].content == "answer"
 
 

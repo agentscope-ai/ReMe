@@ -12,7 +12,7 @@ import {
   Search,
 } from "lucide-react";
 import { errorText, translator, UiError } from "../../shared/i18n.ts";
-import type { DesktopState, WorkspaceConfig } from "../../shared/protocol.ts";
+import type { DesktopState } from "../../shared/protocol.ts";
 import {
   isTodo,
   DEFAULT_PROJECT,
@@ -61,8 +61,14 @@ export default function Notebook({
   const [progressDrafts, setProgressDrafts] = useState<Record<string, string>>(
     {},
   );
-  const [available, setAvailable] = useState(false);
-  const [capabilityError, setCapabilityError] = useState<unknown>(null);
+  const missing = ["todo", "idea"].find(
+    (name) => !state.clientInfo?.jobs.includes(name),
+  );
+  const available = Boolean(state.clientInfo && !missing);
+  const capabilityError =
+    state.clientInfo && missing
+      ? new UiError("missingJob", { job: missing })
+      : null;
   const [detailError, setDetailError] = useState<unknown>(null);
   const [actionError, setActionError] = useState<unknown>(null);
   const [saving, setSaving] = useState(false);
@@ -89,7 +95,6 @@ export default function Notebook({
       ...(query ? { query } : {}),
       ...(project ? { project } : {}),
     },
-    state.settings.endpoint + "\n" + state.workspace,
     ready,
     revision,
   );
@@ -103,33 +108,9 @@ export default function Notebook({
     };
   }, []);
   useEffect(() => {
-    if (!connected) setAvailable(false);
-  }, [connected]);
-  useEffect(() => {
     if (page.page && offset > 0 && offset >= page.page.total)
       setOffset(Math.max(0, Math.floor((page.page.total - 1) / 20) * 20));
   }, [page.page?.total, offset]);
-  useEffect(() => {
-    if (!active || !connected || available) return;
-    let live = true;
-    void requestResource<WorkspaceConfig>({ type: "config" })
-      .then((config) => {
-        const missing = ["todo", "idea"].find(
-          (name) => !config.jobs.includes(name),
-        );
-        if (missing) throw new UiError("missingJob", { job: missing });
-        if (live) {
-          setAvailable(true);
-          setCapabilityError(null);
-        }
-      })
-      .catch((error) => {
-        if (live) setCapabilityError(error);
-      });
-    return () => {
-      live = false;
-    };
-  }, [active, connected, available, revision]);
   useEffect(() => {
     setDetailError(null);
     if (!ready || !selected || editor) {

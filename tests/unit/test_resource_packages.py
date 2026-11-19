@@ -15,7 +15,7 @@ from pydantic import ValidationError
 
 from reme.components import ApplicationContext, RuntimeContext
 from reme.components.agent_runtime import BaseAgentRuntime
-from reme.components.agent_runtime._internal.files import AgentFiles
+from reme.utils.workspace_files import WorkspaceFiles
 from reme.schema import ResourceMetadata
 from reme.steps.proactive.data_connectors import BaseConnectorStep, ResourceEventStep, ScreenCaptureStep
 
@@ -211,7 +211,7 @@ async def test_resources_are_written_in_place_before_the_manifest_is_atomically_
         return replace(source, target)
 
     monkeypatch.setattr(step, "collect", collect_in_place)
-    monkeypatch.setattr("reme.components.agent_runtime._internal.files.os.replace", publish_manifest)
+    monkeypatch.setattr("reme.utils.workspace_files.os.replace", publish_manifest)
     response = await step()
     assert manifests == [tmp_path / response.answer["path"]]
     assert not list(tmp_path.rglob(".agent-*.tmp"))
@@ -221,7 +221,7 @@ async def test_resources_are_written_in_place_before_the_manifest_is_atomically_
 async def test_failed_manifest_publication_removes_the_incomplete_resource_package(tmp_path, monkeypatch):
     step = PackageConnector(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
     monkeypatch.setattr(
-        "reme.components.agent_runtime._internal.files.os.replace",
+        "reme.utils.workspace_files.os.replace",
         Mock(side_effect=OSError("manifest publication failed")),
     )
     with pytest.raises(OSError, match="manifest publication failed"):
@@ -270,8 +270,8 @@ async def test_invalid_source_fails_before_collection(tmp_path, source):
 @pytest.mark.asyncio
 async def test_event_ids_include_source_and_date_and_are_retry_stable(tmp_path):
     runtime = Mock(spec=BaseAgentRuntime)
-    runtime.files = AgentFiles(tmp_path)
-    runtime.definition = AsyncMock(return_value=SimpleNamespace(agent_type="proactive"))
+    runtime.files = WorkspaceFiles(tmp_path)
+    runtime.definition = AsyncMock(return_value=SimpleNamespace(cron=None))
     runtime.append = AsyncMock(return_value={})
     step = ResourceEventStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)), agent_runtime=runtime)
     paths = [

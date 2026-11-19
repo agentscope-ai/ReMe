@@ -13,7 +13,7 @@ import httpx
 import pytest
 
 from reme.components import ApplicationContext, LocalAgentRuntime, R, RuntimeContext
-from reme.components.agent_runtime._internal.files import AgentFiles
+from reme.utils.workspace_files import WorkspaceFiles
 from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.agent_inbox import AgentEventInbox
 from reme.components.job import BaseJob
@@ -59,7 +59,7 @@ async def collector_runtime(tmp_path):
     inbox = AgentEventInbox(app_context=context)
     runtime = LocalAgentRuntime(
         app_context=context,
-        agents=[{"agent_name": "finance", "agent_type": "proactive", "task_description": "偏好 AI 相关的财经新闻"}],
+        agents=[{"agent_name": "finance", "task_description": "偏好 AI 相关的财经新闻"}],
     )
     context.components = {
         "agent_inbox": {"default": inbox},
@@ -192,7 +192,7 @@ async def test_successful_append_without_delivery_receipt_is_idempotent_after_re
     monkeypatch,
 ):
     mock_http(lambda _: news_response(news_batch(clock)))
-    write = AgentFiles.write_json
+    write = WorkspaceFiles.write_json
 
     def fail_receipt(files, path, value):
         if path.name == "delivery-finance.json":
@@ -201,7 +201,7 @@ async def test_successful_append_without_delivery_receipt_is_idempotent_after_re
 
     async with collector_runtime(tmp_path) as (context, inbox, _):
         with monkeypatch.context() as patch:
-            patch.setattr(AgentFiles, "write_json", fail_receipt)
+            patch.setattr(WorkspaceFiles, "write_json", fail_receipt)
             with pytest.raises(OSError, match="receipt unavailable"):
                 await FinanceNewsStep(app_context=context)()
         assert (await inbox.snapshot("finance"))["pending_count"] == 1
@@ -670,7 +670,7 @@ async def test_news_advances_progress_on_empty_polls_and_keeps_an_overlap_after_
     async with collector_runtime(tmp_path) as (context, _, append):
         assert (await FinanceNewsStep(app_context=context)()).answer == {"skipped": "no_new_data"}
         append.assert_not_awaited()
-    saved = AgentFiles(tmp_path).read_json(tmp_path / "resource/finance_news/progress.json", None)
+    saved = WorkspaceFiles(tmp_path).read_json(tmp_path / "resource/finance_news/progress.json", None)
     assert saved == {"checked_until": clock.now.return_value.isoformat()}
     assert len(observed) == 2
     clock.now.return_value += timedelta(minutes=5)
@@ -685,7 +685,7 @@ async def test_news_advances_progress_on_empty_polls_and_keeps_an_overlap_after_
 @pytest.mark.asyncio
 async def test_news_progress_is_not_advanced_when_manifest_publication_fails(tmp_path, clock, mock_http, monkeypatch):
     mock_http(lambda _: news_response(news_batch(clock)))
-    write = AgentFiles.write_json
+    write = WorkspaceFiles.write_json
 
     def fail_manifest(files, path, value):
         if path.name == "metadata.json":
@@ -694,7 +694,7 @@ async def test_news_progress_is_not_advanced_when_manifest_publication_fails(tmp
 
     async with collector_runtime(tmp_path) as (context, inbox, _):
         with monkeypatch.context() as patch:
-            patch.setattr(AgentFiles, "write_json", fail_manifest)
+            patch.setattr(WorkspaceFiles, "write_json", fail_manifest)
             with pytest.raises(OSError, match="manifest unavailable"):
                 await FinanceNewsStep(app_context=context)()
         assert not (tmp_path / "resource/finance_news/progress.json").exists()
@@ -731,5 +731,5 @@ def test_proactive_configuration_connects_both_crons_to_existing_finance_agent()
         assert spec["agent_name"] == "finance"
         assert R.get(ComponentEnum.STEP, spec["backend"]) is step
     agents = {value["agent_name"]: value for value in config["components"]["agent_runtime"]["default"]["agents"]}
-    assert agents["finance"]["agent_type"] == "proactive" and "cron" not in agents["finance"]
+    assert "agent_type" not in agents["finance"] and "cron" not in agents["finance"]
     assert agents["finance"]["enabled"] and agents["work"]["enabled"]

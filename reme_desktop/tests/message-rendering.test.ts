@@ -6,67 +6,49 @@ import { createServer } from "vite";
 import { DesktopController } from "../src/main/controller.ts";
 import { SessionModel } from "../src/main/session-model.ts";
 import { displayMessages } from "../src/shared/messages.ts";
-import {
-  emptyReply,
-  reduceReply,
-  readReply,
-} from "../src/shared/transcript.ts";
+import { emptyReply, reduceReply } from "../src/shared/transcript.ts";
 import type {
   DisplayMessage,
   PendingTurn,
-  SessionMessage,
-  StreamChunk,
+  AgentMessage,
+  TextItem,
 } from "../src/shared/protocol.ts";
 
-const content = (id: string, text: string): StreamChunk => ({
-  chunk_type: "content",
-  event: "end",
-  block_id: id,
-  chunk: text,
+import { message as makeMessage, snapshot } from "./fixtures.ts";
+const content = (id: string, text: string): TextItem => ({
+  id,
+  type: "text",
+  status: "completed",
+  text,
+  phase: null,
 });
-const assistant: SessionMessage = {
+const assistant = makeMessage({
   id: "turn:assistant",
-  turn_id: "turn",
-  role: "assistant",
-  source: "chat",
-  content: "正在检查。## 结果\n\n**已完成**。",
-  chunks: [
+  content: "正在检查。\n\n## 结果\n\n**已完成**。",
+  items: [
     content("progress", "正在检查。"),
     {
-      chunk_type: "tool_call",
-      block_id: "tool",
-      tool_call_name: "read_file",
-      event: "start",
-      chunk: { path: "note.md" },
-      metadata: { native: { secret: "provider details" } },
-    },
-    {
-      chunk_type: "tool_result",
-      block_id: "tool",
-      event: "end",
-      chunk: "File content",
+      id: "tool",
+      type: "tool",
+      name: "read_file",
+      input: "note.md",
+      output: "File content",
       status: "completed",
+      actions: [{ kind: "read", target: "note.md", query: null }],
     },
     content("answer", "## 结果\n\n**已完成**。"),
   ],
-  completed: true,
-  delivery: "idle",
-  notification_eligible: false,
-};
-function modelFor(message: SessionMessage) {
+});
+function modelFor(message: AgentMessage) {
   const model = new SessionModel();
-  model.snapshot({
-    session_id: "session",
-    state: { session_id: "session", status: "idle", active_flags: [] },
-    messages: [message],
-  });
+  model.apply(snapshot([message]));
   return model;
 }
 
-test("history preserves typed timeline order and excludes native diagnostic metadata", () => {
+test("history preserves the backend's typed timeline order", () => {
   const model = modelFor(assistant);
   const [message] = displayMessages(
-    { ...model, pending: null },
+    { sessionId: model.sessionId, messages: model.messages, pending: null },
     undefined,
     "zh",
   );
@@ -74,72 +56,17 @@ test("history preserves typed timeline order and excludes native diagnostic meta
     message.items?.map((item) => item.type),
     ["text", "tool", "text"],
   );
-  assert.equal(message.content, "正在检查。\n\n## 结果\n\n**已完成**。");
-  assert.equal("chunks" in model.messages[0], false);
-  assert.equal(
-    JSON.stringify(model.messages).includes("provider details"),
-    false,
-  );
+  assert.equal(message.content, assistant.content);
   model.apply({
-    type: "message_upsert",
-    session_id: "session",
-    activities: {},
-    message: {
-      ...assistant,
-      chunks: [...assistant.chunks, content("next", "下一条消息")],
-    },
+    ...snapshot([
+      {
+        ...assistant,
+        items: [...assistant.items, content("next", "下一条消息")],
+      },
+    ]),
+    type: "update",
   });
-  const [updated] = displayMessages(
-    { ...model, pending: null },
-    undefined,
-    "zh",
-  );
-  assert.equal(updated.items?.at(-1)?.type, "text");
-  assert.equal(updated.items?.length, 4);
-});
-
-test("streaming blocks retain progress and results across the authoritative snapshot", () => {
-  let progress = emptyReply();
-  const chunks: StreamChunk[] = [
-    { ...content("progress", "正在"), event: "delta" as const },
-    { ...content("progress", "检查。"), event: "delta" as const },
-    content("progress", "正在检查。"),
-    content("answer", "## 结果\n\n**已完成**。"),
-  ];
-  for (const chunk of chunks) progress = reduceReply(progress, chunk);
-  assert.equal(progress.text, "正在检查。\n\n## 结果\n\n**已完成**。");
-  const pending: PendingTurn = {
-    id: "local",
-    turnId: "turn",
-    sessionId: "session",
-    query: "检查任务",
-    streaming: true,
-  };
-  const model = modelFor({ ...assistant, chunks, completed: false });
-  const live = displayMessages({ ...model, pending }, undefined, "zh").find(
-    (message) => message.role === "assistant",
-  )!;
-  assert.deepEqual(live.items, progress.items);
-  assert.equal(live.streaming, true);
-  const complete = displayMessages(
-    { ...modelFor(assistant), pending },
-    undefined,
-    "zh",
-  )[0];
-  assert.deepEqual(
-    complete.items?.filter((item) => item.type === "text"),
-    live.items,
-  );
-  assert.equal(complete.streaming, false);
-  const textOnly = displayMessages(
-    {
-      ...modelFor({ ...assistant, content: "纯文本消息", chunks: [] }),
-      pending: null,
-    },
-    undefined,
-    "zh",
-  )[0];
-  assert.equal(textOnly.content, "纯文本消息");
+  assert.equal(model.messages[0].items.length, 4);
 });
 
 test("both roles render Markdown and each message has an independent Markdown document", async () => {
@@ -178,10 +105,10 @@ test("both roles render Markdown and each message has an independent Markdown do
       assert.match(html, /#reme-file=daily%2Fnote/);
       const separate = render({
         ...message,
-        items: readReply([
+        items: [
           content("first", "```text\nunclosed code"),
           content("second", "## 第二条消息"),
-        ]).items,
+        ],
       });
       assert.match(separate, /<h2>第二条消息<\/h2>/);
       assert.equal(
@@ -203,55 +130,57 @@ test("reasoning stays inside activity disclosure while prose, plans and completi
     const { default: MessageBody, timelineItems } = await server.ssrLoadModule(
       "/src/renderer/message-body.tsx",
     );
-    const reply = readReply([
-      content("intro", "我先核查来源。"),
-      {
-        chunk_type: "think",
-        block_id: "r1",
-        event: "end",
-        chunk: "Compare the available sources",
-        metadata: { kind: "reasoning_summary" },
-      },
-      {
-        chunk_type: "tool_result",
-        tool_call_id: "read",
-        tool_call_name: "commandExecution",
-        event: "end",
-        status: "completed",
-        chunk: {
-          type: "commandExecution",
-          commandActions: [
-            { type: "read", path: "daily/report.md" },
-            { type: "listFiles", path: "daily" },
-            { type: "search", path: "daily", query: "小米" },
+    const reply = {
+      content: "我先核查来源。\n\n来源已核实，正在整理结论。\n\n结果已经确认。",
+      items: [
+        content("intro", "我先核查来源。"),
+        {
+          id: "r1",
+          type: "summary",
+          kind: "reasoning",
+          text: "Compare the available sources",
+          status: "completed",
+        },
+        {
+          id: "read",
+          type: "tool",
+          name: "command",
+          input: "",
+          output: "",
+          status: "completed",
+          actions: [
+            { kind: "read", target: "daily/report.md", query: null },
+            { kind: "list", target: "daily", query: null },
+            { kind: "search", target: "daily", query: "小米" },
           ],
         },
-      },
-      {
-        chunk_type: "think",
-        block_id: "r2",
-        event: "end",
-        chunk: "Validate the result",
-        metadata: { kind: "reasoning_summary" },
-      },
-      {
-        chunk_type: "tool_result",
-        tool_call_id: "cmd",
-        tool_call_name: "commandExecution",
-        event: "end",
-        status: "completed",
-        chunk: { type: "commandExecution", command: "date" },
-      },
-      content("progress", "来源已核实，正在整理结论。"),
-      {
-        chunk_type: "think",
-        block_id: "plan",
-        event: "end",
-        chunk: "## 执行计划",
-        metadata: { kind: "plan" },
-      },
-      content("final", "结果已经确认。"),
-    ]);
+        {
+          id: "r2",
+          type: "summary",
+          kind: "reasoning",
+          text: "Validate the result",
+          status: "completed",
+        },
+        {
+          id: "cmd",
+          type: "tool",
+          name: "command",
+          input: "date",
+          output: "",
+          status: "completed",
+          actions: [{ kind: "command", target: "date", query: null }],
+        },
+        content("progress", "来源已核实，正在整理结论。"),
+        {
+          id: "plan",
+          type: "summary",
+          kind: "plan",
+          text: "## 执行计划",
+          status: "completed",
+        },
+        content("final", "结果已经确认。"),
+      ],
+    };
     const entries = timelineItems(reply.items);
     assert.deepEqual(
       entries.map((entry: { type: string }) => entry.type),
@@ -262,7 +191,7 @@ test("reasoning stays inside activity disclosure while prose, plans and completi
       id: "reply",
       role: "assistant",
       source: "chat",
-      content: reply.text,
+      content: reply.content,
       items: reply.items,
       completed: true,
       streaming: false,
@@ -335,7 +264,14 @@ test("task fork replies display independently of automatic history", () => {
     query: "当前进展？",
     streaming: true,
   };
-  let reply = reduceReply(emptyReply(), content("answer", "正在核实"));
+  let reply = reduceReply(emptyReply(), {
+    chunk_type: "data",
+    chunk: makeMessage({
+      content: "正在核实",
+      completed: false,
+      outcome: null,
+    }),
+  });
   const task = () =>
     displayMessages(
       { sessionId: pending.sessionId, messages: [], pending, reply },
@@ -348,13 +284,16 @@ test("task fork replies display independently of automatic history", () => {
   );
   assert.equal(task()[1].streaming, true);
   assert.equal(
-    displayMessages({ ...model, pending: null }, undefined, "zh")[0].id,
+    displayMessages(
+      { ...model, sessionId: model.sessionId, pending: null },
+      undefined,
+      "zh",
+    )[0].id,
     assistant.id,
   );
   reply = reduceReply(reply, {
-    chunk_type: "reply_end",
-    status: "completed",
-    chunk: { result: "已确认进展" },
+    chunk_type: "data",
+    chunk: makeMessage({ content: "已确认进展" }),
   });
   pending.streaming = false;
   pending.outcome = "completed";
@@ -367,37 +306,6 @@ test("task fork replies display independently of automatic history", () => {
   assert.deepEqual(
     model.messages.map((message) => message.id),
     [assistant.id],
-  );
-});
-
-test("separate provider messages in one turn form one ordered timeline", () => {
-  const model = modelFor({
-    ...assistant,
-    id: "model-1",
-    chunks: [content("intro", "检查中")],
-    completed: true,
-  });
-  model.apply({
-    type: "message_upsert",
-    session_id: "session",
-    activities: {},
-    message: {
-      ...assistant,
-      id: "model-2",
-      chunks: [content("answer", "完成")],
-      completed: true,
-    },
-  });
-  const messages = displayMessages(
-    { ...model, pending: null },
-    undefined,
-    "zh",
-  );
-  assert.equal(messages.length, 1);
-  assert.equal(messages[0].content, "检查中\n\n完成");
-  assert.deepEqual(
-    messages[0].items?.map((item) => item.id),
-    ["intro", "answer"],
   );
 });
 
@@ -448,7 +356,8 @@ test("streaming Markdown reparses ambiguous tails and resolves definitions and c
 test("a lost command connection does not settle a still-running authoritative turn", () => {
   const model = modelFor({
     ...assistant,
-    chunks: [{ ...content("active", "Partial"), event: "delta" }],
+    content: "Partial",
+    items: [{ ...content("active", "Partial"), status: "running" }],
     completed: false,
   });
   const pending: PendingTurn = {
@@ -459,9 +368,11 @@ test("a lost command connection does not settle a still-running authoritative tu
     streaming: false,
     error: "Connection lost; waiting for synchronization",
   };
-  const reply = displayMessages({ ...model, pending }, undefined, "en").find(
-    (message) => message.role === "assistant",
-  )!;
+  const reply = displayMessages(
+    { ...model, sessionId: model.sessionId, pending },
+    undefined,
+    "en",
+  ).find((message) => message.role === "assistant")!;
   assert.equal(reply.streaming, true);
   assert.equal(reply.items?.[0].status, "running");
   assert.equal(reply.status?.tone, "waiting");
@@ -471,20 +382,25 @@ test("request bookkeeping never overwrites later model messages in an active tur
   const model = modelFor({
     ...assistant,
     id: "first",
-    chunks: [content("intro", "Progress")],
+    content: "Progress",
+    items: [content("intro", "Progress")],
     completed: true,
   });
-  model.status = "active";
+  model.agent!.status = "active";
   model.apply({
-    type: "message_upsert",
-    session_id: "session",
-    activities: {},
-    message: {
-      ...assistant,
-      id: "second",
-      chunks: [{ ...content("tail", "Live answer"), event: "delta" }],
-      completed: false,
-    },
+    ...snapshot([
+      {
+        ...assistant,
+        id: "first",
+        content: "Progress\n\nLive answer",
+        items: [
+          content("intro", "Progress"),
+          { ...content("tail", "Live answer"), status: "running" },
+        ],
+        completed: false,
+      },
+    ]),
+    type: "update",
   });
   const pending: PendingTurn = {
     id: "request",
@@ -497,7 +413,11 @@ test("request bookkeeping never overwrites later model messages in an active tur
     syncPending: (model: SessionModel, pending: PendingTurn) => void;
   };
   controller.syncPending(model, pending);
-  const [message] = displayMessages({ ...model, pending }, undefined, "en");
+  const [message] = displayMessages(
+    { ...model, sessionId: model.sessionId, pending },
+    undefined,
+    "en",
+  );
   assert.equal(message.content, "Progress\n\nLive answer");
   assert.equal(message.streaming, true);
   assert.equal("items" in pending, false);

@@ -6,11 +6,11 @@ from pathlib import Path, PureWindowsPath
 from stat import S_ISREG
 from uuid import uuid4
 
-from ....constants import DEFAULT_MAX_FILE_BYTES
-from ....utils.file_sync import sync_directory, sync_file
+from ..constants import DEFAULT_MAX_FILE_BYTES
+from .file_sync import sync_directory, sync_file
 
 
-class AgentFiles:
+class WorkspaceFiles:
     """Atomically publish complete files; reject aliases and workspace escapes."""
 
     def __init__(self, workspace: Path):

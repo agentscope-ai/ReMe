@@ -1,30 +1,7 @@
+import type { AgentView, TaskSettings } from "./wire.ts";
+export type { TaskSettings } from "./wire.ts";
+
 export type TaskType = "proactive" | "cron";
-
-export interface TaskSettings {
-  agent_type: TaskType;
-  enabled: boolean;
-  cron: string | null;
-  min_trigger_interval_seconds: number;
-  notify_window: { start: string; end: string } | null;
-}
-
-export interface TaskStatus extends Omit<
-  TaskSettings,
-  "cron" | "min_trigger_interval_seconds" | "notify_window"
-> {
-  agent_name: string;
-  task_path: string;
-  cron?: string;
-  min_trigger_interval_seconds?: number;
-  notify_window?: TaskSettings["notify_window"];
-  running: boolean;
-  pending_events: number;
-  in_flight_events: number;
-  last_started_at?: string;
-  last_completed_at: string | null;
-  next_trigger_at?: string;
-  error?: string;
-}
 
 export interface TaskDocument {
   path: string;
@@ -32,13 +9,12 @@ export interface TaskDocument {
   mtime: string;
 }
 
-export function taskSettings(status: TaskStatus): TaskSettings {
+export function taskSettings(status: AgentView): TaskSettings {
   return {
-    agent_type: status.agent_type,
     enabled: status.enabled,
-    cron: status.cron ?? null,
-    min_trigger_interval_seconds: status.min_trigger_interval_seconds ?? 0,
-    notify_window: status.notify_window ?? null,
+    cron: status.cron,
+    min_trigger_interval_seconds: status.min_trigger_interval_seconds,
+    notify_window: status.notify_window,
   };
 }
 
@@ -62,7 +38,7 @@ export type TaskRequest = { type: "task" } & (
       task_description: string;
       settings: TaskSettings;
     }
-  | { action: "status" | "delete" | "read"; agent_name: string }
+  | { action: "delete" | "read"; agent_name: string }
   | { action: "update"; agent_name: string; settings: Partial<TaskSettings> }
   | {
       action: "save";
@@ -104,7 +80,6 @@ export function taskPayload(request: TaskRequest): {
     if (!settings || typeof settings !== "object")
       throw new Error("Invalid task settings");
     const keys = [
-      "agent_type",
       "enabled",
       "cron",
       "min_trigger_interval_seconds",
@@ -142,7 +117,7 @@ export function taskPayload(request: TaskRequest): {
       throw new Error("Invalid task document");
     body.content = request.content;
     body.expected_mtime = request.expected_mtime;
-  } else if (!["status", "delete", "read"].includes(action))
+  } else if (!["delete", "read"].includes(action))
     throw new Error("Invalid task action");
   return {
     job:

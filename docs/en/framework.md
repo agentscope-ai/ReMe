@@ -616,10 +616,7 @@ outside it. Codex stores injected content in its native rollout without a second
 `reme_agents/` retains Agent configuration, memory, session IDs and
 inbox references; full recovery also requires native conversation histories and source reminder files.
 
-`BaseCodexAppServer.watch_activity()` observes transient [`AgentActivity`](../../reme/schema/agent_activity.py) phases;
-session listeners also receive these events. `session_id` routes presentation, while `execution_session_id` identifies
-the native conversation that owns `turn_id`; task activity also retains its task identity and start time.
-A completed turn, failure or cancellation closes its activity.
+The Agent runtime owns transient execution activity and live output. Desktop clients observe `watch_agent_session`; native Codex status notifications remain internal to operation completion and disconnect handling.
 All three wrappers support `append_session(..., role="user" | "assistant")` without generating a reply; the default role
 is `assistant`. Retries with the same `message_id` must retain both content and role. Injected messages keep
 `source="proactive"` independently of their role, including after reload or fork.

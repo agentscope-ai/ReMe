@@ -19,8 +19,7 @@ from ..codex_app_server._session_history import item_chunks
 from ..codex_app_server import BaseCodexAppServer, SdkCodexAppServer
 from ..component_registry import R
 from ...enumeration import ChunkEnum
-from ...utils.agent_activity import ActivityTracker
-from ...schema import AgentActivity, AgentReply, SessionMessage, SessionSnapshot, SessionStatus, StreamChunk, TokenUsage
+from ...schema import AgentReply, SessionMessage, SessionSnapshot, SessionStatus, StreamChunk, TokenUsage
 from ...schema.stream_chunk import stream_status
 from ...utils.async_utils import finish_cleanup
 
@@ -444,7 +443,6 @@ class CodexAgentWrapper(BaseAgentWrapper):
                 if (message.content, message.role) != (content, role):
                     raise RuntimeError("Codex persisted different content for the append ID")
                 pending.pop(identifier, None)
-                self.app_server._notify_session(session_id, message)  # pylint: disable=protected-access
                 self.logger.info(f"Codex append session={session_id} message={message_id} result=persisted")
                 return message
             await asyncio.sleep(0.05)
@@ -645,80 +643,46 @@ class CodexAgentWrapper(BaseAgentWrapper):
         kwargs = self._reply_kwargs(kwargs)
         output_schema = kwargs.get("output_schema")
         emitted_usage = None
-        source = kwargs.pop("activity_source", "chat")
-        target_session = kwargs.pop("activity_session_id", None)
-        started_at = kwargs.pop("activity_started_at", None)
-        task_id = kwargs.pop("activity_task_id", None)
-        presentation = AgentActivity(
-            session_id=target_session or "",
-            turn_id="",
-            source=source,
-            phase="thinking",
-            started_at=started_at,
-            task_id=task_id,
-        )
-        activity = None
-        try:
-            async with self._session(kwargs) as thread:
-                usage = _TurnUsage(await self.app_server.token_usage(thread.id))
-                turn = await self.app_server.turn(thread, inputs, output_schema=output_schema)
-                activity = presentation.model_copy(
-                    update={
-                        "session_id": target_session or thread.id,
-                        "execution_session_id": thread.id,
-                        "turn_id": turn.id,
-                    },
-                )
-                self.app_server.publish_activity(activity)
-                tracker = ActivityTracker(activity)
-                stream = self._turn_stream(turn, usage)
-                items, native_usage, completed, terminal = [], None, None, None
-                try:
-                    async for event in stream:
-                        payload = event.payload
-                        if event.method == "item/completed" and payload.turn_id == turn.id:
-                            items.append(payload.item)
-                        elif event.method == "thread/tokenUsage/updated" and payload.turn_id == turn.id:
-                            native_usage = payload.token_usage
-                        elif event.method == "turn/completed" and payload.turn.id == turn.id:
-                            completed = payload.turn
-                        update = usage.usage if usage.usage != emitted_usage else None
-                        chunks = self._event_to_chunks(event, thread.id, usage=update)
-                        if event.method == "thread/tokenUsage/updated":
-                            emitted_usage = usage.usage
-                        if not chunks:
-                            chunks = [self._chunk(ChunkEnum.DATA, chunk=None, metadata={"visibility": "diagnostic"})]
-                        for chunk in chunks:
-                            chunk.metadata.pop("native", None)
-                        chunks[0].metadata["native"] = {"method": event.method, "payload": self._serialize(payload)}
-                        for chunk in chunks:
-                            chunk.session_id = thread.id
-                            chunk.turn_id = chunk.turn_id or turn.id
-                            if chunk.chunk_type == ChunkEnum.REPLY_END:
-                                terminal = chunk
-                            else:
-                                updated = tracker.update(chunk)
-                                if updated != activity:
-                                    activity = updated
-                                    self.app_server.publish_activity(activity)
-                                yield chunk
-                    if completed is None or terminal is None:
-                        raise RuntimeError("Codex turn completed event not received")
-                    result = self._finish_reply(thread.id, completed, items, native_usage, usage.usage, output_schema)
-                finally:
-                    if usage.usage is not None:
-                        self._record_token_usage(usage.usage)
-                    if completed is None:
-                        await self._interrupt(turn)
-                    await stream.aclose()
-            terminal.chunk = {key: value for key, value in result.items() if key != "events"}
-            terminal.status = result["status"]
-            terminal.metadata["error"] = result["error"]
-            activity = tracker.update(terminal)
-            self.app_server.publish_activity(activity)
-            yield terminal
-        except BaseException as exc:
-            if activity is not None and activity.phase not in {"completed", "failed", "interrupted"}:
-                phase = "interrupted" if isinstance(exc, (asyncio.CancelledError, GeneratorExit)) else "failed"
-                self.app_server.publish_activity(activity.model_copy(update={"phase": phase, "tool": None}))
-            raise
+        async with self._session(kwargs) as thread:
+            usage = _TurnUsage(await self.app_server.token_usage(thread.id))
+            turn = await self.app_server.turn(thread, inputs, output_schema=output_schema)
+            stream = self._turn_stream(turn, usage)
+            items, native_usage, completed, terminal = [], None, None, None
+            try:
+                async for event in stream:
+                    payload = event.payload
+                    if event.method == "item/completed" and payload.turn_id == turn.id:
+                        items.append(payload.item)
+                    elif event.method == "thread/tokenUsage/updated" and payload.turn_id == turn.id:
+                        native_usage = payload.token_usage
+                    elif event.method == "turn/completed" and payload.turn.id == turn.id:
+                        completed = payload.turn
+                    update = usage.usage if usage.usage != emitted_usage else None
+                    chunks = self._event_to_chunks(event, thread.id, usage=update)
+                    if event.method == "thread/tokenUsage/updated":
+                        emitted_usage = usage.usage
+                    if not chunks:
+                        chunks = [self._chunk(ChunkEnum.DATA, chunk=None, metadata={"visibility": "diagnostic"})]
+                    for chunk in chunks:
+                        chunk.metadata.pop("native", None)
+                    chunks[0].metadata["native"] = {"method": event.method, "payload": self._serialize(payload)}
+                    for chunk in chunks:
+                        chunk.session_id = thread.id
+                        chunk.turn_id = chunk.turn_id or turn.id
+                        if chunk.chunk_type == ChunkEnum.REPLY_END:
+                            terminal = chunk
+                        else:
+                            yield chunk
+                if completed is None or terminal is None:
+                    raise RuntimeError("Codex turn completed event not received")
+                result = self._finish_reply(thread.id, completed, items, native_usage, usage.usage, output_schema)
+            finally:
+                if usage.usage is not None:
+                    self._record_token_usage(usage.usage)
+                if completed is None:
+                    await self._interrupt(turn)
+                await stream.aclose()
+        terminal.chunk = {key: value for key, value in result.items() if key != "events"}
+        terminal.status = result["status"]
+        terminal.metadata["error"] = result["error"]
+        yield terminal

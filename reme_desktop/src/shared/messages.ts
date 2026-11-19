@@ -3,18 +3,18 @@ import type { Language } from "./i18n.ts";
 import { finishItems } from "./transcript.ts";
 import type { ReplyProgress } from "./transcript.ts";
 import type {
-  AgentActivity,
+  ClientActivity,
   DisplayMessage,
   PendingTurn,
-  TranscriptMessage,
+  AgentMessage,
   StatusNotice,
 } from "./protocol.ts";
 
-export const terminal = (phase: AgentActivity["phase"]) =>
+export const terminal = (phase: ClientActivity["phase"]) =>
   ["completed", "failed", "interrupted"].includes(phase);
 
 export function activityNotice(
-  activity: AgentActivity,
+  activity: ClientActivity,
   language: Language,
 ): StatusNotice {
   const phase = activity.phase;
@@ -33,51 +33,21 @@ export function activityNotice(
   };
 }
 
-/** Some providers store each model response separately within one agent turn. */
-function groupTurns(messages: TranscriptMessage[]): TranscriptMessage[] {
-  const result: TranscriptMessage[] = [];
-  const turns = new Map<string, number>();
-  for (const message of messages) {
-    const key =
-      message.role === "assistant" && message.source === "chat"
-        ? message.turn_id
-        : null;
-    const index = key ? turns.get(key) : undefined;
-    if (index === undefined) {
-      if (key) turns.set(key, result.length);
-      result.push(message);
-    } else {
-      const previous = result[index];
-      result[index] = {
-        ...previous,
-        content: [previous.content, message.content]
-          .filter(Boolean)
-          .join("\n\n"),
-        items: [...previous.items, ...message.items],
-        completed: previous.completed && message.completed,
-        outcome: message.outcome ?? previous.outcome,
-        error: message.error ?? previous.error,
-      };
-    }
-  }
-  return result;
-}
-
 /** Project native history and the local stream once, before either window renders it. */
 export function displayMessages(
   state: {
     sessionId: string | null;
-    messages: TranscriptMessage[];
+    messages: AgentMessage[];
     pending: PendingTurn | null;
     reply?: ReplyProgress;
     task?: boolean;
   },
-  activity: AgentActivity | undefined,
+  activity: ClientActivity | undefined,
   language: Language,
 ): DisplayMessage[] {
   const pending =
     state.pending?.sessionId === state.sessionId ? state.pending : null;
-  const messages = groupTurns(state.messages);
+  const messages = state.messages;
   const result: DisplayMessage[] = messages.map((message) => {
     const live =
       pending?.turnId &&
@@ -95,12 +65,7 @@ export function displayMessages(
         message.origin_session_id ?? state.sessionId ?? undefined,
       role: message.role,
       taskInput: state.task && message.role === "user",
-      content: items.some((item) => item.type === "text")
-        ? items
-            .filter((item) => item.type === "text")
-            .map((item) => item.text)
-            .join("\n\n")
-        : message.content,
+      content: message.content,
       items:
         message.completed || (live?.outcome && !live.streaming)
           ? finishItems(
@@ -122,7 +87,7 @@ export function displayMessages(
               tone: outcome === "waiting" ? "waiting" : "error",
             }
           : null,
-      error: live?.error ?? message.error,
+      error: live?.error ?? message.error ?? undefined,
     };
   });
   const matches = (role: "user" | "assistant") =>
@@ -147,7 +112,7 @@ export function displayMessages(
       role: "assistant",
       source: "chat",
       turnId: pending.turnId,
-      content: state.reply?.text ?? "",
+      content: state.reply?.content ?? "",
       items: state.reply
         ? pending.streaming
           ? state.reply.items
@@ -213,7 +178,8 @@ export function displayMessages(
           {
             session_id: state.sessionId!,
             turn_id: pending.turnId ?? pending.id,
-            source: "chat",
+            tool: null,
+            started_at: null,
             phase: pending.streaming
               ? reply.content
                 ? "answering"

@@ -10,7 +10,7 @@ import httpx
 
 from .base_connector import BaseConnectorStep
 from ...file_io import check_path_permission, get_path_lock
-from ....components.agent_runtime._internal.files import AgentFiles
+from ....utils.workspace_files import WorkspaceFiles
 from ....schema import Event, ResourceMetadata
 from ....schema.agent_runtime import validate_agent_name
 from ....utils.async_utils import complete_in_thread
@@ -20,7 +20,7 @@ class FinanceCollectorStep(BaseConnectorStep):
     """Keep upstream payloads and per-package delivery receipts in workspace files."""
 
     collected_at: datetime
-    files: AgentFiles
+    files: WorkspaceFiles
     resource_root: Path
 
     def __init__(self, agent_name="finance", max_retries=3, request_timeout=20, request_interval=1, **kwargs):
@@ -43,7 +43,7 @@ class FinanceCollectorStep(BaseConnectorStep):
 
     async def execute(self):
         target, _ = self.resource_target()
-        self.files = AgentFiles(self.workspace_path)
+        self.files = WorkspaceFiles(self.workspace_path)
         self.resource_root = self.files.checked(target.parent.parent)
         self.require_path(self.resource_root)
         self.require_path(self.files.path(self.config_value("reme_agent_dir")))

@@ -58,15 +58,14 @@ class AgentOutbox:
         if "id" not in document:
             return None
         metadata = dict(document.metadata)
-        if metadata.pop("action", "write") != "write":
-            raise ValueError("canonical reminders must have action write")
-        return AgentReminder.model_validate({**metadata, "message": document.content})
+        priority = metadata.pop("action", None)
+        return AgentReminder(priority=priority, message=document.content, **metadata)
 
     def _write(self, path, item, *, on_write=None):
-        metadata = item.model_dump(mode="json", exclude={"message"})
+        metadata = item.model_dump(mode="json", exclude={"message", "priority"})
         self.files.write(
             path,
-            frontmatter.dumps(frontmatter.Post(item.message, action="write", **metadata)) + "\n",
+            frontmatter.dumps(frontmatter.Post(item.message, action=item.priority, **metadata)) + "\n",
             **({"on_write": lambda version: on_write(path, version)} if on_write is not None else {}),
         )
 
@@ -84,7 +83,7 @@ class AgentOutbox:
         return committed & records.keys()
 
     async def sync(self):
-        """Load complete records, repair reference views, and retry pending publication."""
+        """Reload reminders and retry pending publication."""
         async with self.sync_lock:
             await self._sync()
 
@@ -104,7 +103,6 @@ class AgentOutbox:
 
     async def _sync(self):
         receipts = await self.refresh()
-        await self.reconcile()
         try:
             if not self.runtime.closed:
                 await self.publish()
@@ -121,19 +119,6 @@ class AgentOutbox:
                 await self.runtime.inbox.retain(name, retained)
                 await self.runtime.inbox.retain(name, released, release=True)
 
-    async def reconcile(self):
-        """Admit eligible reminders by priority without consuming deferred canonical files."""
-        agents = await asyncio.to_thread(self.runtime.agents.load)
-        pending, processed = [], []
-        for ref in sorted(self.committed, key=self._order):
-            item = self.records[ref]
-            event = self._event(ref)
-            if item.read_at is not None:
-                processed.append({"item": event, "consume_ts": item.read_at.isoformat()})
-            elif self.allows(ref, agents, self.runtime.now()):
-                pending.append(event)
-        await self.runtime.inbox.reconcile("Remy", pending, processed, defer_overflow=True)
-
     def _order(self, ref):
         item = self.records[ref]
         return item.priority, item.created_at, ref.id
@@ -143,7 +128,8 @@ class AgentOutbox:
         agent = agents.get(self.owners.get(ref))
         return agent is not None and agent.enabled and (agent.notify_window is None or agent.notify_window.allows(now))
 
-    def _event(self, ref):
+    def event(self, ref):
+        """Describe the source of a reminder in the inbox listing."""
         return Event(
             id=ref.id,
             event_ts=self.records[ref].created_at,
@@ -276,17 +262,46 @@ class AgentOutbox:
                     continue
                 if not self.allows(ref, agents, self.runtime.now()):
                     continue
-                event = self._event(ref)
-            # Let the caller schedule existing consumers before retrying a full receiver.
-            try:
-                await self.runtime.inbox.append("Remy", event, wait=False)
-            except TimeoutError:
-                continue
             await self.update(ref, delivered_at=self.runtime.now())
             self.runtime.logger.info(
                 f"Proactive agent={owner} reminder={ref.id} result=delivered path={ref.file}",
             )
             self.runtime.changed.set()
+
+    async def inbox(self, *, state="all", offset=0, limit=20):
+        """Project the receiver view directly from canonical reminder files."""
+        if state not in {"all", "pending", "processing", "processed"}:
+            raise ValueError("invalid item state")
+        if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 100:
+            raise ValueError("offset must be nonnegative and limit must be between 1 and 100")
+        await self.refresh()
+        turn = self.runtime.notifications.active_turn
+        claimed = set(turn.msg_ids) if turn else set()
+        async with self.lock:
+            processed = sorted(
+                (ref for ref in self.committed if self.records[ref].read_at is not None),
+                key=lambda ref: (self.records[ref].read_at, ref.id),
+            )[-self.runtime.inbox.max_read_items :]
+            pending = [
+                ref
+                for ref in self.committed
+                if self.records[ref].delivered_at is not None and self.records[ref].read_at is None
+            ]
+            items = []
+            for ref in [*processed, *pending]:
+                item = self.records[ref]
+                status = "processed" if item.read_at is not None else "processing" if ref.id in claimed else "pending"
+                if state in {"all", status}:
+                    items.append(
+                        {
+                            "event": self.event(ref),
+                            "state": status,
+                            "consume_ts": item.read_at.isoformat() if item.read_at else None,
+                            "reminder": self.message(ref),
+                        },
+                    )
+            items.sort(key=lambda value: (value["event"]["event_ts"], value["event"]["id"]), reverse=True)
+            return {"items": items[offset : offset + limit], "total": len(items), "offset": offset, "limit": limit}
 
     def references(self, agent_name):
         """Find retained records owned by an identity without storing duplicate sender fields."""

@@ -68,7 +68,7 @@ class RoundArtifacts:
             content = self.snapshot(self.drafts[key])[0]
             if content is None or content == self.before[key][0]:
                 continue
-            # Drafts share their final parent directories, so relative links retain their base.
+            # Replace private draft names with their published names in saved links.
             for target in self.keys:
                 content = content.replace(self.drafts[target].name, self.paths[target].name)
             changes[key] = content

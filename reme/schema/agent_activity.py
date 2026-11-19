@@ -4,6 +4,17 @@ from typing import Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, model_validator
 
+ActivityPhase = Literal[
+    "thinking",
+    "working",
+    "remembering",
+    "answering",
+    "waiting",
+    "completed",
+    "failed",
+    "interrupted",
+]
+
 
 class AgentActivity(BaseModel):
     """One agent turn; task identity and start time also cover preparation."""
@@ -14,7 +25,7 @@ class AgentActivity(BaseModel):
     execution_session_id: str | None = None
     turn_id: str
     source: Literal["chat", "proactive", "task"] = "chat"
-    phase: Literal["thinking", "working", "remembering", "answering", "waiting", "completed", "failed", "interrupted"]
+    phase: ActivityPhase
     tool: str | None = None
     task_id: str | None = None
     started_at: AwareDatetime | None = None

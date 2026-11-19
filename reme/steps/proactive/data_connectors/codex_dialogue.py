@@ -15,7 +15,7 @@ from .base_connector import resource_package_id
 from ..agent import BaseAgentStep
 from ...file_io import get_path_lock
 from ....components import R
-from ....components.agent_runtime._internal.files import AgentFiles
+from ....utils.workspace_files import WorkspaceFiles
 from ....schema import Event, ResourceMetadata
 from ....schema.agent_runtime import validate_agent_name
 from ....utils.async_utils import finish_cleanup
@@ -43,12 +43,12 @@ class _CodexDialogueBase(BaseAgentStep):
             raise RuntimeError("Codex dialogue collection stopped")
 
     def _index(self):
-        files = AgentFiles(self.workspace_path)
+        files = WorkspaceFiles(self.workspace_path)
         directory = files.path(self.config_value("resource_dir")) / "codex_dialogue"
         return CodexDialogueIndex(files, directory, self.codex_home, self._check_stopped)
 
     def _authorize(self):
-        files = AgentFiles(self.workspace_path)
+        files = WorkspaceFiles(self.workspace_path)
         directory = files.path(self.config_value("resource_dir"))
         if directory == files.workspace:
             raise ValueError("resource_dir must be a workspace subdirectory")

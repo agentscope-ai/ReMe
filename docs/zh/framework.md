@@ -588,9 +588,7 @@ Codex wrapper 通过 `app_server: default` 或 `app_server: oauth` 引用共享�
 分身推理过程与普通回复留在分身中。Codex 把追加内容保存在原生 rollout，不保存另一份应用消息副本。
 `reme_agents/` 保存 Agent 配置、记忆、会话 ID 和收件箱引用；恢复完整对话与提醒还需要原生会话历史和提醒源文件。
 
-`BaseCodexAppServer.watch_activity()` 订阅临时的 [`AgentActivity`](../../reme/schema/agent_activity.py) 执行阶段，
-会话监听器也会收到这些事件。`session_id` 指定展示目标，`execution_session_id` 标识实际拥有 `turn_id` 的原生会话；
-任务活动还保留任务标识和开始时间。turn 完成、失败或取消时结束活动。
+Agent Runtime 统一管理临时活动状态与实时输出；桌面通过 `watch_agent_session` 订阅。Codex 原生状态通知只负责操作完成与断连处理。
 三个 wrapper 都支持 `append_session(..., role="user" | "assistant")`，只追加上下文，不触发模型生成，默认角色为 `assistant`。
 同一 `message_id` 重试时必须保持内容和角色一致。注入消息的 `source="proactive"` 与角色独立，重载或 fork 后仍保留。
 `SessionSnapshot.revision` 是与活动状态无关、重载后稳定的内容指纹。通过 `expected_revision` 追加时，

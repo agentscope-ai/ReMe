@@ -37,7 +37,6 @@ class _ThreadState:
     pending: AsyncThread | None = None
     pending_has_history: bool = False
     ephemeral: bool = False
-    history_changed: bool = False
     turn_options: dict[str, Any] = field(default_factory=dict)
 
 
@@ -272,15 +271,6 @@ class SdkCodexAppServer(BaseCodexAppServer):
                 event = await codex._client.next_notification()  # pylint: disable=protected-access
                 if event.method != "thread/status/changed":
                     continue
-                native = event.payload.status.root
-                self._notify_session(
-                    event.payload.thread_id,
-                    SessionStatus(
-                        session_id=event.payload.thread_id,
-                        status={"notLoaded": "not_loaded", "systemError": "error"}.get(native.type, native.type),
-                        active_flags=[getattr(flag, "value", flag) for flag in getattr(native, "active_flags", [])],
-                    ),
-                )
                 state = self._threads.get(event.payload.thread_id)
                 if state is None or state.completion is None or state.completion.done():
                     continue
@@ -291,7 +281,6 @@ class SdkCodexAppServer(BaseCodexAppServer):
         except Exception as exc:
             if self._codex is codex:
                 self._failed = True
-                self._notify_session(None, None)
             for state in self._threads.values():
                 if state.completion is not None and not state.completion.done():
                     state.completion.set_exception(exc)
@@ -422,8 +411,6 @@ class SdkCodexAppServer(BaseCodexAppServer):
             async with self._operation(thread):
                 turn = await thread.turn(inputs, **{**state.turn_options, "output_schema": output_schema})
                 state.pending = None
-                state.history_changed = True
-                self._notify_session(thread.id, SessionStatus(session_id=thread.id, status="active"))
 
         try:
             await finish_cleanup(dispatch())
@@ -572,7 +559,6 @@ class SdkCodexAppServer(BaseCodexAppServer):
                 self._threads[thread.id] = state
                 if thread_id and not fork:
                     await self.wait_idle(thread)
-                state.history_changed = False
                 try:
                     yield thread
                 finally:
@@ -590,13 +576,10 @@ class SdkCodexAppServer(BaseCodexAppServer):
                         except Exception as exc:
                             if isinstance(exc, TransportClosedError) and self._codex is codex:
                                 self._failed = True
-                            self._notify_session(thread.id, None)
                             if error is None:
                                 raise
                             self.logger.warning(f"Failed to wait for Codex thread {thread.id}: {exc}")
                         else:
-                            if state.history_changed:
-                                await self._publish_history(thread.id)
                             from openai_codex.generated.v2_all import ThreadUnsubscribeResponse
 
                             try:
@@ -613,7 +596,6 @@ class SdkCodexAppServer(BaseCodexAppServer):
         except TransportClosedError:
             if codex is not None and self._codex is codex:
                 self._failed = True
-                self._notify_session(None, None)
             raise
         finally:
             if state is not None:
@@ -631,6 +613,4 @@ class SdkCodexAppServer(BaseCodexAppServer):
             self._failed = False
             self._http_url = None
             self._threads.clear()
-            self._session_listeners.clear()
-            self._activity_listeners.clear()
             await self.jobs_mcp.close()

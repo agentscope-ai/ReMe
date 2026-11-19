@@ -4,7 +4,6 @@ import asyncio
 
 from .base import BaseAgentStep
 from ....components import R
-from ....utils.async_utils import finish_cleanup
 
 
 @R.register("agent_loop_step")
@@ -21,10 +20,5 @@ class AgentLoopStep(BaseAgentStep):
                 await runtime.tick(self.run_job)
                 await runtime.wait(stop)
         finally:
-            await runtime.notifications.close()
-            tasks = list(runtime.workers.values())
-            for task in tasks:
-                task.cancel()
-            if tasks:
-                await finish_cleanup(asyncio.gather(*tasks, return_exceptions=True))
+            await runtime.stop_workers()
         return self.context.response

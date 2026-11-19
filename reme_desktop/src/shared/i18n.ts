@@ -147,7 +147,6 @@ export const messages = {
     "修改会在后续执行时使用，当前这一轮继续运行。",
     "Changes apply to future runs. The current run continues.",
   ],
-  taskState: ["状态", "Status"],
   taskLastStarted: ["最近开始", "Last started"],
   taskLastCompleted: ["最近完成", "Last completed"],
   taskInFlight: ["正在处理的事件", "Events in progress"],

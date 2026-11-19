@@ -26,6 +26,26 @@ class BaseChatAgentStep(BaseAgentStep):
         runtime = self.agent_runtime
         return await runtime.sessions.ensure("Remy", runtime.agent_wrapper, options, runtime.now(), new=new)
 
+    async def chat(self, query, *, on_chunk=None):
+        """Share execution between the internal job and the normalized client API."""
+        async with self.agent_runtime.chat_turn():
+            options = self.session_options()
+            session_id = await self.ensure_session(options)
+            return await self.stream_reply(
+                query,
+                session_id=session_id,
+                agent_name="Remy",
+                on_chunk=on_chunk,
+                **options,
+            )
+
+    async def new_session(self):
+        """Rotate the selected Chat session under the same generation lock."""
+        if self.agent_runtime.chat_lock.locked():
+            raise RuntimeError("Chat Agent is busy; retry after its turn completes")
+        async with self.agent_runtime.chat_turn():
+            await self.ensure_session(self.session_options(), new=True)
+
 
 @R.register("chat_agent_step")
 class ChatAgentStep(BaseChatAgentStep):
@@ -36,11 +56,7 @@ class ChatAgentStep(BaseChatAgentStep):
         if set(arguments) != {"query"} or not isinstance(arguments["query"], str) or not arguments["query"].strip():
             raise ValueError("chat accepts only a non-empty query")
         self.require_paths(self.workspace_path)
-        async with self.agent_runtime.chat_turn():
-            options = self.session_options()
-            session_id = await self.ensure_session(options)
-            await self.stream_reply(arguments["query"], session_id=session_id, agent_name="Remy", **options)
-        return self.context.response
+        return await self.chat(arguments["query"])
 
 
 @R.register("new_chat_session_step")
@@ -51,10 +67,7 @@ class NewChatSessionStep(BaseChatAgentStep):
         if self.parameters():
             raise ValueError("new_chat_session accepts no arguments")
         self.require_paths(self.workspace_path)
-        if self.agent_runtime.chat_lock.locked():
-            raise RuntimeError("Chat Agent is busy; retry after its turn completes")
-        async with self.agent_runtime.chat_turn():
-            await self.ensure_session(self.session_options(), new=True)
+        await self.new_session()
         self.context.response.answer = {"agent_name": "Remy", "created": True}
         return self.context.response
 

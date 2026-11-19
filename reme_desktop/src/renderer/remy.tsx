@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Eraser, Info } from "lucide-react";
+import { Eraser } from "lucide-react";
 import type { AgentView, DesktopState } from "../shared/protocol.ts";
 import { errorText, translator } from "../shared/i18n.ts";
 import { action } from "./desktop.ts";
@@ -17,11 +17,9 @@ type AgentSection = "chat" | "document" | "reminders" | "outbox" | "inbox";
 
 export default function Remy({
   state,
-  onSettings,
   collapsed,
 }: {
   state: DesktopState;
-  onSettings: () => void;
   collapsed?: boolean;
 }) {
   const t = translator(state.settings.language);
@@ -34,24 +32,18 @@ export default function Remy({
   const [error, setError] = useState<unknown>(null);
   const [clearing, setClearing] = useState(false);
   const clearingRequest = useRef(false);
-  const scope = `${state.settings.endpoint}:${state.workspace}`;
-  const scopeRef = useRef(scope);
-  scopeRef.current = scope;
+  const live = useRef(false);
   const [task, setTask] = useState<TaskTarget | null>(null);
   const [taskBusy, setTaskBusy] = useState(false);
   const [createdTask, setCreatedTask] = useState<string | null>(null);
   const [documentRevision, setDocumentRevision] = useState(0);
   const section = sections[selected] ?? "chat";
   useEffect(() => {
-    setSections({});
-    setDrafts({});
-    setError(null);
-    setTask(null);
-    setTaskBusy(false);
-    setCreatedTask(null);
-    clearingRequest.current = false;
-    setClearing(false);
-  }, [scope]);
+    live.current = true;
+    return () => {
+      live.current = false;
+    };
+  }, []);
   useEffect(() => {
     if (
       createdTask &&
@@ -70,9 +62,9 @@ export default function Remy({
     try {
       await operation();
     } catch (reason) {
-      if (scopeRef.current === scope) setError(reason);
+      if (live.current) setError(reason);
     } finally {
-      if (scopeRef.current === scope) setTaskBusy(false);
+      if (live.current) setTaskBusy(false);
     }
   };
   const toggleTask = (value: AgentView) =>
@@ -112,7 +104,7 @@ export default function Remy({
   const isRemy = selected === "Remy";
   const clearDisabled =
     clearing ||
-    !state.workspace ||
+    !state.clientInfo ||
     state.connection !== "connected" ||
     state.status === "active" ||
     state.status === "error" ||
@@ -124,14 +116,14 @@ export default function Remy({
     setError(null);
     try {
       await action({ type: "session.new" });
-      if (scopeRef.current !== scope) return false;
+      if (!live.current) return false;
       setSections((value) => ({ ...value, Remy: "chat" }));
       return true;
     } catch (reason) {
-      if (scopeRef.current === scope) setError(reason);
+      if (live.current) setError(reason);
       return false;
     } finally {
-      if (scopeRef.current === scope) {
+      if (live.current) {
         clearingRequest.current = false;
         setClearing(false);
       }
@@ -153,7 +145,7 @@ export default function Remy({
       ? "agentDisabled"
       : agent?.error
         ? "agentError"
-        : agent?.running
+        : agent?.status === "active"
           ? "agentRunning"
           : "agentIdle",
   );
@@ -219,13 +211,13 @@ export default function Remy({
                 ))}
               </nav>
               <span
-                className={`agent-status ${agent?.error ? "error" : agent?.running ? "running" : ""}`}
+                className={`agent-status ${agent?.error ? "error" : agent?.status === "active" ? "running" : ""}`}
                 title={agent?.error ?? undefined}
               >
                 <i />
                 {status}
               </span>
-              {isRemy ? (
+              {isRemy && (
                 <button
                   className="icon-button"
                   aria-label={t("clearConversation")}
@@ -235,16 +227,6 @@ export default function Remy({
                 >
                   <Eraser size={15} />
                 </button>
-              ) : (
-                <button
-                  className="icon-button"
-                  aria-label={t("taskDetails")}
-                  onClick={() =>
-                    setTask({ mode: "status", agentName: selected })
-                  }
-                >
-                  <Info size={15} />
-                </button>
               )}
             </div>
           </header>
@@ -253,7 +235,7 @@ export default function Remy({
               {errorText(error, state.settings.language)}
             </p>
           )}
-          <div className="agent-content" key={`${scope}:${selected}`}>
+          <div className="agent-content" key={selected}>
             <div
               className="agent-chat"
               hidden={section !== "chat"}
@@ -261,18 +243,9 @@ export default function Remy({
             >
               <Chat
                 state={state}
-                embedded
                 active={state.activePage === "remy" && section === "chat"}
                 clearing={isRemy && clearing}
                 onClear={clearConversation}
-                onSettings={onSettings}
-                onExplain={(message) =>
-                  void action({
-                    type: "item.action",
-                    action: "explain",
-                    target: { kind: "message", id: message.id },
-                  }).catch(setError)
-                }
                 draft={drafts[selected] ?? ""}
                 onDraft={(value) =>
                   setDrafts((current) => ({ ...current, [selected]: value }))
@@ -295,14 +268,18 @@ export default function Remy({
               <Reminders state={state} />
             )}
             {(section === "outbox" || section === "inbox") && (
-              <AgentResources state={state} inbox={section === "inbox"} />
+              <AgentResources
+                key={section}
+                state={state}
+                inbox={section === "inbox"}
+              />
             )}
           </div>
         </section>
       </SplitPane>
       {task && (
         <TaskDialog
-          key={`${scope}:${JSON.stringify(task)}`}
+          key={JSON.stringify(task)}
           target={task}
           state={state}
           onClose={() => setTask(null)}

@@ -34,7 +34,7 @@ export function viewState(
             : state.surface,
         readMessageIds: [],
         pending: null,
-        workspace: "",
+        clientInfo: null,
         documentTarget: null,
         reminders: noMessages,
         focusTarget: null,

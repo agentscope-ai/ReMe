@@ -21,7 +21,7 @@ Five parts support the workflow:
 
 Users own the workspace files and can inspect or edit them. Each automatic event or scheduled run starts a fresh native session and rebuilds context from the task description and daily summaries. Earlier sessions remain available as history. Task questions fork the latest task session and ask directly with its existing instructions and context, including while it is running. Query forks are read-only and do not replace the task session; the main Chat Agent continues its own conversation.
 
-Each run uses one of two complete prompts: `proactive_query` for event tasks and `cron_query` for scheduled tasks, each with English and Chinese versions. Event tasks analyze incoming material, record new information and decide whether to remind. Scheduled tasks carry out the task, record what happened, report with P0 and update today's summary on every run. Environment and path aliases are shared. Code validates the final files before committing the run; logs distinguish validation, successful commits and delivery.
+Event tasks use `proactive_query` to analyze incoming material, record new information and decide whether to remind. Scheduled tasks use `cron_query` to perform the task, record what happened, decide whether to report and update today's summary on every run. The prompts share environment and path aliases. Code validates the final files before committing the run, and logs distinguish validation, successful commits and delivery.
 
 Failed task runs retry with increasing delays, starting at `retry_seconds` (5 seconds by default) and normally capped at 5 minutes. A successful run resets the delay. Per-run diagnostics are in response metadata `reme.agent_run`; process-local counters under `agent_runs` group runs, tokens, tool calls and elapsed time by `agent_type`. Model status and run result are separate, so valid artifacts accepted after a model error still count as a completed run.
 
@@ -39,7 +39,7 @@ For event tasks, the record uses frontmatter `action: write` for new information
 
 Every record with `action: write` requires a nonempty, updated daily summary. For event tasks, this also applies when the reminder is skipped; the skipped reminder explains why no notification is needed. “Today's records” merges related items and retains necessary background and record links. “Today's reminders” preserves earlier entries and adds generated reminders without treating them as received or read.
 
-Scheduled tasks record and report each execution, including unchanged results, insufficient information or unfinished work. Both the record and report use `action: write`, and the report uses `priority: P0`; code rejects a skipped record, skipped report or another priority. Briefings and summaries follow the task's requirements, with necessary sources and result links.
+Scheduled tasks report every run at P0 by default. Explicit delivery conditions and priorities in `TASK.md` override those defaults. The scheduled prompt requires an execution record with `action: write` each run. Both task types use the same reminder file format. Set `action` to `P0`, `P1` or `P2` to submit the body for delivery. Set `action: skip` and give a brief reason to skip delivery. Briefings and summaries describe the actual results and include necessary sources and result links.
 
 Event tasks follow `TASK.md` and first exclude content that does not need a reminder, then select the first matching level in P0/P1/P2 order. They do not guess what the user knows from other conversations. Their reminders use one natural, concise sentence. After final validation of the reminder priority and updated summary, Outbox adds related paths, the reminder ID, creation time and acknowledgement fields before committing input completion. A generated reminder has not necessarily been delivered.
 
@@ -57,7 +57,7 @@ skill instructions; the main Chat Agent retains skills. Global instructions unde
 
 Personal Runtime connects the main Chat Agent, background tasks, and reminder handling. Users manage tasks through Chat and can change their requirements, inspect progress, pause execution, or end a task.
 
-Each Agent has one stable `agent_name` and an `agent_type`: `chat`, `proactive` or `cron`. The main Chat Agent is `Remy`; task names use 1–3 simple lowercase English words joined by underscores. Creation writes `task_description` verbatim to `TASK.md` only if the file is absent. Create, list and status return `task_path`; read the current file before updating the task description and read it back after saving. Use the configuration to change execution settings.
+Each Agent has one stable `agent_name`. Background tasks use an optional `cron` schedule; their display-only `agent_type` is derived. The main Chat Agent is `Remy`; task names use 1–3 simple lowercase English words joined by underscores. Creation writes `task_description` verbatim to `TASK.md` only if the file is absent. Create, list and status return `task_path`; read the current file before updating the task description and read it back after saving. Use the configuration to change execution settings.
 
 Committed reminders reach the Chat Inbox. Priority, Chat idle time, and the task's notification window determine when reminders become eligible for processing. A temporary Reminder fork receives the selected batch and uses the current conversation and the backend's read-only mode to decide whether the user still needs to be told. It skips known, duplicate, handled or outdated information without assigning a new priority or adding action requirements. Explicit requests for reminders at a specified time or condition still apply. A silent Chat decision preserves the task's generated record, reminder and summary.
 
@@ -72,3 +72,30 @@ execution trajectories require additional connectors. Collected observations mus
 actions, and verified results.
 
 See [Services and Deployment](./services.md#agent-runtime) for configuration and interfaces.
+
+
+## Task storage
+
+The optional `cron` field determines when a task runs. Omit it for event-driven tasks, set an expression for scheduled tasks, and set it to null to return to event-driven execution. Agent views derive `agent_type` from the schedule.
+
+Each task owns a directory under `reme_agent_dir`. Deleting a task stops its execution and preserves its files. Temporary query sessions are recorded as independent branches.
+
+Remy's Inbox reads committed reminder Markdown and its acknowledgement fields. It holds the active batch in memory and applies the configured count and byte limits. Task input inboxes use durable claim, acknowledgement and retry. Link workspace files with `[[path/to/file.md|Label]]` in task artifacts.
+
+## Desktop protocol
+
+The desktop reads `get_client_info` for workspace settings, served jobs and speech capabilities. Task create, status
+and update return the same Agent view as the sidebar; the list action wraps these views in `items` and `total`.
+`status` is authoritative for execution state; clients derive the running indicator from `status=active`.
+
+`read_agent_session` returns the Agent, ordered messages and activities keyed by `agent_name`. A subscription starts
+with `snapshot`; reconnects, session changes and history replacements use the same atomic replacement. `update`
+contains complete-message upserts and current Agent/activity state. `heartbeat` carries no application state. Only
+Remy's subscription includes the global Agent roster and background activities.
+
+The backend projects native history and live replies into the same text, summary, tool and attachment blocks.
+`ask_agent` streams complete messages in DATA chunks; DONE only closes transport. Provider payloads stay behind
+the backend boundary. Native transcripts and workspace files remain authoritative; display projections are rebuildable.
+
+Python client schemas generate `reme_desktop/src/shared/wire.ts` and an executable serialization fixture. Regenerate
+with `python -m reme_desktop.scripts.client-contract`; `--check` verifies that committed artifacts match the schemas.

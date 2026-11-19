@@ -9,45 +9,37 @@ import { deserializeError, errorText, translator } from "../../shared/i18n.ts";
 import { action } from "../desktop.ts";
 import { watchReadReceipt } from "../read-receipt.ts";
 import MessageBody from "../message-body.tsx";
-import type { DesktopState, DisplayMessage } from "../../shared/protocol.ts";
+import type { DesktopState } from "../../shared/protocol.ts";
 import { useCapture } from "../speech/use-capture.ts";
 import { messageKey } from "../state.ts";
 import { useChatScroll } from "./use-chat-scroll.ts";
-import { Sparkles, ArrowUpRight } from "lucide-react";
+import { ArrowUpRight } from "lucide-react";
 
 export default function Chat({
   state,
   active,
-  onSettings,
-  onExplain,
   clearing,
   onClear,
   draft,
   onDraft,
-  embedded = false,
 }: {
-  embedded?: boolean;
-  draft?: string;
-  onDraft?: (value: string) => void;
+  draft: string;
+  onDraft: (value: string) => void;
   state: DesktopState;
   active: boolean;
-  onSettings: () => void;
-  onExplain: (message: DisplayMessage) => void;
   clearing: boolean;
   onClear: () => Promise<boolean>;
 }) {
   const language = state.settings.language;
   const t = translator(language);
   const isRemy = (state.selectedAgentName ?? "Remy") === "Remy";
-  const [localQuery, setLocalQuery] = useState("");
   const [commandHidden, setCommandHidden] = useState(false);
-  const query = draft ?? localQuery;
+  const query = draft;
   const setQuery = (value: string | ((current: string) => string)) => {
     const next = typeof value === "function" ? value(queryRef.current) : value;
     queryRef.current = next;
     setCommandHidden(false);
-    if (onDraft) onDraft(next);
-    else setLocalQuery(next);
+    onDraft(next);
   };
   const agentName =
     state.agents?.find((agent) => agent.agent_name === state.selectedAgentName)
@@ -105,12 +97,6 @@ export default function Chat({
   const messages = state.messages;
   const focusedId =
     state.focusTarget?.kind === "message" ? state.focusTarget.id : null;
-  const visibleStatus =
-    state.surface?.kind === "status"
-      ? state.surface
-      : state.surface?.kind === "message"
-        ? state.surface.message.status
-        : null;
   const readableReminders = state.messages.filter(
     (message) =>
       message.source === "proactive" &&
@@ -268,25 +254,14 @@ export default function Chat({
 
   return (
     <main className="conversation-pane">
-      {!embedded && (
-        <header className="conversation-header">
-          <div className="avatar-mark">
-            <Sparkles size={19} />
-          </div>
-          <div className="conversation-heading">
-            <h2>{agentName}</h2>
-            <span>
-              {state.connection === "connected"
-                ? (visibleStatus?.text ?? state.behavior.label)
-                : t("waitingConnection")}
-            </span>
-          </div>
-        </header>
-      )}
       {state.connectionError && (
         <div className="connection-banner" role="status">
           <span>{state.connectionError}</span>
-          <button onClick={onSettings}>{t("connectionSettings")}</button>
+          <button
+            onClick={() => void run({ type: "page.select", page: "settings" })}
+          >
+            {t("connectionSettings")}
+          </button>
         </div>
       )}
       {displayedError !== null && (
@@ -447,7 +422,13 @@ export default function Chat({
                         type="button"
                         className="explain-reminder"
                         disabled={busy || !ready}
-                        onClick={() => onExplain(message)}
+                        onClick={() =>
+                          void run({
+                            type: "item.action",
+                            action: "explain",
+                            target: { kind: "message", id: message.id },
+                          })
+                        }
                       >
                         {t("explainReminder")}
                         <ArrowUpRight size={13} aria-hidden />
@@ -559,7 +540,7 @@ export default function Chat({
                 id="chat-command-clear"
                 role="option"
                 aria-selected="true"
-                disabled={busy || !ready || !state.workspace}
+                disabled={busy || !ready || !state.clientInfo}
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => void send("/clear")}
               >

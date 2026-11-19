@@ -91,7 +91,9 @@ export default memo(function MessageBody({
             <div
               className={`message-content${item.type === "summary" ? " message-plan" : ""}`}
               key={item.id}
-              data-phase={item.phase}
+              data-phase={
+                item.type === "text" ? (item.phase ?? undefined) : undefined
+              }
             >
               <MarkdownText
                 text={item.text}

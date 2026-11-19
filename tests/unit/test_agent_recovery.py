@@ -114,7 +114,7 @@ async def test_full_cron_queue_starts_its_existing_consumer(tmp_path, monkeypatc
     async with running_runtime(tmp_path) as (runtime, _, _):
         runtime.inbox.max_pending_items = 1
         await runtime.create(
-            {"agent_name": "timer", "task_description": "Report", "agent_type": "cron", "cron": "* * * * *"},
+            {"agent_name": "timer", "task_description": "Report", "cron": "* * * * *"},
         )
         agent = await runtime.definition("timer")
         start = runtime.now().replace(second=0, microsecond=0)
@@ -170,7 +170,6 @@ async def test_recovered_native_reminder_finishes_ack_without_regenerating(tmp_p
                 {
                     "agent_name": "other",
                     "task_description": "Observe",
-                    "agent_type": "proactive",
                 },
             )
             await runtime.append(
@@ -271,7 +270,7 @@ async def test_silence_rechecks_native_revision_after_outbox_refresh(tmp_path, m
 async def test_full_receiver_consumes_both_reminders_without_waiting_for_more_capacity(tmp_path):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         for name in ("first", "second"):
-            await runtime.create({"agent_name": name, "agent_type": "proactive", "task_description": "Report"})
+            await runtime.create({"agent_name": name, "task_description": "Report"})
             await runtime.append(name, {"event_ts": runtime.now(), "source": "test", "description": "Finished"})
             await runtime.run(name, AsyncMock(return_value=completed_result(runtime, name)))
         runtime.inbox.max_pending_items = 1
@@ -295,7 +294,7 @@ async def test_full_receiver_consumes_both_reminders_without_waiting_for_more_ca
                 if worker := runtime.notifications.worker:
                     await worker
         assert jobs.await_count == 2
-        assert (await runtime.inbox.snapshot("Remy"))["pending_count"] == 0
+        assert not runtime.notifications.active_turn
         assert len(runtime.outbox.records) == 2
         assert all(item.read_at is not None for item in runtime.outbox.records.values())
 

@@ -10,7 +10,6 @@ import {
 } from "../src/shared/tasks.ts";
 
 const settings: TaskSettings = {
-  agent_type: "cron",
   enabled: false,
   cron: "0 8 * * *",
   min_trigger_interval_seconds: 0,
@@ -96,6 +95,7 @@ test("task IPC rejects unrelated identities, unsafe writes and retired operation
     { action: "update", agent_name: "task", settings: {} },
     { action: "update", agent_name: "task", settings: { agent_name: "other" } },
     { action: "query", agent_name: "task" },
+    { action: "status", agent_name: "task" },
     { action: "read", agent_name: "task", path: "daily/other.md" },
   ])
     assert.throws(() =>

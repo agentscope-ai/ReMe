@@ -89,7 +89,6 @@ class LocalAgentInbox(BaseAgentInbox):
         claim_max_items: int = 20,
         claim_max_bytes: int = 64 * 1024,
         append_timeout_seconds: float = 5,
-        rebuildable: list[str] | None = None,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -126,7 +125,6 @@ class LocalAgentInbox(BaseAgentInbox):
         ):
             raise ValueError("directory must stay inside the workspace")
         self.directory = directory
-        self.rebuildable = {self._normalize_name(name) for name in rebuildable or []}
         self.append_timeout_seconds = append_timeout_seconds
         self._workspace = self.workspace_path.resolve()
         self._root = self._workspace / path
@@ -193,7 +191,7 @@ class LocalAgentInbox(BaseAgentInbox):
         for name in self._names():
             if not self._path(name).is_dir():
                 raise ValueError(f"unexpected Agent inbox entry: {name}")
-            inbox = _Inbox() if name in self.rebuildable else self._load_inbox(name)
+            inbox = self._load_inbox(name)
             self._inboxes[name] = inbox
 
     def _records(self, path: Path):
@@ -306,7 +304,7 @@ class LocalAgentInbox(BaseAgentInbox):
             await self._create(name)
             return
         try:
-            inbox = _Inbox() if name in self.rebuildable else await asyncio.to_thread(self._load_inbox, name)
+            inbox = await asyncio.to_thread(self._load_inbox, name)
             self._inboxes[name] = inbox
         except (OSError, ValueError):
             self._failed = True
@@ -556,20 +554,14 @@ class LocalAgentInbox(BaseAgentInbox):
             temporary.unlink(missing_ok=True)
 
     def _persist(self, name, history, pending):
-        """Publish the read commit before unread inputs; derived views skip unchanged writes."""
-        directory = self._path(name)
-        rebuildable = name in self.rebuildable
-        if rebuildable and not directory.exists():
-            directory.mkdir()
-            sync_directory(directory.parent)
+        """Publish the read commit before unread inputs."""
         for filename, records in (
             ("inbox_read.jsonl", (batch.record() for batch in history)),
             ("inbox_unread.jsonl", (item.item for item in pending)),
         ):
             path = self._path(name, filename)
             raw = b"".join(self._encode(value) for value in records)
-            if not rebuildable or not path.exists() or path.read_bytes() != raw:
-                self._replace(path, raw)
+            self._replace(path, raw)
 
     async def claim(self, name: str, limit: int | None = None, *, item_ids: list[str] | None = None) -> dict | None:
         """Claim selected IDs or the next FIFO batch; release ownership on ack, nack or restart."""
@@ -703,75 +695,3 @@ class LocalAgentInbox(BaseAgentInbox):
         """Read scheduling membership without copying or paging event bodies."""
         async with self._changed:
             return {entry.item["id"] for entry in self._inbox(name).pending}
-
-    async def reconcile(
-        self,
-        name: str,
-        pending: list[dict],
-        processed: list[dict],
-        *,
-        defer_overflow: bool = False,
-    ) -> None:
-        """Rebuild reference views only; durable input inboxes cannot be replaced this way."""
-        if name not in self.rebuildable:
-            raise ValueError("only explicitly rebuildable inboxes can be reconciled")
-        unread = self._prepare(pending)
-        history = []
-        for value in sorted(
-            processed,
-            key=lambda value: (datetime.fromisoformat(value["consume_ts"]), value["item"]["id"]),
-        )[-self.max_read_items :]:
-            item = self._prepare(value["item"])[0][0]
-            history.append(_Consumed([item], InboxReceipt(item_ids=[item["id"]], consume_ts=value["consume_ts"])))
-        async with self._changed:
-            inbox = self._inbox(name)
-            if inbox.retained:
-                raise ValueError("cannot rebuild an inbox with pending result handoffs")
-            records = [item for batch in history for item in batch.items] + [item for item, _, _ in unread]
-            if len({item["id"] for item in records}) != len(records):
-                raise ValueError("duplicate reconciled item ID")
-            fingerprints = {item["id"]: fingerprint for item, _, fingerprint in unread}
-            claim = inbox.claim
-            if claim and any(inbox.seen[identifier] != fingerprints.get(identifier) for identifier in claim[1]):
-                claim = None
-            if defer_overflow:
-                available_count = self.max_pending_items - (self._pending_count - len(inbox.pending))
-                available_bytes = self.max_pending_bytes - (self._pending_bytes - inbox.pending_bytes)
-                claimed = set(claim[1]) if claim else set()
-                admitted = []
-                # Do not preempt an unchanged batch that already has a consumer.
-                for entry in sorted(unread, key=lambda entry: entry[0]["id"] not in claimed):
-                    if available_count > 0 and len(entry[1]) <= available_bytes:
-                        admitted.append(entry)
-                        available_count -= 1
-                        available_bytes -= len(entry[1])
-                    elif entry[0]["id"] in claimed:
-                        raise TimeoutError("inbox exceeds its pending capacity")
-                unread = admitted
-            count, size = len(unread), sum(len(raw) for _, raw, _ in unread)
-            if (
-                self._pending_count - len(inbox.pending) + count > self.max_pending_items
-                or self._pending_bytes - inbox.pending_bytes + size > self.max_pending_bytes
-            ):
-                raise TimeoutError("inbox exceeds its pending capacity")
-            records = [item for batch in history for item in batch.items] + [item for item, _, _ in unread]
-            pending_items = deque(_Pending(item, len(raw)) for item, raw, _ in unread)
-
-            async def commit():
-                try:
-                    await asyncio.to_thread(self._persist, name, history, pending_items)
-                except (OSError, ValueError):
-                    self._failed = True
-                    self._changed.notify_all()
-                    raise
-                self._pending_count += count - len(inbox.pending)
-                self._pending_bytes += size - inbox.pending_bytes
-                inbox.pending = pending_items
-                inbox.pending_bytes = size
-                inbox.history = history
-                inbox.seen = {item["id"]: self._fingerprint(item) for item in records}
-                inbox.last_receipt = history[-1].receipt if history else None
-                inbox.claim = claim
-
-            await finish_cleanup(commit())
-            self._changed.notify_all()

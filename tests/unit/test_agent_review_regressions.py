@@ -58,7 +58,6 @@ async def test_ineligible_reminders_release_capacity_and_resume_without_losing_u
             await runtime.create(
                 {
                     "agent_name": name,
-                    "agent_type": "proactive",
                     "task_description": "Report",
                 },
             )
@@ -109,25 +108,24 @@ async def test_ineligible_reminders_release_capacity_and_resume_without_losing_u
         first = next(ref for ref in runtime.outbox.committed if runtime.outbox.owners[ref] == "first")
         assert runtime.outbox.records[first].read_at is None
         assert frontmatter.loads(runtime.files.path(first.file).read_text())["read_at"] is None
-        assert (await runtime.inbox.snapshot("Remy"))["pending_count"] == 0
+        assert not runtime.notifications.active_turn
         if action == "delete":
             await runtime.create(
                 {
                     "agent_name": "first",
-                    "agent_type": "proactive",
                     "task_description": "Restore",
                 },
             )
         else:
             await runtime.update("first", {"enabled": True, "notify_window": None})
         await runtime.outbox.sync()
-        assert await runtime.inbox.pending_ids("Remy") == {first.id}
+        assert first.id in runtime.notifications.pending
         assert runtime.outbox.records[first].read_at is None
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("content", ["The experiment finished.", ""])
-@pytest.mark.parametrize("changed_field", ["message", "priority", "paths"])
+@pytest.mark.parametrize("changed_field", ["message", "action", "paths"])
 async def test_decision_revalidates_after_a_queued_editor_save(tmp_path, monkeypatch, content, changed_field):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         args = await prepare(runtime, context)
@@ -137,8 +135,8 @@ async def test_decision_revalidates_after_a_queued_editor_save(tmp_path, monkeyp
         document = frontmatter.loads(path.read_text())
         if changed_field == "message":
             document.content = "The experiment was cancelled."
-        elif changed_field == "priority":
-            document["priority"] = "P2"
+        elif changed_field == "action":
+            document["action"] = "P2"
         else:
             document["paths"].append("daily/new_result.md")
         wrapper.append_session = AsyncMock()
@@ -219,7 +217,7 @@ async def test_editor_cannot_save_between_native_delivery_and_acknowledgement(tm
 async def test_reenabled_task_waits_for_capacity_without_blocking_an_urgent_reminder(tmp_path):
     async with running_runtime(tmp_path) as (runtime, _, _):
         for name, priority in (("first", "P2"), ("second", "P0")):
-            await runtime.create({"agent_name": name, "agent_type": "proactive", "task_description": "Report"})
+            await runtime.create({"agent_name": name, "task_description": "Report"})
             await runtime.append(name, {"event_ts": runtime.now(), "source": "test", "description": "Finished"})
             result, session = completed_result(runtime, name)
             result.notifications[0].priority = priority
@@ -232,10 +230,10 @@ async def test_reenabled_task_waits_for_capacity_without_blocking_an_urgent_remi
         urgent = next(ref for ref in runtime.outbox.committed if runtime.outbox.owners[ref] == "second")
         await runtime.update("first", {"enabled": True})
         await runtime.outbox.sync()
-        assert await runtime.inbox.pending_ids("Remy") == {urgent.id}
+        assert urgent.id in runtime.notifications.pending
         await runtime.notifications.consume([urgent.id])
         first = next(ref for ref in runtime.outbox.committed if runtime.outbox.owners[ref] == "first")
-        assert await runtime.inbox.pending_ids("Remy") == {first.id}
+        assert first.id in runtime.notifications.pending
         assert runtime.outbox.records[first].read_at is None
 
 

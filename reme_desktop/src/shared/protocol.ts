@@ -1,27 +1,26 @@
-export type SessionStatus = "active" | "idle" | "not_loaded" | "error";
-
-export interface AgentActivity {
-  session_id: string;
-  execution_session_id?: string | null;
-  turn_id: string;
-  source: "chat" | "proactive" | "task";
-  phase:
-    | "thinking"
-    | "working"
-    | "remembering"
-    | "answering"
-    | "waiting"
-    | "completed"
-    | "failed"
-    | "interrupted";
-  tool?: string | null;
-  task_id?: string | null;
-  started_at?: string | null;
-}
-
-export type Activities = Partial<Record<"chat" | "proactive", AgentActivity>>;
-
-export type TaskActivities = Record<string, AgentActivity>;
+import type {
+  AgentMessage,
+  TranscriptItem,
+  SessionStatus,
+  AgentView,
+  ClientInfo,
+} from "./wire.ts";
+export type {
+  AgentMessage,
+  AgentEvent,
+  AgentView,
+  ClientInfo,
+  ClientActivity,
+  Activities,
+  SessionStatus,
+  TranscriptItem,
+  ItemStatus,
+  TextItem,
+  SummaryItem,
+  ToolAction,
+  ToolItem,
+  ArtifactItem,
+} from "./wire.ts";
 
 export interface AnimationIntent {
   id: number;
@@ -63,57 +62,6 @@ export interface DisplayMessage {
   taskInput?: boolean;
 }
 
-export type ItemStatus =
-  "running" | "completed" | "failed" | "interrupted" | "waiting" | "unknown";
-
-interface ItemBase {
-  id: string;
-  status: ItemStatus;
-}
-
-export interface TextItem extends ItemBase {
-  type: "text";
-  text: string;
-  phase?: "commentary" | "final_answer";
-}
-
-export interface SummaryItem extends Omit<TextItem, "type"> {
-  type: "summary";
-  kind: "reasoning" | "plan";
-}
-
-export interface ToolAction {
-  kind:
-    | "read"
-    | "list"
-    | "search"
-    | "command"
-    | "edit"
-    | "webSearch"
-    | "browse"
-    | "image"
-    | "tool";
-  target?: string;
-  query?: string;
-}
-
-export interface ToolItem extends ItemBase {
-  type: "tool";
-  name: string;
-  input: string;
-  output: string;
-  actions: ToolAction[];
-}
-
-export interface ArtifactItem extends ItemBase {
-  type: "artifact";
-  label: string;
-  url: string;
-  mediaType: string;
-}
-
-export type TranscriptItem = TextItem | SummaryItem | ToolItem | ArtifactItem;
-
 export interface MessageBubble {
   kind: "message";
   message: DisplayMessage;
@@ -134,67 +82,8 @@ export type ItemAction = "open" | "remind" | "explain" | "copy";
 
 export interface StreamChunk {
   chunk_type: string;
-  event?: "start" | "delta" | "end";
   chunk: unknown;
   done?: boolean;
-  status?:
-    "running" | "completed" | "failed" | "interrupted" | "waiting" | null;
-  session_id?: string | null;
-  turn_id?: string | null;
-  block_id?: string | null;
-  message_id?: string | null;
-  tool_call_id?: string | null;
-  tool_call_name?: string | null;
-  media_type?: string | null;
-  metadata?: Record<string, unknown>;
-}
-
-export interface SessionMessage {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  source: "chat" | "proactive";
-  created_at?: string | null;
-  expires_at?: string | null;
-  turn_id?: string | null;
-  completed: boolean;
-  delivery: "idle" | "immediate";
-  origin_session_id?: string | null;
-  notification_eligible: boolean;
-  chunks: StreamChunk[];
-}
-
-/** Renderer-safe messages, normalized once at the subscription boundary. */
-export interface TranscriptMessage extends Omit<SessionMessage, "chunks"> {
-  items: TranscriptItem[];
-  outcome?: NonNullable<StreamChunk["status"]>;
-  error?: string;
-}
-
-export interface SessionSnapshot {
-  session_id: string;
-  revision?: string;
-  state: { session_id: string; status: SessionStatus; active_flags: string[] };
-  messages: SessionMessage[];
-}
-
-export interface AgentEvent {
-  agent_name?: string;
-  agents?: AgentView[];
-  type:
-    | "snapshot"
-    | "session_changed"
-    | "message_upsert"
-    | "status_changed"
-    | "heartbeat";
-  session_id?: string | null;
-  status?: SessionStatus | null;
-  activities: Activities;
-  task_activities?: TaskActivities;
-  message?: SessionMessage;
-  snapshot?: SessionSnapshot;
-  reason?: string;
-  error?: string;
 }
 
 export interface Receipt {
@@ -238,29 +127,12 @@ export type DesktopPage = "remy" | "notebook" | "knowledge" | "settings";
 export interface PendingTurn {
   id: string;
   query: string;
-  outcome?: NonNullable<StreamChunk["status"]>;
+  outcome?: NonNullable<AgentMessage["outcome"]>;
   sessionId: string | null;
   turnId?: string;
   streaming: boolean;
   error?: string;
 }
-
-export type AgentView = {
-  agent_name: string;
-  enabled: boolean;
-  running: boolean;
-  status: SessionStatus;
-  session_id: string | null;
-  directory: string;
-  pending_events: number;
-  in_flight_events: number;
-  next_trigger_at: string | null;
-  last_completed_at: string | null;
-  error: string | null;
-} & (
-  | { agent_type: "chat"; memory_path: string }
-  | { agent_type: "proactive" | "cron"; task_path: string }
-);
 
 export interface DesktopState {
   revision: number;
@@ -269,7 +141,7 @@ export interface DesktopState {
   connection: "connecting" | "connected" | "reconnecting" | "error";
   connectionError: string;
   settings: Settings;
-  workspace: string;
+  clientInfo: ClientInfo | null;
   sessionId: string | null;
   status: SessionStatus | null;
   messages: DisplayMessage[];
@@ -441,19 +313,9 @@ export interface JobResponse<T = unknown> {
   metadata: Record<string, unknown>;
 }
 
-export interface WorkspaceConfig {
-  workspace_dir: string;
-  timezone: string | null;
-  daily_dir: string;
-  digest_dir: string;
-  tag_key: string;
-  jobs: string[];
-}
-
 export type WorkspaceRequest =
   | import("./tasks.ts").TaskRequest
   | import("./notebook.ts").NotebookRequest
-  | { type: "config" }
   | {
       type: "outbox";
       agentName: string;

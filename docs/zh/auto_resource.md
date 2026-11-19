@@ -127,7 +127,7 @@ BTC 使用滚动 24 小时涨跌幅，保存统计窗口和采集时间；USDT �
 若仍为 cron 类型，在另一个终端执行：
 
 ```bash
-reme manage_proactive_agent action=update agent_name=finance agent_type=proactive
+reme manage_proactive_agent action=update agent_name=finance
 reme manage_proactive_agent action=status agent_name=finance
 ```
 

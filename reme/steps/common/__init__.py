@@ -1,7 +1,7 @@
 """common steps"""
 
 from .add import AddStep
-from .app_config import AppConfigStep
+from .app_config import AppConfigStep, ClientInfoStep
 from .chat import ChatStep
 from .dashscope_search import DashScopeSearchStep
 from .decision_demo import DecisionDemoStep
@@ -24,6 +24,7 @@ __all__ = [
     "TTSStep",
     "AddStep",
     "AppConfigStep",
+    "ClientInfoStep",
     "ChatStep",
     "DashScopeSearchStep",
     "DecisionDemoStep",

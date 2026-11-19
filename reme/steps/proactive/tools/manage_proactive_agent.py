@@ -9,39 +9,6 @@ from ....schema.proactive_agent import ManageProactiveAgentRequest
 class ManageProactiveAgentStep(BaseAgentStep):
     """Validate management arguments before accessing configuration or sessions."""
 
-    @staticmethod
-    def _settings(config):
-        """Select task settings without internal batching or duplicate identities."""
-        keys = ["agent_type", "enabled", "temporary"]
-        keys.append("cron" if config["agent_type"] == "cron" else "min_trigger_interval_seconds")
-        if config["notify_window"] is not None:
-            keys.append("notify_window")
-        return {key: config[key] for key in keys}
-
-    @classmethod
-    def _status(cls, value):
-        """Return execution facts and the workspace-relative task path."""
-        result = {
-            "agent_name": value["agent_name"],
-            **cls._settings(value["config"]),
-            **{
-                key: value[key]
-                for key in (
-                    "task_path",
-                    "running",
-                    "pending_events",
-                    "in_flight_events",
-                    "last_completed_at",
-                )
-            },
-        }
-        for key in ("next_trigger_at", "error"):
-            if value[key] is not None:
-                result[key] = value[key]
-        if value["running"] and value["last_started_at"] is not None:
-            result["last_started_at"] = value["last_started_at"]
-        return result
-
     async def execute(self):
         runtime = self.agent_runtime
         request = ManageProactiveAgentRequest.model_validate(self.parameters())
@@ -53,43 +20,17 @@ class ManageProactiveAgentStep(BaseAgentStep):
             exclude={"action", "agent_name", "task_description", "question"},
         )
         if request.action == "list":
-            listing = await runtime.list_agents()
-            answer = {
-                "items": [
-                    {
-                        **{
-                            key: item["config"][key]
-                            for key in ("agent_name", "agent_type", "enabled", "cron")
-                            if item["config"][key] is not None
-                        },
-                        "task_path": item["task_path"],
-                    }
-                    for item in listing["items"]
-                ],
-            }
-        elif request.action == "create":
-            value = await runtime.create(
-                {"agent_name": request.agent_name, "task_description": request.task_description, **settings},
-            )
-            answer = {"agent_name": value["agent_name"], "task_path": value["task_path"]}
-            if value["next_trigger_at"] is not None:
-                answer["next_trigger_at"] = value["next_trigger_at"]
-            if value["restored"]:
-                answer["restored"] = True
-        elif request.action == "status":
-            answer = self._status(await runtime.status(request.agent_name))
-        elif request.action == "update":
-            if settings.get("agent_type") == "proactive":
-                settings.setdefault("cron", None)
-            elif settings.get("agent_type") == "cron":
-                settings.setdefault("min_trigger_interval_seconds", 0)
-            value = await runtime.update(request.agent_name, settings)
-            answer = {
-                "agent_name": value["agent_name"],
-                "updated": {key: value["config"][key] for key in settings},
-            }
-            if value["next_trigger_at"] is not None:
-                answer["next_trigger_at"] = value["next_trigger_at"]
+            listing = await runtime.list_views()
+            items = [item for item in listing["items"] if item["agent_name"] != "Remy"]
+            answer = {"items": items, "total": len(items)}
+        elif request.action in {"create", "status", "update"}:
+            if request.action == "create":
+                await runtime.create(
+                    {"agent_name": request.agent_name, "task_description": request.task_description, **settings},
+                )
+            elif request.action == "update":
+                await runtime.update(request.agent_name, settings)
+            answer = await runtime.view_agent(request.agent_name)
         elif request.action == "delete":
             await runtime.delete(request.agent_name)
             answer = f"Deleted task '{request.agent_name}'; history files retained."

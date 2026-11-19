@@ -19,7 +19,7 @@ class ResourceEventStep(BaseAgentStep):
         agent_name = self.context.get("agent_name")
         if not isinstance(agent_name, str) or not agent_name:
             raise ValueError("resource_event_step requires a target agent_name")
-        if (await self.agent_runtime.definition(agent_name)).agent_type != "proactive":
+        if (await self.agent_runtime.definition(agent_name)).cron is not None:
             raise ValueError("resource observations require an event agent")
         resource = self.context.get("resource")
         if not isinstance(resource, dict) or not isinstance(resource.get("path"), str):

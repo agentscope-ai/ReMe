@@ -17,7 +17,7 @@ from .test_agent_runtime import running_runtime
 @pytest.mark.asyncio
 async def test_task_editor_preserves_text_and_rejects_stale_writes(tmp_path):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
-        await runtime.create({"agent_name": "monitor", "agent_type": "proactive", "task_description": "Original\n"})
+        await runtime.create({"agent_name": "monitor", "task_description": "Original\n"})
         step = AgentTaskStep(app_context=context)
         opened = (await step(action="read", agent_name="monitor")).answer
         assert opened["content"] == "Original\n"
@@ -49,7 +49,7 @@ async def test_task_editor_preserves_text_and_rejects_stale_writes(tmp_path):
 async def test_task_editor_rejects_remy_deleted_agents_and_outside_paths(tmp_path):
     async with running_runtime(tmp_path) as (runtime, context, _):
         step = AgentTaskStep(app_context=context)
-        await runtime.create({"agent_name": "monitor", "agent_type": "proactive", "task_description": "Original"})
+        await runtime.create({"agent_name": "monitor", "task_description": "Original"})
         for agent_name in ("Remy", "missing"):
             with pytest.raises(ValueError):
                 await step(action="read", agent_name=agent_name)

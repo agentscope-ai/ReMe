@@ -147,7 +147,7 @@ jobs:
     backend: base
     description: >-
       Manage scheduled and event-driven tasks: list/create/status/update/delete/query. All parameters are top-level.
-      Create requires agent_name, task_description and agent_type; cron tasks also require cron.
+      Create requires agent_name and task_description; supply cron for scheduled tasks.
       Other actions except list require agent_name; query also requires question and an existing queryable task session.
       Update changes execution settings; edit task requirements in TASK.md at the returned task_path.
       Follow the manage-proactive-agent skill for workflows and examples.
@@ -167,9 +167,7 @@ jobs:
           minLength: 1
           maxLength: 100000
           description: "Create only: task description written verbatim to TASK.md."
-        agent_type: {type: string, enum: [proactive, cron]}
         enabled: {type: boolean}
-        temporary: {type: boolean, description: "Create only: collect the task after seven days without new inputs."}
         cron: {type: [string, "null"], description: "Cron expression in the application timezone."}
         min_trigger_interval_seconds: {type: number, minimum: 0, description: "Event processing interval, not collection frequency."}
         notify_window:
@@ -549,11 +547,11 @@ jobs:
     steps:
     - backend: list_tag_files_step
 
-  get_app_config:
+  get_client_info:
     backend: base
-    description: "Return the effective application config with secrets redacted."
+    description: "Return workspace information and supported client capabilities."
     steps:
-      - backend: app_config_step
+      - backend: client_info_step
 
 components:
   asr:
@@ -588,7 +586,6 @@ components:
       agents:
         - agent_name: finance
           enabled: true
-          agent_type: proactive
           min_trigger_interval_seconds: 10
           max_batch_events: 20
           task_description: |
@@ -598,12 +595,10 @@ components:
         - agent_name: work
           max_batch_events: 2
           enabled: true
-          agent_type: proactive
           task_description: |
             帮我梳理目前在做的项目，跟进各个项目的进展和难点，整理需要进一步讨论的问题。
         - agent_name: tech_news
           enabled: true
-          agent_type: cron
           cron: "0 8 * * *"
           task_description: |
             每天早上8点帮我整理一份科技早报，汇总过去24小时的重要科技新闻，简要说明要点和影响，并附上来源链接。整理好后提醒我查看。

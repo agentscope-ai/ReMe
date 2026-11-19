@@ -22,6 +22,11 @@ import Notebook from "./notebook/index.tsx";
 export default function Workspace(bootstrap: Bootstrap) {
   const { state, platform, version } = bootstrap;
   const t = translator(state.settings.language);
+  // File-backed pages own their drafts and requests for exactly one workspace.
+  const scope = JSON.stringify([
+    state.settings.endpoint,
+    state.clientInfo?.workspace_dir,
+  ]);
   const [collapsed, setCollapsed] = useState<
     Partial<Record<DesktopPage, boolean>>
   >(() => {
@@ -182,21 +187,17 @@ export default function Workspace(bootstrap: Bootstrap) {
         inert={settingsOpen}
       >
         <Tabs.Content value="remy" forceMount className="workspace-page">
-          <Remy
-            state={state}
-            collapsed={collapsed.remy}
-            onSettings={() => select("settings")}
-          />
+          <Remy key={scope} state={state} collapsed={collapsed.remy} />
         </Tabs.Content>
         <Tabs.Content value="notebook" forceMount className="workspace-page">
-          <Notebook
-            key={`${state.settings.endpoint}:${state.workspace}`}
-            state={state}
-            collapsed={collapsed.notebook}
-          />
+          <Notebook key={scope} state={state} collapsed={collapsed.notebook} />
         </Tabs.Content>
         <Tabs.Content value="knowledge" forceMount className="workspace-page">
-          <Knowledge state={state} collapsed={collapsed.knowledge} />
+          <Knowledge
+            key={scope}
+            state={state}
+            collapsed={collapsed.knowledge}
+          />
         </Tabs.Content>
       </div>
       <div

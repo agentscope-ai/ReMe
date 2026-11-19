@@ -16,23 +16,25 @@ class BaseAgentStep(BaseStep):
 
     agent_runtime: BaseAgentRuntime = Ref(BaseAgentRuntime, ComponentEnum.AGENT_RUNTIME)
 
-    async def query_reply(self, agent_name, query):
+    async def query_reply(self, agent_name, query, *, on_chunk=None):
         """Ask a disposable fork without changing task history or live execution state."""
         runtime = self.agent_runtime
         options = {"job_tools": [], "sandbox": "read-only", "approval_mode": "deny_all"}
         async with runtime.query_session(agent_name, options) as session_id:
+
+            async def observe(chunk):
+                await on_chunk(chunk.model_copy(update={"session_id": chunk.session_id or session_id}))
+
             return await collect_reply(
                 runtime.agent_wrapper.reply_stream(
                     query,
                     resume=session_id,
-                    activity_source="proactive",
-                    activity_task_id=agent_name,
                     **options,
                 ),
-                on_chunk=self.context.add_stream_chunk if self.context.stream else None,
+                on_chunk=observe if on_chunk else self.context.add_stream_chunk if self.context.stream else None,
             )
 
-    async def stream_reply(self, query: str, *, session_id: str, agent_name: str, **options) -> Response:
+    async def stream_reply(self, query: str, *, session_id: str, agent_name: str, on_chunk=None, **options) -> Response:
         """Relay a formal conversation and preserve its terminal outcome and native metadata."""
         runtime = self.agent_runtime
         tracker = ActivityTracker(
@@ -56,7 +58,10 @@ class BaseAgentStep(BaseStep):
                 )
             runtime.activities[agent_name] = tracker.update(chunk)
             publish(chunk)
-            await self.context.add_stream_chunk(chunk)
+            if on_chunk:
+                await on_chunk(chunk.model_copy(update={"session_id": chunk.session_id or session_id}))
+            else:
+                await self.context.add_stream_chunk(chunk)
 
         try:
             with runtime.live_turns.observe(agent_name, session_id, query) as publish:

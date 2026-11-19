@@ -1,6 +1,7 @@
-"""Chat reminder scheduling and disposable-fork decisions over the shared Inbox component."""
+"""Chat reminder scheduling and disposable-fork decisions over canonical reminder files."""
 
 import asyncio
+import json
 from contextlib import asynccontextmanager, nullcontext
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -122,40 +123,52 @@ class ChatNotifications:
         async def save():
             for identifier in identifiers:
                 await self.runtime.outbox.update(refs[identifier], read_at=self.runtime.now())
-            await self.runtime.outbox.reconcile()
 
         await finish_cleanup(save())
 
+    def _bounded(self, refs):
+        """Bound one inference batch using the configured inbox count and byte budgets."""
+        inbox = self.runtime.inbox
+        limit = min(20, inbox.claim_max_items, inbox.max_read_items, inbox.max_pending_items)
+        budget = min(inbox.claim_max_bytes, inbox.max_pending_bytes)
+        selected = []
+        for ref in refs:
+            size = (
+                len(
+                    json.dumps(self.runtime.outbox.event(ref), ensure_ascii=False, separators=(",", ":")).encode(
+                        "utf-8",
+                    ),
+                )
+                + 1
+            )
+            if len(selected) >= limit or size > budget:
+                break
+            selected.append(ref.id)
+            budget -= size
+        return tuple(selected)
+
     @asynccontextmanager
     async def turn(self, session_id, priority, msg_ids):
-        """Revoke the fork's tool scope on completion, failure and cancellation."""
-        if self.active_turn is not None:
-            raise RuntimeError("an inbox fork is already running")
+        """Own one in-memory batch; canonical acknowledgements survive cancellation and restart."""
         async with self.lock:
+            if self.active_turn is not None:
+                raise RuntimeError("an inbox fork is already running")
             pending = self.pending
-            selected = tuple(
-                identifier
+            refs = [
+                pending[identifier]
                 for identifier in dict.fromkeys(msg_ids)
                 if identifier in pending and self.runtime.outbox.records[pending[identifier]].priority == priority
-            )
-        if not selected:
-            raise ValueError("no pending messages at the selected priority")
-        batch = await self.runtime.inbox.claim("Remy", item_ids=list(selected))
-        if batch is None:
-            raise RuntimeError("Chat inbox is already being processed")
-        try:
-            selected = tuple(item["id"] for item in batch["items"])
-            snapshot = await self.runtime.agent_wrapper.read_session(session_id)
-            turn = InboxTurn(
-                session_id,
-                priority,
-                selected,
-                chat_revision=self.chat_revision,
-                session_revision=snapshot.revision,
-                session_turn_id=snapshot.last_turn_id,
-                active_delivery=priority == "P0" and snapshot.state.status == "active",
-            )
+            ]
+            selected = self._bounded(refs)
+            if not selected:
+                raise ValueError("no pending messages at the selected priority")
+            turn = InboxTurn(session_id, priority, selected, chat_revision=self.chat_revision)
             self.active_turn = turn
+        try:
+            snapshot = await self.runtime.agent_wrapper.read_session(session_id)
+            turn.session_revision = snapshot.revision
+            turn.session_turn_id = snapshot.last_turn_id
+            turn.active_delivery = priority == "P0" and snapshot.state.status == "active"
             messages = {message.id: message for message in snapshot.messages if message.role == "assistant"}
             recovered = {}
             for identifier in selected:
@@ -165,13 +178,10 @@ class ChatNotifications:
                         recovered[identifier] = messages[message_id]
                         break
             if recovered:
-                # The native message is the durable decision. A retry only owes its source acknowledgements.
+                # Native acceptance is the durable decision; finish only its source acknowledgements.
                 await finish_cleanup(self.consume(list(recovered)))
                 remaining = tuple(identifier for identifier in selected if identifier not in recovered)
                 if remaining:
-                    batch = await self.runtime.inbox.claim("Remy", item_ids=list(remaining))
-                    if batch is None:
-                        raise RuntimeError("Chat inbox is already being processed")
                     turn.msg_ids = remaining
                 else:
                     turn.message = recovered[selected[0]]
@@ -179,11 +189,6 @@ class ChatNotifications:
             yield turn
         finally:
             self.active_turn = None
-            try:
-                if batch is not None:
-                    await finish_cleanup(self.runtime.inbox.nack("Remy", batch["token"]))
-            except ValueError:
-                pass
 
     def current_turn(self, identifier):
         """Reject foreground calls and capabilities left over from a finished fork."""
@@ -288,7 +293,6 @@ class ChatNotifications:
         if self.retry_at is not None and now < self.retry_at:
             return
         agents = await asyncio.to_thread(self.runtime.agents.load)
-        admitted = await self.runtime.inbox.pending_ids("Remy")
         async with self.lock:
             if self.worker is not None or self.runtime.closed:
                 return
@@ -297,7 +301,7 @@ class ChatNotifications:
             candidates = []
             for ref in self.pending.values():
                 item = self.runtime.outbox.records[ref]
-                if ref.id not in admitted or not self._allows(ref, agents, now):
+                if not self._allows(ref, agents, now):
                     continue
                 if item.priority == "P0":
                     if (now - item.created_at).total_seconds() < self.config.p0_delay_seconds:
@@ -313,9 +317,11 @@ class ChatNotifications:
                         ref.id,
                     ),
                 )
-                identifiers = [ref.id for ref in candidates if self.runtime.outbox.records[ref].priority == priority][
-                    :20
-                ]
+                identifiers = self._bounded(
+                    [ref for ref in candidates if self.runtime.outbox.records[ref].priority == priority],
+                )
+                if not identifiers:
+                    return
                 self.worker = asyncio.create_task(
                     self._wake(run_job, priority, identifiers),
                     name="inbox:chat",

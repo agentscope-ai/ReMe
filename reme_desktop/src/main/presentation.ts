@@ -1,11 +1,11 @@
 import { translator } from "../shared/i18n.ts";
 import { activityNotice, terminal } from "../shared/messages.ts";
 import type {
-  AgentActivity,
+  ClientActivity,
   CompanionSurface,
   DesktopState,
   StatusNotice,
-  TaskActivities,
+  Activities,
 } from "../shared/protocol.ts";
 import type { Reminder } from "./bubbles.ts";
 
@@ -38,7 +38,7 @@ export class PresentationController {
   }
 
   observe(
-    activity: AgentActivity | undefined,
+    activity: ClientActivity | undefined,
     live: boolean,
     now = Date.now(),
   ): void {
@@ -89,15 +89,14 @@ export class PresentationController {
 
   resolve(
     state: DesktopState,
-    activity: AgentActivity | undefined,
-    tasks: TaskActivities,
-    proactive: AgentActivity | undefined,
+    activities: Activities,
     reminder: Reminder | null,
     visible: boolean,
     dragging: boolean,
     now = Date.now(),
   ): CompanionSurface | null {
     this.advance(now);
+    const activity = activities.Remy;
     const pending =
       state.pending?.sessionId === state.sessionId ? state.pending : null;
     if (pending) {
@@ -175,15 +174,13 @@ export class PresentationController {
         ),
       );
     if (state.chatFocused || state.settings.quietUntil > now) return null;
-    const task = Object.values(tasks).find((item) => !terminal(item.phase));
-    const background =
-      task ?? (proactive && !terminal(proactive.phase) ? proactive : undefined);
-    return background
+    const task = Object.entries(activities).find(
+      ([name, item]) => name !== "Remy" && !terminal(item.phase),
+    );
+    return task
       ? {
-          ...activityNotice(background, state.settings.language),
-          text: task
-            ? t("taskBackground", { task: task.task_id! })
-            : t("background"),
+          ...activityNotice(task[1], state.settings.language),
+          text: t("taskBackground", { task: task[0] }),
         }
       : null;
   }

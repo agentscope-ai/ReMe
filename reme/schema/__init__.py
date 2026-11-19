@@ -16,7 +16,19 @@ from .agent_runtime import (
     SendChatMessageRequest,
 )
 from .agent_activity import AgentActivity
-from .agent_view import AgentChatRequest, AgentRequest, AgentSessionView, AgentTaskRequest, AgentView
+from .agent_message import AgentMessage, ArtifactItem, SummaryItem, TextItem, ToolAction, ToolItem
+from .agent_view import (
+    AgentChatRequest,
+    AgentRequest,
+    AgentSessionView,
+    AgentTaskRequest,
+    AgentView,
+    AgentSnapshot,
+    AgentUpdate,
+    AgentHeartbeat,
+    ClientActivity,
+    ClientInfo,
+)
 from .compaction import CallDecision, CompactionOptions, CompactionRequest, CompactionResult
 from .dream import (
     DreamExtractOutput,
@@ -41,6 +53,7 @@ from .proactive_agent import (
     ProactiveAgent,
     ProactiveAgentConfig,
     ProactiveRunResult,
+    TaskSettings,
 )
 from .file_chunk import FileChunk
 from .file_front_matter import FileFrontMatter
@@ -64,6 +77,18 @@ __all__ = [
     "AudioFormat",
     "TTSResult",
     "AgentActivity",
+    "AgentMessage",
+    "ArtifactItem",
+    "SummaryItem",
+    "TextItem",
+    "ToolAction",
+    "ToolItem",
+    "AgentSnapshot",
+    "AgentUpdate",
+    "AgentHeartbeat",
+    "ClientActivity",
+    "ClientInfo",
+    "TaskSettings",
     "AgentReply",
     "collect_reply",
     "replay_reply",

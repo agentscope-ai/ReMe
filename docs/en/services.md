@@ -52,7 +52,7 @@ curl -N http://127.0.0.1:2333/chat \
   -d '{"query":"Summarize my long-term preferences"}'
 ```
 
-The `proactive` preset uses `list_workspace`, `search_workspace`, `load_file` and `get_app_config` for workspace access.
+The `proactive` preset uses `list_workspace`, `search_workspace`, `load_file` and `get_client_info` for workspace access.
 The default configuration provides `list`, `search`, `load` and `app_config`.
 
 The `proactive` configuration exposes `ask_agent(query, agent_name=Remy)` for the fixed Chat Agent. It resumes the current
@@ -67,7 +67,7 @@ The `agent_runtime` Component coordinates sessions, the shared Agent Inbox, outp
 Configure the Component through `components.agent_runtime.default` and the workspace-relative `reme_agent_dir`
 (default `reme_agents`). Each Agent owns `config.json`, `sessions.jsonl` and `inbox/`. Remy stores personal memory in
 `MEMORY.md`. Event and cron Agents own `TASK.md` and `reminder/YYYY-MM-DD/HHMMSS.md`. Temporary Agents use
-`reme_agents/tmp/<agent_name>/`.
+`reme_agents/<agent_name>/`.
 There is no global definition index or checkpoint file: startup rebuilds runtime state from source files.
 Session registries preserve complete records across an interrupted append; an incomplete tail is ignored on read
 and removed by the next append. Corrupt complete records fail explicitly.
@@ -104,22 +104,21 @@ From another terminal:
 
 ```bash
 reme manage_proactive_agent action=list
-reme manage_proactive_agent action=create agent_name=experiment agent_type=proactive \
+reme manage_proactive_agent action=create agent_name=experiment \
   'task_description=Monitor experiment logs and report failures or completion.'
 reme list_agent_inbox
 ```
 
 `manage_proactive_agent` supports `list/create/status/update/delete/query` with top-level parameters and a task `agent_name`.
 Choose 1–3 simple lowercase English words joined by underscores. `Remy` and `tmp` are reserved. Creation requires
-`task_description` and `agent_type`, plus `cron` for a scheduled task. Send changed execution settings to `update`.
+`task_description`; supply `cron` for a scheduled task. Send changed execution settings to `update`.
 `query` takes a `question` and answers from a temporary read-only fork of a queryable task session.
 See `skills/manage-proactive-agent/SKILL.md` for all six actions.
 
 Creation writes `task_description` verbatim to `TASK.md`. Create, list and status return its workspace-relative `task_path`.
 Read the latest file before editing requirements, keep useful background and verify the saved result. When changing an
 agreed time, update both `cron` and the description. Changes apply to subsequent rounds. Deletion stops owned work
-and retains history. Stop external collectors separately. Recreating a deleted task returns `restored=true` and reuses
-its task description and history. Check the description against the new request.
+and retains history. Stop external collectors separately. Recreating a deleted task reuses its task description and history. Check the description against the new request.
 `reme_agent_dir` selects the workspace-relative Agent directory and defaults to `reme_agents`.
 
 Set Chat's initial personal memory with `components.agent_runtime.default.chat.initial_memory`. Runtime startup creates
@@ -149,8 +148,8 @@ Claude Code trajectories can be submitted through the event API.
   <img src="../figure/proactive-runtime.svg" alt="Work Proactive Runtime: Codex and Claude Code trajectories, screenshots, timestamped events, reminders and workspace file paths" width="100%">
 </p>
 
-Agent configuration uses `agent_type`: `chat`, `proactive` or `cron`. The management tool creates only
-`proactive` and `cron` tasks; Chat is initialized by the runtime.
+Task configuration uses `cron` alone to select event-driven or scheduled execution. Client views derive
+`agent_type` for display; it is not a writable configuration field. Chat is initialized by the runtime.
 
 A `proactive` Agent accepts observations through `append_agent_events(agent_name, events)`, with `event_ts`, `source`, `description`
 and optional workspace-relative `paths`, `id` and `metadata`. A `cron` Agent requires a cron expression and executes
@@ -162,11 +161,7 @@ completion. Inputs remain queued during this cooldown. The built-in finance task
 With `config=proactive`, Chat, proactive, cron, and temporary forks share the Codex app server's native tool settings, including `web_search`.
 Temporary `query` forks use the backend's read-only mode.
 `notify_window={start,end}` limits automatic inbox wakeups; messages can still be processed and saved outside it.
-`temporary=true` is independent of trigger type. Temporary Agents become eligible for collection after seven days
-without new accepted inputs; cron triggers count as inputs, while duplicates and retries do not. Collection waits for
-running work, pending events, undelivered messages and retained Inbox references. Daily records and resources remain.
-Successful input receipts retain the greatest accepted reception time, preserving idle lifetime across priority processing
-and restarts. On restart cron schedules the next future trigger; queued events still run, but missed offline triggers are not backfilled.
+Tasks remain in their stable directories until explicitly deleted; deletion retains source files and history. On restart cron schedules the next future trigger; queued events still run, but missed offline triggers are not backfilled.
 Chat idle and retry timers restart in memory. Daily handoffs use `daily/YYYY-MM-DD/<agent_name>.md`; round details use
 `<agent_name>_HHMMSS.md`, with numeric suffixes for same-second collisions. The framework keeps each reminder body in Markdown and
 updates delivery and read timestamps in its frontmatter under the Agent's `reminder/YYYY-MM-DD/HHMMSS.md`.

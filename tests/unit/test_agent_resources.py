@@ -41,7 +41,7 @@ async def test_event_pages_are_ordered_isolated_snapshots_without_claiming_or_wr
 async def test_inbox_outbox_and_user_receipts_share_canonical_reminders_without_consuming(tmp_path):
     async with running_runtime(tmp_path) as (runtime, context, _):
         await create_agent(runtime)
-        await runtime.create({"agent_name": "other", "agent_type": "proactive", "task_description": "Other"})
+        await runtime.create({"agent_name": "other", "task_description": "Other"})
         await runtime.run("monitor", AsyncMock(return_value=completed_result(runtime)))
         task = AgentOutboxStep(app_context=context)
         inbox = AgentInboxStep(app_context=context)

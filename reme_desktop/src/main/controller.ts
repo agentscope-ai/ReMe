@@ -18,10 +18,10 @@ import type { ReplyProgress } from "../shared/transcript.ts";
 import type {
   DesktopState,
   PendingTurn,
-  AgentEvent,
+  ClientInfo,
   Presentation,
   Receipt,
-  TranscriptMessage,
+  AgentMessage,
   AnimationManifest,
   PlaybackStatus,
   SettingsUpdate,
@@ -72,8 +72,7 @@ export class DesktopController {
     true,
     this.nextPresentationId,
   );
-  private replay: { target: ItemTarget; message: TranscriptMessage } | null =
-    null;
+  private replay: { target: ItemTarget; message: AgentMessage } | null = null;
   private replayRequest = 0;
   private menuOpen = false;
   private menuSequence = 0;
@@ -135,7 +134,7 @@ export class DesktopController {
       connection: "connecting",
       connectionError: "",
       settings: storage.settings,
-      workspace: "",
+      clientInfo: null,
       selectedAgentName: "Remy",
       agents: [],
       sessionId: null,
@@ -230,7 +229,7 @@ export class DesktopController {
     this.state.surface = null;
     this.chatPending = null;
     this.pendingIssue = null;
-    this.state.workspace = "";
+    this.state.clientInfo = null;
     this.state.documentTarget = null;
     this.scope = "";
     this.state.connection = "connecting";
@@ -257,63 +256,30 @@ export class DesktopController {
     while (!signal.aborted) {
       try {
         const client = this.client();
-        const config = await client.call<{
-          workspace_dir: string;
-          jobs: Record<
-            string,
-            { backend: string; enabled?: boolean; enable_serve?: boolean }
-          >;
-          components?: {
-            tts?: Record<
-              string,
-              {
-                model?: string;
-                voice?: string;
-                audio_format?: string;
-                sample_rate?: number;
-                parameters?: Record<string, unknown>;
-              }
-            >;
-          };
-        }>("get_app_config", {}, signal);
+        const config = await client.call<ClientInfo>(
+          "get_client_info",
+          {},
+          signal,
+        );
         if (signal.aborted) return;
         for (const job of [
           "watch_agent_session",
           "ask_agent",
-          "read_agent_session",
           "create_chat_session",
           "list_agent_outbox",
           "read_agent_reminder",
           "list_agent_inbox",
         ]) {
-          if (
-            !config.jobs?.[job] ||
-            config.jobs[job].enabled === false ||
-            config.jobs[job].enable_serve === false
-          ) {
+          if (!config.jobs.includes(job))
             throw new UiError("missingJob", { job });
-          }
         }
-        if (typeof config.workspace_dir !== "string")
-          throw new UiError("missingWorkspace");
-        const available = (name: string) =>
-          Boolean(
-            config.jobs?.[name] &&
-            config.jobs[name].enabled !== false &&
-            config.jobs[name].enable_serve !== false,
-          );
-        const tts = config.components?.tts?.default;
         this.speech.configure(
-          available("asr"),
-          available("tts"),
+          config.asr,
+          config.tts,
           JSON.stringify([
             client.endpoint,
             config.workspace_dir,
-            tts?.model,
-            tts?.voice,
-            tts?.audio_format,
-            tts?.sample_rate,
-            tts?.parameters,
+            config.speech_revision,
           ]),
         );
         const scope = createHash("sha256")
@@ -325,7 +291,7 @@ export class DesktopController {
           this.instantBubbles.clear();
           this.scope = scope;
         }
-        this.state.workspace = config.workspace_dir;
+        this.state.clientInfo = config;
         await client.stream(
           "watch_agent_session",
           { agent_name: "Remy" },
@@ -337,18 +303,17 @@ export class DesktopController {
               throw new UiError("subscriptionError");
             }
             if (chunk.chunk_type !== "data" || !chunk.chunk) return;
-            const payload = chunk.chunk as unknown as AgentEvent;
-            if (payload.agents) {
-              this.state.agents = payload.agents;
+            const previous = this.model.sessionId;
+            const event = this.model.apply(chunk.chunk);
+            if (event.type !== "heartbeat" && event.agents) {
+              this.state.agents = event.agents;
               if (
-                !payload.agents.some(
+                !event.agents.some(
                   (agent) => agent.agent_name === this.state.selectedAgentName,
                 )
               )
                 this.selectAgent("Remy");
             }
-            const previous = this.model.sessionId;
-            const event = this.model.apply(chunk.chunk);
             const live = this.ready && previous === this.model.sessionId;
             if (
               event.type === "heartbeat" &&
@@ -370,24 +335,19 @@ export class DesktopController {
               this.visibleReminder = null;
               this.state.focusTarget = null;
             }
-            if (event.type === "snapshot" || event.type === "status_changed") {
+            if (event.type !== "heartbeat") {
               this.presentationController.observe(
-                this.model.activities.chat,
+                this.model.activities.Remy,
                 live,
               );
-              this.behavior.observe(
-                this.model.activities,
-                live,
-                Date.now(),
-                this.model.taskActivities,
-              );
+              this.behavior.observe(this.model.activities, live, Date.now());
             }
             this.ready = true;
             this.state.connection = "connected";
-            this.connectionIssue = event.error ?? null;
-            if (event.type === "snapshot" || event.type === "status_changed") {
+            this.connectionIssue = null;
+            if (event.type !== "heartbeat") {
               const notice = this.notificationPolicy.observe(
-                this.model.activities.chat,
+                this.model.activities.Remy,
                 live,
                 this.notificationEligible(),
                 Date.now(),
@@ -400,21 +360,19 @@ export class DesktopController {
                   sessionId: this.model.sessionId,
                 });
             }
-            if (!event.error) {
+            if (event.type !== "heartbeat") {
               if (event.type === "snapshot") {
                 if (live) {
                   for (const message of this.model.messages)
                     this.speech.observe(message);
                 } else this.speech.baseline(this.model.messages);
                 this.observeMessages(this.model.messages, !live);
-              } else if (event.type === "message_upsert" && event.message) {
-                const message = this.model.messages.find(
-                  (message) => message.id === event.message!.id,
-                )!;
-                this.observeMessages([message], false);
-                this.speech.observe(message);
+              } else {
+                this.observeMessages(event.messages, false);
+                for (const message of event.messages)
+                  this.speech.observe(message);
               }
-              if (live) this.speech.finish(this.model.activities.chat);
+              if (live) this.speech.finish(this.model.activities.Remy);
             }
             this.syncPending(this.model, this.chatPending);
             this.reconcilePending();
@@ -451,11 +409,11 @@ export class DesktopController {
 
   private notificationMessage(
     id: string | undefined,
-  ): TranscriptMessage | undefined {
+  ): AgentMessage | undefined {
     return this.model.messages.find((message) => message.id === id);
   }
 
-  private notificationMessages(): TranscriptMessage[] {
+  private notificationMessages(): AgentMessage[] {
     return this.model.messages.filter(
       (message) =>
         message.source === "proactive" &&
@@ -466,7 +424,7 @@ export class DesktopController {
   }
 
   private notificationPresentation(
-    message: TranscriptMessage,
+    message: AgentMessage,
   ): Presentation | undefined {
     const session = message.origin_session_id ?? this.model.sessionId;
     return this.scope && session
@@ -474,10 +432,7 @@ export class DesktopController {
       : undefined;
   }
 
-  private observeMessages(
-    messages: TranscriptMessage[],
-    snapshot: boolean,
-  ): void {
+  private observeMessages(messages: AgentMessage[], snapshot: boolean): void {
     const current = this.presentation();
     const initialize = new Set<Presentation>();
     for (const message of messages) {
@@ -530,8 +485,7 @@ export class DesktopController {
         this.model.messages
           .filter(
             (message) =>
-              message.delivery === "immediate" &&
-              this.model.canNotify(message, now),
+              message.delivery === "immediate" && message.notification_eligible,
           )
           .map((message) => message.id),
       ),
@@ -540,7 +494,7 @@ export class DesktopController {
       const active = this.model.messages.find(
         (message) => message.id === this.bubbles.active?.id,
       );
-      if (!active || !this.model.canNotify(active, now))
+      if (!active || !active.notification_eligible)
         this.bubbles.dismiss(this.bubbles.active.id);
     }
     for (const message of this.notificationMessages()) {
@@ -558,7 +512,7 @@ export class DesktopController {
         (receipt.userRead && !receipt.snoozeUntil)
       )
         continue;
-      if (!this.model.canNotify(message, now)) {
+      if (!message.notification_eligible) {
         receipt.suppressed = true;
         this.bubbles.dismiss(message.id);
         this.storage.changed();
@@ -735,7 +689,7 @@ export class DesktopController {
     const inputs = [
       this.model.messages,
       this.model.sessionId,
-      this.model.activities.chat,
+      this.model.activities.Remy,
       this.state.settings.language,
       pending?.id,
       pending?.turnId,
@@ -752,7 +706,7 @@ export class DesktopController {
           messages: this.model.messages,
           pending,
         },
-        this.model.activities.chat,
+        this.model.activities.Remy,
         this.state.settings.language,
       );
     }
@@ -770,7 +724,7 @@ export class DesktopController {
           reply: child.reply,
           task: true,
         },
-        child.pending ? undefined : child.model.activities.chat,
+        child.pending ? undefined : child.model.activities[selected],
         this.state.settings.language,
       );
       if (child.error)
@@ -837,9 +791,7 @@ export class DesktopController {
     }
     this.state.surface = this.presentationController.resolve(
       this.state,
-      this.model.activities.chat,
-      this.model.taskActivities,
-      this.model.activities.proactive,
+      this.model.activities,
       this.visibleReminder,
       this.companionVisible && this.companionReady,
       this.behavior.dragging,
@@ -885,7 +837,7 @@ export class DesktopController {
       return false;
     if (!notice.messageId) return true;
     const message = this.notificationMessage(notice.messageId);
-    return Boolean(message && this.model.canNotify(message, Date.now()));
+    return Boolean(message && message.notification_eligible);
   }
 
   canOpenNotice(notice: SystemNotice): boolean {
@@ -953,7 +905,7 @@ export class DesktopController {
     if (
       sessionId !== this.model.sessionId ||
       !message ||
-      !this.model.canNotify(message, Date.now()) ||
+      !message.notification_eligible ||
       !(
         this.instantBubbles.active?.id === id
           ? this.instantBubbles
@@ -1135,7 +1087,7 @@ export class DesktopController {
       this.state.activePage !== "remy"
     )
       return;
-    const messages: TranscriptMessage[] = [];
+    const messages: AgentMessage[] = [];
     for (const id of ids.slice(0, 100)) {
       const message = this.notificationMessage(id);
       if (
@@ -1147,7 +1099,7 @@ export class DesktopController {
     this.readMessages(messages);
   }
 
-  private readMessages(messages: TranscriptMessage[]): void {
+  private readMessages(messages: AgentMessage[]): void {
     let changed = false;
     for (const message of messages) {
       const id = message.id;
@@ -1252,7 +1204,7 @@ export class DesktopController {
     this.selectPage("knowledge");
   }
 
-  async item(target: ItemTarget): Promise<TranscriptMessage> {
+  async item(target: ItemTarget): Promise<AgentMessage> {
     validateItemTarget(target);
     if (this.closed) throw new UiError("itemUnavailable");
     if (target.kind === "message") {
@@ -1287,6 +1239,11 @@ export class DesktopController {
       content: mail.message,
       completed: true,
       created_at: mail.created_at,
+      session_id: this.model.sessionId ?? "",
+      turn_id: null,
+      origin_session_id: null,
+      outcome: "completed",
+      error: null,
       delivery: "idle",
       notification_eligible: false,
       items: [],
@@ -1504,17 +1461,17 @@ export class DesktopController {
             if (generation !== this.generation) return;
             const progress = (child.reply = reduceReply(child.reply, chunk));
             Object.assign(pending, {
-              turnId: progress.turnId,
-              outcome: progress.status,
-              sessionId: progress.sessionId ?? pending.sessionId,
+              turnId: progress.turn_id ?? undefined,
+              outcome: progress.outcome ?? undefined,
+              sessionId: progress.session_id ?? pending.sessionId,
             });
             this.emit();
           },
         );
         if (child.reply.error) throw new Error(child.reply.error);
         if (
-          child.reply.status !== "completed" &&
-          child.reply.status !== "waiting"
+          child.reply.outcome !== "completed" &&
+          child.reply.outcome !== "waiting"
         )
           throw new UiError("replyIncomplete");
       } catch (error) {
@@ -1591,14 +1548,12 @@ export class DesktopController {
         AbortSignal.any([controller.signal, this.lifecycle!.signal]),
         (chunk) => {
           if (generation !== this.generation) return;
-          if (!["reply_start", "reply_end", "error"].includes(chunk.chunk_type))
-            return;
           progress = reduceReply(progress, chunk);
           if (this.chatPending !== pending) return;
           Object.assign(pending, {
-            turnId: progress.turnId,
-            outcome: progress.status,
-            sessionId: progress.sessionId ?? pending.sessionId,
+            turnId: progress.turn_id ?? undefined,
+            outcome: progress.outcome ?? undefined,
+            sessionId: progress.session_id ?? pending.sessionId,
           });
           this.syncPending(this.model, pending);
           this.emit();
@@ -1608,7 +1563,7 @@ export class DesktopController {
         throw typeof progress.error === "string"
           ? new Error(progress.error)
           : progress.error;
-      if (progress.status !== "completed" && progress.status !== "waiting")
+      if (progress.outcome !== "completed" && progress.outcome !== "waiting")
         throw new UiError("replyIncomplete");
     } catch (error) {
       if (generation === this.generation && this.chatPending === pending) {
@@ -1656,7 +1611,7 @@ export class DesktopController {
   private acceptedReply(
     model: SessionModel,
     pending: PendingTurn | null,
-  ): TranscriptMessage | undefined {
+  ): AgentMessage | undefined {
     if (
       !pending?.turnId ||
       pending.streaming ||

@@ -37,7 +37,7 @@ export default function AgentDocument({
     return () => {
       live = false;
     };
-  }, [path, state.workspace, state.settings.endpoint, completed, revision]);
+  }, [path, completed, revision]);
   return (
     <div className="agent-document document-pane">
       <div className="agent-document-toolbar">
@@ -67,9 +67,7 @@ export default function AgentDocument({
         <DocumentPreview
           path={path}
           content={content}
-          tagKey="memory_tags"
-          supportsTags={false}
-          onTag={() => {}}
+          tagKey={state.clientInfo?.tag_key ?? "memory_tags"}
           language={state.settings.language}
           onLink={(url) =>
             void action({ type: "link.open", url, sourcePath: path }).catch(
