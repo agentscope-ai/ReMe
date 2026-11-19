@@ -73,13 +73,14 @@ def install_round(
                     ),
                 ),
             )
-            record_path = paths["record_path"].relative_to(runtime.workspace_path).as_posix()
-            reminder_path = paths["reminder_path"].relative_to(runtime.workspace_path).as_posix()
+            summary_dir = paths["today_summary_path"].parent
+            record_path = Path(relpath(paths["record_path"], summary_dir)).as_posix()
+            reminder_path = Path(relpath(paths["reminder_path"], summary_dir)).as_posix()
             write(
                 "today_summary_path",
-                f"## Today's records\n- 10:00 [[{record_path}|Progress]]\n"
+                f"## Today's records\n- 10:00 [Progress]({record_path})\n"
                 "\n## Today's reminders\n"
-                + (f"- 10:00 New result, submitted. [[{reminder_path}|Reminder]]\n" if reminder != "skip" else ""),
+                + (f"- 10:00 New result, submitted. [Reminder]({reminder_path})\n" if reminder != "skip" else ""),
             )
         if hook is not None:
             hook(write)
@@ -161,21 +162,27 @@ async def test_broken_local_links_warn_without_rejecting_saved_results(
         step.logger = Mock()
         paths = step._paths(await runtime.definition("monitor"), now)
         path = paths[artifact]
-        directory = path.parent.relative_to(workspace).as_posix()
-        before = "# Previous summary\n[[old-missing.md|Old broken link]]\n"
+        before = "# Previous summary\n[Old broken link](old-missing.md)\n"
         runtime.files.write(paths["today_summary_path"], before)
         runtime.files.write(path.with_name("proof (confirmed).md"), "Evidence\n")
         outside = tmp_path / "outside.md"
         outside.write_text("Outside workspace\n")
+        outside_path = Path(relpath(outside, path.parent)).as_posix()
+        record = Path(relpath(paths["record_path"], path.parent)).as_posix()
+        wrong_depth = Path(relpath(paths["record_path"], path.parent.parent)).as_posix()
         body = (
-            f"[[{paths['record_path'].relative_to(workspace).as_posix()}#details|Record]]\n"
-            f"[[{directory}/proof (confirmed).md|Evidence]]\n"
+            f"[Record]({record}#details)\n"
+            "[Evidence][proof] [Encoded evidence](proof%20%28confirmed%29.md)\n\n"
+            "[proof]: <proof (confirmed).md>\n\n"
+            "[This section](#details)\n"
             "[Web](https://example.com/news)\n"
-            "`[[not-real-inline.md|Example]]`\n"
-            "```markdown\n[[not-real-fenced.md|Example]]\n```\n"
-            "~~~markdown\n[[not-real-tilde.md|Example]]\n~~~\n"
-            "[[missing.md|Missing]] [[missing.md|Repeated]]\n"
-            "[[../outside.md|Outside]]\n"
+            "`[Example](not-real-inline.md)`\n"
+            "```markdown\n[Example](not-real-fenced.md)\n```\n"
+            "~~~markdown\n[Example](not-real-tilde.md)\n~~~\n"
+            "[[legacy-missing.md|Legacy]]\n"
+            "[Missing](missing.md) [Repeated](missing.md)\n"
+            f"[Wrong depth]({wrong_depth})\n"
+            f"[Outside]({outside_path})\n"
         )
         expected = {}
 
@@ -194,11 +201,12 @@ async def test_broken_local_links_warn_without_rejecting_saved_results(
         assert (await runtime.status("monitor"))["pending_events"] == 0
         assert len(response.answer["notifications"]) == (0 if reminder == "skip" else 1)
         warnings = [call.args[0] for call in step.logger.warning.call_args_list]
-        assert len(warnings) == 2
+        assert len(warnings) == 3
         assert all(f"source={path}" in warning for warning in warnings)
         assert any("target='missing.md': target does not exist" in warning for warning in warnings)
+        assert any(f"target={wrong_depth!r}: target does not exist" in warning for warning in warnings)
         assert any(
-            "target='../outside.md'" in warning and "stay inside the workspace" in warning for warning in warnings
+            f"target={outside_path!r}" in warning and "stay inside the workspace" in warning for warning in warnings
         )
         for key, content in expected.items():
             assert frontmatter.loads(runtime.files.read(paths[key])).content == content

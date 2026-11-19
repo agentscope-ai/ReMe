@@ -4,10 +4,11 @@ import asyncio
 from datetime import timedelta
 import json
 import math
-import re
+from posixpath import join, normpath
 import shlex
 from time import monotonic
 from typing import get_args
+from urllib.parse import unquote, urlsplit
 
 import frontmatter
 
@@ -20,7 +21,7 @@ from ....schema.proactive_agent import CRON_EVENT_SOURCE, ProactiveRunResult
 from ....schema import TokenUsage, collect_reply
 from ....utils.async_utils import complete_in_thread
 from ....utils.counter import global_counter_add_many
-from ....utils.documents.wikilink_handler import WikilinkHandler
+from ....utils.documents.markdown_parser import markdown_link_targets
 
 
 @R.register("proactive_agent_step")
@@ -176,23 +177,22 @@ class ProactiveAgentStep(BaseAgentStep):
             raise ValueError(f"{path}: document body must not be blank")
         return document
 
-    @staticmethod
-    def _workspace_links(content):
-        """Extract workspace wikilinks outside code examples."""
-        content = re.sub(
-            r"^ {0,3}(`{3,}|~{3,})[^\n]*\n.*?(?:^ {0,3}\1[ \t]*$|\Z)|(`+).*?\2",
-            "",
-            content,
-            flags=re.MULTILINE | re.DOTALL,
-        )
-        return {match.target for match in WikilinkHandler.iter_matches(content)}
-
     def _warn_local_links(self, path, content, before=""):
-        """Resolve local links from the workspace and warn without rejecting valid artifacts."""
+        """Check new Markdown links relative to their source without blocking submission."""
         files = self.agent_runtime.files
-        for target in sorted(self._workspace_links(content) - self._workspace_links(before)):
+        directory = path.parent.relative_to(files.workspace).as_posix()
+        try:
+            targets = markdown_link_targets(content) - markdown_link_targets(before)
+        except (ValueError, RuntimeError) as exc:
+            self.logger.warning(f"Could not parse Markdown links source={path}: {exc}")
+            return
+        for target in sorted(targets):
             try:
-                if files.path(target).exists():
+                url = urlsplit(target)
+                if url.scheme or url.netloc or not url.path:
+                    continue
+                relative_path = normpath(join(directory, unquote(url.path)))
+                if files.path(relative_path).exists():
                     continue
                 reason = "target does not exist"
             except (OSError, ValueError, RuntimeError) as exc:
