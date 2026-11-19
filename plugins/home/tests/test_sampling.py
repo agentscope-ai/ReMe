@@ -352,8 +352,9 @@ async def test_started_callback_is_idempotent(app, prepared):
     assert state(prepared) == original
 
 
-@pytest.mark.parametrize("missing", [1, 2])
-def test_replay_eligibility_uses_dev_meta_five_percent_threshold(tmp_path, missing):
+@pytest.mark.parametrize("invalid_count", [1, 2])
+@pytest.mark.parametrize("bad_result", [None, "[]", "{"])
+def test_replay_eligibility_uses_dev_meta_five_percent_threshold(tmp_path, invalid_count, bad_result):
     from reme_home.evaluation.inputs import EvaluationSpec, replay_sampling_eligibility
     from reme_home.evaluation.artifacts import write_json
 
@@ -379,18 +380,54 @@ def test_replay_eligibility_uses_dev_meta_five_percent_threshold(tmp_path, missi
         },
     )
     write_json(source / "summary.json", {})
-    for case in selected[missing:]:
+    for index, case in enumerate(selected):
         folder = source / "cases" / case.case_id
-        write_json(folder / "memory_construction/result.json", {"success": True})
-        (folder / "memory_construction/reme_workspace.tar.gz").write_bytes(b"fixture")
+        construction = folder / "memory_construction"
+        construction.mkdir(parents=True)
+        (construction / "reme_workspace.tar.gz").write_bytes(b"fixture")
+        result_path = construction / "result.json"
+        if index < invalid_count:
+            if bad_result is not None:
+                result_path.write_text(bad_result, encoding="utf-8")
+            continue
+        write_json(result_path, {"success": True})
         write_json(folder / "queries/result.json", {"queries": [{"answer": "answer", "error": None}]})
     spec = EvaluationSpec(reuse_construction_from=str(source))
-    if missing == 1:
+    if invalid_count == 1:
         eligible = replay_sampling_eligibility(home, spec, selected)
         assert len(eligible) == 19 and "case-0" not in eligible
     else:
         with pytest.raises(ValueError, match="5%"):
             replay_sampling_eligibility(home, spec, selected)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("stage", "bad_result", "error"),
+    [
+        ("memory_construction", "[]", "Replay source construction failure ratio exceeds 5%"),
+        ("queries", "[]", "Replay source has no completed successful answers for 2"),
+        ("queries", "{", "Replay source cannot read answers for case 2"),
+    ],
+)
+async def test_explicit_replay_sampling_reports_invalid_source(app, prepared, stage, bad_result, error):
+    baseline = await app.run_job("home_evaluate")
+    assert baseline.success, baseline.answer
+    source = Path(baseline.answer["result_dir"])
+    (source / "cases" / "2" / stage / "result.json").write_text(bad_result, encoding="utf-8")
+    commit_candidate(prepared)
+    launches = len(FakeFactory.instances)
+
+    response = await app.run_job(
+        "home_evaluate",
+        sampling=True,
+        reuse_construction_from=str(source),
+        target_queries={"1": ["fact:1"]},
+        sampling_policy={"max_cases": 1, "max_queries": 1},
+    )
+
+    assert not response.success and error in str(response.answer)
+    assert len(FakeFactory.instances) == launches
 
 
 @pytest.mark.asyncio

@@ -236,20 +236,33 @@ def replay_sampling_eligibility(home: Path, spec: EvaluationSpec, cases: list[Ca
         folder = contained(source, f"cases/{case_id}", directory=True)
         result_path = contained(folder, "memory_construction/result.json")
         archive = contained(folder, "memory_construction/reme_workspace.tar.gz")
-        if not result_path.is_file() or not archive.is_file() or read_json(result_path).get("success") is not True:
+        if not archive.is_file():
             continue
-        reusable.add(case_id)
+        try:
+            result = read_json(result_path)
+        except (OSError, ValueError):
+            continue
+        if isinstance(result, dict) and result.get("success") is True:
+            reusable.add(case_id)
     if (len(case_ids) - len(reusable)) / len(case_ids) > 0.05:
         raise ValueError("Replay source construction failure ratio exceeds 5%")
     for case_id in reusable:
-        payload = read_json(contained(source, f"cases/{case_id}/queries/result.json"))
-        queries = payload.get("queries")
-        if not queries or not all(
-            isinstance(query, dict)
-            and query.get("error") is None
-            and isinstance(query.get("answer"), str)
-            and query["answer"].strip()
-            for query in queries
+        result_path = contained(source, f"cases/{case_id}/queries/result.json")
+        try:
+            payload = read_json(result_path)
+        except (OSError, ValueError) as error:
+            raise ValueError(f"Replay source cannot read answers for case {case_id}: {error}") from error
+        queries = payload.get("queries") if isinstance(payload, dict) else None
+        if (
+            not isinstance(queries, list)
+            or not queries
+            or not all(
+                isinstance(query, dict)
+                and query.get("error") is None
+                and isinstance(query.get("answer"), str)
+                and query["answer"].strip()
+                for query in queries
+            )
         ):
             raise ValueError(f"Replay source has no completed successful answers for {case_id}")
     # A construction snapshot can answer new query subsets from the same case;
