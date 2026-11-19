@@ -506,7 +506,7 @@ async def test_optimizer_creates_baseline_once_and_verifies_baseline_fallback(ap
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("change", ["dirty", "incomplete"])
+@pytest.mark.parametrize("change", ["dirty", "incomplete", "wrong_branch"])
 async def test_new_baseline_rechecks_repository_and_evidence(app, prepared, sandbox, monkeypatch, change):
     wrapper = app.context.components["agent_wrapper"]["home_optimizer"]
     required_job = optimizer_module.required_job
@@ -518,11 +518,16 @@ async def test_new_baseline_rechecks_repository_and_evidence(app, prepared, sand
         if change == "dirty":
             target = prepared / "code/repo/plugins/beam/src/reme_beam/__init__.py"
             target.write_text("preserve changes made during evaluation\n")
-        else:
+        elif change == "incomplete":
             path = Path(response.answer["result_dir"]) / "summary.json"
             summary = read_json(path)
             summary["expected_query_count"] = 0
             write_json(path, summary)
+        else:
+            path = Path(response.answer["result_dir"]) / "manifest.json"
+            manifest = read_json(path)
+            manifest["branch_name"] = "candidate"
+            write_json(path, manifest)
         return response
 
     monkeypatch.setattr(
@@ -534,7 +539,81 @@ async def test_new_baseline_rechecks_repository_and_evidence(app, prepared, sand
     set_model(app, "home_optimizer", model)
     response = await app.run_job("home_optimize")
     assert not response.success and not model.calls and not sandbox
-    assert ("must be clean" if change == "dirty" else "incomplete case coverage") in str(response.answer)
+    expected = {
+        "dirty": "must be clean",
+        "incomplete": "incomplete case coverage",
+        "wrong_branch": "Initial baseline evidence must match the init branch and initial commit",
+    }
+    assert expected[change] in str(response.answer)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["branch", "commit", "restore_init"])
+async def test_new_baseline_rejects_concurrent_candidate_changes(app, prepared, sandbox, monkeypatch, change):
+    entered, release = asyncio.Event(), asyncio.Event()
+    required_job = optimizer_module.required_job
+    wrapper = app.context.components["agent_wrapper"]["home_optimizer"]
+    evaluate_job = required_job(wrapper, "home_evaluate")
+    evaluated = []
+
+    async def evaluate(**kwargs):
+        # Pause after baseline preflight but before evaluation snapshots HEAD.
+        entered.set()
+        await release.wait()
+        response = await evaluate_job(**kwargs)
+        assert response.success, response.answer
+        evaluated.append(response.answer["result_dir"])
+        if change == "restore_init":
+            switched = await app.run_job("home_switch_candidate_branch", branch_name="init")
+            assert switched.success, switched.answer
+        return response
+
+    monkeypatch.setattr(
+        optimizer_module,
+        "required_job",
+        lambda wrapper, name: evaluate if name == "home_evaluate" else required_job(wrapper, name),
+    )
+    model = ScriptedModel(final=lambda: final_report(prepared, branch="concurrent", path=evaluated[0]))
+    set_model(app, "home_optimizer", model)
+    repo = prepared / "code/repo"
+    initial = git(repo, "rev-parse", "HEAD")
+    running = asyncio.create_task(app.run_job("home_optimize"))
+    try:
+        await asyncio.wait_for(entered.wait(), 10)
+        created = await app.run_job("home_create_candidate_branch", branch_name="concurrent")
+        assert created.success, created.answer
+        if change != "branch":
+            target = repo / "plugins/beam/src/reme_beam/__init__.py"
+            target.write_text(target.read_text() + "\n# Concurrent candidate change.\n")
+            committed = await app.run_job("home_commit_candidate", message="concurrent candidate")
+            assert committed.success, committed.answer
+        candidate = git(repo, "rev-parse", "HEAD")
+        release.set()
+        response = await asyncio.wait_for(running, 30)
+    finally:
+        release.set()
+        if not running.done():
+            running.cancel()
+            await asyncio.gather(running, return_exceptions=True)
+
+    assert not response.success, response.answer
+    assert not model.calls and not sandbox
+    assert not list((prepared / "logs/optimization-reports").glob("*.json"))
+    expected = (
+        "Initial baseline evidence must match the init branch and initial commit"
+        if change == "restore_init"
+        else "requires clean init at the initial commit"
+    )
+    assert expected in str(response.answer)
+    manifest = read_json(Path(evaluated[0]) / "manifest.json")
+    assert manifest["status"] == "completed" and manifest["commit_sha"] == candidate
+    assert manifest["branch_name"] == ("init" if change == "branch" else "concurrent")
+    expected_branch = "init" if change == "restore_init" else "concurrent"
+    assert git(repo, "branch", "--show-current") == expected_branch
+    assert git(repo, "rev-parse", "concurrent") == candidate
+    if change != "branch":
+        assert candidate != initial
+        assert not list((prepared / "evaluations/init").glob("*/*/manifest.json"))
 
 
 @pytest.mark.asyncio
@@ -702,8 +781,14 @@ async def test_baseline_infra_error_continues_optimization(
     if existing_baseline:
         response = await app.run_job("home_evaluate", fail_fast=False)
         assert not response.success
+
+    def retry_initial_commit():
+        history = app.context.components["home.evaluation_history"]["default"]
+        assert history.sampling_state() == {"round": 0, "cases": {}, "queries": {}}
+        return {"debug": False}
+
     # The optimizer receives the imperfect baseline and can retry its exact commit.
-    model = ScriptedModel(calls=[("home_evaluate", {"debug": False})], final=lambda: final_report(prepared))
+    model = ScriptedModel(calls=[("home_evaluate", retry_initial_commit)], final=lambda: final_report(prepared))
     set_model(app, "home_optimizer", model)
     response = await app.run_job("home_optimize")
     assert response.success, response.answer

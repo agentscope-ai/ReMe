@@ -18,6 +18,48 @@ _BACKENDS = {"beam-judge": "beam_rubric_judge_step", "lme-judge": "lme_answer_ju
 _MODULES = {"beam-judge": "judge_beam", "lme-judge": "judge_lme"}
 
 
+def _beam_arguments(query, answer):
+    return {
+        "llm_response": answer,
+        "rubric": query.groundtruth.rubric,
+        "probing_question": query.question,
+        "question_type": query.metadata.get("question_type", ""),
+    }
+
+
+def _beam_score(query, response):
+    scores = response.metadata.get("llm_judge_responses")
+    if not isinstance(scores, list) or len(scores) != len(query.groundtruth.rubric):
+        raise ValueError("BEAM judge returned incomplete rubric results")
+    for item in scores:
+        if not isinstance(item, dict) or str(item.get("reason", "")).startswith("Failed to parse:"):
+            raise ValueError("BEAM judge failed to parse rubric output")
+        if item.get("score") not in {0, 0.5, 1}:
+            raise ValueError("BEAM judge returned an invalid rubric score")
+    score = float(response.metadata.get("llm_judge_score", float("nan")))
+    if not math.isfinite(score) or not 0 <= score <= 1:
+        raise ValueError("BEAM judge returned an invalid aggregate score")
+    return score
+
+
+def _lme_arguments(query, answer):
+    return {
+        "query": query.question,
+        "agent_answer": answer,
+        "golden_answer": query.groundtruth.golden_answer,
+        "question_type": query.metadata.get("question_type", ""),
+    }
+
+
+def _lme_score(_query, response):
+    if response.answer not in {"yes", "no"}:
+        raise ValueError("LME judge returned an invalid yes/no judgement")
+    return 1.0 if response.answer == "yes" else 0.0
+
+
+_JUDGE_ADAPTERS = {"beam-judge": (_beam_arguments, _beam_score), "lme-judge": (_lme_arguments, _lme_score)}
+
+
 class JudgeResultError(ValueError):
     """Preserve the host Job's response when scoring or result validation fails."""
 
@@ -91,51 +133,17 @@ class HomeJudge(BaseComponent):
 
     async def evaluate(self, dataset, query, answer):
         """Call the host Job and reject invalid scores as infrastructure failures."""
-        self.require_benchmark(dataset)
+        plugin = self.require_benchmark(dataset)
         job = self.app_context.jobs["answer_judge"]
         if not job.is_started:
             raise RuntimeError("Start answer_judge before evaluating")
-        if dataset == "beam":
-            arguments = {
-                "llm_response": answer,
-                "rubric": query.metadata.get("rubric", query.golden_answer),
-                "probing_question": query.question,
-                "question_type": query.metadata.get("question_type", ""),
-            }
-        else:
-            arguments = {
-                "query": query.question,
-                "agent_answer": answer,
-                "golden_answer": query.golden_answer,
-                "question_type": query.metadata.get("question_type", ""),
-            }
-        response = await job(**arguments)
+        arguments, read_score = _JUDGE_ADAPTERS[plugin]
+        response = await job(**arguments(query, answer))
         result = json.loads(response.model_dump_json())
         try:
-            score = self._score_response(dataset, response, arguments.get("rubric", []))
+            if not response.success:
+                raise ValueError(f"answer_judge failed: {response.answer}")
+            score = read_score(query, response)
         except (ValueError, TypeError) as error:
             raise JudgeResultError(str(error), result) from error
         return result, score
-
-    @staticmethod
-    def _score_response(dataset, response, rubric):
-        """Keep benchmark-specific scores and reject failed/invalid Job output."""
-        if not response.success:
-            raise ValueError(f"answer_judge failed: {response.answer}")
-        if dataset == "beam":
-            scores = response.metadata.get("llm_judge_responses")
-            if not isinstance(scores, list) or len(scores) != len(rubric):
-                raise ValueError("BEAM judge returned incomplete rubric results")
-            for item in scores:
-                if not isinstance(item, dict) or str(item.get("reason", "")).startswith("Failed to parse:"):
-                    raise ValueError("BEAM judge failed to parse rubric output")
-                if item.get("score") not in {0, 0.5, 1}:
-                    raise ValueError("BEAM judge returned an invalid rubric score")
-            score = float(response.metadata.get("llm_judge_score", float("nan")))
-            if not math.isfinite(score) or not 0 <= score <= 1:
-                raise ValueError("BEAM judge returned an invalid aggregate score")
-        else:
-            if response.answer not in {"yes", "no"}:
-                raise ValueError("LME judge returned an invalid yes/no judgement")
-            score = 1.0 if response.answer == "yes" else 0.0
-        return score

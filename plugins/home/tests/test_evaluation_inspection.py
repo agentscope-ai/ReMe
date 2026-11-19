@@ -142,7 +142,7 @@ async def test_failure_and_query_paging_previews_and_source_coordinates(app, pre
                     "score": 0,
                     "answer": "a" * 3000,
                     "judge_result": {"success": True},
-                    "golden_answer": ["rubric"],
+                    "groundtruth": {"golden_answer": None, "rubric": ["rubric"]},
                     "answer_result": None,
                 },
                 {"query_id": "q1", "score": None, "error": "e" * 900},
@@ -160,7 +160,7 @@ async def test_failure_and_query_paging_previews_and_source_coordinates(app, pre
     result = await call(app, "home_inspect_validation", validation_path=str(run), case_id="case~a", query_id="q2")
     assert result["rows"][0]["pointer"] == "/queries/0"
     assert "truncated" in result["rows"][0]["fields"]["answer"]
-    assert result["rows"][0]["fields"]["golden_answer"] == ["rubric"]
+    assert result["rows"][0]["fields"]["groundtruth"] == {"golden_answer": None, "rubric": ["rubric"]}
     assert result["rows"][0]["score"] == 0
 
 

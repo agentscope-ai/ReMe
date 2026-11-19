@@ -43,8 +43,8 @@ def construction_fingerprints(record, dataset, spec, environment):
     }
 
 
-def reuse_context(home, spec, environment, cases=None, *, replay_selection=False):
-    """Find ancestor sources; an init parent still requires a fresh budgeted sample."""
+def reuse_context(home, spec, cases, fingerprints, *, replay_selection=False, targeted=False):
+    """Find compatible ancestors from saved metadata without opening any archives."""
     repo, record, commit = validate_candidate(home)
     identity = {"candidate_commit": commit, "branch_name": current_branch(repo)}
     previous = previous_candidate_result(home, commit)
@@ -58,54 +58,69 @@ def reuse_context(home, spec, environment, cases=None, *, replay_selection=False
     parent = git(repo, "rev-parse", f"{commit}^1")
     paired = replay_selection and parent != record["code"]["initial_commit"]
     identity["parent_commit"] = parent
-    _, dataset, loaded = load_inputs(home, spec)
-    cases = loaded if cases is None else cases
-    fingerprints = construction_fingerprints(record, dataset, spec, environment)
     ancestors = set(git(repo, "rev-list", commit).splitlines()) - {commit}
     candidates = []
     for path in sorted((home / "evaluations").glob("*/*/*/manifest.json")):
         try:
             manifest = read_json(contained(home, path))
+            if not isinstance(manifest, dict):
+                continue
             base = manifest.get("commit_sha")
             if base not in ancestors:
                 continue
             summary = read_json(contained(home, path.parent / "summary.json"))
+            if not isinstance(summary, dict):
+                continue
             if (
                 manifest.get("mode") != "scored"
+                or manifest.get("dataset_kind") != "training-set"
+                or manifest.get("status", summary.get("status")) != "completed"
                 or manifest.get("success") is False
-                or summary.get("case_status_counts", {}).get("infra_error", 0)
-                or summary.get("query_status_counts", {}).get("infra_error", 0)
+            ):
+                continue
+            counts = [summary.get(key, {}) for key in ("case_status_counts", "query_status_counts")]
+            source_fingerprints = manifest.get("fingerprints")
+            if (
+                any(not isinstance(value, dict) or value.get("infra_error", 0) for value in counts)
+                or not isinstance(source_fingerprints, dict)
+                or any(source_fingerprints.get(key) != fingerprints[key] for key in ("dataset", "construction_config"))
             ):
                 continue
             distance = int(git(repo, "rev-list", "--count", f"{base}..{commit}"))
-            candidates.append((distance, str(path.parent), base))
+            case_ids = _reusable_case_hints(summary.get("cases")) if targeted else ()
+            candidates.append((distance, str(path.parent), base, case_ids))
         except (OSError, ValueError, KeyError, TypeError):
             continue
-    candidates.sort()
-    # Check older sources lazily, only for cases not authorized by a nearer source.
-    for index, (_, source, base) in enumerate(candidates):
-        prepare = prepare_replay_source if paired else prepare_source
-        prepared = prepare(
-            home,
-            spec,
-            cases,
-            fingerprints,
-            {**identity, "base_commit": base, "source_validation": source},
-        )
-        if prepared is not None:
-            return {
-                **prepared,
-                "remaining_sources": candidates[index + 1 :],
-                "requested_cases": cases,
-                "paired_replay": paired,
-            }
+    candidates.sort(key=lambda entry: entry[:3])
+    # A summary only nominates a source. Archive and answer checks happen after sampling.
+    candidate_sources = {}
+    for _, path, _, case_ids in candidates:
+        for case_id in case_ids:
+            candidate_sources.setdefault(case_id, path)
     return {
-        **identity,
-        "selected": False,
-        "reason": "no_reusable_ancestor",
-        "policy": "automatic_60_percent",
-        "rebuild_reasons": {case.case_id: "no_reusable_ancestor" for case in cases},
+        "context": identity,
+        "spec": spec,
+        "cases": cases,
+        "fingerprints": fingerprints,
+        "sources": [(path, base) for _, path, base, _ in candidates],
+        "candidate_sources": candidate_sources if targeted else None,
+        "paired_replay": paired,
     }
+
+
+def _reusable_case_hints(rows):
+    """Use the summary to nominate cases with a full build and successful answers."""
+    if not isinstance(rows, dict):
+        return []
+    return [
+        case_id
+        for case_id, row in rows.items()
+        if isinstance(row, dict)
+        and isinstance(build := row.get("construction"), dict)
+        and build.get("status") == "success"
+        and row.get("queries")
+        and not row.get("query_error_count")
+    ]
 
 
 def prepare_replay_source(home, spec, cases, fingerprints, context):
@@ -146,13 +161,17 @@ def prepare_source(home, spec, cases, fingerprints, context):
             reuse_inputs(home, source_spec, [case], fingerprints)
             source = contained(home, context["source_validation"], directory=True)
             rows = read_json(contained(source, f"cases/{case.case_id}/queries/result.json"))
-            queries = rows.get("queries")
-            if not queries or not all(
-                isinstance(query, dict)
-                and query.get("error") is None
-                and isinstance(query.get("answer"), str)
-                and query["answer"].strip()
-                for query in queries
+            queries = rows.get("queries") if isinstance(rows, dict) else None
+            if (
+                not isinstance(queries, list)
+                or not queries
+                or not all(
+                    isinstance(query, dict)
+                    and query.get("error") is None
+                    and isinstance(query.get("answer"), str)
+                    and query["answer"].strip()
+                    for query in queries
+                )
             ):
                 continue
             reusable.append(case)
@@ -316,50 +335,53 @@ async def _review_source(wrapper, home, prepared, *, memory_limit_mib=None):
     return report
 
 
-async def automatic_reuse(wrapper, home, prepared, *, memory_limit_mib=None, target_case_ids=()):
-    """Review all available sources, then draw once for all authorized cases."""
+async def automatic_reuse(wrapper, home, prepared, *, memory_limit_mib=None, cases=None):
+    """Review the selected snapshots, then draw once for all authorized cases."""
     if prepared is None:
         return None
     if "recovery" in prepared:
         return prepared["recovery"]
-    if "context" not in prepared:
-        return prepared
     context = prepared["context"]
+    requested_cases = prepared["cases"] if cases is None else cases
+    candidate_sources = prepared["candidate_sources"]
     selection = {
         **context,
         "policy": "automatic_60_percent",
         "selected": False,
         "source_reviews": {},
         "case_sources": {},
-        "target_case_ids": sorted(target_case_ids),
+        "target_case_ids": [],
         "probability_scope": "all_cases",
         "probability_selected": None,
     }
-    pending = {case.case_id: case for case in prepared.get("requested_cases", prepared["cases"])}
+    pending = {case.case_id: case for case in requested_cases}
     approved = {}
-    sources = [None, *prepared.get("remaining_sources", [])]
-    for source in sources:
+    for path, base in prepared["sources"]:
         if not pending:
             break
-        if source is None:
-            group = prepared
-        else:
-            _, path, base = source
-            group = await blocking(
-                prepare_replay_source if prepared.get("paired_replay") else prepare_source,
-                home,
-                prepared["spec"],
-                prepared["requested_cases"] if prepared.get("paired_replay") else list(pending.values()),
-                prepared["fingerprints"],
-                {**context, "base_commit": base, "source_validation": path},
-            )
-            if group is None:
-                continue
+        selected = list(pending.values())
+        if candidate_sources is not None:
+            selected = [case for case in selected if candidate_sources.get(case.case_id) == path]
+            # Budget one candidate snapshot per case. Failed reviews or stale
+            # hints fall back to construction without checking more archives.
+            for case in selected:
+                pending.pop(case.case_id)
+        if not selected:
+            continue
+        group = await blocking(
+            prepare_replay_source if prepared["paired_replay"] else prepare_source,
+            home,
+            prepared["spec"],
+            selected,
+            prepared["fingerprints"],
+            {**context, "base_commit": base, "source_validation": path},
+        )
+        if group is None:
+            continue
         report = await _review_source(wrapper, home, group, memory_limit_mib=memory_limit_mib)
-        if "equivalence_report" not in selection:
-            selection["equivalence_report"] = report
         group_context = group["context"]
-        path = group_context["source_validation"]
+        if "equivalence_report" not in selection:
+            selection.update(group_context, equivalence_report=report)
         selection["source_reviews"][path] = {
             **group_context,
             "case_ids": [case.case_id for case in group["cases"]],
@@ -370,8 +392,8 @@ async def automatic_reuse(wrapper, home, prepared, *, memory_limit_mib=None, tar
                 selection.update(group_context, equivalence_report=report)
             for case in group["cases"]:
                 approved[case.case_id] = {"result_dir": path, "commit_sha": group_context["base_commit"]}
-                pending.pop(case.case_id)
-            if prepared.get("paired_replay"):
+                pending.pop(case.case_id, None)
+            if prepared["paired_replay"]:
                 selection["replay_selection"] = group["replay_selection"]
                 break
     if approved:
@@ -387,14 +409,17 @@ async def automatic_reuse(wrapper, home, prepared, *, memory_limit_mib=None, tar
             else "full_validation_selected_by_60_percent_policy"
         )
     else:
-        selection["reason"] = "construction_not_equivalent"
+        selection["reason"] = "construction_not_equivalent" if selection["source_reviews"] else "no_reusable_ancestor"
+    rebuild_reason = (
+        "no_reusable_ancestor" if selection["reason"] == "no_reusable_ancestor" else "no_compatible_reviewed_snapshot"
+    )
     selection["rebuild_reasons"] = {
         case.case_id: (
             "full_validation_selected_by_60_percent_policy"
             if case.case_id in approved and selection["probability_selected"] is False
-            else "no_compatible_reviewed_snapshot"
+            else rebuild_reason
         )
-        for case in prepared.get("requested_cases", prepared["cases"])
+        for case in requested_cases
         if case.case_id not in selection["case_sources"]
     }
     selection["reuse_reasons"] = {key: "60_percent_policy" for key in selection["case_sources"]}

@@ -4,11 +4,15 @@ from __future__ import annotations
 
 from datetime import datetime
 import json
+from math import isfinite
 from pathlib import Path
 from typing import Any, Iterable, Iterator
 
 from .basic import select_case_ids
-from .models import CaseSpec, QuerySpec, SessionSpec
+from .models import CaseSpec, GroundTruth, QuerySpec, SessionSpec
+
+_SOURCE_DATE_FORMAT = "%Y/%m/%d (%a) %H:%M"
+_TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%S"
 
 
 def _load_evidence_sessions(source: Path | None) -> dict[str, dict[str, Any]]:
@@ -60,6 +64,16 @@ def iter_cases(
     evidence_by_id = _load_evidence_sessions(evidence_source)
     for case_id in select_case_ids(list(by_id), train_case_ids):
         item = by_id[case_id]
+        answer = item.get("answer")
+        if type(answer) is int or (isinstance(answer, float) and isfinite(answer)):
+            answer = str(answer)
+        elif not isinstance(answer, str) or not answer.strip():
+            raise ValueError(
+                f"LongMemEval case {case_id} query {case_id} requires a non-empty reference answer "
+                "(text, integer, or finite float)",
+            )
+        question_date = item.get("question_date")
+        cutoff = datetime.strptime(question_date, _SOURCE_DATE_FORMAT) if question_date else None
         sessions = []
         for date, session_id, messages in zip(
             item["haystack_dates"],
@@ -67,7 +81,7 @@ def iter_cases(
             item["haystack_sessions"],
             strict=True,
         ):
-            timestamp = datetime.strptime(date, "%Y/%m/%d (%a) %H:%M").strftime("%Y-%m-%dT%H:%M:%S")
+            timestamp = datetime.strptime(date, _SOURCE_DATE_FORMAT).strftime(_TIMESTAMP_FORMAT)
             normalized_messages = [
                 {**message, "name": message["role"], "created_at": timestamp} for message in messages
             ]
@@ -105,10 +119,12 @@ def iter_cases(
                 QuerySpec(
                     query_id=case_id,
                     question=item["question"],
-                    golden_answer=item["answer"],
+                    groundtruth=GroundTruth(golden_answer=answer),
+                    query_time=cutoff.strftime(_TIMESTAMP_FORMAT) if cutoff is not None else None,
                     metadata=query_metadata,
                 ),
             ],
+            construction_cutoff=cutoff,
             metadata={"dataset": "longmemeval"},
         )
 

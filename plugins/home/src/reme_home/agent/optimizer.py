@@ -261,6 +261,8 @@ def verify_evaluation(home, path, commit, *, baseline=False):
     """Accept completed baseline observations; final evidence must be infrastructure-free."""
     run = Path(evaluation_paths(home, [str(path)])[0])
     manifest = read_json(contained(run, "manifest.json"))
+    if baseline and (manifest.get("branch_name"), manifest.get("commit_sha")) != ("init", commit):
+        raise ValueError("Initial baseline evidence must match the init branch and initial commit")
     summary = read_json(contained(run, "summary.json"))
     required = {
         "commit_sha": commit,
@@ -343,7 +345,7 @@ def verify_evaluation(home, path, commit, *, baseline=False):
 
 
 def baseline_state(home, *, evaluation_path=None):
-    """Check a clean repository and verify the new baseline or locate a saved one."""
+    """Check a clean repository and return verified initial evidence, or None."""
     _validate_directory(home, home / "metadata")
     with _initialization_lock(home / "metadata/workspace.lock"):
         repo, record = validate_repository(home)
@@ -352,16 +354,17 @@ def baseline_state(home, *, evaluation_path=None):
         initial = record["code"]["initial_commit"]
         current = status(repo, record)
         if evaluation_path is not None:
-            return current, verify_evaluation(home, evaluation_path, current["commit_sha"], baseline=True)
+            if current["current_branch"] != "init" or current["commit_sha"] != initial:
+                raise ValueError("New initial baseline requires clean init at the initial commit")
+            return verify_evaluation(home, evaluation_path, initial, baseline=True)
         for manifest in sorted((home / "evaluations/init").glob("*/*/manifest.json"), reverse=True):
             try:
-                evidence = verify_evaluation(home, manifest.parent, initial, baseline=True)
-                return current, evidence
+                return verify_evaluation(home, manifest.parent, initial, baseline=True)
             except (ValueError, OSError, KeyError, TypeError):
                 continue
         if current["current_branch"] != "init" or current["commit_sha"] != initial:
             raise ValueError("A complete initial baseline is missing; check out clean init before home_optimize")
-        return current, None
+        return None
 
 
 def verify_final(home, result):
@@ -502,7 +505,7 @@ class HomeOptimizeStep(BaseStep):
         home = self.workspace.home_path
         _validate_directory(home, self.workspace.state_path)
         with _initialization_lock(self.workspace.state_path / "optimization.lock"):
-            _current, baseline = await blocking(baseline_state, home)
+            baseline = await blocking(baseline_state, home)
             if baseline is None:
                 response = await required_job(self.agent_wrapper, "home_evaluate")(
                     **{**options, "fail_fast": False},
@@ -515,7 +518,7 @@ class HomeOptimizeStep(BaseStep):
                 )
                 if not isinstance(response.answer, dict) or response.answer.get("status") != "completed":
                     raise RuntimeError(f"Initial baseline failed: {response.answer}")
-                _current, baseline = await blocking(
+                baseline = await blocking(
                     baseline_state,
                     home,
                     evaluation_path=response.answer["result_dir"],

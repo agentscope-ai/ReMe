@@ -2,14 +2,17 @@
 
 # pylint: disable=missing-function-docstring,redefined-outer-name,unused-argument,protected-access
 
+import asyncio
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
 from reme_home.agent.optimizer import OptimizationResult, verify_final
 from reme_home.code import repository
+from reme_home.evaluation import comparison
 from reme_home.evaluation.artifacts import read_json, write_json
-from reme_home.evaluation.comparison import compare_validations, publish_comparisons
+from reme_home.evaluation.comparison import compact_comparison, compare_validations, publish_comparisons
 
 from test_evaluation import (  # noqa: F401  # pylint: disable=unused-import
     home_application,
@@ -127,10 +130,164 @@ def test_contract_mismatch_no_overlap_and_infra_rejection(tmp_path):
         compare_validations(tmp_path, "../outside", candidate)
 
 
+@pytest.mark.parametrize(
+    "artifact,payload",
+    [
+        ("manifest.json", []),
+        ("summary.json", []),
+        ("summary.json", {"scoring_enabled": True, "case_status_counts": []}),
+        ("cases/case/queries/result.json", []),
+        ("cases/case/queries/result.json", {"queries": {}}),
+        ("cases/case/queries/result.json", {"queries": [None]}),
+        ("cases/case/queries/result.json", {"queries": [{"query_id": "a", "answer_result": "bad"}]}),
+        ("cases/case/queries/result.json", {"queries": [{"query_id": "a", "answer_result": []}]}),
+        ("cases/case/memory_construction/result.json", []),
+        ("cases/case/failure.json", []),
+    ],
+)
+def test_malformed_history_is_skipped_without_losing_valid_comparisons(tmp_path, artifact, payload):
+    broken = save_run(tmp_path, "a-broken", {"a": query(1)})
+    base = save_run(tmp_path, "base", {"a": query(1)})
+    candidate = save_run(tmp_path, "candidate", {"a": query(0.5)})
+    write_json(broken / artifact, payload)
+    with pytest.raises(ValueError):
+        compare_validations(tmp_path, broken, candidate)
+    published = publish_comparisons(tmp_path, candidate)
+    assert published["comparison_count"] == published["skipped_count"] == 1
+    table = read_json(Path(published["path"]))
+    assert table["candidate_validation_path"] == candidate.relative_to(tmp_path).as_posix()
+    assert table["rows"][0]["base_validation_path"] == base.relative_to(tmp_path).as_posix()
+    assert table["rows"][0]["score"]["delta"] == -0.5
+    assert set(table) == {"schema_version", "candidate_validation_path", "note", "rows", "skipped_count"}
+
+
+@pytest.mark.parametrize("history_count,valid_current", [(0, False), (2, False), (2, True)])
+def test_table_reuses_valid_current_evidence_without_changing_results(
+    tmp_path,
+    monkeypatch,
+    history_count,
+    valid_current,
+):
+    history = [save_run(tmp_path, f"base-{index}", {"a": query(index, 100)}) for index in range(history_count)]
+    candidate = save_run(tmp_path, "candidate", {"a": query(0.5, 60)})
+    expected = []
+    if valid_current:
+        for base in history:
+            row = compact_comparison(compare_validations(tmp_path, base, candidate), tmp_path)
+            row.pop("candidate_validation_path")
+            expected.append(row)
+    else:
+        write_json(candidate / "summary.json", [])
+    load = comparison._load
+    current_loads = []
+
+    def tracked_load(home, path):
+        if path == candidate:
+            current_loads.append(path)
+        return load(home, path)
+
+    monkeypatch.setattr(comparison, "_load", tracked_load)
+    published = publish_comparisons(tmp_path, candidate)
+    table = read_json(Path(published["path"]))
+    assert table["rows"] == expected
+    assert published["comparison_count"] == len(expected)
+    assert table["skipped_count"] == published["skipped_count"] == history_count - len(expected)
+    assert len(current_loads) == (min(1, history_count) if valid_current else history_count)
+
+
+def test_table_retries_current_evidence_after_transient_read_failure(tmp_path, monkeypatch):
+    save_run(tmp_path, "base-0", {"a": query(0)})
+    base = save_run(tmp_path, "base-1", {"a": query(1)})
+    candidate = save_run(tmp_path, "candidate", {"a": query(0.5)})
+    load = comparison._load
+    failed = False
+
+    def flaky_load(home, path):
+        nonlocal failed
+        if path == candidate and not failed:
+            failed = True
+            raise OSError("Transient read failure")
+        return load(home, path)
+
+    monkeypatch.setattr(comparison, "_load", flaky_load)
+    published = publish_comparisons(tmp_path, candidate)
+    table = read_json(Path(published["path"]))
+    assert published["comparison_count"] == published["skipped_count"] == 1
+    assert table["rows"][0]["base_validation_path"] == base.relative_to(tmp_path).as_posix()
+    assert table["rows"][0]["score"]["delta"] == -0.5
+
+
+def test_compact_evidence_keeps_decision_metrics_without_redundant_coverage(tmp_path):
+    base = save_run(tmp_path, "base", {"a": query(1, 100), "old": query(1, 50)})
+    candidate = save_run(tmp_path, "candidate", {"a": query(0.5, 60), "new": query(None)})
+    compact = compact_comparison(compare_validations(tmp_path, base, candidate), tmp_path)
+    assert compact["coverage"] == {
+        "base_query_count": 2,
+        "candidate_query_count": 2,
+        "common_case_count": 1,
+        "common_query_count": 1,
+    }
+    assert compact["score"]["delta"] == -0.5
+    assert compact["score"]["regressed"] == 1
+    assert compact["tokens_by_model"]["model"] == {"pairs": 1, "base": 100, "candidate": 60, "delta": -40}
+    assert compact["same_snapshot_queries"] == 1
+    assert "rows" not in compact and "by_case" not in compact
+    # Relative paths remain directly usable by inspection/comparison tools.
+    rebuilt = compare_validations(tmp_path, compact["base_validation_path"], compact["candidate_validation_path"])
+    assert rebuilt["totals"]["mean_score_delta"] == -0.5
+
+
 async def call(app, name, **kwargs):
     result = await app.run_job(name, **kwargs)
     assert result.success, result.answer
     return result.answer
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error_type", [OSError, AttributeError])
+async def test_comparison_failure_does_not_fail_completed_evaluation(app, prepared, monkeypatch, error_type):
+    def fail_write(*args, **kwargs):
+        raise error_type("private comparison error")
+
+    monkeypatch.setattr(comparison, "write_json", fail_write)
+    logger = Mock()
+    monkeypatch.setattr(app.context.components["home.evaluation"]["default"], "logger", logger)
+    response = await app.run_job("home_evaluate")
+    assert response.success, response.answer
+    assert response.answer["status"] == "completed"
+    assert "paired_comparisons" not in response.answer
+    assert "private comparison error" not in str(response.answer) + str(response.metadata)
+    assert "reme.job_error" not in response.metadata
+    run = Path(response.answer["result_dir"])
+    logger.exception.assert_called_once_with(f"Paired comparison publication failed for completed evaluation {run}")
+    manifest = read_json(run / "manifest.json")
+    assert manifest["status"] == "completed" and manifest["success"] is True
+    assert (run / "summary.json").is_file()
+    assert not (run / "paired_comparisons.json").exists()
+    assert verify_final(
+        prepared,
+        OptimizationResult(
+            branch_name="init",
+            commit_sha=response.answer["commit_sha"],
+            evaluation_path=str(run),
+            report="Completed evaluation remains eligible without derived comparisons",
+        ),
+    ) == str(run)
+
+
+@pytest.mark.asyncio
+async def test_comparison_cancellation_propagates_without_demoting_evaluation(app, prepared, monkeypatch):
+    def cancel(*args, **kwargs):
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(comparison, "publish_comparisons", cancel)
+    with pytest.raises(asyncio.CancelledError):
+        await app.run_job("home_evaluate")
+    manifests = list((prepared / "evaluations").glob("*/*/*/manifest.json"))
+    assert len(manifests) == 1
+    manifest = read_json(manifests[0])
+    assert manifest["status"] == "completed" and manifest["success"] is True
+    assert (manifests[0].parent / "summary.json").is_file()
 
 
 @pytest.mark.asyncio

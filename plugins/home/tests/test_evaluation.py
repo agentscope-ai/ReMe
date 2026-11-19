@@ -198,11 +198,6 @@ class FakeFactory:
 @pytest_asyncio.fixture(name="prepared")
 async def prepared_home(app, inputs, monkeypatch):
     spec, _ = inputs
-    source = Path(spec["benchmark"]["source"])
-    for path in source.glob("chats/*/*/probing_questions/probing_questions.json"):
-        raw = json.loads(path.read_text())
-        raw["fact"][0]["rubric"] = ["says hello"]
-        path.write_text(json.dumps(raw))
     if "lme-judge" in app.config.plugins:
         spec["benchmark"] = {"name": "longmemeval", "source": str(inputs[1]), "all_cases": True}
         spec["runtime"]["plugins"] = []
@@ -275,7 +270,8 @@ async def test_all_cases_and_artifacts_via_real_job(app, prepared):
         assert not (folder / "queries/answers.json").exists()
         assert not (folder / "failure.json").exists()
         row = json.loads((folder / "queries/result.json").read_text())["queries"][0]
-        assert row["golden_answer"] == "hello" and row["score"] == 0.5
+        assert row["groundtruth"] == {"golden_answer": "hello", "rubric": ["says hello"]}
+        assert row["score"] == 0.5
         assert row["answer"] == "hello"
     factory = FakeFactory.instances[0]
     for case_id in ["1", "2"]:
@@ -546,29 +542,33 @@ async def test_modified_inputs_are_rejected_before_docker(app, prepared, mutatio
     assert {path.name: path.read_bytes() for path in (prepared / "evaluations").iterdir()} == before
 
 
-def test_lme_adapter_cutoff_and_memory_checkpoints():
-    from reme_home.preparation.data.models import CaseSpec, QuerySpec, SessionSpec
+def test_evaluation_adapter_cutoff_and_memory_checkpoints():
+    from datetime import datetime
+
+    from reme_home.preparation.data.models import CaseSpec, GroundTruth, QuerySpec, SessionSpec
     from reme_home.evaluation.adapters import build_jobs, evaluation_query, accepts_build
 
     query = QuerySpec(
         query_id="q",
         question="when",
-        golden_answer="then",
-        metadata={"question_date": "2024/01/02 (Tue) 00:00"},
+        groundtruth=GroundTruth(golden_answer="then"),
+        query_time="2024-01-02T00:00:00",
     )
     case = CaseSpec(
         case_id="c",
         queries=[query],
+        construction_cutoff=datetime(2024, 1, 2),
         sessions=[
             SessionSpec(session_id="future", messages=[{"created_at": "2024-01-03T00:00:00"}]),
             SessionSpec(session_id="past", messages=[{"created_at": "2024-01-01T00:00:00"}]),
         ],
     )
-    jobs = build_jobs("longmemeval", case)
+    jobs = build_jobs(case)
     assert [job.job for job in jobs] == ["auto_memory", "index_update"]
     assert jobs[0].arguments["session_id"] == "past"
     assert jobs[1].memory_checkpoint == "session: past"
-    assert evaluation_query("longmemeval", query).answer_arguments["query_time"] == "2024-01-02T00:00:00"
+    assert evaluation_query(query).answer_arguments == {"query_time": "2024-01-02T00:00:00"}
+    assert evaluation_query(query).golden_answer is None
     build = {"success": False, "jobs": [{"result": {"success": n > 0}} for n in range(100)]}
     build["jobs"][0]["result"]["exception"] = {"type": "ValueError", "module": "builtins"}
     assert accepts_build(build, 0.03)
@@ -596,6 +596,27 @@ def test_unsafe_archives_are_rejected_without_partial_extraction(tmp_path, kind)
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("app", ["beam-judge", "lme-judge"], indirect=True)
+async def test_independent_runners_keep_their_answer_judge_contract(app, monkeypatch):
+    monkeypatch.setattr("dotenv.load_dotenv", lambda *_args, **_kwargs: False)
+    judge = app.context.components["agent_wrapper"]["judge"]
+    is_beam = "beam-judge" in app.config.plugins
+    reply = '{"score": 0.5, "reason": "partly correct"}' if is_beam else "yes"
+    monkeypatch.setattr(judge, "reply", AsyncMock(return_value={"result": reply, "status": "completed"}))
+    if is_beam:
+        from benchmark.beam.run import judge_answer
+
+        result = await judge_answer(app, "What?", "hello", ["says hello"])
+        assert result["llm_judge_score"] == 0.5
+        assert result["llm_judge_responses"][0]["score"] == 0.5
+    else:
+        from benchmark.longmemeval.run import judge_response_via_job
+
+        result = await judge_response_via_job(app, "What?", "hello", "hello", "single-session-user")
+        assert result["verdict"] == "yes" and result["metric"] == "binary"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("app", ["lme-judge"], indirect=True)
 async def test_lme_evaluation_calls_host_judge_job(app, prepared, monkeypatch):
     wrapper = app.context.components["agent_wrapper"]["judge"]
@@ -615,6 +636,7 @@ async def test_lme_evaluation_calls_host_judge_job(app, prepared, monkeypatch):
     assert wrapper.reply.await_count == 2
     run = Path(response.answer["result_dir"])
     result = json.loads((run / "cases/q1/queries/result.json").read_text())["queries"][0]
+    assert result["groundtruth"] == {"golden_answer": "hello", "rubric": []}
     assert result["judge_result"]["metadata"]["raw_answer_judgement"] == "yes"
     assert "answer_judgement" not in result["judge_result"]["metadata"]
     assert result["score"] == 1
@@ -622,6 +644,105 @@ async def test_lme_evaluation_calls_host_judge_job(app, prepared, monkeypatch):
     assert manifest["judge"]["plugin"] == "lme-judge"
     assert manifest["judge"]["model"] == "qwen3.7-max"
     assert "api_key" not in json.dumps(manifest)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("app", ["lme-judge"], indirect=True)
+@pytest.mark.parametrize(
+    "question_date,query_time,debug_sample,build_order",
+    [
+        ("2024/01/03 (Wed) 00:00", "2024-01-03T00:00:00", ["at-cutoff", "middle"], ["early", "middle", "at-cutoff"]),
+        (None, None, ["at-cutoff", "future"], ["early", "middle", "at-cutoff", "future"]),
+        ("2023/12/31 (Sun) 00:00", "2023-12-31T00:00:00", ["at-cutoff", "future"], []),
+    ],
+)
+async def test_lme_time_cutoff_keeps_job_inputs(
+    app,
+    inputs,
+    monkeypatch,
+    question_date,
+    query_time,
+    debug_sample,
+    build_order,
+):
+    spec, source = inputs
+    data = json.loads(source.read_text())
+    item = data[0]
+    item.pop("question_date")
+    if question_date is not None:
+        item["question_date"] = question_date
+    dates = {
+        "at-cutoff": "2024/01/03 (Wed) 00:00",
+        "early": "2024/01/01 (Mon) 00:00",
+        "middle": "2024/01/02 (Tue) 00:00",
+        "future": "2024/01/04 (Thu) 00:00",
+    }
+    item["haystack_session_ids"] = list(dates)
+    item["haystack_dates"] = list(dates.values())
+    item["haystack_sessions"] = [[{"role": "user", "content": session_id}] for session_id in dates]
+    source.write_text(json.dumps(data))
+    spec["benchmark"] = {"name": "longmemeval", "source": str(source), "all_cases": True}
+    spec["runtime"]["plugins"] = []
+    spec["candidate"]["paths"] = ["reme/candidate.py"]
+    spec["debug"] = {"sessions_per_case": 2}
+    prepared = await app.run_job("home_prepare", spec=spec)
+    assert prepared.success, prepared.answer
+    debug_path = Path(app.config.workspace_dir) / "home/datasets/debug-cases/cases/000000.json"
+    assert [row["session_id"] for row in json.loads(debug_path.read_text())["sessions"]] == debug_sample
+
+    monkeypatch.setattr(FakeFactory, "instances", [])
+    monkeypatch.setattr(evaluation, "DockerReMeSandboxFactory", FakeFactory)
+    wrapper = app.context.components["agent_wrapper"]["judge"]
+    reply = AsyncMock(return_value={"result": "yes", "status": "completed"})
+    monkeypatch.setattr(wrapper, "reply", reply)
+    for debug in (True, False):
+        response = await app.run_job("home_evaluate", debug=debug)
+        if not build_order:
+            assert not response.success
+            assert "has no sessions to construct" in str(response.answer)
+            assert not FakeFactory.instances
+            continue
+        assert response.success, response.answer
+        session_ids = [session_id for session_id in build_order if not debug or session_id in debug_sample]
+        factory = FakeFactory.instances[-1]
+        _, _, jobs = next(event for event in factory.events if event[1] == "build")
+        assert [job.job for job in jobs] == ["auto_memory", "index_update"] * len(session_ids)
+        assert [job.arguments["session_id"] for job in jobs[::2]] == session_ids
+        assert [job.memory_checkpoint for job in jobs[1::2]] == [f"session: {session_id}" for session_id in session_ids]
+        (answer_query,) = factory.workers[0].queries
+        assert answer_query.question == "What?"
+        assert answer_query.answer_arguments == ({"query_time": query_time} if query_time is not None else {})
+        assert answer_query.golden_answer is None
+        assert reply.await_count == (0 if debug else 1)
+    if build_order:
+        assert "Correct answer: hello" in reply.await_args.args[0].splitlines()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("app", ["lme-judge"], indirect=True)
+@pytest.mark.parametrize("answer,expected", [(3, "3"), (0, "0"), (-1.5, "-1.5"), (0.0, "0.0")])
+async def test_lme_numeric_answers_reach_judge_as_text(app, inputs, monkeypatch, answer, expected):
+    spec, source = inputs
+    data = json.loads(source.read_text())
+    data[0]["answer"] = answer
+    source.write_text(json.dumps(data))
+    spec["benchmark"] = {"name": "longmemeval", "source": str(source), "all_cases": True}
+    spec["runtime"]["plugins"] = []
+    spec["candidate"]["paths"] = ["reme/candidate.py"]
+    prepared = await app.run_job("home_prepare", spec=spec)
+    assert prepared.success, prepared.answer
+
+    monkeypatch.setattr(evaluation, "DockerReMeSandboxFactory", FakeFactory)
+    wrapper = app.context.components["agent_wrapper"]["judge"]
+    reply = AsyncMock(return_value={"result": "yes", "status": "completed"})
+    monkeypatch.setattr(wrapper, "reply", reply)
+    response = await app.run_job("home_evaluate")
+    assert response.success, response.answer
+    assert f"Correct answer: {expected}" in reply.await_args.args[0].splitlines()
+    run = Path(response.answer["result_dir"])
+    result = json.loads((run / "cases/q1/queries/result.json").read_text())["queries"][0]
+    assert result["groundtruth"] == {"golden_answer": expected, "rubric": []}
+    assert result["score"] == 1
 
 
 @pytest.mark.asyncio
@@ -656,12 +777,15 @@ async def test_invalid_beam_judge_is_infra_error(app, prepared, raw):
 async def test_question_infra_error_preserves_later_question_in_same_case(tmp_path, stage):
     from reme_home.evaluation.artifacts import read_json, write_json
     from reme_home.evaluation.inputs import EvaluationSpec
-    from reme_home.preparation.data.models import CaseSpec, QuerySpec
+    from reme_home.preparation.data.models import CaseSpec, GroundTruth, QuerySpec
 
     case = CaseSpec(
         case_id="c",
         sessions=[],
-        queries=[QuerySpec(query_id=key, question="What?", golden_answer="hello") for key in ("first", "later")],
+        queries=[
+            QuerySpec(query_id=key, question="What?", groundtruth=GroundTruth(rubric=["says hello"]))
+            for key in ("first", "later")
+        ],
     )
     answers = [{"query_id": query.query_id, "answer": "hello", "error": None} for query in case.queries]
     judge = AsyncMock()

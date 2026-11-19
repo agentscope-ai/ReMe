@@ -9,7 +9,7 @@ import math
 import random
 from typing import Iterable
 
-from .models import CaseSpec, DatasetManifest, QuerySpec, canonical_json_bytes, fingerprint
+from .models import CaseSpec, DatasetManifest, QuerySpec, SessionSpec, canonical_json_bytes, fingerprint
 
 
 def select_case_ids(available: list[str], requested: Iterable[str] | None) -> list[str]:
@@ -70,6 +70,17 @@ def write_normalized_dataset(
     return manifest
 
 
+def sessions_through_cutoff(sessions: list[SessionSpec], cutoff: datetime | None) -> list[SessionSpec]:
+    """Keep eligible sessions in the caller's order."""
+    if cutoff is None:
+        return sessions
+    return [
+        session
+        for session in sessions
+        if (timestamp := session.first_timestamp) and datetime.fromisoformat(str(timestamp)) <= cutoff
+    ]
+
+
 def derive_debug_cases(
     training_root: Path,
     output: Path,
@@ -87,12 +98,11 @@ def derive_debug_cases(
     debug_cases: list[CaseSpec] = []
     for source_case_index in case_indices:
         case = CaseSpec.model_validate_json(source_paths[source_case_index].read_text(encoding="utf-8"))
-        eligible_indices = _eligible_session_indices(case)
-        selected_positions = _evenly_spaced_indices(len(eligible_indices), sessions_per_case)
-        session_indices = [eligible_indices[position] for position in selected_positions]
+        # Preserve the debug sample when none qualify. Construction reports the empty window.
+        eligible_sessions = sessions_through_cutoff(case.sessions, case.construction_cutoff) or case.sessions
         sessions = []
-        for index in session_indices:
-            source = case.sessions[index]
+        for index in _evenly_spaced_indices(len(eligible_sessions), sessions_per_case):
+            source = eligible_sessions[index]
             sessions.append(source.model_copy(update={"messages": source.messages[:messages_per_session]}))
         debug_id = f"debug-{case.case_id}"
         debug_cases.append(
@@ -178,20 +188,3 @@ def _evenly_spaced_indices(size: int, limit: int) -> list[int]:
     if limit == 1:
         return [0]
     return sorted({round(index * (size - 1) / (limit - 1)) for index in range(limit)})
-
-
-def _eligible_session_indices(case: CaseSpec) -> list[int]:
-    """Mirror LongMemEval's query-time cutoff so a debug case remains buildable."""
-
-    if case.metadata.get("dataset") != "longmemeval" or not case.queries:
-        return list(range(len(case.sessions)))
-    question_date = case.queries[0].metadata.get("question_date")
-    if not isinstance(question_date, str) or not question_date:
-        return list(range(len(case.sessions)))
-    query_time = datetime.strptime(question_date, "%Y/%m/%d (%a) %H:%M")
-    eligible = []
-    for index, session in enumerate(case.sessions):
-        timestamps = [message.get("created_at") for message in session.messages if message.get("created_at")]
-        if timestamps and datetime.fromisoformat(str(timestamps[0])) <= query_time:
-            eligible.append(index)
-    return eligible or list(range(len(case.sessions)))

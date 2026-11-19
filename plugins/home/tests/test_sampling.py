@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from reme_home import sampling
 from reme_home.evaluation import history as history_module
-from reme_home.preparation.data.models import CaseSpec, QuerySpec
+from reme_home.preparation.data.models import CaseSpec, GroundTruth, QuerySpec
 from reme_home.workspace import _initialization_lock
 from test_evaluation import (  # noqa: F401  # pylint: disable=unused-import
     FakeFactory,
@@ -30,7 +30,8 @@ def cases():
             case_id=key,
             sessions=[],
             queries=[
-                QuerySpec(query_id=f"query-{key}-{index}", question="?", golden_answer="answer") for index in range(4)
+                QuerySpec(query_id=f"query-{key}-{index}", question="?", groundtruth=GroundTruth())
+                for index in range(4)
             ],
         )
         for key in "abc"
@@ -363,7 +364,7 @@ def test_replay_eligibility_uses_dev_meta_five_percent_threshold(tmp_path, missi
             case_id=f"case-{index}",
             sessions=[],
             queries=[
-                QuerySpec(query_id="q", question="?", golden_answer="answer"),
+                QuerySpec(query_id="q", question="?", groundtruth=GroundTruth()),
             ],
         )
         for index in range(20)

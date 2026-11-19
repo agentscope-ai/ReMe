@@ -92,6 +92,9 @@ def retain_sampled_reuse(reuse, cases, plan):
     reuse["selected"] = bool(reuse.get("case_sources"))
     if had_sources and not reuse["selected"]:
         reuse["reason"] = "no_reusable_snapshot_for_sampled_cases"
+    rebuild_reasons = reuse.setdefault("rebuild_reasons", {})
+    for case_id in retained - reuse.get("case_sources", {}).keys():
+        rebuild_reasons.setdefault(case_id, "no_compatible_reviewed_snapshot")
 
 
 class HomeEvaluation(BaseComponent):
@@ -259,13 +262,6 @@ class HomeEvaluation(BaseComponent):
             else:
                 source, archives = reuse_inputs(home, spec, cases, fingerprints)
                 sources = {case.case_id: source for case in cases} if source else {}
-            for case in cases:
-                for query in case.queries:
-                    if dataset.dataset == "beam" and spec.dataset_kind == "training-set":
-                        rubric = query.metadata.get("rubric", query.golden_answer)
-                        if not isinstance(rubric, list) or not rubric:
-                            raise ValueError(f"BEAM query {query.query_id} has no scoring rubric")
-                    evaluation_query(dataset.dataset, query)
             return (
                 record,
                 dataset,
@@ -330,6 +326,87 @@ class HomeEvaluation(BaseComponent):
             write_json(run / "manifest.json", manifest)
             return run
 
+    async def _select_automatic_reuse(self, spec, cases, fingerprints, commit, branch, deferred_sampling):
+        """Bound targeted reviews and produce the final selection before starting a sandbox."""
+        sampling_plan = None
+        targeted = deferred_sampling and bool(set(spec.target_queries or {}) & {case.case_id for case in cases})
+        with _initialization_lock(self.workspace.state_path / "workspace.lock"):
+            context = await blocking(
+                reuse_context,
+                self.workspace.home_path,
+                spec,
+                cases,
+                fingerprints,
+                replay_selection=deferred_sampling and not targeted,
+                targeted=targeted,
+            )
+        if context is not None:
+            identity = context.get("context", context)
+            if (identity["candidate_commit"], identity["branch_name"]) != (commit, branch):
+                raise ValueError("Candidate changed during equivalence review; retry evaluation")
+        review_cases = None
+        if targeted:
+            sampling_state = await blocking(self.history.sampling_state)
+            sampling_plan = create_sampling_plan(
+                cases,
+                sampling_state,
+                spec.sampling_policy,
+                target_queries=spec.target_queries,
+                reusable_case_ids=set(context.get("candidate_sources", {})) if context else None,
+            )
+            review_cases = selected_cases(cases, sampling_plan)
+        reuse = await automatic_reuse(
+            self.construction_equivalence,
+            self.workspace.home_path,
+            context,
+            memory_limit_mib=self.kwargs.get("construction_equivalence_memory_limit_mib"),
+            cases=review_cases,
+        )
+        await blocking(self._verify_candidate, commit, branch)
+        if deferred_sampling:
+            replay = reuse.get("replay_selection") if reuse and reuse["selected"] else None
+            if targeted:
+                approved = (reuse or {}).get("case_sources", {})
+                if sampling_plan["prefer_reusable_background"] and not (
+                    approved and set(sampling_plan["targets"]["retained_case_ids"]) <= approved.keys()
+                ):
+                    sampling_plan = create_sampling_plan(
+                        cases,
+                        sampling_state,
+                        spec.sampling_policy,
+                        target_queries=spec.target_queries,
+                        seed=sampling_plan["seed"],
+                    )
+            elif replay is not None:
+                sampling_plan = {
+                    "mode": "replay",
+                    "policy": spec.sampling_policy.model_dump(),
+                    "source_validation": reuse["source_validation"],
+                    **replay,
+                }
+                if spec.target_queries:
+                    sampling_plan["targets"] = {
+                        "requested": spec.target_queries,
+                        "invalid_case_ids": list(spec.target_queries),
+                        "invalid_query_ids": {},
+                        "retained_case_ids": [],
+                        "retained_query_ids": {},
+                        "trimmed_case_ids": [],
+                        "trimmed_query_ids": {},
+                    }
+            else:
+                sampling_plan = create_sampling_plan(
+                    cases,
+                    await blocking(self.history.sampling_state),
+                    spec.sampling_policy,
+                    target_queries=spec.target_queries,
+                    reusable_case_ids=set(reuse["case_sources"]) if reuse and reuse["selected"] else None,
+                )
+            cases = selected_cases(cases, sampling_plan)
+            if reuse is not None:
+                retain_sampled_reuse(reuse, cases, sampling_plan)
+        return cases, sampling_plan, reuse
+
     async def _evaluate(self, spec, admission=None):
         environment = {**os.environ, **self.app_context.app_config.environment}
         prepared = await blocking(self._prepare, spec, environment, admission)
@@ -362,58 +439,14 @@ class HomeEvaluation(BaseComponent):
             and spec.reuse_construction_from is None
             and (spec.sampling or spec.max_evaluations is not None)
         ):
-            with _initialization_lock(self.workspace.state_path / "workspace.lock"):
-                context = await blocking(
-                    reuse_context,
-                    self.workspace.home_path,
-                    spec,
-                    environment,
-                    cases,
-                    replay_selection=deferred_sampling
-                    and not (set(spec.target_queries or {}) & {case.case_id for case in cases}),
-                )
-            if context is not None:
-                identity = context.get("context", context)
-                if (identity["candidate_commit"], identity["branch_name"]) != (commit, branch):
-                    raise ValueError("Candidate changed during equivalence review; retry evaluation")
-            reuse = await automatic_reuse(
-                self.construction_equivalence,
-                self.workspace.home_path,
-                context,
-                memory_limit_mib=self.kwargs.get("construction_equivalence_memory_limit_mib"),
-                target_case_ids=(sampling_plan or {}).get("targets", {}).get("retained_case_ids", []),
+            cases, sampling_plan, reuse = await self._select_automatic_reuse(
+                spec,
+                cases,
+                fingerprints,
+                commit,
+                branch,
+                deferred_sampling,
             )
-            await blocking(self._verify_candidate, commit, branch)
-            if deferred_sampling:
-                replay = reuse.get("replay_selection") if reuse and reuse["selected"] else None
-                if replay is not None:
-                    sampling_plan = {
-                        "mode": "replay",
-                        "policy": spec.sampling_policy.model_dump(),
-                        "source_validation": reuse["source_validation"],
-                        **replay,
-                    }
-                    if spec.target_queries:
-                        sampling_plan["targets"] = {
-                            "requested": spec.target_queries,
-                            "invalid_case_ids": list(spec.target_queries),
-                            "invalid_query_ids": {},
-                            "retained_case_ids": [],
-                            "retained_query_ids": {},
-                            "trimmed_case_ids": [],
-                            "trimmed_query_ids": {},
-                        }
-                else:
-                    sampling_plan = create_sampling_plan(
-                        cases,
-                        await blocking(self.history.sampling_state),
-                        spec.sampling_policy,
-                        target_queries=spec.target_queries,
-                        reusable_case_ids=set(reuse["case_sources"]) if reuse and reuse["selected"] else None,
-                    )
-                cases = selected_cases(cases, sampling_plan)
-                if reuse is not None:
-                    retain_sampled_reuse(reuse, cases, sampling_plan)
             if reuse is not None and reuse["selected"]:
                 sources, archives = await blocking(
                     case_reuse_inputs,
@@ -425,7 +458,7 @@ class HomeEvaluation(BaseComponent):
                 )
         await blocking(self._verify_candidate, commit, branch)
         # Each case can load a verified snapshot or build its own memory.
-        jobs = {case.case_id: build_jobs(dataset.dataset, case) for case in cases if case.case_id not in sources}
+        jobs = {case.case_id: build_jobs(case) for case in cases if case.case_id not in sources}
         mode = (
             "full_validation"
             if not sources
@@ -502,7 +535,7 @@ class HomeEvaluation(BaseComponent):
                     CasePlan(
                         case_id=case.case_id,
                         build_jobs=jobs.get(case.case_id, ()),
-                        queries=tuple(evaluation_query(dataset.dataset, q) for q in case.queries),
+                        queries=tuple(evaluation_query(q) for q in case.queries),
                         workspace_source=memory / "reme_workspace.tar.gz" if source else None,
                         export_workspace_to=None if source else memory / "reme_workspace.tar.gz",
                         export_build_log_to=None if source else memory / "build.log",
@@ -587,13 +620,16 @@ class HomeEvaluation(BaseComponent):
                 write_json(run / "summary.json", summary, compact_leaf_containers=True)
             comparison = None
             if not spec.debug:
-                from .comparison import publish_comparisons
+                try:
+                    from .comparison import publish_comparisons
 
-                comparison = await blocking(publish_comparisons, self.workspace.home_path, run)
+                    comparison = await blocking(publish_comparisons, self.workspace.home_path, run)
+                except Exception:
+                    self.logger.exception(f"Paired comparison publication failed for completed evaluation {run}")
             return {
                 "result_dir": str(run),
                 "evaluated_branch": manifest.get("evaluated_branch"),
-                "paired_comparisons": comparison,
+                **({"paired_comparisons": comparison} if spec.debug or comparison is not None else {}),
                 "commit_sha": commit,
                 "execution_mode": manifest["execution_mode"],
                 "record_history": spec.record_history and not spec.debug,
@@ -649,7 +685,7 @@ class HomeEvaluation(BaseComponent):
                     **by_id[query.query_id],
                     "query_id": query.query_id,
                     "question": query.question,
-                    "golden_answer": query.golden_answer,
+                    "groundtruth": query.groundtruth.model_dump(mode="json"),
                     "question_type": query.metadata.get("question_type"),
                     "score": None,
                     "judge_result": None,
@@ -722,7 +758,7 @@ class HomeEvaluation(BaseComponent):
                 **raw,
                 "query_id": query.query_id,
                 "question": query.question,
-                "golden_answer": query.golden_answer,
+                "groundtruth": query.groundtruth.model_dump(mode="json"),
                 "question_type": query.metadata.get("question_type"),
                 "score": None,
                 "judge_result": None,

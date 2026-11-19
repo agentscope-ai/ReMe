@@ -272,7 +272,7 @@ def _case_inspection(run, manifest, spec):
                 key: _preview(query[key], 2000)
                 for key in (
                     "question",
-                    "golden_answer",
+                    "groundtruth",
                     "answer",
                     "score",
                     "question_type",

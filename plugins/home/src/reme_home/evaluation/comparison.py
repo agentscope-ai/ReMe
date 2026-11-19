@@ -1,6 +1,7 @@
 """Rebuildable paired evidence; never rank candidates on different question sets."""
 
 import math
+from pathlib import Path
 
 from pydantic import Field
 
@@ -8,9 +9,9 @@ from reme.steps.base_step import BaseStep, Ref
 
 from ..preparation.spec import SpecModel
 from ..workspace import HomeWorkspace
-from .artifacts import contained, read_json, write_json
+from .artifacts import contained, write_json
 from .inputs import entity_id
-from .inspection_step import _execute, _run_path
+from .inspection_step import _execute, _object, _run_path
 
 
 class CompareValidationsInput(SpecModel):
@@ -24,30 +25,42 @@ def _number(value):
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
+def _mapping(value):
+    if not isinstance(value, dict):
+        raise ValueError("Expected an evaluation JSON object")
+    return value
+
+
 def _load(home, path):
     run = _run_path(home, path)
-    manifest = read_json(contained(run, "manifest.json"))
-    summary = read_json(contained(run, "summary.json"))
+    manifest = _object(run, "manifest.json", required=True)
+    summary = _object(run, "summary.json", required=True)
     if (
         manifest.get("status") != "completed"
         or manifest.get("mode") != "scored"
         or manifest.get("success") is not True
         or summary.get("scoring_enabled") is not True
-        or any(summary.get(key, {}).get("infra_error") != 0 for key in ("case_status_counts", "query_status_counts"))
+        or any(
+            _mapping(summary.get(key, {})).get("infra_error") != 0
+            for key in ("case_status_counts", "query_status_counts")
+        )
     ):
         raise ValueError("Paired comparisons require completed scored runs without infrastructure failures")
-    if not manifest.get("fingerprints", {}).get("dataset") or not manifest.get("judge", {}).get("fingerprint"):
+    fingerprints = _mapping(manifest.get("fingerprints", {}))
+    judge = _mapping(manifest.get("judge", {}))
+    if not fingerprints.get("dataset") or not judge.get("fingerprint"):
         raise ValueError("Paired comparisons require dataset and judge identity")
     queries, snapshots = {}, {}
-    for case_id, ids in manifest["query_ids"].items():
+    for case_id, ids in _mapping(manifest["query_ids"]).items():
+        if not isinstance(ids, list):
+            raise ValueError("Expected a query ID list")
         folder = contained(run, "cases/" + entity_id(case_id), directory=True)
-        result = contained(folder, "queries/result.json")
-        rows = read_json(result).get("queries", []) if result.is_file() else []
-        indexed = {row["query_id"]: row for row in rows}
-        failure_path = contained(folder, "failure.json")
-        failure = read_json(failure_path) if failure_path.is_file() else {}
-        build = contained(folder, "memory_construction/result.json")
-        snapshots[case_id] = read_json(build).get("workspace_sha256") if build.is_file() else None
+        rows = (_object(folder, "queries/result.json") or {}).get("queries", [])
+        if not isinstance(rows, list):
+            raise ValueError("Expected a query result list")
+        indexed = {entity_id(_mapping(row)["query_id"]): row for row in rows}
+        failure = _object(folder, "failure.json") or {}
+        snapshots[case_id] = (_object(folder, "memory_construction/result.json") or {}).get("workspace_sha256")
         for query_id in ids:
             row = indexed.get(query_id, {})
             score = row.get("score")
@@ -56,7 +69,8 @@ def _load(home, path):
             )
             # Known candidate failures count as zero; missing evidence stays unknown.
             score = float(score) if _number(score) else 0.0 if candidate_failure else None
-            usage = (row.get("answer_result") or {}).get("token_usage", {})
+            answer = row.get("answer_result")
+            usage = _mapping(answer if answer is not None else {}).get("token_usage", {})
             usage = usage if isinstance(usage, dict) else {}
             tokens = {
                 model: value["total_tokens"]
@@ -68,7 +82,6 @@ def _load(home, path):
                 "tokens": tokens,
                 "token_models": list(usage),
                 "candidate_failure": candidate_failure,
-                "question_type": row.get("question_type") or "unknown",
             }
     return run, manifest, summary, queries, snapshots
 
@@ -109,8 +122,13 @@ def _metrics(rows):
 
 def compare_validations(home, base_path, candidate_path):
     """Pair only identical IDs and contracts; snapshot equality is reported separately."""
-    base_run, base, base_summary, before, base_snapshots = _load(home, base_path)
-    candidate_run, candidate, summary, after, snapshots = _load(home, candidate_path)
+    return _compare_loaded(_load(home, base_path), _load(home, candidate_path))
+
+
+def _compare_loaded(base_evidence, candidate_evidence):
+    """Compare validated artifacts without changing their selection or metrics."""
+    base_run, base, base_summary, before, base_snapshots = base_evidence
+    candidate_run, candidate, summary, after, snapshots = candidate_evidence
     if (
         base["fingerprints"]["dataset"] != candidate["fingerprints"]["dataset"]
         or base.get("dataset_kind") != candidate.get("dataset_kind")
@@ -126,8 +144,6 @@ def compare_validations(home, base_path, candidate_path):
         rows.append(
             {
                 "case_id": case_id,
-                "query_id": query_id,
-                "question_type": left["question_type"],
                 "base_score": left["score"],
                 "candidate_score": right["score"],
                 "score_delta": right["score"] - left["score"] if paired else None,
@@ -163,17 +179,26 @@ def compare_validations(home, base_path, candidate_path):
     }
 
 
-def compact_comparison(result):
+def compact_comparison(result, home=None):
     """Keep optimizer feedback small; source paths lead to individual regressions."""
     totals = result["totals"]
 
     def rounded(value):
         return round(value, 4) if value is not None else None
 
+    def path(key):
+        return Path(result[key]).relative_to(home).as_posix() if home is not None else result[key]
+
     return {
-        "base_validation_path": result["base_validation_path"],
-        "candidate_validation_path": result["candidate_validation_path"],
-        "coverage": {**result["coverage"], "common_query_count": totals["common_query_count"]},
+        "base_validation_path": path("base_validation_path"),
+        "candidate_validation_path": path("candidate_validation_path"),
+        "coverage": {
+            **{
+                key: result["coverage"][key]
+                for key in ("base_query_count", "candidate_query_count", "common_case_count")
+            },
+            "common_query_count": totals["common_query_count"],
+        },
         "score": {
             "base": rounded(totals["base_mean_score"]),
             "candidate": rounded(totals["candidate_mean_score"]),
@@ -202,12 +227,17 @@ def compact_comparison(result):
 def publish_comparisons(home, run):
     """Automatically save a derived table against prior compatible completed runs."""
     table, skipped = [], 0
+    candidate = None
     for manifest_path in sorted((home / "evaluations").glob("*/*/*/manifest.json")):
         other = manifest_path.parent
         if other == run:
             continue
         try:
-            comparison = compact_comparison(compare_validations(home, other, run))
+            base = _load(home, other)
+            # Load lazily after valid history; failed loads still retry on the next run.
+            if candidate is None:
+                candidate = _load(home, run)
+            comparison = compact_comparison(_compare_loaded(base, candidate), home)
             comparison.pop("candidate_validation_path")
             table.append(comparison)
         except (ValueError, OSError, KeyError, TypeError):
@@ -217,7 +247,7 @@ def publish_comparisons(home, run):
         path,
         {
             "schema_version": 1,
-            "candidate_validation_path": str(run),
+            "candidate_validation_path": run.relative_to(home).as_posix(),
             "note": "Shared questions only; null means unknown. Different snapshots do not isolate answer changes.",
             "rows": table,
             "skipped_count": skipped,
@@ -228,7 +258,10 @@ def publish_comparisons(home, run):
 
 
 def _compare(home, spec):
-    return compact_comparison(compare_validations(home, spec.base_validation_path, spec.candidate_validation_path))
+    return compact_comparison(
+        compare_validations(home, spec.base_validation_path, spec.candidate_validation_path),
+        home,
+    )
 
 
 class HomeCompareValidationsStep(BaseStep):

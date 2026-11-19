@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from reme_home.preparation.data.basic import derive_debug_cases, write_normalized_dataset
-from reme_home.preparation.data.models import CaseSpec, QuerySpec, SessionSpec
+from reme_home.preparation.data.models import CaseSpec, GroundTruth, QuerySpec, SessionSpec
 from reme_home.preparation.spec import DebugSpec
 
 
@@ -27,7 +27,7 @@ def test_debug_derivation_reads_only_selected_cases(tmp_path, monkeypatch):
                     )
                     for session_index in range(5)
                 ],
-                queries=[QuerySpec(query_id="q", question="What?", golden_answer="answer")],
+                queries=[QuerySpec(query_id="q", question="What?", groundtruth=GroundTruth())],
             )
             for index in range(30)
         ),
@@ -91,7 +91,7 @@ def test_debug_queries_cover_types_with_case_limits(tmp_path, case_types, limit,
                     QuerySpec(
                         query_id=str(query_index),
                         question="What?",
-                        golden_answer="answer",
+                        groundtruth=GroundTruth(),
                         metadata={"question_type": question_type} if question_type else {},
                     )
                     for query_index, question_type in enumerate(question_types)

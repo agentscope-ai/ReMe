@@ -30,7 +30,7 @@ from .transaction import (
     write_json,
     sync_directory,
 )
-from ..workspace import HomeWorkspace, _initialization_lock, _validate_directory
+from ..workspace import EVALUATION_ARTIFACT_GUIDE, HomeWorkspace, _initialization_lock, _validate_directory
 
 
 def _source_path(root: Path, value: str) -> Path:
@@ -191,7 +191,7 @@ class HomePreparation(BaseComponent):
         docs = transaction / "output-5"
         docs.mkdir()
         resources = files("reme_home").joinpath("runtime_docs")
-        for name in ("architecture-guide.md", "evaluation-artifact-guide.md"):
+        for name in ("architecture-guide.md", EVALUATION_ARTIFACT_GUIDE):
             (docs / name).write_bytes(resources.joinpath(name).read_bytes())
         result = {
             "preparation_id": uuid4().hex,

@@ -36,16 +36,17 @@ def create_sampling_plan(
     eligible_query_ids: Mapping[str, list[str]] | None = None,
     target_queries: Mapping[str, list[str] | None] | None = None,
     reusable_case_ids: set[str] | None = None,
+    seed: int | None = None,
 ) -> dict:
     """Draw without replacement, without advancing state or writing an attempted plan."""
+    seed = time.time_ns() if seed is None else seed
     if target_queries:
-        return _targeted_plan(cases, state, policy, target_queries, eligible_query_ids, reusable_case_ids)
+        return _targeted_plan(cases, state, policy, target_queries, eligible_query_ids, reusable_case_ids, seed)
     if eligible_query_ids is not None:
         cases = [case for case in cases if case.case_id in eligible_query_ids]
     if not cases:
         raise ValueError("training-set contains no cases to sample")
     round_id = int(state.get("round", 0)) + 1
-    seed = time.time_ns()
     rng = random.Random(seed)
     case_records = state.get("cases", {})
     case_weights = _mixed_weights(
@@ -103,7 +104,7 @@ def create_sampling_plan(
     }
 
 
-def _targeted_plan(cases, state, policy, requested, eligibility, reusable_case_ids=None):
+def _targeted_plan(cases, state, policy, requested, eligibility, reusable_case_ids, seed):
     """Prioritize valid targets, trim within limits, then fill without replacement."""
     available = {
         case.case_id: [
@@ -131,13 +132,12 @@ def _targeted_plan(cases, state, policy, requested, eligibility, reusable_case_i
         "invalid_query_ids": invalid_queries,
     }
     if not targets:
-        plan = create_sampling_plan(cases, state, policy, eligible_query_ids=eligibility)
+        plan = create_sampling_plan(cases, state, policy, eligible_query_ids=eligibility, seed=seed)
         details.update(retained_case_ids=[], retained_query_ids={}, trimmed_case_ids=[], trimmed_query_ids={})
         plan["targets"] = details
         return plan
 
     round_id = int(state.get("round", 0)) + 1
-    seed = time.time_ns()
     rng = random.Random(seed)
     available = {key: ids for key, ids in available.items() if ids}
     case_weights = _mixed_weights(

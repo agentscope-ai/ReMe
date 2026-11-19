@@ -9,7 +9,7 @@ import tarfile
 import tempfile
 from uuid import uuid4
 
-from ..preparation.data.models import CaseSpec, QuerySpec
+from ..preparation.data.models import CaseSpec, GroundTruth, QuerySpec
 
 from ..workspace import _validate_directory
 from .compaction import round_scores
@@ -303,7 +303,7 @@ def rebuild_summary(run: Path) -> dict:
         CaseSpec(
             case_id=case_id,
             sessions=[],
-            queries=[QuerySpec(query_id=query_id, question="", golden_answer=None) for query_id in query_ids],
+            queries=[QuerySpec(query_id=query_id, question="", groundtruth=GroundTruth()) for query_id in query_ids],
         )
         for case_id, query_ids in manifest["query_ids"].items()
     ]

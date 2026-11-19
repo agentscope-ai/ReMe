@@ -181,6 +181,8 @@ def _reuse_source(home: Path, value: str):
         raise ValueError("reuse_construction_from must be inside home/evaluations")
     manifest = read_json(contained(source, "manifest.json"))
     summary = read_json(contained(source, "summary.json"))
+    if not isinstance(manifest, dict) or not isinstance(summary, dict):
+        raise ValueError("Expected construction source manifest and summary objects")
     return source, manifest, summary
 
 
@@ -191,8 +193,9 @@ def reuse_inputs(home: Path, spec: EvaluationSpec, cases: list, fingerprints: di
     source, manifest, summary = _reuse_source(home, spec.reuse_construction_from)
     if manifest.get("dataset_kind") != "training-set" or manifest.get("status", summary.get("status")) != "completed":
         raise ValueError("Reuse requires a completed training-set evaluation")
+    source_fingerprints = manifest.get("fingerprints")
     for key in ("dataset", "construction_config"):
-        if manifest.get("fingerprints", {}).get(key) != fingerprints[key]:
+        if not isinstance(source_fingerprints, dict) or source_fingerprints.get(key) != fingerprints[key]:
             raise ValueError(f"Construction source has incompatible {key}")
     archives, errors = {}, []
     for case in cases:
@@ -200,7 +203,7 @@ def reuse_inputs(home: Path, spec: EvaluationSpec, cases: list, fingerprints: di
             folder = contained(source, f"cases/{case.case_id}/memory_construction", directory=True)
             result = read_json(folder / "result.json")
             archive = contained(folder, "reme_workspace.tar.gz")
-            if result.get("success") is not True:
+            if not isinstance(result, dict) or result.get("success") is not True:
                 raise ValueError("construction was not successful")
             if not result.get("workspace_sha256") or file_sha256(archive) != result["workspace_sha256"]:
                 raise ValueError("construction archive checksum mismatch")

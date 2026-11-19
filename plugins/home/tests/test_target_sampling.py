@@ -12,7 +12,7 @@ from reme_home.agent.optimizer import verify_evaluation
 from reme_home.evaluation import reuse
 from reme_home.evaluation.artifacts import read_json, write_json
 from reme_home.evaluation.history import rebuild_sampling_state, read_state
-from reme_home.preparation.data.models import CaseSpec, QuerySpec
+from reme_home.preparation.data.models import CaseSpec, GroundTruth, QuerySpec
 from test_evaluation import (  # noqa: F401  # pylint: disable=unused-import
     FakeFactory,
     command,
@@ -28,7 +28,7 @@ def cases():
         CaseSpec(
             case_id=str(index),
             sessions=[],
-            queries=[QuerySpec(query_id=f"fact:{qid}", question="?", golden_answer="answer") for qid in range(1, 5)],
+            queries=[QuerySpec(query_id=f"fact:{qid}", question="?", groundtruth=GroundTruth()) for qid in range(1, 5)],
         )
         for index in range(1, 5)
     ]
@@ -458,7 +458,7 @@ def test_background_prefers_memory_only_when_all_retained_targets_are_reusable(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("target_id", ["1", "2"])
-async def test_target_review_precedes_sampling_and_uncovered_cases_rebuild(
+async def test_target_sampling_limits_review_and_uncovered_cases_rebuild(
     app,
     prepared,
     allow_reuse,
@@ -472,7 +472,7 @@ async def test_target_review_precedes_sampling_and_uncovered_cases_rebuild(
     sample = component.create_sampling_plan
 
     def tracked_sample(*args, **kwargs):
-        assert len(allow_reuse[0]) == len(allow_reuse[1]) == 1
+        assert not allow_reuse[0] and not allow_reuse[1]
         assert kwargs["reusable_case_ids"] == {"1"}
         return sample(*args, **kwargs)
 
@@ -495,6 +495,78 @@ async def test_target_review_precedes_sampling_and_uncovered_cases_rebuild(
     assert not any(event[:2] == ("1", "build") for event in events)
     assert any(event[:2] == ("2", "build") for event in events)
     verify_evaluation(prepared, run, manifest["commit_sha"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("limits", [{"max_cases": 1}, {"max_cases": 2, "max_queries": 1}])
+@pytest.mark.parametrize("reuse_selected", [True, False])
+async def test_targeted_review_opens_only_budgeted_archives(app, prepared, monkeypatch, limits, reuse_selected):
+    from reme_home.agent import construction_equivalence
+    from reme_home.evaluation import inputs
+    from reme_home.workspace import _initialization_lock
+
+    baseline = await app.run_job("home_evaluate")
+    assert baseline.success, baseline.answer
+    source = Path(baseline.answer["result_dir"])
+    commit_candidate(prepared)
+    inspected, exported = set(), set()
+    inspect_archive = inputs.inspect_archive
+
+    def inspect(path, max_bytes, destination=None):
+        if path.is_relative_to(source):
+            case_id = path.relative_to(source).parts[1]
+            (exported if destination is not None else inspected).add(case_id)
+            with _initialization_lock(prepared / "metadata/workspace.lock"):
+                pass  # Archive validation must not block other workspace Jobs.
+        return inspect_archive(path, max_bytes, destination)
+
+    async def report(_wrapper, _home, _scope, _prompt, context, **_kwargs):
+        return {**context, "decision": "construction_unchanged", "reason": "Answer-only change"}
+
+    monkeypatch.setattr(inputs, "inspect_archive", inspect)
+    monkeypatch.setattr(construction_equivalence, "inspect_archive", inspect)
+    monkeypatch.setattr(construction_equivalence, "review_report", report)
+    monkeypatch.setattr(
+        reuse,
+        "select_query_only",
+        lambda: {"probability": 0.6, "draw": 0.1 if reuse_selected else 0.9, "selected": reuse_selected},
+    )
+    response = await app.run_job(
+        "home_evaluate",
+        sampling=True,
+        target_queries={"1": ["fact:1"]},
+        sampling_policy=limits,
+    )
+    assert response.success, response.answer
+    run = Path(response.answer["result_dir"])
+    manifest = read_json(run / "manifest.json")
+    assert manifest["query_ids"] == {"1": ["fact:1"]}
+    assert inspected == exported == {"1"}
+    plan = read_json(prepared / manifest["sampling"]["plan_path"])
+    assert plan["prefer_reusable_background"] is reuse_selected
+    assert manifest["execution_mode"] == ("query_only_replay" if reuse_selected else "full_validation")
+    verify_evaluation(prepared, run, manifest["commit_sha"])
+
+
+@pytest.mark.asyncio
+async def test_targeted_review_rebuilds_if_nominated_archive_fails_validation(app, prepared, allow_reuse):
+    baseline = await app.run_job("home_evaluate")
+    assert baseline.success
+    commit_candidate(prepared)
+    recent = await app.run_job("home_evaluate", case_ids=["1"])
+    assert recent.success
+    (Path(recent.answer["result_dir"]) / "cases/1/memory_construction/reme_workspace.tar.gz").write_bytes(b"bad")
+    commit_candidate(prepared)
+    response = await app.run_job(
+        "home_evaluate",
+        sampling=True,
+        target_queries={"1": []},
+        sampling_policy={"max_cases": 1},
+    )
+    assert response.success, response.answer
+    assert response.answer["execution_mode"] == "full_validation"
+    assert allow_reuse == ([], [])
+    assert any(event[:2] == ("1", "build") for event in FakeFactory.instances[-1].events)
 
 
 def test_discarded_uncovered_target_does_not_disable_memory_preference(monkeypatch):

@@ -17,7 +17,7 @@ from reme_home.code.snapshot import read_code_file
 from reme_home.evaluation import reuse
 from reme_home.evaluation.artifacts import file_sha256, read_json, write_json
 from reme_home.evaluation.budget import validation_budget_status
-from reme_home.evaluation.inputs import EvaluationSpec
+from reme_home.evaluation.inputs import EvaluationSpec, load_inputs
 
 from test_evaluation import (  # noqa: F401  # pylint: disable=unused-import
     FakeFactory,
@@ -562,15 +562,26 @@ async def test_real_equivalence_sandbox_allows_only_copied_construction_and_sour
     assert source.success
     commit_candidate(prepared)
     spec = EvaluationSpec(sampling=True)
-    context = reuse.reuse_context(prepared, spec, {**os.environ, **app.context.app_config.environment})
+    record, dataset, cases = load_inputs(prepared, spec)
+    fingerprints = reuse.construction_fingerprints(
+        record,
+        dataset,
+        spec,
+        {**os.environ, **app.context.app_config.environment},
+    )
+    context = {
+        "source_validation": source.answer["result_dir"],
+        "base_commit": source.answer["commit_sha"],
+        "candidate_commit": command(prepared / "code/repo", "rev-parse", "HEAD"),
+    }
     root = tmp_path / "review-export"
     root.mkdir()
     scope = construction_equivalence.prepare_equivalence_scope(
         prepared,
-        context["context"],
-        context["spec"],
-        context["cases"],
-        context["fingerprints"],
+        context,
+        spec.model_copy(update={"reuse_construction_from": source.answer["result_dir"]}),
+        cases,
+        fingerprints,
         root=root,
     )
     backend = workflow_common.WorkflowSandbox(scope, memory_limit_mib=0)
