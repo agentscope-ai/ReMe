@@ -223,16 +223,16 @@ class LocalAgentRuntime(BaseAgentRuntime):
 
     async def append(self, agent_name, events):
         """Store reception time separately from observation time; duplicate inputs do not renew idle life."""
-        async with self.management_lock:
-            agent = await self.definition(agent_name)
-            if agent.agent_type != "proactive":
-                raise ValueError("external observations require an event agent")
-            values = events if isinstance(events, list) else [events]
-            values = [Event.model_validate(value) for value in values]
-            if any(value.source == "cron" for value in values):
-                raise ValueError("cron is a reserved framework source")
-            await self.prepare(agent)
-        return await self._append(agent, values)
+        async with self._agent_task(agent_name):
+            async with self.management_lock:
+                agent = await self.definition(agent_name)
+                if agent.agent_type != "proactive":
+                    raise ValueError("external observations require an event agent")
+                values = events if isinstance(events, list) else [events]
+                values = [Event.model_validate(value) for value in values]
+                if any(value.source == "cron" for value in values):
+                    raise ValueError("cron is a reserved framework source")
+            return await self._append(agent, values)
 
     async def _append(self, agent, events: list[Event], *, wait=True):
         await self.prepare(agent)

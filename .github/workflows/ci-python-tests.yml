@@ -82,7 +82,8 @@ jobs:
           FASTMCP_MCP_CAMELCASE_COMPAT: "false"
         run: |
           python -c "import tokenizers; print('tokenizers', tokenizers.__version__)"
-          coverage run --source=reme,deploy,integrations,plugins --omit='*/tests/*' \
+          # Plugin-installation tests execute and remove copies outside the checkout.
+          coverage run --include="$PWD/*" --omit='*/tests/*' \
             -m pytest tests/unit plugins/auto-fin plugins/daily_paper plugins/lme plugins/beam plugins/home/tests \
             -v \
             --tb=long \

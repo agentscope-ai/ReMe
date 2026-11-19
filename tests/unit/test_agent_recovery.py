@@ -203,6 +203,29 @@ async def test_recovered_native_reminder_finishes_ack_without_regenerating(tmp_p
 
 
 @pytest.mark.asyncio
+async def test_delete_cancels_an_append_waiting_for_capacity(tmp_path):
+    async with running_runtime(tmp_path) as (runtime, _, _):
+        await create_agent(runtime)
+        runtime.inbox.max_pending_items = 1
+        append = asyncio.create_task(
+            runtime.append(
+                "monitor",
+                {"id": "next", "event_ts": runtime.now(), "source": "test", "description": "Next"},
+            ),
+        )
+        try:
+            async with asyncio.timeout(2):
+                while append not in runtime.agent_tasks:
+                    await asyncio.sleep(0)
+                await runtime.delete("monitor")
+            assert append.cancelled()
+            assert not runtime.agent_tasks
+        finally:
+            append.cancel()
+            await asyncio.gather(append, return_exceptions=True)
+
+
+@pytest.mark.asyncio
 async def test_silence_rechecks_native_revision_after_outbox_refresh(tmp_path, monkeypatch):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         args = await prepare(runtime, context)
