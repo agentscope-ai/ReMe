@@ -90,17 +90,16 @@ async def test_automatic_rounds_start_fresh_sessions_while_user_followups_resume
 
         async def reply(query, **kwargs):
             if kwargs.get("sandbox") == "workspace-write":
-                targets = step._round_files.drafts
                 if agent_type == "cron":
-                    runtime.files.write(targets["record_path"], "---\naction: write\n---\nNo changes\n")
-                    runtime.files.write(targets["reminder_path"], "---\naction: P0\n---\nNo changes\n")
+                    runtime.files.write(paths["record_path"], "---\naction: write\n---\nNo changes\n")
+                    runtime.files.write(paths["reminder_path"], "---\naction: P0\n---\nNo changes\n")
                     runtime.files.write(
-                        targets["today_summary_path"],
+                        paths["today_summary_path"],
                         f"## Today's records\n- [Check]({paths['record_path'].name})\n"
                         "\n## Today's reminders\n- No changes\n",
                     )
                 else:
-                    runtime.files.write(targets["record_path"], "---\naction: skip\n---\n")
+                    runtime.files.write(paths["record_path"], "---\naction: skip\n---\n")
             async for chunk in original_reply(query, **kwargs):
                 yield chunk
 

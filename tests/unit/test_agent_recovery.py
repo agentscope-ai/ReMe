@@ -22,7 +22,7 @@ from .test_proactive_run import install_round
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("model_writes", [False, True])
-async def test_external_summary_edit_survives_failed_or_conflicting_round(tmp_path, monkeypatch, model_writes):
+async def test_failed_round_restores_the_previous_summary(tmp_path, monkeypatch, model_writes):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         now = runtime.now()
@@ -32,7 +32,11 @@ async def test_external_summary_edit_survives_failed_or_conflicting_round(tmp_pa
         summary = paths["today_summary_path"]
         runtime.files.write(summary, "original\n")
         if model_writes:
-            install_round(runtime, wrapper, monkeypatch, paths, hook=lambda: summary.write_text("my edit\n"))
+
+            def edit_summary(_write):
+                summary.write_text("my edit\n")
+
+            install_round(runtime, wrapper, monkeypatch, paths, omit="record_path", hook=edit_summary)
         else:
 
             async def fail(*_args, **_kwargs):
@@ -41,12 +45,48 @@ async def test_external_summary_edit_survives_failed_or_conflicting_round(tmp_pa
                 yield StreamChunk(chunk_type=ChunkEnum.CONTENT, chunk="unreachable")  # pylint: disable=unreachable
 
             monkeypatch.setattr(wrapper, "reply_stream", fail)
-        with pytest.raises(RuntimeError if model_writes else OSError):
+        with pytest.raises(FileNotFoundError if model_writes else OSError):
             await step(agent_name="monitor")
-        assert summary.read_text() == "my edit\n"
+        assert summary.read_text() == "original\n"
         assert not paths["record_path"].exists() and not paths["reminder_path"].exists()
-        assert not list(tmp_path.rglob(".round-*.md"))
+        assert not summary.with_suffix(".md.bak").exists()
         assert (await runtime.inbox.snapshot("monitor"))["pending_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_round_backs_up_summary_before_writes_and_preserves_an_older_backup(tmp_path, monkeypatch):
+    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+        await create_agent(runtime)
+        now = runtime.now()
+        monkeypatch.setattr(runtime, "now", lambda: now)
+        step = ProactiveAgentStep(app_context=context)
+        paths = step._paths(await runtime.definition("monitor"), now)
+        summary = paths["today_summary_path"]
+        old_backup = summary.with_suffix(".md.bak")
+        runtime.files.write(summary, "original\n")
+        runtime.files.write(old_backup, "earlier backup\n")
+        install_round(runtime, wrapper, monkeypatch, paths)
+        generate = wrapper.reply_stream
+
+        async def stream(query, **options):
+            backups = list(summary.parent.glob(f"{summary.name}.*.bak"))
+            assert len(backups) == 1 and backups[0].read_text() == "original\n"
+            assert not list(paths["daily_dir"].rglob("*.bak"))
+            assert all(
+                path.relative_to(tmp_path).as_posix() in query
+                for path in (paths["record_path"], paths["reminder_path"], summary)
+            )
+            async for chunk in generate(query, **options):
+                with paths["record_path"].open("a", encoding="utf-8") as handle:
+                    handle.write("\n\nTimeline evidence")
+                yield chunk
+
+        monkeypatch.setattr(wrapper, "reply_stream", stream)
+        assert (await step(agent_name="monitor")).success
+        record = frontmatter.loads(paths["record_path"].read_text())
+        assert record["action"] == "write" and record.content == "New progress\n\nTimeline evidence"
+        assert list(summary.parent.glob("*.bak")) == [old_backup]
+        assert old_backup.read_text() == "earlier backup\n"
 
 
 @pytest.mark.asyncio
@@ -78,8 +118,14 @@ async def test_real_receipt_write_failure_restores_only_uncommitted_files(tmp_pa
         assert restore.await_count == (0 if committed else 1)
         assert paths["record_path"].exists() is committed
         assert paths["reminder_path"].exists() is committed
-        assert (paths["today_summary_path"].read_text() == "original\n") is not committed
-        assert not list(tmp_path.rglob(".round-*.md"))
+        summary = paths["today_summary_path"]
+        backups = list(tmp_path.rglob("*.bak"))
+        if committed:
+            assert paths["record_path"].name in summary.read_text()
+            assert not backups
+        else:
+            assert summary.read_text() == "original\n"
+            assert not backups
     async with running_runtime(tmp_path) as (runtime, _, _):
         snapshot = await runtime.inbox.snapshot("monitor")
         assert snapshot["pending_count"] == (0 if committed else 1)
@@ -87,7 +133,7 @@ async def test_real_receipt_write_failure_restores_only_uncommitted_files(tmp_pa
 
 
 @pytest.mark.asyncio
-async def test_rollback_preserves_external_edit_after_our_publication(tmp_path, monkeypatch):
+async def test_failed_summary_restoration_retains_its_backup(tmp_path, monkeypatch):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         now = runtime.now()
@@ -97,16 +143,23 @@ async def test_rollback_preserves_external_edit_after_our_publication(tmp_path, 
         summary = paths["today_summary_path"]
         runtime.files.write(summary, "original\n")
         install_round(runtime, wrapper, monkeypatch, paths)
+        write = runtime.files.write
 
         async def fail(*_args, **_kwargs):
-            summary.write_text("my edit after publication\n")
-            raise OSError("ack failed")
+            def fail_summary(path, content, **kwargs):
+                if path == summary:
+                    raise OSError("summary restoration failed")
+                return write(path, content, **kwargs)
 
-        monkeypatch.setattr(runtime.inbox, "ack", fail)
-        with pytest.raises(OSError, match="ack failed"):
+            monkeypatch.setattr(runtime.files, "write", fail_summary)
+            raise OSError("commit failed")
+
+        monkeypatch.setattr(runtime.outbox, "save", fail)
+        with pytest.raises(OSError, match="summary restoration failed"):
             await step(agent_name="monitor")
-        assert summary.read_text() == "my edit after publication\n"
+        assert summary.with_suffix(".md.bak").read_text() == "original\n"
         assert not paths["record_path"].exists() and not paths["reminder_path"].exists()
+        assert (await runtime.status("monitor"))["pending_events"] == 1
 
 
 @pytest.mark.asyncio
