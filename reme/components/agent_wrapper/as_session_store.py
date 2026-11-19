@@ -374,6 +374,13 @@ class AsSessionStore:
             last_turn_id=session.last_turn_id,
         )
 
+    @asynccontextmanager
+    async def guard(self, session_id: str, expected_revision: str):
+        """Protect a decision against generation and queued observation writers."""
+        async with self._lease(session_id) as runtime, runtime.appends.lock:
+            check_guard(await self.snapshot(session_id), None, expected_revision)
+            yield
+
     async def append(
         self,
         session_id: str,

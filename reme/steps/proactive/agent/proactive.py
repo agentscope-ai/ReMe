@@ -12,6 +12,7 @@ from urllib.parse import unquote, urlsplit
 import frontmatter
 
 from .base import BaseAgentStep
+from ._artifacts import RoundArtifacts
 from ....components import R
 from ....enumeration import ChunkEnum
 from ....schema.proactive_agent import ProactiveRunResult
@@ -37,7 +38,7 @@ class ProactiveAgentStep(BaseAgentStep):
                 raise ValueError(f"{name} must be a positive integer")
         self.max_web_lookup_calls = max_web_lookup_calls
         self.max_local_search_calls = max_local_search_calls
-        self._round_files = {}
+        self._round_files = None
 
     def _paths(self, agent, now):
         runtime = self.agent_runtime
@@ -194,7 +195,7 @@ class ProactiveAgentStep(BaseAgentStep):
                 reason = str(exc)
             self.logger.warning(f"Proactive local link source={path} target={target!r}: {reason}")
 
-    def _read_artifacts(self, agent, paths, summary_before):
+    def _read_artifacts(self, agent, paths, summary_before, *, warn_links=True):
         """Validate the final branch and derive notifications only from saved documents."""
         files = self.agent_runtime.files
         record = self._read_document(paths["record_path"], record=True)
@@ -229,9 +230,10 @@ class ProactiveAgentStep(BaseAgentStep):
                 raise ValueError("a new record requires a nonempty daily summary")
             if summary == summary_before:
                 raise ValueError("a new record must update its daily summary")
-            self._warn_local_links(paths["record_path"], record.content)
-            self._warn_local_links(paths["reminder_path"], reminder.content)
-            self._warn_local_links(paths["today_summary_path"], summary, summary_before or "")
+            if warn_links:
+                self._warn_local_links(paths["record_path"], record.content)
+                self._warn_local_links(paths["reminder_path"], reminder.content)
+                self._warn_local_links(paths["today_summary_path"], summary, summary_before or "")
         return result
 
     async def execute(self):
@@ -239,7 +241,7 @@ class ProactiveAgentStep(BaseAgentStep):
         if set(arguments) != {"agent_name"}:
             raise ValueError("proactive_agent_step requires only agent_name")
         self.require_paths(self.workspace_path)
-        self._round_files = {}
+        self._round_files = None
         self.context.response.metadata.pop("reme.agent_run", None)
         started, outcome = monotonic(), "failed"
         try:
@@ -247,12 +249,18 @@ class ProactiveAgentStep(BaseAgentStep):
                 arguments["agent_name"],
                 self._execute,
                 on_failure=self._restore_files,
+                on_write=self._record_write,
             )
             outcome = "completed"
         except asyncio.CancelledError:
             outcome = "interrupted"
             raise
         finally:
+            if self._round_files is not None:
+                try:
+                    await complete_in_thread(self._round_files.close)
+                except OSError as exc:
+                    self.logger.warning(f"Could not remove round drafts: {exc}")
             if stats := self.context.response.metadata.get("reme.agent_run"):
                 stats.update(result=outcome, elapsed_seconds=monotonic() - started)
                 prefix = ("agent_runs", stats["agent_type"])
@@ -274,18 +282,14 @@ class ProactiveAgentStep(BaseAgentStep):
 
     async def _restore_files(self):
         """Restore only this round's files when its input receipt was not committed."""
+        if self._round_files is not None:
+            await self._round_files.rollback()
 
-        def restore():
-            files = self.agent_runtime.files
-            for path, before in self._round_files.items():
-                if self._read_optional(path) == before:
-                    continue
-                if before is None:
-                    files.remove(path)
-                else:
-                    files.write(path, before)
-
-        await complete_in_thread(restore)
+    def _record_write(self, path, version):
+        """Track the outbox's own canonicalization without claiming external edits."""
+        for key in self._round_files.published:
+            if self._round_files.paths[key] == path:
+                self._round_files.published[key] = version
 
     async def _execute(self, agent, events):
         """Run the complete workflow in one turn, then validate its saved decisions."""
@@ -304,17 +308,14 @@ class ProactiveAgentStep(BaseAgentStep):
         runtime = self.agent_runtime
         now = runtime.now()
         paths = await asyncio.to_thread(self._paths, agent, now)
-        summary_before = await asyncio.to_thread(self._read_optional, paths["today_summary_path"])
-        self._round_files = {
-            paths["record_path"]: None,
-            paths["reminder_path"]: None,
-            paths["today_summary_path"]: summary_before,
-        }
+        self._round_files = await asyncio.to_thread(RoundArtifacts, runtime.files, paths)
+        await complete_in_thread(self._round_files.prepare)
+        summary_before = self._round_files.before["today_summary_path"][0]
         task_content = await asyncio.to_thread(runtime.files.read, paths["task_path"])
         if not task_content.strip():
             raise ValueError("TASK.md must not be blank")
         options = self.session_options(agent)
-        query = await asyncio.to_thread(self._query, agent, events, paths, now, task_content)
+        query = await asyncio.to_thread(self._query, agent, events, self._round_files.drafts, now, task_content)
         started = monotonic()
         label = f"Proactive agent={agent.agent_name} agent_type={agent.agent_type}"
         session_id = None
@@ -399,13 +400,21 @@ class ProactiveAgentStep(BaseAgentStep):
                 model_error = exc
                 stats["model_status"] = "timeout" if isinstance(exc, TimeoutError) else "failed"
             try:
-                result = await asyncio.to_thread(self._read_artifacts, agent, paths, summary_before)
+                await asyncio.to_thread(
+                    self._read_artifacts,
+                    agent,
+                    self._round_files.drafts,
+                    summary_before,
+                    warn_links=False,
+                )
             except Exception as validation_error:
                 if model_error is not None:
                     raise model_error from validation_error
                 raise
             if model_error is not None:
                 self.logger.warning(f"{label} result=accepted_artifacts model_error={type(model_error).__name__}")
+            await self._round_files.publish()
+            result = await asyncio.to_thread(self._read_artifacts, agent, paths, summary_before)
             self.logger.info(
                 f"{label} result=validated notifications={len(result.notifications)} "
                 f"elapsed={monotonic() - started:.2f}s path={paths['record_path']}",

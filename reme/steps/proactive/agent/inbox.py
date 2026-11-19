@@ -58,20 +58,21 @@ class InboxChatStep(BaseChatAgentStep):
                 self.context.response.answer = {"skipped": "busy"}
                 return self.context.response
         async with runtime.notifications.turn(session_id, request.priority, request.msg_ids) as turn:
-            reply = await runtime.agent_wrapper.reply(
-                self.prompt_format(
-                    "hint",
-                    sleep_reminder_rule=self.get_prompt("sleep_reminder_rule"),
-                ),
-                system_prompt=options["system_prompt"],
-                job_tools=["read_chat_reminders", "submit_chat_reminder"],
-                resume=session_id,
-                fork_session=True,
-                ephemeral=True,
-                sandbox="read-only",
-                injected_job_kwargs={"_agent_name": "Remy", "_inbox_turn": turn.id},
-            )
             if not turn.done:
-                raise RuntimeError(reply.get("error") or "Inbox fork ended without submitting a reminder decision")
+                reply = await runtime.agent_wrapper.reply(
+                    self.prompt_format(
+                        "hint",
+                        sleep_reminder_rule=self.get_prompt("sleep_reminder_rule"),
+                    ),
+                    system_prompt=options["system_prompt"],
+                    job_tools=["read_chat_reminders", "submit_chat_reminder"],
+                    resume=session_id,
+                    fork_session=True,
+                    ephemeral=True,
+                    sandbox="read-only",
+                    injected_job_kwargs={"_agent_name": "Remy", "_inbox_turn": turn.id},
+                )
+                if not turn.done:
+                    raise RuntimeError(reply.get("error") or "Inbox fork ended without submitting a reminder decision")
             self.context.response.answer = {"sent": bool(turn.content)}
         return self.context.response

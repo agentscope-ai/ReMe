@@ -62,7 +62,7 @@ class AgentFiles:
         for directory in reversed(missing):
             sync_directory(directory.parent)
 
-    def write(self, path: Path, content: str, *, create_only: bool = False) -> None:
+    def write(self, path: Path, content: str, *, create_only: bool = False, on_write=None) -> None:
         """Finish a bounded, atomic replacement before its caller acknowledges work."""
         path = self.checked(path)
         data = content.encode("utf-8")
@@ -84,13 +84,16 @@ class AgentFiles:
                 handle.write(data)
                 handle.flush()
                 sync_file(handle.fileno())
+                stat = os.fstat(handle.fileno())
             if create_only:
                 try:
                     os.link(temporary, path)
                 except FileExistsError:
-                    pass
+                    return
             else:
                 os.replace(temporary, path)
+            if on_write is not None:
+                on_write((content, (stat.st_ino, stat.st_mtime_ns, stat.st_size)))
             sync_directory(path.parent)
         finally:
             temporary.unlink(missing_ok=True)

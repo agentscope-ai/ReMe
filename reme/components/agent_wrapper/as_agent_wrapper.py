@@ -7,7 +7,7 @@ import subprocess
 import sys
 import time
 from collections.abc import AsyncGenerator
-from contextlib import aclosing, suppress
+from contextlib import aclosing, asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any, Literal, TYPE_CHECKING
 from uuid import uuid4
@@ -429,6 +429,12 @@ class AsAgentWrapper(BaseAgentWrapper):
     async def get_session_status(self, session_id: str) -> SessionStatus:
         """Report application-owned execution and SDK approval/execution waits."""
         return await self._sessions.get_status(session_id)
+
+    @asynccontextmanager
+    async def session_guard(self, session_id: str, *, expected_revision: str):
+        """Protect a decision against generation and queued observation writers."""
+        async with self._sessions.guard(session_id, expected_revision):
+            yield
 
     async def append_session(
         self,

@@ -28,8 +28,16 @@ def install_round(
     failed=False,
 ):
     calls = []
+    drafts = {}
+    original_query = ProactiveAgentStep._query
 
-    async def stream(query, **options):
+    def build_query(step, agent, events, targets, now, task_content):
+        drafts.update(targets)
+        return original_query(step, agent, events, targets, now, task_content)
+
+    monkeypatch.setattr(ProactiveAgentStep, "_query", build_query)
+
+    async def generate(query, **options):
         calls.append((query, options))
         assert "output_schema" not in options
         runtime.files.write(
@@ -68,6 +76,15 @@ def install_round(
             "raw": {},
         }
         yield StreamChunk(chunk_type=ChunkEnum.REPLY_END, status=result["status"], chunk=result)
+
+    async def stream(query, **options):
+        final = dict(paths)
+        paths.update(drafts)
+        try:
+            async for chunk in generate(query, **options):
+                yield chunk
+        finally:
+            paths.update(final)
 
     monkeypatch.setattr(wrapper, "reply_stream", stream)
     return calls
@@ -170,11 +187,13 @@ async def test_broken_local_links_warn_without_rejecting_saved_results(
 
         def add_links():
             runtime.files.write(paths["today_summary_path"], before + runtime.files.read(paths["today_summary_path"]))
-            document = frontmatter.loads(runtime.files.read(path))
+            document = frontmatter.loads(runtime.files.read(paths[artifact]))
             document.content += "\n" + body
-            runtime.files.write(path, frontmatter.dumps(document))
+            runtime.files.write(paths[artifact], frontmatter.dumps(document))
             for key in ("record_path", "reminder_path", "today_summary_path"):
                 expected[key] = frontmatter.loads(runtime.files.read(paths[key])).content
+                for target in ("record_path", "reminder_path", "today_summary_path"):
+                    expected[key] = expected[key].replace(paths[target].name, step._round_files.paths[target].name)
 
         install_round(runtime, wrapper, monkeypatch, paths, reminder=reminder, hook=add_links)
         response = await step(agent_name="monitor")
@@ -394,9 +413,9 @@ async def test_missing_or_invalid_required_documents_fail_instead_of_skipping(tm
         step = ProactiveAgentStep(app_context=context)
         step.logger = Mock()
         paths = step._paths(await runtime.definition("monitor"), now)
-        path = paths[key]
 
         def corrupt():
+            path = paths[key]
             if defect == "missing":
                 path.unlink()
                 return

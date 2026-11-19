@@ -60,6 +60,12 @@ class FakeWrapper(BaseAgentWrapper):
     async def read_session(self, session_id):
         return SessionSnapshot(session_id=session_id, state=await self.get_session_status(session_id))
 
+    @asynccontextmanager
+    async def session_guard(self, session_id, *, expected_revision):
+        if (await self.read_session(session_id)).revision != expected_revision:
+            raise RuntimeError("Session changed before committing decision")
+        yield
+
     async def reply_stream(self, inputs, **kwargs):
         self.turns.append((inputs, kwargs))
         result = {

@@ -231,15 +231,16 @@ class LocalAgentRuntime(BaseAgentRuntime):
             values = [Event.model_validate(value) for value in values]
             if any(value.source == "cron" for value in values):
                 raise ValueError("cron is a reserved framework source")
-            return await self._append(agent, values)
+            await self.prepare(agent)
+        return await self._append(agent, values)
 
-    async def _append(self, agent, events: list[Event]):
+    async def _append(self, agent, events: list[Event], *, wait=True):
         await self.prepare(agent)
         received = self.now().isoformat()
         values = [
             value.model_copy(update={"metadata": {**value.metadata, "_received_at": received}}) for value in events
         ]
-        identifiers = await self.inbox.append(agent.agent_name, values)
+        identifiers = await self.inbox.append(agent.agent_name, values, wait=wait)
         self.changed.set()
         return {"agent_name": agent.agent_name, "event_ids": identifiers}
 
@@ -375,7 +376,7 @@ class LocalAgentRuntime(BaseAgentRuntime):
                 if session_id is not None:
                     await finish_cleanup(self.agent_wrapper.release_session(session_id))
 
-    async def run(self, agent_name, execute, *, on_failure=None):
+    async def run(self, agent_name, execute, *, on_failure=None, on_write=None):
         """Commit successful execution before handing asynchronous delivery to the outbox."""
         async with (
             self._agent_task(agent_name),
@@ -422,7 +423,13 @@ class LocalAgentRuntime(BaseAgentRuntime):
                     if previous is not None:
                         received.append(previous.metadata["last_received_at"])
                     last_received = max(datetime.fromisoformat(value) for value in received)
-                    refs = await self.outbox.save(agent, run_id, result, self.now())
+                    refs = await self.outbox.save(
+                        agent,
+                        run_id,
+                        result,
+                        self.now(),
+                        **({"on_write": on_write} if on_write is not None else {}),
+                    )
                     await self.inbox.ack(
                         agent_name,
                         batch["token"],
@@ -453,8 +460,7 @@ class LocalAgentRuntime(BaseAgentRuntime):
                 if on_failure is not None:
 
                     async def restore_uncommitted():
-                        receipt = (await self.inbox.snapshot(agent_name))["receipt"]
-                        if receipt is None or not {item["id"] for item in batch["items"]}.issubset(receipt.item_ids):
+                        if not await self.inbox.committed(agent_name, [item["id"] for item in batch["items"]]):
                             await on_failure()
 
                     await finish_cleanup(restore_uncommitted())
@@ -464,8 +470,11 @@ class LocalAgentRuntime(BaseAgentRuntime):
                     await finish_cleanup(self.inbox.nack(agent_name, batch["token"]))
                 except ValueError:
                     pass
-                if owns_worker:
-                    self.workers.pop(agent_name, None)
+                except RuntimeError as exc:
+                    self.logger.warning(f"Could not release failed inbox claim for {agent_name}: {exc}")
+                finally:
+                    if owns_worker:
+                        self.workers.pop(agent_name, None)
 
     def _next_cron_time(self, agent, now):
         """Compute a calendar trigger without mutating the scheduler or enqueuing work."""
@@ -497,6 +506,7 @@ class LocalAgentRuntime(BaseAgentRuntime):
                     metadata={"scheduled_at": scheduled.isoformat()},
                 ),
             ],
+            wait=False,
         )
         self.cron[agent.agent_name] = (signature, next_fire)
 
@@ -518,7 +528,10 @@ class LocalAgentRuntime(BaseAgentRuntime):
             for agent in agents.values():
                 await self.prepare(agent)
                 if agent.enabled and agent.agent_type == "cron":
-                    await self._schedule_cron(agent)
+                    try:
+                        await self._schedule_cron(agent)
+                    except TimeoutError:
+                        self.logger.warning(f"Cron input deferred for {agent.agent_name}: inbox capacity is full")
                 execution = self.executions[agent.agent_name]
                 if not agent.enabled or agent.agent_name in self.workers:
                     continue

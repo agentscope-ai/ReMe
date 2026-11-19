@@ -368,6 +368,30 @@ class LocalAgentInbox(BaseAgentInbox):
                 },
             )
 
+    async def committed(self, name: str, item_ids: list[str]) -> bool:
+        """Read the atomic commit log without relying on possibly stale in-memory state."""
+        async with self._changed:
+            name = self._normalize_name(name)
+            if self._closed or name not in self._inboxes:
+                raise RuntimeError("Agent inbox is not mounted")
+
+            def read():
+                path = self._path(name, "inbox_read.jsonl")
+                if not path.exists():
+                    return False
+                with path.open("rb") as handle:
+                    for raw in handle:
+                        if not raw.endswith(b"\n"):
+                            raise ValueError("incomplete durable inbox receipt")
+                        value = json.loads(raw)
+                        items = [self._item(self._encode(item)) for item in value.pop("items")]
+                        receipt = InboxReceipt(item_ids=[item["id"] for item in items], **value)
+                        if set(item_ids).issubset(receipt.item_ids):
+                            return True
+                return False
+
+            return await asyncio.to_thread(read)
+
     async def list(self) -> list[dict]:
         """Return inbox summaries without reading or exposing item history."""
         async with self._changed:
@@ -438,7 +462,13 @@ class LocalAgentInbox(BaseAgentInbox):
             prepared[item["id"]] = (item, raw, fingerprint)
         return list(prepared.values())
 
-    async def append(self, name: str, items: BaseModel | dict | list[BaseModel | dict]) -> list[str]:
+    async def append(
+        self,
+        name: str,
+        items: BaseModel | dict | list[BaseModel | dict],
+        *,
+        wait: bool = True,
+    ) -> list[str]:
         """Durably append inputs; wait for pending capacity or raise TimeoutError."""
         prepared = self._prepare(items)
         async with asyncio.timeout(self.append_timeout_seconds) as deadline:
@@ -462,6 +492,8 @@ class LocalAgentInbox(BaseAgentInbox):
                         and self._pending_bytes + size <= self.max_pending_bytes
                     ):
                         break
+                    if not wait:
+                        raise TimeoutError("Agent inbox pending capacity is full")
                     await self._changed.wait()
                 deadline.reschedule(None)
                 await finish_cleanup(self._append(name, inbox, fresh))

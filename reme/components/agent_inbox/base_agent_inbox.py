@@ -38,7 +38,13 @@ class BaseAgentInbox(BaseComponent):
         """Page retained inputs and their real processing state without consuming them."""
 
     @abstractmethod
-    async def append(self, name: str, items: BaseModel | dict | list[BaseModel | dict]) -> list[str]:
+    async def append(
+        self,
+        name: str,
+        items: BaseModel | dict | list[BaseModel | dict],
+        *,
+        wait: bool = True,
+    ) -> list[str]:
         """Persist inputs before publishing them to a consumer."""
 
     @abstractmethod
@@ -56,6 +62,10 @@ class BaseAgentInbox(BaseComponent):
     @abstractmethod
     async def receipts(self) -> dict[str, list[InboxReceipt]]:
         """Read retained execution receipts grouped by inbox identity."""
+
+    @abstractmethod
+    async def committed(self, name: str, item_ids: list[str]) -> bool:
+        """Inspect durable receipts after uncertain I/O, including while the inbox is failed."""
 
     @abstractmethod
     async def retain(self, name: str, item_ids: list[str], *, release: bool = False) -> None:

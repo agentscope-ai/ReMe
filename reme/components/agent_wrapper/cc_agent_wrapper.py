@@ -6,7 +6,7 @@ import os
 import shlex
 import sys
 from collections.abc import AsyncGenerator
-from contextlib import aclosing
+from contextlib import aclosing, asynccontextmanager
 from dataclasses import asdict, dataclass, fields
 from datetime import datetime, timezone
 from pathlib import Path
@@ -246,6 +246,17 @@ class CcAgentWrapper(BaseAgentWrapper):
         ):
             raise FileNotFoundError(f"Claude session not found: {session_id}")
         return self._sessions.status(session_id, data)
+
+    @asynccontextmanager
+    async def session_guard(self, session_id: str, *, expected_revision: str):
+        """Serialize silent decisions with both idle and active native appends."""
+        async with (
+            self._sessions.use(session_id) as runtime,
+            self._sessions.lease(session_id),
+            runtime.appends.lock,
+        ):
+            check_guard(await self.read_session(session_id), None, expected_revision)
+            yield
 
     async def append_session(
         self,

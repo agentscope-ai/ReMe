@@ -152,11 +152,32 @@ class ChatNotifications:
                 active_delivery=priority == "P0" and snapshot.state.status == "active",
             )
             self.active_turn = turn
+            messages = {message.id: message for message in snapshot.messages if message.role == "assistant"}
+            recovered = {}
+            for identifier in selected:
+                item = self.runtime.outbox.records[pending[identifier]]
+                for message_id in [*item.chat_message_ids, f"reme-proactive-{turn.message_id}"]:
+                    if message_id in messages:
+                        recovered[identifier] = messages[message_id]
+                        break
+            if recovered:
+                # The native message is the durable decision. A retry only owes its source acknowledgements.
+                await finish_cleanup(self.consume(list(recovered)))
+                remaining = tuple(identifier for identifier in selected if identifier not in recovered)
+                if remaining:
+                    batch = await self.runtime.inbox.claim("Remy", item_ids=list(remaining))
+                    if batch is None:
+                        raise RuntimeError("Chat inbox is already being processed")
+                    turn.msg_ids = remaining
+                else:
+                    turn.message = recovered[selected[0]]
+                    turn.content, turn.done = turn.message.content, True
             yield turn
         finally:
             self.active_turn = None
             try:
-                await finish_cleanup(self.runtime.inbox.nack("Remy", batch["token"]))
+                if batch is not None:
+                    await finish_cleanup(self.runtime.inbox.nack("Remy", batch["token"]))
             except ValueError:
                 pass
 
@@ -193,10 +214,6 @@ class ChatNotifications:
                         raise RuntimeError("Chat session changed; retry the reminders in the current conversation")
                     if self.chat_revision != turn.chat_revision:
                         raise RuntimeError("Chat conversation changed; reassess reminders after the latest user turn")
-                    if not content:
-                        snapshot = await self.runtime.agent_wrapper.read_session(turn.session_id)
-                        if snapshot.revision != turn.session_revision:
-                            raise RuntimeError("Chat conversation changed; reassess reminders before consuming them")
                     await self.runtime.outbox.refresh()
                     for item in turn.items:
                         ref = self.pending.get(item["id"])
@@ -243,7 +260,16 @@ class ChatNotifications:
                         await self.consume([item["id"] for item in turn.items])
                         turn.done = True
 
-                    await finish_cleanup(commit())
+                    guard = (
+                        self.runtime.agent_wrapper.session_guard(
+                            turn.session_id,
+                            expected_revision=turn.session_revision,
+                        )
+                        if not content
+                        else nullcontext()
+                    )
+                    async with guard:
+                        await finish_cleanup(commit())
             return {"sent": bool(content), "message_id": turn.message.id if turn.message else None}
 
     def _allows(self, ref, agents, now):

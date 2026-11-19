@@ -316,6 +316,17 @@ class CodexAgentWrapper(BaseAgentWrapper):
             )
             return codex_session_history.merge_appends(snapshot, messages)
 
+    @asynccontextmanager
+    async def session_guard(self, session_id: str, *, expected_revision: str):
+        """Keep silent decisions under the same native and append leases as idle injection."""
+        async with (
+            self._session_request(),
+            self.app_server.append_lease(session_id),
+            self._session({"session_id": session_id}, compact=True),
+        ):
+            check_guard(await self.read_session(session_id), None, expected_revision)
+            yield
+
     async def append_session(
         self,
         session_id: str,

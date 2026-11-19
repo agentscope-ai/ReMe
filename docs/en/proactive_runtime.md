@@ -25,7 +25,9 @@ Each run uses one of two complete prompts: `proactive_query` for event tasks and
 
 Failed task runs retry with increasing delays, starting at `retry_seconds` (5 seconds by default) and normally capped at 5 minutes. A successful run resets the delay. Per-run diagnostics are in response metadata `reme.agent_run`; process-local counters under `agent_runs` group runs, tokens, tool calls and elapsed time by `agent_type`. Model status and run result are separate, so valid artifacts accepted after a model error still count as a completed run.
 
-Complete, valid files can be committed even if the model times out or reports failure afterward. Incomplete outputs, failed validation or a failed commit restore the previous daily summary and remove only this round's new record and uncommitted reminder. Durably acknowledged results are retained. Explicit cancellation stops the round. This recovery does not cover forced process termination.
+The model writes records, reminders and summaries to private round drafts. After validation, publication uses the file jobs' per-path locks and checks the original content and file versions. Concurrent user edits are preserved and reported as conflicts. Links between drafts are rewritten to their final destinations.
+
+Complete, valid drafts can be committed even if the model times out or reports failure afterward. Failed rounds restore only files they published whose versions still match. After uncertain receipt I/O, recovery checks the durable consumption log: uncommitted outputs are restored, while committed results are retained. Explicit cancellation stops the round and cleans up drafts. This recovery does not cover forced process termination.
 
 Event tasks compare incoming material with existing summaries and related records, distinguishing facts from inference. A newly met reminder condition also counts as new information. Both task types require a nonblank `TASK.md`; missing daily summaries are optional.
 

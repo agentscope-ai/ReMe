@@ -58,9 +58,13 @@ class AgentOutbox:
             raise ValueError("canonical reminders must have action write")
         return AgentReminder.model_validate({**metadata, "message": document.content})
 
-    def _write(self, path, item):
+    def _write(self, path, item, *, on_write=None):
         metadata = item.model_dump(mode="json", exclude={"message"})
-        self.files.write(path, frontmatter.dumps(frontmatter.Post(item.message, action="write", **metadata)) + "\n")
+        self.files.write(
+            path,
+            frontmatter.dumps(frontmatter.Post(item.message, action="write", **metadata)) + "\n",
+            **({"on_write": lambda version: on_write(path, version)} if on_write is not None else {}),
+        )
 
     @staticmethod
     def _committed_references(records, receipts, issues):
@@ -134,7 +138,7 @@ class AgentOutbox:
             paths=[ref.file],
         ).model_dump(mode="json")
 
-    async def save(self, agent, run_id, result, now):
+    async def save(self, agent, run_id, result, now, *, on_write=None):
         """Save validated model output before its event consumption receipt is committed."""
         directory = self.runtime.agents.directory_for(agent) / "reminder"
         refs = []
@@ -151,7 +155,12 @@ class AgentOutbox:
                     if previous.id != item.id:
                         raise ValueError("cannot overwrite another reminder")
                     item = previous
-                await complete_in_thread(self._write, path, item)
+                await complete_in_thread(
+                    self._write,
+                    path,
+                    item,
+                    **({"on_write": on_write} if on_write is not None else {}),
+                )
                 refs.append(ReminderRef(file=path.relative_to(self.files.workspace).as_posix(), id=item.id))
                 self.cache.pop(path, None)
         return refs

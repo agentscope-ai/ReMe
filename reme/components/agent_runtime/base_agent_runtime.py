@@ -117,7 +117,14 @@ class BaseAgentRuntime(BaseComponent):
         """Inspect the Chat Agent's retained session references."""
 
     @abstractmethod
-    async def run(self, agent_name: str, execute: Callable, *, on_failure: Callable | None = None) -> dict:
+    async def run(
+        self,
+        agent_name: str,
+        execute: Callable,
+        *,
+        on_failure: Callable | None = None,
+        on_write: Callable | None = None,
+    ) -> dict:
         """Execute and commit one serial input batch; restore failed outputs when requested."""
 
     @abstractmethod

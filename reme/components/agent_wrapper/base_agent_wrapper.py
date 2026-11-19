@@ -1,6 +1,7 @@
 """Base agent wrapper component."""
 
 from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from importlib import metadata
 from pathlib import Path
 from typing import Any, ClassVar, Literal, TYPE_CHECKING
@@ -308,6 +309,12 @@ class BaseAgentWrapper(BaseComponent):
 
     async def release_session(self, session_id: str) -> None:
         """Release idle runtime resources; persisted session history remains available."""
+
+    @asynccontextmanager
+    async def session_guard(self, session_id: str, *, expected_revision: str):
+        """Hold generation and append writers while committing a content-dependent decision."""
+        raise NotImplementedError("This agent backend does not support guarded decisions")
+        yield  # pylint: disable=unreachable
 
     async def session_exists(self, session_id: str) -> bool:
         """Check whether a session can be resumed without generating a reply."""
