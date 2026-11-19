@@ -302,10 +302,6 @@ export const Activity = memo(function Activity({
   const Icon = running
     ? LoaderCircle
     : kinds[groups.keys().next().value ?? "tool"].icon;
-  const issue = (["failed", "interrupted", "waiting", "unknown"] as const).find(
-    (status) => tools.some((tool) => tool.status === status),
-  );
-  const failed = issue === "failed" || issue === "interrupted";
   const label = groups.size
     ? [...groups]
         .map(([kind, running]) => t(kinds[kind][running ? "running" : "past"]))
@@ -313,13 +309,12 @@ export const Activity = memo(function Activity({
     : t(running ? "thinking" : "activityReasoning");
   return (
     <details
-      className={`activity-group ${failed ? "activity-failed" : ""}`}
+      className="activity-group"
       onToggle={(event) => setExpanded(event.currentTarget.open)}
     >
       <summary>
         <Icon size={15} className={running ? "activity-spinner" : ""} />
         <span>{label}</span>
-        {issue && <span className="activity-outcome">{t(issue)}</span>}
         <ChevronRight size={13} className="activity-chevron" />
       </summary>
       {expanded && (

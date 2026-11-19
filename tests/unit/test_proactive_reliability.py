@@ -200,10 +200,9 @@ async def test_session_setup_preserves_workspace_documents(tmp_path):
         await create_agent(runtime)
         agent = await runtime.definition("monitor")
         step = ProactiveAgentStep(app_context=context)
-        now = runtime.now()
         documents = (
             ("Remy", "MEMORY.md", ChatAgentStep(app_context=context).session_options()),
-            ("monitor", "TASK.md", step.session_options(agent, step._paths(agent, now), now)),
+            ("monitor", "TASK.md", step.session_options(agent)),
         )
         for name, filename, item in documents:
             path = runtime.agents.path(name) / filename

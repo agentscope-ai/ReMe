@@ -241,8 +241,7 @@ async def test_proactive_sessions_inherit_native_compaction(tmp_path, agent_type
         await runtime.create(values)
         step = ProactiveAgentStep(app_context=context)
         agent = await runtime.definition("monitor")
-        now = runtime.now()
-        options = step.session_options(agent, step._paths(agent, now), now)
+        options = step.session_options(agent)
         assert "model_auto_compact_token_limit" not in options["config"]
 
 

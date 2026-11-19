@@ -4,6 +4,7 @@
 
 import asyncio
 from datetime import datetime, timedelta
+import os
 from unittest.mock import AsyncMock, Mock
 
 import frontmatter
@@ -89,12 +90,20 @@ async def test_one_turn_saves_artifacts_and_publishes_through_runtime(tmp_path, 
         step = ProactiveAgentStep(app_context=context)
         step.logger = Mock()
         paths = step._paths(await runtime.definition("monitor"), now)
+        task_content = "跟进最新实验，结果变化时提醒。\n\n保留原文：{literal}。\n[cron] 这也是任务内容。\n"
+        runtime.files.write(paths["task_path"], task_content)
+        reader = Mock(wraps=runtime.files.read)
+        monkeypatch.setattr(runtime.files, "read", reader)
         calls = install_round(runtime, wrapper, monkeypatch, paths)
 
         response = await step(agent_name="monitor")
 
         assert response.success and response.answer["processed"] == 1
         assert len(calls) == len(wrapper.created) == 1
+        assert "system_prompt" not in wrapper.created[0] and "system_prompt" not in calls[0][1]
+        assert calls[0][0].count(task_content) == 1
+        assert sum(call.args == (paths["task_path"],) for call in reader.call_args_list) == 1
+        assert paths["task_path"].read_text() == task_content
         assert calls[0][1]["resume"] == "session-1"
         assert calls[0][1]["activity_source"] == "proactive"
         assert calls[0][1]["activity_task_id"] == "monitor"
@@ -116,6 +125,73 @@ async def test_one_turn_saves_artifacts_and_publishes_through_runtime(tmp_path, 
         logs = "\n".join(call.args[0] for call in step.logger.info.call_args_list)
         assert "result=validated notifications=1" in logs
         assert "elapsed=" in logs and str(paths["record_path"]) in logs
+
+
+@pytest.mark.parametrize("agent_type,reminder", [("proactive", "write"), ("proactive", "skip"), ("cron", "write")])
+@pytest.mark.parametrize("artifact", ["record_path", "reminder_path", "today_summary_path"])
+@pytest.mark.asyncio
+async def test_broken_local_links_warn_without_rejecting_saved_results(
+    tmp_path,
+    monkeypatch,
+    agent_type,
+    reminder,
+    artifact,
+):
+    workspace = tmp_path / "workspace"
+    async with running_runtime(workspace) as (runtime, context, wrapper):
+        await create_agent(runtime)
+        if agent_type == "cron":
+            await runtime.update("monitor", {"agent_type": "cron", "cron": "0 * * * *"})
+        now = runtime.now()
+        monkeypatch.setattr(runtime, "now", lambda: now)
+        step = ProactiveAgentStep(app_context=context)
+        step.logger = Mock()
+        paths = step._paths(await runtime.definition("monitor"), now)
+        path = paths[artifact]
+        before = "# Previous summary\n[Old broken link](old-missing.md)\n"
+        runtime.files.write(paths["today_summary_path"], before)
+        runtime.files.write(path.with_name("proof (confirmed).md"), "Evidence\n")
+        outside = tmp_path / "outside.md"
+        outside.write_text("Outside workspace\n")
+        body = (
+            f"[Record]({os.path.relpath(paths['record_path'], path.parent)}#details)\n"
+            f"[Absolute record]({paths['record_path']})\n"
+            '[Named](<proof (confirmed).md> "Evidence")\n'
+            "[Encoded](proof%20%28confirmed%29.md)\n"
+            "[Web](https://example.com/news) [Mail](mailto:news@example.com)\n"
+            "[Anchor](#details) [Remote](//example.com/news)\n"
+            "`[Example](not-real-inline.md)`\n"
+            "```markdown\n[Example](not-real-fenced.md)\n```\n"
+            "~~~markdown\n[Example](not-real-tilde.md)\n~~~\n"
+            "[Missing](missing.md) [Repeated](missing.md)\n"
+            f"[Outside]({outside})\n"
+        )
+        expected = {}
+
+        def add_links():
+            runtime.files.write(paths["today_summary_path"], before + runtime.files.read(paths["today_summary_path"]))
+            document = frontmatter.loads(runtime.files.read(path))
+            document.content += "\n" + body
+            runtime.files.write(path, frontmatter.dumps(document))
+            for key in ("record_path", "reminder_path", "today_summary_path"):
+                expected[key] = frontmatter.loads(runtime.files.read(paths[key])).content
+
+        install_round(runtime, wrapper, monkeypatch, paths, reminder=reminder, hook=add_links)
+        response = await step(agent_name="monitor")
+
+        assert response.success and response.answer["processed"] == 1
+        assert (await runtime.status("monitor"))["pending_events"] == 0
+        assert len(response.answer["notifications"]) == (1 if reminder == "write" else 0)
+        warnings = [call.args[0] for call in step.logger.warning.call_args_list]
+        assert len(warnings) == 2
+        assert all(f"source={path}" in warning for warning in warnings)
+        assert any("target='missing.md': target does not exist" in warning for warning in warnings)
+        assert any(str(outside) in warning and "stay inside the workspace" in warning for warning in warnings)
+        for key, content in expected.items():
+            assert frontmatter.loads(runtime.files.read(paths[key])).content == content
+        assert outside.read_text() == "Outside workspace\n"
+        await runtime.outbox.sync()
+        assert len((await runtime.notifications.read())["items"]) == (1 if reminder == "write" else 0)
 
 
 @pytest.mark.parametrize("existing_summary", [False, True])

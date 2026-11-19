@@ -250,8 +250,7 @@ async def test_formal_agents_inherit_web_search_from_shared_codex_server(tmp_pat
         agent = await runtime.definition("monitor")
         step_config = config["jobs"]["run_proactive_agent"]["steps"][0]
         step = ProactiveAgentStep(app_context=context, **step_config)
-        now = runtime.now()
-        options = step.session_options(agent, step._paths(agent, now), now)
+        options = step.session_options(agent)
         assert options["job_tools"] == []
         assert "read_only_paths" not in options
         assert "sandbox" not in options  # The configured run inherits the selected wrapper's sandbox.
@@ -332,7 +331,7 @@ async def test_trigger_updates_create_fresh_sessions(tmp_path):
             current = await runtime.sessions.ensure(
                 "monitor",
                 wrapper,
-                step.session_options(agent, step._paths(agent, now), now),
+                step.session_options(agent),
                 now,
                 new=True,
             )

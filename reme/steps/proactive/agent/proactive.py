@@ -4,8 +4,10 @@ import asyncio
 from datetime import timedelta
 import json
 import math
+import re
 import shlex
 from time import monotonic
+from urllib.parse import unquote, urlsplit
 
 import frontmatter
 
@@ -63,24 +65,11 @@ class ProactiveAgentStep(BaseAgentStep):
             "reminder_path": reminder,
         }
 
-    def session_options(self, agent, paths, now):
-        """Build the full environment for one automatic run."""
+    def session_options(self, agent):
+        """Build tool bindings and permissions for an automatic run."""
         options = {
             "config": {"skills.include_instructions": False},
             "job_tools": self.kwargs.get("job_tools") or [],
-            "system_prompt": self.prompt_format(
-                "system_prompt",
-                workspace_dir=self.workspace_path,
-                agent_name=agent.agent_name,
-                app_timezone=self.app_context.app_config.timezone or str(now.tzinfo),
-                sleep_reminder_rule=self.get_prompt("sleep_reminder_rule"),
-                **{key: str(value) for key, value in paths.items()},
-                now=now.isoformat(),
-                max_web_lookup_calls=self.max_web_lookup_calls,
-                max_local_search_calls=self.max_local_search_calls,
-                proactive=agent.agent_type == "proactive",
-                cron=agent.agent_type == "cron",
-            ),
             "injected_job_kwargs": {"_agent_name": agent.agent_name},
             "approval_mode": "deny_all",
         }
@@ -88,12 +77,11 @@ class ProactiveAgentStep(BaseAgentStep):
             options["sandbox"] = sandbox
         return options
 
-    def _query(self, agent, events):
-        if agent.agent_type == "cron":
-            return self.prompt_format("cron_query")
+    def _query(self, agent, events, paths, now, task_content):
+        """Build the task type's Markdown query with its task snapshot and round inputs."""
         files = self.agent_runtime.files
         inputs = []
-        for number, event in enumerate(events, 1):
+        for number, event in enumerate(events if agent.agent_type == "proactive" else [], 1):
             inputs.append(
                 self.prompt_format(
                     "event_input",
@@ -101,14 +89,21 @@ class ProactiveAgentStep(BaseAgentStep):
                     event_ts=event["event_ts"],
                     source=event["source"],
                     description=event["description"],
-                    paths="\n".join(str(files.path(path)) for path in event["paths"]),
+                    paths="\n".join(f"- {files.path(path)}" for path in event["paths"]),
                     has_files=bool(event["paths"]),
                     no_files=not event["paths"],
                 ),
             )
         return self.prompt_format(
-            "proactive_query",
+            f"{agent.agent_type}_query",
+            workspace_dir=self.workspace_path,
+            app_timezone=self.app_context.app_config.timezone or str(now.tzinfo),
+            task_content=task_content,
             input_content="\n\n".join(inputs),
+            **{key: str(value) for key, value in paths.items()},
+            now=now.isoformat(),
+            max_web_lookup_calls=self.max_web_lookup_calls,
+            max_local_search_calls=self.max_local_search_calls,
         )
 
     def _read_optional(self, path):
@@ -166,6 +161,39 @@ class ProactiveAgentStep(BaseAgentStep):
             raise ValueError(f"{path}: document body must not be blank")
         return document
 
+    @staticmethod
+    def _markdown_links(content):
+        """Extract inline Markdown targets, ignoring fenced and inline code examples."""
+        content = re.sub(
+            r"^ {0,3}(`{3,}|~{3,})[^\n]*\n.*?(?:^ {0,3}\1[ \t]*$|\Z)|(`+).*?\2",
+            "",
+            content,
+            flags=re.MULTILINE | re.DOTALL,
+        )
+        pattern = r"""\[[^\]\n]*\]\(\s*
+            (<[^>\n]+>|(?:\\.|[^\s()\\]|\([^()\n]*\))+)
+            (?:\s+(?:"[^"\n]*"|'[^'\n]*'))?\s*\)"""
+        return {
+            re.sub(r"\\([\\() ])", r"\1", target.strip("<>"))
+            for target in re.findall(pattern, content, flags=re.VERBOSE)
+        }
+
+    def _warn_local_links(self, path, content, before=""):
+        """Warn about new broken local links without rejecting otherwise valid artifacts."""
+        files = self.agent_runtime.files
+        for target in sorted(self._markdown_links(content) - self._markdown_links(before)):
+            try:
+                url = urlsplit(target)
+                if url.scheme or url.netloc or not url.path:
+                    continue
+                resolved = files.checked((path.parent / unquote(url.path)).resolve())
+                if resolved.exists():
+                    continue
+                reason = "target does not exist"
+            except (OSError, ValueError, RuntimeError) as exc:
+                reason = str(exc)
+            self.logger.warning(f"Proactive local link source={path} target={target!r}: {reason}")
+
     def _read_artifacts(self, agent, paths, summary_before):
         """Validate the final branch and derive notifications only from saved documents."""
         files = self.agent_runtime.files
@@ -201,6 +229,9 @@ class ProactiveAgentStep(BaseAgentStep):
                 raise ValueError("a new record requires a nonempty daily summary")
             if summary == summary_before:
                 raise ValueError("a new record must update its daily summary")
+            self._warn_local_links(paths["record_path"], record.content)
+            self._warn_local_links(paths["reminder_path"], reminder.content)
+            self._warn_local_links(paths["today_summary_path"], summary, summary_before or "")
         return result
 
     async def execute(self):
@@ -279,10 +310,11 @@ class ProactiveAgentStep(BaseAgentStep):
             paths["reminder_path"]: None,
             paths["today_summary_path"]: summary_before,
         }
-        if not (await asyncio.to_thread(runtime.files.read, paths["task_path"])).strip():
+        task_content = await asyncio.to_thread(runtime.files.read, paths["task_path"])
+        if not task_content.strip():
             raise ValueError("TASK.md must not be blank")
-        options = self.session_options(agent, paths, now)
-        query = await asyncio.to_thread(self._query, agent, events)
+        options = self.session_options(agent)
+        query = await asyncio.to_thread(self._query, agent, events, paths, now, task_content)
         started = monotonic()
         label = f"Proactive agent={agent.agent_name} agent_type={agent.agent_type}"
         session_id = None

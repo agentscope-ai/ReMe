@@ -666,9 +666,6 @@ button {
 details[open] > summary > .activity-chevron {
   transform: rotate(90deg);
 }
-.activity-failed {
-  color: var(--error);
-}
 .activity-details {
   margin: 12px 0 0 7px;
   padding: 0 0 0 17px;
