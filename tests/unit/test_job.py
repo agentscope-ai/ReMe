@@ -261,6 +261,14 @@ def test_backoff_delay_capped():
         assert delay <= job.backoff_cap
 
 
+@pytest.mark.parametrize("base", [0.0, 1.0, 1e-300])
+def test_backoff_remains_bounded_after_many_failures(base):
+    """A long-running supervisor must not fail while calculating its next retry."""
+    job = BackgroundJob(backoff_base=base, backoff_cap=10.0)
+    delay = job._backoff_delay(10000)
+    assert delay == 0 if base == 0 else 5.0 <= delay <= 10.0
+
+
 def test_backoff_delay_has_jitter():
     job = BackgroundJob(
         name="bg",

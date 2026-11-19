@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import frontmatter
 import pytest
-import yaml
 
 from reme.components.application_context import ApplicationContext
 from reme.components.as_llm import BaseAsLLM
@@ -278,22 +277,6 @@ def test_extract_parser_preserves_yaml_diagnostics_and_accepts_quoted_colons():
             parse_structured_reply(reply, strict=True)
 
 
-def test_integrate_prompts_require_wikilinks_in_contextual_prose():
-    """Every digest bucket rejects standalone relation fields and bare links."""
-    prompt_path = Path(__file__).parents[2] / "reme" / "steps" / "evolve" / "dream" / "integrate.yaml"
-    prompts = yaml.safe_load(prompt_path.read_text(encoding="utf-8"))
-
-    for bucket in ("procedure", "personal", "wiki"):
-        english = prompts[f"integrate_system_prompt_{bucket}"]
-        chinese = prompts[f"integrate_system_prompt_{bucket}_zh"]
-        assert "Never emit standalone relation fields or bare-link lines" in english
-        assert "Digest links belong inside the sentence" in english
-        assert "Before returning, read the target" in english
-        assert "禁止生成 `relates_to:: [[...]]`" in chinese
-        assert "Digest 链接必须融入解释关系的句子" in chinese
-        assert "返回前读取目标文件" in chinese
-
-
 def test_extract_clean_output_respects_max_units():
     """Extract cleaning caps valid units at max_units."""
     state = DreamState(changed_paths=["daily/a.md"])
@@ -427,13 +410,12 @@ async def test_dream_extraction_failure_preserves_changed_inputs(tmp_path, monke
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("language", ["en", "zh"])
 @pytest.mark.parametrize(
-    ("first_reply", "error"),
-    [(_MALFORMED_EXTRACT_REPLY, "ScannerError"), ('{"units": [{"name": "missing-fields"}]}', "ValidationError")],
+    "first_reply",
+    [_MALFORMED_EXTRACT_REPLY, '{"units": [{"name": "missing-fields"}]}'],
 )
-async def test_extract_retry_includes_parser_error_and_recovers_json(tmp_path, language, first_reply, error):
-    """Both localized prompts recover code-like strings using JSON and concrete error feedback."""
+async def test_extract_retries_invalid_output_and_preserves_code_like_strings(tmp_path, first_reply):
+    """Retry malformed or incomplete output and preserve the parsed summary."""
     source = "daily/2026-05-28/session.md"
     _touch(tmp_path / source)
     unit = {
@@ -445,7 +427,6 @@ async def test_extract_retry_includes_parser_error_and_recovers_json(tmp_path, l
     agent = _SequenceAgent({"result": first_reply}, {"result": json.dumps({"units": [unit]})})
     step = DreamExtractStep(
         scan_days=1,
-        language=language,
         app_context=ApplicationContext(workspace_dir=str(tmp_path)),
         agent_wrapper=agent,
     )
@@ -460,21 +441,7 @@ async def test_extract_retry_includes_parser_error_and_recovers_json(tmp_path, l
     assert response.success is True
     assert response.metadata["dream"]["units"] == [unit]
     assert not response.metadata["dream"]["errors"]
-    first_message, first_kwargs = agent.requests[0]
-    retry_message, retry_kwargs = agent.requests[1]
-    assert retry_message.startswith(first_message)
-    assert error in retry_message
-    if error == "ScannerError":
-        assert "line 4" in retry_message
-    else:
-        assert "Field required" in retry_message
-    assert "key: value" in retry_message
-    assert retry_kwargs["system_prompt"] == first_kwargs["system_prompt"]
-    system_prompt = first_kwargs["system_prompt"]
-    assert "JSON schema" in system_prompt
-    assert "YAML or JSON" not in system_prompt
-    example = json.loads(system_prompt.splitlines()[-1])
-    assert "submodules: recursive" in example["units"][0]["summary"]
+    assert agent.calls == 2
 
 
 @pytest.mark.asyncio

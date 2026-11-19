@@ -34,7 +34,7 @@ def parse_cli_invocation(argv: Sequence[str]) -> CliInvocation:
     return CliInvocation(action=parse_action(argv[0]), arguments=tuple(argv[1:]))
 
 
-async def call_server(action: str, **kwargs):
+async def call_server(job_name: str, /, **kwargs):
     """Call the running server with a client matching its *actual* service config.
 
     The client backend and its transport/host/port are taken from the running
@@ -75,7 +75,7 @@ async def call_server(action: str, **kwargs):
     if client_cls is None:
         raise ValueError(f"Unknown client backend: {backend!r}")
     async with client_cls(**client_kwargs) as client:
-        async for chunk in client(action=action, **kwargs):
+        async for chunk in client.call_job(job_name, kwargs):
             print(chunk, end="", flush=True)
         print()
 

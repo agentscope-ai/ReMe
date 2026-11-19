@@ -1,0 +1,17 @@
+Use case: identity-preserve
+Asset type: production transparent 2D animation SPRITE SHEET for the existing ReMe desktop companion.
+Input references: reference.png fixes Remy's exact character identity; remembering.png fixes the existing animation scale, whole-body framing, and 4-column by 2-row grid. Preserve the same character, outfit, proportions and drawing style.
+Primary request: create the NEW "petting_fish" action. Remy literally holds a small friendly fish in one hand and gently STROKES ITS BACK with the other. She is petting a fish, not fishing and not pretending to work.
+Identity: mint/turquoise hair in ONE low side ponytail on VIEWER-RIGHT with indigo tips, indigo headband, ivory bookmark hair ornament upper VIEWER-RIGHT, teal-green eyes, ivory short capelet with mint trim and round indigo brooch, mint blouse, indigo pleated skirt, opaque navy tights, ivory boots, navy memory satchel on VIEWER-RIGHT with one clear turquoise uppercase R. Same warm clean cel-shaded chibi anime woman.
+Layout: ONE wide landscape transparent PNG, 2:1 aspect ratio, ideally 2048x1024. EXACTLY EIGHT equal cells, rigid 4 columns by 2 rows. Each cell has ONE complete whole-body figure. No visible grid lines. Read left to right then top row then bottom row. Every frame has identical body scale, stable head and foot positions, same camera. Use the remembering sheet's framing with feet around 94% of each cell, top of head near 4%, complete hair/boots inside every cell. No cropped/overlapping cells.
+Fish: one charming rounded CORAL-ORANGE small fish with golden fins, obvious fish tail and simple black eye, facing viewer-left, horizontally cradled at chest/waist height. About 30% of the figure's width so it reads at desktop size. It is a small cartoon fish companion, not a whale, plush, bowl or franchise mascot. Two arms and two hands only: one supports its belly, the other gently strokes along the top of its back.
+Eight sequential frames:
+1 top-left: neutral standing pose like existing idle, hands close to bag, no fish visible, gentle smile.
+2: supporting arm lifts the orange fish to waist/chest height, other hand reaches toward its head; slight downward gaze.
+3: fish securely cradled, stroking palm touches the top near its head; relaxed smile.
+4 top-right: stroking hand glides to middle of fish's back; tail flicks subtly up.
+5 bottom-left: stroking hand reaches near tail; fish tail gently bends down; Remy's eyes joyfully closed.
+6: stroking hand returns to fish's head for a second stroke; eyes reopen, warm smile, fish tail returns neutral. This connects naturally to frame 3 for repeating the petting middle.
+7: both hands gently lower the fish toward bag/waist, returning toward idle.
+8 bottom-right: same neutral standing composition as frame 1, fish no longer visible, hands return to idle.
+Actual transparency in all background and between figures. Crisp dark-teal/indigo outlines, restrained cel shading matching reference. No background color, checkerboard baked into pixels, shadow plane, text except the R on bag, watermarks, sparkles, fishing rod, extra characters, costume changes, mirrored ponytail or floating symbols.

@@ -17,7 +17,7 @@ from pathlib import Path
 import frontmatter
 
 from ._file_io import get_path_lock
-from ._path import _check_path_permission, display_path, gate_md, resolve_path
+from ._path import check_path_permission, display_path, gate_md, resolve_path
 from ..base_step import BaseStep
 from ...components import R
 
@@ -62,7 +62,7 @@ class FrontmatterUpdateStep(BaseStep):
         else:
             original_target = target
             target, is_md = gate_md(target)
-            if not _check_path_permission(workspace_dir, target, self.context.get("_allowed_paths")):
+            if not check_path_permission(workspace_dir, target, self.context.get("_allowed_paths")):
                 payload = {"path": path, "error": "no permission to update this file"}
             else:
                 lock = await get_path_lock(target)

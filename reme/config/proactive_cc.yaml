@@ -1,0 +1,21 @@
+# Start with CC_LLM_API_KEY and CC_LLM_BASE_URL. REME_MODEL_NAME is shared with proactive.
+# reme start config=proactive_cc
+extends: proactive
+
+components:
+  anthropic_relay:
+    default:
+      backend: bailian
+      base_url: ${CC_LLM_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
+
+  agent_wrapper:
+    default:
+      backend: claude_code
+      api_key: ${CC_LLM_API_KEY:-}
+      anthropic_relay: default
+      permission_mode: bypassPermissions
+      settings: '{"permissions":{"blockWritesOutsideWorkingDirectories":true}}'
+      env:
+        CLAUDE_CODE_MAX_CONTEXT_TOKENS: '983616'
+        # Claude Code reserves 33,000 tokens here, yielding the shared 600,000-token trigger.
+        CLAUDE_CODE_AUTO_COMPACT_WINDOW: '633000'

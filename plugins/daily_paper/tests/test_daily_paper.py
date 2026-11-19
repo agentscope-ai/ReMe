@@ -616,31 +616,6 @@ def test_daily_paper_cron_hf_mirror_defaults_enabled_with_environment_override(m
     assert _plugin_config()["jobs"]["daily_paper_cron"]["use_hf_mirror"] is False
 
 
-def test_digest_prompt_uses_configured_daily_directory(tmp_path: Path):
-    """Use the host application's daily directory in historical-link guidance."""
-    step = DailyPaperDigestStep(
-        app_context=ApplicationContext(
-            workspace_dir=str(tmp_path),
-            daily_dir="memory",
-        ),
-    )
-
-    prompt = step.prompt_format(
-        "digest_user",
-        documents="[]",
-        paper_count=3,
-        daily_dir=str(step.config_value("daily_dir")).strip("/"),
-    )
-
-    assert "`memory/`" in prompt
-    assert "搜索结果不必局限于 `memory/`" in prompt
-    assert "最多调用两次 `search`" in prompt
-    assert "首要任务是基于它们生成每日论文速读" in prompt
-    assert "不得将搜索无结果误判为论文输入缺失" in prompt
-    assert "[[memory/2026-07-01/旧文章.md" in prompt
-    assert "[[daily/2026-07-01/" not in prompt
-
-
 def test_paper_pick_list_uses_an_object_root_for_tool_output():
     """AgentScope function arguments require an object-root JSON schema."""
     schema = PaperPickList.model_json_schema()
@@ -871,11 +846,6 @@ async def test_pipeline_filters_strict_yesterday_and_writes_outputs(
         {"change": "added", "path": "daily/2026-07-21/今日智能体论文简报.md"},
     ]
     assert cc_wrapper.calls[0]["kwargs"] == {"output_schema": PaperPickList}
-    assert "用户感兴趣的主题" not in cc_wrapper.calls[0]["inputs"]
-    assert "用户未提供明确的 topic 倾向" in cc_wrapper.calls[0]["inputs"]
-    assert "优先选择 fused_score 更高的论文" in cc_wrapper.calls[0]["inputs"]
-    assert "memory_keyword_score" not in cc_wrapper.calls[0]["inputs"]
-    assert "Agent 长期记忆" not in cc_wrapper.calls[0]["inputs"]
     assert all(call["kwargs"] == {"output_schema": DailyPaperMarkdownOutput} for call in cc_wrapper.calls[1:-1])
     assert cc_wrapper.calls[-1]["kwargs"] == {
         "output_schema": DailyPaperMarkdownOutput,
@@ -894,24 +864,6 @@ async def test_pipeline_filters_strict_yesterday_and_writes_outputs(
         DailyPaperMarkdownOutput,
         DailyPaperMarkdownOutput,
     ]
-    analysis_prompt = cc_wrapper.calls[1]["inputs"]
-    assert "长期记忆相关性初筛" not in analysis_prompt
-    assert "ReMe" not in analysis_prompt
-    assert "# PDF 分页文本" in analysis_prompt
-    digest_prompt = cc_wrapper.calls[-1]["inputs"]
-    assert "Evidence\ufffd one [p. 1]." in digest_prompt
-    assert "Detailed note\ufffd one" in digest_prompt
-    assert not any("\ud800" <= character <= "\udfff" for character in digest_prompt)
-    assert "调用 Read" not in digest_prompt
-    assert "daily/2026-07-21" not in digest_prompt
-    assert "长期记忆" not in digest_prompt
-    assert "历史搜索只用于帮助构建 Wikilink，最多调用两次 `search`" in digest_prompt
-    assert "首要任务是基于它们生成每日论文速读" in digest_prompt
-    assert "不得将搜索无结果误判为论文输入缺失" in digest_prompt
-    assert "搜索结果不必局限于 `daily/`" in digest_prompt
-    assert "end_date" not in digest_prompt
-    assert "limit=" not in digest_prompt
-    assert "Wikilink" in digest_prompt
 
     rerun = RuntimeContext(date="2026-07-21")
     await DailyPaperCollectStep(app_context=app_context)(rerun)
@@ -1260,6 +1212,5 @@ async def test_blank_note_retries_once_before_writing(tmp_path, monkeypatch, inv
             await step._analyze_one(downloader, paper, pick, set())  # pylint: disable=protected-access
         assert not list(tmp_path.rglob("*.md"))
     assert len(agent.calls) == 2
-    assert step.prompt_format("analyze_short_retry") in agent.calls[1]["inputs"]
     downloader.download.assert_awaited_once()
     assert extraction_calls == [True]

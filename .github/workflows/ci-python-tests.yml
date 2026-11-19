@@ -83,7 +83,8 @@ jobs:
         run: |
           python -c "import tokenizers; print('tokenizers', tokenizers.__version__)"
           # Plugin-installation tests execute and remove copies outside the checkout.
-          coverage run --include="$PWD/*" -m pytest tests/unit plugins/auto-fin plugins/daily_paper plugins/lme plugins/beam plugins/home/tests \
+          coverage run --include="$PWD/*" --omit='*/tests/*' \
+            -m pytest tests/unit plugins/auto-fin plugins/daily_paper plugins/lme plugins/beam plugins/home/tests \
             -v \
             --tb=long \
             -s \

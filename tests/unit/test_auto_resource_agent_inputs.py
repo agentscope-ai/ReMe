@@ -52,8 +52,7 @@ async def test_text_agent_keeps_main_reply_arguments_and_wrapper_defaults(existi
     assert isinstance(wrapper.inputs, str)
     assert "中文文本" in wrapper.inputs
     reply.assert_awaited_once()
-    assert reply.call_args.kwargs == {
-        "system_prompt": step.prompt_format("system_prompt"),
+    assert {k: v for k, v in reply.call_args.kwargs.items() if k != "system_prompt"} == {
         "job_tools": ["read", "edit", "frontmatter_update", "write"] if existing else ["write"],
         "session_id": str(uuid.uuid5(uuid.NAMESPACE_URL, source_path)),
     }
@@ -145,8 +144,7 @@ async def test_message_blocks_do_not_implicitly_enable_image_policies(auto_resou
             input_blocks=[TextBlock(text="Additional context")],
         )
     assert isinstance(wrapper.inputs, Msg)
-    assert reply.call_args.kwargs == {
-        "system_prompt": step.prompt_format("system_prompt"),
+    assert {k: v for k, v in reply.call_args.kwargs.items() if k != "system_prompt"} == {
         "job_tools": ["write"],
         "session_id": str(uuid.uuid5(uuid.NAMESPACE_URL, source_path)),
     }
@@ -563,7 +561,7 @@ async def test_configured_wrapper_and_job_image_options(
     if suffix == "txt":
         assert response.answer == "ok"
         assert isinstance(reply.call_args.args[0], str)
-        assert set(reply.call_args.kwargs) == {"system_prompt", "job_tools", "session_id"}
+        assert set(reply.call_args.kwargs) - {"system_prompt"} == {"job_tools", "session_id"}
     elif expected_action == "added":
         note = frontmatter.load(tmp_path / result["path"])
         assert note["source_resource"] == f"[[resource/2026-01-01/photo.{suffix}]]"

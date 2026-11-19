@@ -11,7 +11,7 @@ import frontmatter
 from agentscope.agent import ContextConfig
 from agentscope.message import Base64Source, DataBlock
 
-from ..file_io._path import IMAGE_SUFFIXES
+from ..file_io import IMAGE_SUFFIXES
 from .base_auto_resource import BaseAutoResourceStep
 from ...components import R
 
