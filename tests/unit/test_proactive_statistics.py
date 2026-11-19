@@ -136,9 +136,9 @@ async def test_failure_before_model_start_is_counted_without_hiding_the_error(tm
         assert global_counter_get(context.metadata, ["agent_runs", "proactive", "failed"]) == 1
 
 
-@pytest.mark.parametrize("parameter", ["max_web_lookup_calls", "max_local_search_calls"])
+@pytest.mark.parametrize("parameter", ["max_local_search_calls", "max_timeline_entries"])
 @pytest.mark.parametrize("value", [0, -1, True, 1.5, "5", None])
-def test_search_budgets_require_positive_integers(parameter, value):
+def test_prompt_limits_require_positive_integers(parameter, value):
     with pytest.raises(ValueError, match=parameter):
         ProactiveAgentStep(**{parameter: value})
 
@@ -165,14 +165,14 @@ def test_explicit_shell_searches_include_compound_commands(command, expected):
 
 @pytest.mark.parametrize("agent_type", ["proactive", "cron"])
 @pytest.mark.asyncio
-async def test_separate_search_budgets_warn_once_and_do_not_interrupt(tmp_path, monkeypatch, agent_type):
+async def test_local_search_budget_warns_once_without_interrupting(tmp_path, monkeypatch, agent_type):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         if agent_type == "cron":
             await runtime.update("monitor", {"cron": "0 * * * *"})
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)
-        step = ProactiveAgentStep(app_context=context, max_web_lookup_calls=2, max_local_search_calls=3)
+        step = ProactiveAgentStep(app_context=context, max_local_search_calls=3)
         step.logger = Mock()
         paths = step._paths(await runtime.definition("monitor"), now)
         install_round(runtime, wrapper, monkeypatch, paths)
@@ -216,11 +216,9 @@ async def test_separate_search_budgets_warn_once_and_do_not_interrupt(tmp_path, 
         stats = response.metadata["reme.agent_run"]
         assert stats["tool_calls"] == 13
         assert stats["web_lookup_calls"] == 4 and stats["local_search_calls"] == 5
-        assert stats["max_web_lookup_calls"] == (2 if agent_type == "cron" else None)
         assert stats["max_local_search_calls"] == 3
         warnings = [call.args[0] for call in step.logger.warning.call_args_list]
-        assert sum("local_search_calls" in message for message in warnings) == 1
-        assert sum("web_lookup_calls" in message for message in warnings) == (1 if agent_type == "cron" else 0)
+        assert len(warnings) == 1 and "local_search_calls" in warnings[0]
 
 
 @pytest.mark.asyncio

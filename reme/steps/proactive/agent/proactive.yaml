@@ -47,7 +47,7 @@ proactive_query: |
   - Read the related records you find in the `Daily records directory`. Read any omitted portions if needed, and verify dates and sources to understand what happened and which reminders were delivered before.
   - Make at most {max_local_search_calls} keyword or regex search calls this run. Multiple keywords or patterns in one tool call count as one search. Reading records and writing files do not count as searches.
   - Stop searching when you have enough related records or have used up the search calls, then handle `This run's record path`.
-    - If you find related records, follow the `Writing requirements` and append a timeline of the related matters to the body. Include at most 10 entries in total, in chronological order. Write one sentence per entry and link to the corresponding record in the `Daily records directory`.
+    - If you find related records, follow the `Writing requirements` and append a timeline of the related matters to the body. Include at most {max_timeline_entries} entries in total, in chronological order. Write one sentence per entry and link to the corresponding record in the `Daily records directory`.
     - If you find no related records, leave the existing record unchanged.
   - Append only to the body. Preserve the frontmatter and `This run's key information`. Clearly label any inferences. Then continue to step 3.
   - Use only tools for keyword or regex search, reading the records found in the `Daily records directory`, and appending to the body at `This run's record path`.
@@ -137,7 +137,7 @@ proactive_query_zh: |
   - 阅读从 `每日记录目录` 找到的相关记录，必要时补读截断内容，核对时间和来源，了解相关事项的进展和此前的提醒投递情况。
   - 本轮关键词或正则搜索最多 {max_local_search_calls} 次工具调用。同一次调用中查多个关键词或正则算 1 次，读取记录和写入文件不计入搜索次数。
   - 相关记录已经足够或搜索次数用尽时，停止搜索，然后处理 `本轮记录路径`：
-    - 找到相关记录时，按 `写作要求` 向正文追加相关事项的时间线，合计最多 10 个时间点。按时间顺序排列，每个时间点用一句话概括，并保留指向 `每日记录目录` 中对应记录的链接。
+    - 找到相关记录时，按 `写作要求` 向正文追加相关事项的时间线，合计最多 {max_timeline_entries} 个时间点。按时间顺序排列，每个时间点用一句话概括，并保留指向 `每日记录目录` 中对应记录的链接。
     - 未找到相关记录时，保留原有记录，不修改文件。
   - 只追加正文，保留已有 frontmatter 和 `本轮关键信息`；推理须明确标注。完成上述处理后，继续步骤 3。
   - 本步骤只调用关键词或正则搜索工具、读取 `每日记录目录` 中找到的记录的工具，以及向 `本轮记录路径` 追加正文的工具。
@@ -214,7 +214,7 @@ cron_query: |
   - Verify dates and sources in the historical records and read any omitted portions if needed. Compare them with this run's results to understand what happened and what was delivered before.
   - Make at most {max_local_search_calls} keyword or regex search calls this run. Multiple keywords or patterns in one tool call count as one search. Reading records and writing files do not count as searches.
   - Stop searching when you have enough related records or have used up the search calls, then handle `This run's record path`.
-    - If you find related records, follow the `Writing requirements` and append a timeline of the related matters to the body. Include at most 10 entries in total, in chronological order. Write one sentence per entry and link to the corresponding record in the `Daily records directory`.
+    - If you find related records, follow the `Writing requirements` and append a timeline of the related matters to the body. Include at most {max_timeline_entries} entries in total, in chronological order. Write one sentence per entry and link to the corresponding record in the `Daily records directory`.
     - If you find no related records, leave the existing record unchanged.
   - Append only to the body. Preserve the frontmatter and this run's execution record. Clearly label any inferences. Then continue to step 3.
   - Use only tools for keyword or regex search, reading the records found in the `Daily records directory`, and appending to the body at `This run's record path`.
@@ -287,7 +287,7 @@ cron_query_zh: |
   - 核对历史记录的时间和来源，必要时补读截断内容。结合本轮结果梳理事项进展和此前的投递情况。
   - 本轮关键词或正则搜索最多 {max_local_search_calls} 次工具调用。同一次调用中查多个关键词或正则算 1 次，读取记录和写入文件不计入搜索次数。
   - 相关记录已经足够或搜索次数用尽时，停止搜索，然后处理 `本轮记录路径`：
-    - 找到相关记录时，按 `写作要求` 向正文追加相关事项的时间线，合计最多 10 个时间点。按时间顺序排列，每个时间点用一句话概括，并保留指向 `每日记录目录` 中对应记录的链接。
+    - 找到相关记录时，按 `写作要求` 向正文追加相关事项的时间线，合计最多 {max_timeline_entries} 个时间点。按时间顺序排列，每个时间点用一句话概括，并保留指向 `每日记录目录` 中对应记录的链接。
     - 未找到相关记录时，保留原有记录，不修改文件。
   - 只追加正文，保留已有 frontmatter 和本轮执行记录。推理须明确标注。完成后继续步骤 3。
   - 本步骤只调用关键词或正则搜索工具、读取 `每日记录目录` 中找到的记录的工具，以及向 `本轮记录路径` 追加正文的工具。

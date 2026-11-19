@@ -27,19 +27,19 @@ from ....utils.wikilink_handler import WikilinkHandler
 class ProactiveAgentStep(BaseAgentStep):
     """Restore context, process inputs and publish validated reminder documents."""
 
-    def __init__(self, timeout_seconds=1200, max_web_lookup_calls=5, max_local_search_calls=10, **kwargs):
+    def __init__(self, timeout_seconds=1200, max_local_search_calls=10, max_timeline_entries=10, **kwargs):
         super().__init__(**kwargs)
         if type(timeout_seconds) not in (int, float) or not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be a finite positive number")
         self.timeout_seconds = timeout_seconds
         for name, value in (
-            ("max_web_lookup_calls", max_web_lookup_calls),
             ("max_local_search_calls", max_local_search_calls),
+            ("max_timeline_entries", max_timeline_entries),
         ):
             if type(value) is not int or value <= 0:
                 raise ValueError(f"{name} must be a positive integer")
-        self.max_web_lookup_calls = max_web_lookup_calls
         self.max_local_search_calls = max_local_search_calls
+        self.max_timeline_entries = max_timeline_entries
         self._round_files = None
 
     def _paths(self, agent, now):
@@ -109,7 +109,10 @@ class ProactiveAgentStep(BaseAgentStep):
             input_content="\n\n".join(inputs),
             now=now.isoformat(),
             max_local_search_calls=self.max_local_search_calls,
-            **{key: value.relative_to(files.workspace).as_posix() for key, value in paths.items() if key != "task_path"},
+            max_timeline_entries=self.max_timeline_entries,
+            **{
+                key: value.relative_to(files.workspace).as_posix() for key, value in paths.items() if key != "task_path"
+            },
         )
 
     def _read_optional(self, path):
@@ -134,10 +137,8 @@ class ProactiveAgentStep(BaseAgentStep):
             try:
                 arguments = json.loads(arguments)
             except json.JSONDecodeError:
-                return None
-        if not isinstance(arguments, dict):
-            return None
-        command = arguments.get("cmd") or arguments.get("command")
+                arguments = None
+        command = (arguments.get("cmd") or arguments.get("command")) if isinstance(arguments, dict) else None
         if not isinstance(command, str):
             return None
         lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|()\n")
@@ -265,8 +266,8 @@ class ProactiveAgentStep(BaseAgentStep):
                     "tool_calls": stats["tool_calls"],
                     "web_lookup_calls": stats["web_lookup_calls"],
                     "local_search_calls": stats["local_search_calls"],
+                    "elapsed_ms": round(stats["elapsed_seconds"] * 1000),
                 }
-                counts["elapsed_ms"] = round(stats["elapsed_seconds"] * 1000)
                 if stats["usage"] is not None:
                     counts.update(stats["usage"], usage_runs=1)
                 global_counter_add_many(
@@ -292,9 +293,6 @@ class ProactiveAgentStep(BaseAgentStep):
 
     async def _execute(self, agent, events):
         """Run the complete workflow in one turn, then validate its saved decisions."""
-        limits = {"local_search_calls": self.max_local_search_calls}
-        if agent.cron is not None:
-            limits["web_lookup_calls"] = self.max_web_lookup_calls
         stats = {
             "agent_type": agent.agent_type,
             "session_id": None,
@@ -303,8 +301,7 @@ class ProactiveAgentStep(BaseAgentStep):
             "tool_calls": 0,
             "web_lookup_calls": 0,
             "local_search_calls": 0,
-            "max_web_lookup_calls": limits.get("web_lookup_calls"),
-            "max_local_search_calls": limits["local_search_calls"],
+            "max_local_search_calls": self.max_local_search_calls,
         }
         self.context.response.metadata["reme.agent_run"] = stats
         runtime = self.agent_runtime
@@ -322,17 +319,20 @@ class ProactiveAgentStep(BaseAgentStep):
         label = f"Proactive agent={agent.agent_name} agent_type={agent.agent_type}"
         session_id = None
         calls = {}
-        turn_id, warned = None, set()
+        turn_id, warned = None, False
 
         def update_counts():
+            nonlocal warned
             stats["tool_calls"] = len(calls)
             kinds = [self._lookup_type(call) for call in calls.values()]
             for key in ("web_lookup_calls", "local_search_calls"):
                 stats[key] = kinds.count(key)
-            for key, limit in limits.items():
-                if stats[key] > limit and key not in warned:
-                    self.logger.warning(f"{label} {key}={stats[key]} exceeds limit={limit}; continuing")
-                    warned.add(key)
+            if not warned and stats["local_search_calls"] > self.max_local_search_calls:
+                self.logger.warning(
+                    f"{label} local_search_calls={stats['local_search_calls']} "
+                    f"exceeds limit={self.max_local_search_calls}; continuing",
+                )
+                warned = True
 
         async def observe(chunk):
             nonlocal turn_id
