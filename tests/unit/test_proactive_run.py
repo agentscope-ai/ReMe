@@ -276,6 +276,42 @@ async def test_queued_observations_run_before_cron_trigger_after_switch(tmp_path
         assert await runtime.inbox.pending_ids("monitor") == {f"cron-monitor-{int(now.timestamp())}"}
 
 
+@pytest.mark.parametrize(
+    "language,scheduled_label,execution_label",
+    [("en", "Scheduled trigger time: ", "Actual execution time: "), ("zh", "计划触发时间：", "实际执行时间：")],
+)
+@pytest.mark.asyncio
+async def test_backlogged_cron_prompts_show_each_trigger_and_actual_execution_time(
+    tmp_path,
+    monkeypatch,
+    language,
+    scheduled_label,
+    execution_label,
+):
+    async with running_runtime(tmp_path, language=language) as (runtime, context, wrapper):
+        await runtime.create({"agent_name": "timer", "task_description": "Summarize prior hour", "cron": "0 * * * *"})
+        first = await queue_cron_trigger(runtime, "timer", monkeypatch)
+        second = await queue_cron_trigger(runtime, "timer", monkeypatch)
+        now = second + timedelta(minutes=30)
+        monkeypatch.setattr(runtime, "now", lambda: now)
+        await ManageProactiveAgentStep(app_context=context)(action="update", agent_name="timer", cron=None)
+        agent = await runtime.definition("timer")
+
+        for due in (first, second):
+            with monkeypatch.context() as round_patch:
+                step = ProactiveAgentStep(app_context=context)
+                paths = step._paths(agent, now)
+                calls = install_round(runtime, wrapper, round_patch, paths, reminder="skip")
+                response = await step(agent_name="timer")
+
+            assert response.answer["processed"] == 1
+            query = calls[0][0]
+            assert f"{scheduled_label}{due.isoformat()}" in query
+            assert f"{execution_label}{now.isoformat()}" in query
+            receipt = (await runtime.inbox.snapshot("timer"))["receipt"]
+            assert receipt.item_ids == [f"cron-timer-{int(due.timestamp())}"]
+
+
 @pytest.mark.parametrize("switch_to_event", [False, True])
 @pytest.mark.asyncio
 async def test_cron_skip_record_keeps_trigger_pending_after_model_failure(tmp_path, monkeypatch, switch_to_event):

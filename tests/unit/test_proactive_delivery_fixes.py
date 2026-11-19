@@ -14,7 +14,9 @@ from reme.schema import Event, Response
 from reme.schema.proactive_agent import ProactiveAgentConfig, ProactiveRunResult
 from reme.steps.proactive.agent import AgentChatStep, ProactiveAgentStep
 from reme.steps.proactive.tools.append_event import AppendEventStep
+from reme.steps.proactive.tools.manage_proactive_agent import ManageProactiveAgentStep
 from .test_agent_runtime import completed_result, create_agent, running_runtime
+from .test_proactive_run import queue_cron_trigger
 
 
 @pytest.mark.asyncio
@@ -186,6 +188,56 @@ async def test_event_cooldown_accumulates_inputs_and_respects_batch_limit(tmp_pa
         await asyncio.wait_for(completed.wait(), timeout=5)
         assert batches[-1] == ["event-21", "event-22"]
         assert (await runtime.inbox.snapshot("monitor"))["pending_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_queued_cron_bypasses_new_event_cooldown_without_reordering(tmp_path, monkeypatch):
+    async with running_runtime(tmp_path) as (runtime, context, _):
+        now = runtime.now()
+        monkeypatch.setattr(runtime, "now", lambda: now - timedelta(hours=3))
+        await runtime.create({"agent_name": "timer", "task_description": "Save progress", "cron": "0 * * * *"})
+        times = [await queue_cron_trigger(runtime, "timer", monkeypatch) for _ in range(2)]
+        cron_ids = [f"cron-timer-{int(due.timestamp())}" for due in times]
+        monkeypatch.setattr(runtime, "now", lambda: now)
+        await ManageProactiveAgentStep(app_context=context)(
+            action="update",
+            agent_name="timer",
+            cron=None,
+            min_trigger_interval_seconds=3600,
+        )
+        await runtime.append(
+            "timer",
+            {"id": "observation", "event_ts": now, "source": "test", "description": "Later event"},
+        )
+        processed = []
+
+        async def execute(_agent, events):
+            processed.append([item["id"] for item in events])
+            return ProactiveRunResult(notifications=[]), f"session-{len(processed)}"
+
+        async def run_job(_name, **kwargs):
+            return Response(success=True, answer=await runtime.run(kwargs["agent_name"], execute))
+
+        async def tick():
+            await runtime.tick(run_job)
+            if worker := runtime.workers.get("timer"):
+                await asyncio.wait_for(worker, timeout=5)
+
+        await tick()
+        assert processed == [[cron_ids[0]]]
+        receipt = (await runtime.inbox.snapshot("timer"))["receipt"]
+        now = receipt.consume_ts + timedelta(minutes=3)
+        await tick()
+        assert processed == [[cron_ids[0]], [cron_ids[1]]]
+        assert await runtime.inbox.pending_ids("timer") == {"observation"}
+
+        receipt = (await runtime.inbox.snapshot("timer"))["receipt"]
+        now = receipt.consume_ts + timedelta(minutes=59)
+        await tick()
+        assert len(processed) == 2
+        now += timedelta(minutes=1)
+        await tick()
+        assert processed[-1] == ["observation"]
 
 
 @pytest.mark.asyncio

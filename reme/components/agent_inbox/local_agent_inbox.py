@@ -564,6 +564,24 @@ class LocalAgentInbox(BaseAgentInbox):
             raw = b"".join(self._encode(value) for value in records)
             self._replace(path, raw)
 
+    @staticmethod
+    def _claim_candidates(inbox: _Inbox, item_ids: list[str] | None):
+        if item_ids is None:
+            return iter(inbox.pending)
+        selected = set(item_ids)
+        if not selected <= {pending.item["id"] for pending in inbox.pending}:
+            raise ValueError("unknown pending item ID")
+        return (pending for pending in inbox.pending if pending.item["id"] in selected)
+
+    async def peek(self, name: str, *, item_ids: list[str] | None = None) -> dict | None:
+        """Inspect the first selected item without creating a claim."""
+        async with self._changed:
+            inbox = self._inbox(name)
+            if inbox.claim is not None or not inbox.pending:
+                return None
+            pending = next(self._claim_candidates(inbox, item_ids), None)
+            return deepcopy(pending.item) if pending is not None else None
+
     async def claim(
         self,
         name: str,
@@ -579,14 +597,9 @@ class LocalAgentInbox(BaseAgentInbox):
             inbox = self._inbox(name)
             if inbox.claim is not None or not inbox.pending:
                 return None
-            selected = set(item_ids) if item_ids is not None else None
-            if selected is not None and not selected <= {pending.item["id"] for pending in inbox.pending}:
-                raise ValueError("unknown pending item ID")
             items, size = [], 0
             first_key = None
-            for pending in inbox.pending:
-                if selected is not None and pending.item["id"] not in selected:
-                    continue
+            for pending in self._claim_candidates(inbox, item_ids):
                 if (
                     len(items) >= min(limit or self.claim_max_items, self.claim_max_items, self.max_read_items)
                     or size + pending.size > self.claim_max_bytes

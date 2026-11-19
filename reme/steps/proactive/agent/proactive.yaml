@@ -185,7 +185,8 @@ cron_query: |
   ## Working environment
   Workspace directory (absolute path): {workspace_dir}
   Time zone: {app_timezone}
-  Current time: {now}
+  Scheduled trigger time: {scheduled_at}
+  Actual execution time: {now}
 
   ## Paths
   The paths below are relative to the `Workspace directory`. Use it as the base for reads and writes.
@@ -258,7 +259,8 @@ cron_query_zh: |
   ## 工作环境
   工作区目录（绝对路径）：{workspace_dir}
   时区：{app_timezone}
-  当前时间：{now}
+  计划触发时间：{scheduled_at}
+  实际执行时间：{now}
 
   ## 路径
   以下路径均相对于 `工作区目录`，读写时以 `工作区目录` 为基准。

@@ -107,6 +107,7 @@ class ProactiveAgentStep(BaseAgentStep):
             task_content=task_content,
             input_content="\n\n".join(inputs),
             now=now.isoformat(),
+            scheduled_at=events[0]["event_ts"] if is_cron else None,
             max_local_search_calls=self.max_local_search_calls,
             max_timeline_entries=self.max_timeline_entries,
             **{

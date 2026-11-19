@@ -57,6 +57,10 @@ class BaseAgentInbox(BaseComponent):
         """Persist inputs before publishing them to a consumer."""
 
     @abstractmethod
+    async def peek(self, name: str, *, item_ids: list[str] | None = None) -> dict | None:
+        """Read the first claimable input in FIFO order without leasing it."""
+
+    @abstractmethod
     async def claim(
         self,
         name: str,

@@ -14,7 +14,7 @@ The [full illustrated guide is available in Chinese](../zh/proactive_runtime.md)
 Five parts support the workflow:
 
 - **Event inbox:** stores inputs in workspace files. Each agent processes one batch at a time; successful runs acknowledge their inputs, while failed runs leave them available for retry.
-- **Scheduled triggers:** add a timer event to the task inbox when a configured schedule is due. The task prompt supplies the current time and application timezone.
+- **Scheduled triggers:** add a timer event to the task inbox when a configured schedule is due. The task prompt supplies the planned trigger time, actual execution time, and application timezone.
 - **Workspace files:** keep task requirements in `TASK.md`, progress and evidence in daily records, and previous reminders in reminder files. Each run reads the latest requirements and progress before continuing.
 - **Permissions:** the framework and Harness control file access, tools, and network access. Chat, event tasks, and scheduled tasks can search the web and open pages.
 - **Outbox:** publishes reminder references after the reminder has been saved and input completion has been committed. Failed delivery can be retried independently of task execution. A full Chat Inbox defers publication while already queued reminders continue to be consumed.
@@ -78,6 +78,7 @@ See [Services and Deployment](./services.md#agent-runtime) for configuration and
 
 The optional `cron` field determines when a task runs. Omit it for event-driven tasks, set an expression for scheduled tasks, and set it to null to return to event-driven execution. Agent views derive `agent_type` from the schedule.
 Queued inputs keep their original trigger type after a schedule change. The runtime processes each scheduled trigger in its own round and batches consecutive observations separately.
+The configured cooldown applies when the next batch contains observations. A scheduled trigger at the front of the queue can run during that cooldown.
 
 Each task owns a directory under `reme_agent_dir`. Deleting a task stops its execution and preserves its files. Temporary query sessions are recorded as independent branches.
 

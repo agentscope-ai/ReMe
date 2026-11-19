@@ -26,6 +26,7 @@ from ...schema.agent_runtime import (
     NotificationConfig,
 )
 from ...schema.agent_activity import AgentActivity
+from ...schema.agent_inbox import InboxReceipt
 from ...schema.application_config import ApplicationConfig
 from ...schema.event import Event
 from ...schema.proactive_agent import CRON_EVENT_SOURCE, CreateProactiveAgentConfig
@@ -43,6 +44,11 @@ class _Execution:
     retry_at: datetime | None = None
     retry_items: list[str] | None = None
     retry_delay: float = 0
+
+    def recover_receipt(self, receipt: InboxReceipt | None) -> None:
+        """Clear a retry selection if its acknowledgement was already committed."""
+        if self.retry_items and receipt is not None and set(self.retry_items).issubset(receipt.item_ids):
+            self.retry_items = None
 
 
 @R.register("local")
@@ -405,9 +411,7 @@ class LocalAgentRuntime(BaseAgentRuntime):
                 await self.prepare(agent)
                 execution = self.executions[agent_name]
                 if execution.retry_items:
-                    receipt = (await self.inbox.snapshot(agent_name))["receipt"]
-                    if receipt and set(execution.retry_items).issubset(receipt.item_ids):
-                        execution.retry_items = None
+                    execution.recover_receipt((await self.inbox.snapshot(agent_name))["receipt"])
                 batch = await self.inbox.claim(
                     agent_name,
                     limit=agent.max_batch_events,
@@ -556,15 +560,22 @@ class LocalAgentRuntime(BaseAgentRuntime):
                 if execution.retry_at is not None and execution.retry_at > self.now():
                     continue
                 snapshot = await self.inbox.snapshot(agent.agent_name)
+                if not snapshot["pending_count"]:
+                    continue
                 receipt = snapshot["receipt"]
-                if agent.cron is None and receipt is not None:
-                    if (self.now() - receipt.consume_ts).total_seconds() < agent.min_trigger_interval_seconds:
+                if (
+                    receipt is not None
+                    and agent.min_trigger_interval_seconds
+                    and (self.now() - receipt.consume_ts).total_seconds() < agent.min_trigger_interval_seconds
+                ):
+                    execution.recover_receipt(receipt)
+                    item = await self.inbox.peek(agent.agent_name, item_ids=execution.retry_items)
+                    if item is None or item["source"] != CRON_EVENT_SOURCE:
                         continue
-                if snapshot["pending_count"]:
-                    execution.worker = asyncio.create_task(
-                        self._work(agent.agent_name, run_job),
-                        name=f"agent:{agent.agent_name}",
-                    )
+                execution.worker = asyncio.create_task(
+                    self._work(agent.agent_name, run_job),
+                    name=f"agent:{agent.agent_name}",
+                )
 
     async def _work(self, agent_name, run_job):
         execution = self.executions[agent_name]
