@@ -227,6 +227,28 @@ async def test_no_new_information_preserves_empty_decision_without_reminder(tmp_
         assert not runtime.outbox.records and not runtime.outbox.issues
 
 
+@pytest.mark.asyncio
+async def test_cron_skip_record_keeps_trigger_pending_after_model_failure(tmp_path, monkeypatch):
+    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+        await runtime.create({"agent_name": "timer", "task_description": "Save progress", "cron": "* * * * *"})
+        agent = await runtime.definition("timer")
+        await runtime._schedule_cron(agent)
+        trigger = runtime.execution("timer").schedule[1]
+        monkeypatch.setattr(runtime, "now", lambda: trigger)
+        await runtime._schedule_cron(agent)
+
+        step = ProactiveAgentStep(app_context=context)
+        paths = step._paths(agent, trigger)
+        install_round(runtime, wrapper, monkeypatch, paths, record="skip", failed=True)
+        with pytest.raises(RuntimeError, match="Model failed"):
+            await step(agent_name="timer")
+
+        snapshot = await runtime.inbox.snapshot("timer")
+        assert snapshot["pending_count"] == 1 and snapshot["in_flight_count"] == 0
+        assert snapshot["receipt"] is None
+        assert not any(paths[key].exists() for key in ("record_path", "today_summary_path", "reminder_path"))
+
+
 @pytest.mark.parametrize("agent_type", ["proactive", "cron"])
 @pytest.mark.parametrize("existing_summary", [False, True])
 @pytest.mark.asyncio

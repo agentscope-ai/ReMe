@@ -321,6 +321,47 @@ async def test_priority_wakeup_can_overtake_older_low_priority_reminders(tmp_pat
         assert runtime.notifications.active_turn is None
 
 
+@pytest.mark.parametrize("priority", ["P0", "P1"])
+@pytest.mark.asyncio
+async def test_oversized_p0_reminder_does_not_block_a_fitting_reminder(tmp_path, monkeypatch, priority):
+    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+        monkeypatch.setattr(runtime.inbox, "claim_max_bytes", 320)
+        monkeypatch.setattr(runtime.inbox, "max_item_bytes", 320)
+        now = runtime.now()
+        monkeypatch.setattr(runtime, "now", lambda: now)
+        oversized = "超限提醒" * 5
+        await runtime.create({"agent_name": oversized, "task_description": "Observe"})
+        await runtime.append(oversized, {"event_ts": now, "source": "test", "description": "Finished"})
+        execute = AsyncMock(return_value=completed_result(runtime, oversized))
+        assert (await runtime.run(oversized, execute))["processed"] == 1
+        await runtime.outbox.sync()
+        oversized_id = next(iter(runtime.notifications.pending))
+
+        now += timedelta(seconds=1)
+        await prepare(runtime, context, priority)
+
+        async def reply(_hint, **options):
+            bound = options["injected_job_kwargs"]
+            items = (await ReadInboxStep(app_context=context)(**bound)).answer["items"]
+            assert [item["agent_name"] for item in items] == ["monitor"]
+            await SendChatMessageStep(app_context=context)(content="", **bound)
+            return {"status": "completed"}
+
+        async def run_job(name, **kwargs):
+            assert name == "process_chat_reminders" and kwargs["priority"] == priority
+            return await InboxChatStep(app_context=context)(**kwargs)
+
+        wrapper.reply = AsyncMock(side_effect=reply)
+        await runtime.tick(run_job)
+        worker = runtime.notifications.worker
+        assert worker is not None
+        await worker
+        assert list(runtime.notifications.pending) == [oversized_id]
+        await runtime.tick(run_job)
+        assert runtime.notifications.worker is None
+        wrapper.reply.assert_awaited_once()
+
+
 @pytest.mark.asyncio
 async def test_cancelled_fork_releases_scope_and_preserves_uncommitted_messages(tmp_path):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):

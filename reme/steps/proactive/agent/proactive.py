@@ -196,12 +196,14 @@ class ProactiveAgentStep(BaseAgentStep):
                 reason = str(exc)
             self.logger.warning(f"Proactive local link source={path} target={target!r}: {reason}")
 
-    def _read_artifacts(self, paths, summary_before, *, warn_links=True):
+    def _read_artifacts(self, agent, paths, summary_before, *, warn_links=True):
         """Validate the final branch and derive notifications only from saved documents."""
         files = self.agent_runtime.files
         record = self._read_document(paths["record_path"], record=True)
         summary = self._read_optional(paths["today_summary_path"])
         if record["action"] == "skip":
+            if agent.cron is not None:
+                raise ValueError("a scheduled task requires an execution record and daily summary update")
             if self._read_optional(paths["reminder_path"]) is not None:
                 raise ValueError("a skipped record must not create a reminder")
             if summary != summary_before:
@@ -396,6 +398,7 @@ class ProactiveAgentStep(BaseAgentStep):
             try:
                 await asyncio.to_thread(
                     self._read_artifacts,
+                    agent,
                     self._round_files.drafts,
                     summary_before,
                     warn_links=False,
@@ -407,7 +410,7 @@ class ProactiveAgentStep(BaseAgentStep):
             if model_error is not None:
                 self.logger.warning(f"{label} result=accepted_artifacts model_error={type(model_error).__name__}")
             await self._round_files.publish()
-            result = await asyncio.to_thread(self._read_artifacts, paths, summary_before)
+            result = await asyncio.to_thread(self._read_artifacts, agent, paths, summary_before)
             self.logger.info(
                 f"{label} result=validated notifications={len(result.notifications)} "
                 f"elapsed={monotonic() - started:.2f}s path={paths['record_path']}",

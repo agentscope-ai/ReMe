@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from collections import defaultdict
 from contextlib import asynccontextmanager, nullcontext
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -55,6 +56,7 @@ class ChatNotifications:
         self.blocked = False
         self.last_started_at = None
         self.last_completed_at = None
+        self._reported_oversized: set[str] = set()
 
     def reset(self):
         """Restart idle and retry timers after owned work has stopped."""
@@ -130,9 +132,11 @@ class ChatNotifications:
         """Bound one inference batch using the configured inbox count and byte budgets."""
         inbox = self.runtime.inbox
         limit = min(20, inbox.claim_max_items, inbox.max_read_items, inbox.max_pending_items)
-        budget = min(inbox.claim_max_bytes, inbox.max_pending_bytes)
+        byte_limit = remaining = min(inbox.claim_max_bytes, inbox.max_pending_bytes)
         selected = []
         for ref in refs:
+            if len(selected) >= limit:
+                break
             size = (
                 len(
                     json.dumps(self.runtime.outbox.event(ref), ensure_ascii=False, separators=(",", ":")).encode(
@@ -141,10 +145,18 @@ class ChatNotifications:
                 )
                 + 1
             )
-            if len(selected) >= limit or size > budget:
+            if size > byte_limit:
+                if ref.id not in self._reported_oversized:
+                    self._reported_oversized.add(ref.id)
+                    self.runtime.logger.warning(
+                        f"Chat reminder {ref.id} at {ref.file} remains pending: "
+                        f"reference is {size} bytes, exceeding the {byte_limit}-byte batch limit",
+                    )
+                continue
+            if size > remaining:
                 break
             selected.append(ref.id)
-            budget -= size
+            remaining -= size
         return tuple(selected)
 
     @asynccontextmanager
@@ -298,8 +310,10 @@ class ChatNotifications:
                 return
             idle = max(0, now.timestamp() - self.last_activity_at.timestamp())
             busy = bool(self.runtime.chat_tasks) or self.runtime.chat_lock.locked()
-            candidates = []
-            for ref in self.pending.values():
+            pending = self.pending
+            self._reported_oversized.intersection_update(pending)
+            candidates = defaultdict(list)
+            for ref in pending.values():
                 item = self.runtime.outbox.records[ref]
                 if not self._allows(ref, agents, now):
                     continue
@@ -308,24 +322,22 @@ class ChatNotifications:
                         continue
                 elif busy or idle < getattr(self.config, f"{item.priority.lower()}_idle_seconds"):
                     continue
-                candidates.append(ref)
-            if candidates:
-                priority = min(self.runtime.outbox.records[ref].priority for ref in candidates)
-                candidates.sort(
+                candidates[item.priority].append(ref)
+            for priority, refs in sorted(candidates.items()):
+                refs.sort(
                     key=lambda ref: (
                         self.runtime.outbox.records[ref].created_at,
                         ref.id,
                     ),
                 )
-                identifiers = self._bounded(
-                    [ref for ref in candidates if self.runtime.outbox.records[ref].priority == priority],
-                )
+                identifiers = self._bounded(refs)
                 if not identifiers:
-                    return
+                    continue
                 self.worker = asyncio.create_task(
                     self._wake(run_job, priority, identifiers),
                     name="inbox:chat",
                 )
+                break
 
     async def _wake(self, run_job, priority, identifiers):
         permanent = False
