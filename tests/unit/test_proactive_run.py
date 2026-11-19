@@ -12,7 +12,27 @@ import pytest
 from reme.enumeration import ChunkEnum
 from reme.schema import StreamChunk
 from reme.steps.proactive.agent import ProactiveAgentStep
+from reme.steps.proactive.tools.manage_proactive_agent import ManageProactiveAgentStep
 from .test_agent_runtime import create_agent, running_runtime
+
+
+async def queue_cron_trigger(runtime, name, monkeypatch):
+    agent = await runtime.definition(name)
+    execution = runtime.execution(name)
+    if execution.schedule is None:
+        await runtime._schedule_cron(agent)
+    trigger = execution.schedule[1]
+    monkeypatch.setattr(runtime, "now", lambda: trigger)
+    await runtime._schedule_cron(agent)
+    return trigger
+
+
+async def create_round_task(runtime, monkeypatch, agent_type):
+    if agent_type == "cron":
+        await runtime.create({"agent_name": "monitor", "task_description": "Monitor", "cron": "0 * * * *"})
+        await queue_cron_trigger(runtime, "monitor", monkeypatch)
+    else:
+        await create_agent(runtime)
 
 
 def install_round(
@@ -30,9 +50,9 @@ def install_round(
     drafts = {}
     original_query = ProactiveAgentStep._query
 
-    def build_query(step, agent, events, targets, now, task_content):
+    def build_query(step, events, targets, now, task_content, *, is_cron):
         drafts.update(targets)
-        return original_query(step, agent, events, targets, now, task_content)
+        return original_query(step, events, targets, now, task_content, is_cron=is_cron)
 
     monkeypatch.setattr(ProactiveAgentStep, "_query", build_query)
 
@@ -90,9 +110,7 @@ def install_round(
 @pytest.mark.asyncio
 async def test_one_turn_saves_artifacts_and_publishes_through_runtime(tmp_path, monkeypatch, agent_type, priority):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
-        await create_agent(runtime)
-        if agent_type == "cron":
-            await runtime.update("monitor", {"cron": "0 * * * *"})
+        await create_round_task(runtime, monkeypatch, agent_type)
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)
         step = ProactiveAgentStep(app_context=context)
@@ -143,9 +161,7 @@ async def test_broken_local_links_warn_without_rejecting_saved_results(
 ):
     workspace = tmp_path / "workspace"
     async with running_runtime(workspace) as (runtime, context, wrapper):
-        await create_agent(runtime)
-        if agent_type == "cron":
-            await runtime.update("monitor", {"cron": "0 * * * *"})
+        await create_round_task(runtime, monkeypatch, agent_type)
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)
         step = ProactiveAgentStep(app_context=context)
@@ -228,24 +244,64 @@ async def test_no_new_information_preserves_empty_decision_without_reminder(tmp_
 
 
 @pytest.mark.asyncio
-async def test_cron_skip_record_keeps_trigger_pending_after_model_failure(tmp_path, monkeypatch):
+async def test_queued_observations_run_before_cron_trigger_after_switch(tmp_path, monkeypatch):
+    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+        await create_agent(runtime)
+        attachment = "resource/alert.txt"
+        runtime.files.write(runtime.files.path(attachment), "Evidence")
+        await runtime.append(
+            "monitor",
+            {
+                "id": "observation",
+                "event_ts": runtime.now(),
+                "source": "experiment",
+                "description": "Alarm from the experiment",
+                "paths": [attachment],
+            },
+        )
+        await ManageProactiveAgentStep(app_context=context)(action="update", agent_name="monitor", cron="* * * * *")
+        now = await queue_cron_trigger(runtime, "monitor", monkeypatch)
+        step = ProactiveAgentStep(app_context=context)
+        paths = step._paths(await runtime.definition("monitor"), now)
+        calls = install_round(runtime, wrapper, monkeypatch, paths, record="skip")
+
+        response = await step(agent_name="monitor")
+
+        assert response.success and response.answer["processed"] == 2
+        assert response.metadata["reme.agent_run"]["agent_type"] == "proactive"
+        query = calls[0][0]
+        assert "Alarm from the experiment" in query and attachment in query
+        snapshot = await runtime.inbox.snapshot("monitor")
+        assert snapshot["receipt"].item_ids == ["event-1", "observation"]
+        assert await runtime.inbox.pending_ids("monitor") == {f"cron-monitor-{int(now.timestamp())}"}
+
+
+@pytest.mark.parametrize("switch_to_event", [False, True])
+@pytest.mark.asyncio
+async def test_cron_skip_record_keeps_trigger_pending_after_model_failure(tmp_path, monkeypatch, switch_to_event):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         await runtime.create({"agent_name": "timer", "task_description": "Save progress", "cron": "* * * * *"})
-        agent = await runtime.definition("timer")
-        await runtime._schedule_cron(agent)
-        trigger = runtime.execution("timer").schedule[1]
-        monkeypatch.setattr(runtime, "now", lambda: trigger)
-        await runtime._schedule_cron(agent)
+        trigger = await queue_cron_trigger(runtime, "timer", monkeypatch)
+        if switch_to_event:
+            await queue_cron_trigger(runtime, "timer", monkeypatch)
+            await ManageProactiveAgentStep(app_context=context)(action="update", agent_name="timer", cron=None)
+            await runtime.append(
+                "timer",
+                {"event_ts": runtime.now(), "source": "experiment", "description": "Later observation"},
+            )
+        pending = await runtime.inbox.pending_ids("timer")
 
         step = ProactiveAgentStep(app_context=context)
-        paths = step._paths(agent, trigger)
-        install_round(runtime, wrapper, monkeypatch, paths, record="skip", failed=True)
+        paths = step._paths(await runtime.definition("timer"), runtime.now())
+        calls = install_round(runtime, wrapper, monkeypatch, paths, record="skip", failed=True)
         with pytest.raises(RuntimeError, match="Model failed"):
             await step(agent_name="timer")
 
         snapshot = await runtime.inbox.snapshot("timer")
-        assert snapshot["pending_count"] == 1 and snapshot["in_flight_count"] == 0
-        assert snapshot["receipt"] is None
+        assert await runtime.inbox.pending_ids("timer") == pending
+        assert snapshot["receipt"] is None and snapshot["in_flight_count"] == 0
+        assert runtime.execution("timer").retry_items == [f"cron-timer-{int(trigger.timestamp())}"]
+        assert "This scheduled task has triggered" in calls[0][0]
         assert not any(paths[key].exists() for key in ("record_path", "today_summary_path", "reminder_path"))
 
 
@@ -254,9 +310,7 @@ async def test_cron_skip_record_keeps_trigger_pending_after_model_failure(tmp_pa
 @pytest.mark.asyncio
 async def test_skipped_reminder_preserves_new_record_and_history(tmp_path, monkeypatch, existing_summary, agent_type):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
-        await create_agent(runtime)
-        if agent_type == "cron":
-            await runtime.update("monitor", {"cron": "0 * * * *"})
+        await create_round_task(runtime, monkeypatch, agent_type)
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)
         step = ProactiveAgentStep(app_context=context)

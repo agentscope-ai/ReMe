@@ -28,7 +28,7 @@ from ...schema.agent_runtime import (
 from ...schema.agent_activity import AgentActivity
 from ...schema.application_config import ApplicationConfig
 from ...schema.event import Event
-from ...schema.proactive_agent import CreateProactiveAgentConfig
+from ...schema.proactive_agent import CRON_EVENT_SOURCE, CreateProactiveAgentConfig
 from ...utils.async_utils import complete_in_thread, finish_cleanup
 
 
@@ -245,7 +245,7 @@ class LocalAgentRuntime(BaseAgentRuntime):
                     raise ValueError("external observations require an event agent")
                 values = events if isinstance(events, list) else [events]
                 values = [Event.model_validate(value) for value in values]
-                if any(value.source == "cron" for value in values):
+                if any(value.source == CRON_EVENT_SOURCE for value in values):
                     raise ValueError("cron is a reserved framework source")
             return await self._append(agent, values)
 
@@ -410,8 +410,9 @@ class LocalAgentRuntime(BaseAgentRuntime):
                         execution.retry_items = None
                 batch = await self.inbox.claim(
                     agent_name,
-                    limit=1 if agent.cron is not None else agent.max_batch_events,
+                    limit=agent.max_batch_events,
                     item_ids=execution.retry_items,
+                    batch_key=lambda item: item["id"] if item["source"] == CRON_EVENT_SOURCE else None,
                 )
                 if batch is None:
                     return {"agent_name": agent_name, "processed": 0}
@@ -518,7 +519,7 @@ class LocalAgentRuntime(BaseAgentRuntime):
                 Event(
                     id=f"cron-{agent.agent_name}-{int(scheduled.timestamp())}",
                     event_ts=scheduled,
-                    source="cron",
+                    source=CRON_EVENT_SOURCE,
                     description=f"Scheduled trigger: {scheduled.isoformat()}",
                     metadata={"scheduled_at": scheduled.isoformat()},
                 ),

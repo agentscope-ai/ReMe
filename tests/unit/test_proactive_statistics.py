@@ -13,20 +13,23 @@ from reme.schema import Response, StreamChunk
 from reme.steps.proactive.agent import ProactiveAgentStep
 from reme.utils.counter import global_counter_get
 from .test_agent_runtime import create_agent, running_runtime
-from .test_proactive_run import install_round
+from .test_proactive_run import create_round_task, install_round, queue_cron_trigger
 
 
 @pytest.mark.asyncio
 async def test_statistics_separate_agent_types_and_count_snapshots_once(tmp_path, monkeypatch):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         for mode in ("proactive", "cron"):
-            await runtime.create({"agent_name": mode, "task_description": "Check results"})
-            await runtime.append(
-                mode,
-                {"id": mode, "event_ts": runtime.now(), "source": "experiment", "description": "Done"},
-            )
+            config = {"agent_name": mode, "task_description": "Check results"}
             if mode == "cron":
-                await runtime.update(mode, {"cron": "0 * * * *"})
+                await runtime.create({**config, "cron": "0 * * * *"})
+                await queue_cron_trigger(runtime, mode, monkeypatch)
+            else:
+                await runtime.create(config)
+                await runtime.append(
+                    mode,
+                    {"id": mode, "event_ts": runtime.now(), "source": "experiment", "description": "Done"},
+                )
             now = runtime.now()
             monkeypatch.setattr(runtime, "now", lambda current=now: current)
             step = ProactiveAgentStep(app_context=context)
@@ -160,9 +163,7 @@ def test_explicit_shell_searches_include_compound_commands(command, expected):
 @pytest.mark.asyncio
 async def test_local_search_budget_warns_once_without_interrupting(tmp_path, monkeypatch, agent_type):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
-        await create_agent(runtime)
-        if agent_type == "cron":
-            await runtime.update("monitor", {"cron": "0 * * * *"})
+        await create_round_task(runtime, monkeypatch, agent_type)
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)
         step = ProactiveAgentStep(app_context=context, max_local_search_calls=3)

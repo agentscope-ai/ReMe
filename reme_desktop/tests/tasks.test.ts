@@ -16,7 +16,7 @@ const settings: TaskSettings = {
   notify_window: null,
 };
 
-test("task management forwards explicit settings and keeps task edits scoped by identity", async () => {
+test("task management forwards settings and document operations for a tmp task", async () => {
   const calls: unknown[] = [];
   const client = {
     request: async (job: string, body: object) => {
@@ -28,24 +28,25 @@ test("task management forwards explicit settings and keeps task edits scoped by 
     {
       type: "task",
       action: "create",
-      agent_name: "tech_news",
+      agent_name: "tmp",
       task_description: "原样\n",
       settings,
     },
     {
       type: "task",
       action: "update",
-      agent_name: "tech_news",
+      agent_name: "tmp",
       settings: { enabled: false, notify_window: null },
     },
-    { type: "task", action: "read", agent_name: "tech_news" },
+    { type: "task", action: "read", agent_name: "tmp" },
     {
       type: "task",
       action: "save",
-      agent_name: "tech_news",
+      agent_name: "tmp",
       content: "New\n",
       expected_mtime: "revision",
     },
+    { type: "task", action: "delete", agent_name: "tmp" },
   ] satisfies TaskRequest[])
     await requestWorkspace(client, request, new AbortController().signal);
   assert.deepEqual(calls, [
@@ -53,7 +54,7 @@ test("task management forwards explicit settings and keeps task edits scoped by 
       job: "manage_proactive_agent",
       body: {
         action: "create",
-        agent_name: "tech_news",
+        agent_name: "tmp",
         ...settings,
         task_description: "原样\n",
       },
@@ -62,20 +63,24 @@ test("task management forwards explicit settings and keeps task edits scoped by 
       job: "manage_proactive_agent",
       body: {
         action: "update",
-        agent_name: "tech_news",
+        agent_name: "tmp",
         enabled: false,
         notify_window: null,
       },
     },
-    { job: "agent_task", body: { action: "read", agent_name: "tech_news" } },
+    { job: "agent_task", body: { action: "read", agent_name: "tmp" } },
     {
       job: "agent_task",
       body: {
         action: "save",
-        agent_name: "tech_news",
+        agent_name: "tmp",
         content: "New\n",
         expected_mtime: "revision",
       },
+    },
+    {
+      job: "manage_proactive_agent",
+      body: { action: "delete", agent_name: "tmp" },
     },
   ]);
 });
@@ -83,7 +88,7 @@ test("task management forwards explicit settings and keeps task edits scoped by 
 test("task IPC rejects unrelated identities, unsafe writes and retired operations", () => {
   for (const request of [
     { action: "delete", agent_name: "Remy" },
-    { action: "delete", agent_name: "TMP" },
+    { action: "delete", agent_name: "REMY" },
     { action: "read", agent_name: "../task" },
     { action: "save", agent_name: "task", content: "Text" },
     {

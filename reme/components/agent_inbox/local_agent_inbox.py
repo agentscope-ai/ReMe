@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
+from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -563,7 +564,14 @@ class LocalAgentInbox(BaseAgentInbox):
             raw = b"".join(self._encode(value) for value in records)
             self._replace(path, raw)
 
-    async def claim(self, name: str, limit: int | None = None, *, item_ids: list[str] | None = None) -> dict | None:
+    async def claim(
+        self,
+        name: str,
+        limit: int | None = None,
+        *,
+        item_ids: list[str] | None = None,
+        batch_key: Callable[[dict], str | None] | None = None,
+    ) -> dict | None:
         """Claim selected IDs or the next FIFO batch; release ownership on ack, nack or restart."""
         if limit is not None:
             _positive("limit", limit)
@@ -575,6 +583,7 @@ class LocalAgentInbox(BaseAgentInbox):
             if selected is not None and not selected <= {pending.item["id"] for pending in inbox.pending}:
                 raise ValueError("unknown pending item ID")
             items, size = [], 0
+            first_key = None
             for pending in inbox.pending:
                 if selected is not None and pending.item["id"] not in selected:
                     continue
@@ -583,6 +592,11 @@ class LocalAgentInbox(BaseAgentInbox):
                     or size + pending.size > self.claim_max_bytes
                 ):
                     break
+                if batch_key is not None:
+                    key = batch_key(pending.item)
+                    if items and key != first_key:
+                        break
+                    first_key = key
                 items.append(deepcopy(pending.item))
                 size += pending.size
             if not items:

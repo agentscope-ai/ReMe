@@ -16,6 +16,8 @@ from pydantic import (
 from .agent_runtime import AgentName, AgentNotification
 from .agent_message import ClientModel
 
+CRON_EVENT_SOURCE = "cron"
+
 
 class NotificationWindow(BaseModel):
     """An application-local notification window; equal endpoints mean all day."""

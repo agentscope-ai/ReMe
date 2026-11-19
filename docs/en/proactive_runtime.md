@@ -77,6 +77,7 @@ See [Services and Deployment](./services.md#agent-runtime) for configuration and
 ## Task storage
 
 The optional `cron` field determines when a task runs. Omit it for event-driven tasks, set an expression for scheduled tasks, and set it to null to return to event-driven execution. Agent views derive `agent_type` from the schedule.
+Queued inputs keep their original trigger type after a schedule change. The runtime processes each scheduled trigger in its own round and batches consecutive observations separately.
 
 Each task owns a directory under `reme_agent_dir`. Deleting a task stops its execution and preserves its files. Temporary query sessions are recorded as independent branches.
 

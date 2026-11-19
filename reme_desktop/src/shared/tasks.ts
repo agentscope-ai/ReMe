@@ -71,7 +71,7 @@ export function taskPayload(request: TaskRequest): {
   if (
     typeof agent_name !== "string" ||
     !/^[\p{L}\p{N}_-]{1,80}$/u.test(agent_name) ||
-    ["remy", "tmp"].includes(agent_name.toLowerCase())
+    agent_name.toLowerCase() === "remy"
   )
     throw new Error("Invalid task name");
   const body: Record<string, unknown> = { action, agent_name };
