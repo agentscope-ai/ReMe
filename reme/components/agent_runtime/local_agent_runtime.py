@@ -376,7 +376,7 @@ class LocalAgentRuntime(BaseAgentRuntime):
                 if session_id is not None:
                     await finish_cleanup(self.agent_wrapper.release_session(session_id))
 
-    async def run(self, agent_name, execute, *, on_failure=None, on_write=None):
+    async def run(self, agent_name, execute, *, on_failure=None, on_write=None, before_write=None):
         """Commit successful execution before handing asynchronous delivery to the outbox."""
         async with (
             self._agent_task(agent_name),
@@ -429,6 +429,7 @@ class LocalAgentRuntime(BaseAgentRuntime):
                         result,
                         self.now(),
                         **({"on_write": on_write} if on_write is not None else {}),
+                        **({"before_write": before_write} if before_write is not None else {}),
                     )
                     await self.inbox.ack(
                         agent_name,

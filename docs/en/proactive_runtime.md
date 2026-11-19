@@ -17,7 +17,7 @@ Five parts support the workflow:
 - **Scheduled triggers:** add a timer event to the task inbox when a configured schedule is due. The agent follows the task description, with the current time supplied in the system prompt; trigger times remain in scheduler records.
 - **Workspace files:** keep task requirements in `TASK.md`, progress and evidence in daily records, and previous reminders in reminder files. Each run reads the latest requirements and progress before continuing.
 - **Permissions:** the framework and Harness control file access, tools, and network access. Chat, event tasks, and scheduled tasks can search the web and open pages.
-- **Outbox:** publishes reminder references after the reminder has been saved and input completion has been committed. Failed delivery can be retried independently of task execution.
+- **Outbox:** publishes reminder references after the reminder has been saved and input completion has been committed. Failed delivery can be retried independently of task execution. A full Chat Inbox defers publication while already queued reminders continue to be consumed.
 
 Users own the workspace files and can inspect or edit them. Each automatic event or scheduled run starts a fresh native session and rebuilds context from the task description and daily summaries. Earlier sessions remain available as history. Task questions fork the latest task session and ask directly with its existing instructions and context, including while it is running. Query forks are read-only and do not replace the task session; the main Chat Agent continues its own conversation.
 
@@ -42,6 +42,8 @@ Every record with `action: write` requires a nonempty, updated daily summary. Fo
 Scheduled tasks record and report each execution, including unchanged results, insufficient information or unfinished work. Both the record and report use `action: write`, and the report uses `priority: P0`; code rejects a skipped record, skipped report or another priority. Briefings and summaries follow the task's requirements, with necessary sources and result links.
 
 Event tasks follow `TASK.md` and first exclude content that does not need a reminder, then select the first matching level in P0/P1/P2 order. They do not guess what the user knows from other conversations. Their reminders use one natural, concise sentence. After final validation of the reminder priority and updated summary, Outbox adds related paths, the reminder ID, creation time and acknowledgement fields before committing input completion. A generated reminder has not necessarily been delivered.
+
+Before adding reminder metadata, Outbox checks the round's published file version under the file jobs' shared path lock. A concurrent user save preserves the user's file and leaves the input available for retry.
 
 The default `proactive` configuration sets `project_doc_max_bytes=0` on the shared Codex app-server, disabling automatic
 repository `AGENTS.md` loading for all Agents. Event and scheduled task execution sessions do not automatically inject

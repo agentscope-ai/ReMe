@@ -3,8 +3,8 @@
 from contextlib import AsyncExitStack, asynccontextmanager
 from uuid import uuid4
 
-from ...file_io import get_path_lock
 from ....utils.async_utils import complete_in_thread
+from ....utils.path_lock import get_path_lock
 
 
 class RoundArtifacts:
@@ -38,6 +38,15 @@ class RoundArtifacts:
         before = self.before["today_summary_path"][0]
         if before is not None:
             self.files.write(self.drafts["today_summary_path"], before, create_only=True)
+
+    def check_published(self, path):
+        """Called under the destination lock before outbox metadata claims the file."""
+        for key, version in self.published.items():
+            if self.paths[key] == path:
+                if self.snapshot(path) != version:
+                    raise RuntimeError(f"Agent output changed outside this round: {path}")
+                return
+        raise RuntimeError(f"Agent output was not published by this round: {path}")
 
     @asynccontextmanager
     async def locked(self):

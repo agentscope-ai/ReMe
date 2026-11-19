@@ -250,6 +250,7 @@ class ProactiveAgentStep(BaseAgentStep):
                 self._execute,
                 on_failure=self._restore_files,
                 on_write=self._record_write,
+                before_write=self._check_write,
             )
             outcome = "completed"
         except asyncio.CancelledError:
@@ -290,6 +291,10 @@ class ProactiveAgentStep(BaseAgentStep):
         for key in self._round_files.published:
             if self._round_files.paths[key] == path:
                 self._round_files.published[key] = version
+
+    def _check_write(self, path):
+        """Keep user edits authoritative until the outbox has added its metadata."""
+        self._round_files.check_published(path)
 
     async def _execute(self, agent, events):
         """Run the complete workflow in one turn, then validate its saved decisions."""

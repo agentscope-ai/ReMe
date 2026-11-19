@@ -341,10 +341,10 @@ async def test_publication_rechecks_reminders_removed_during_delivery(tmp_path, 
         refs = sorted(runtime.outbox.committed, key=lambda ref: (runtime.outbox.records[ref].created_at, ref.id))
         append = runtime.inbox.append
 
-        async def refresh_during_append(name, event):
+        async def refresh_during_append(name, event, **kwargs):
             runtime.files.path(refs[1].file).unlink()
             await runtime.outbox.refresh()
-            return await append(name, event)
+            return await append(name, event, **kwargs)
 
         monkeypatch.setattr(runtime.inbox, "append", refresh_during_append)
         await runtime.outbox.publish()

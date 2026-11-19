@@ -3,15 +3,18 @@
 # pylint: disable=protected-access,missing-function-docstring
 
 import asyncio
-from datetime import timedelta
+from datetime import datetime, timedelta
 from unittest.mock import AsyncMock
 
 import pytest
+import frontmatter
 
 from reme.enumeration import ChunkEnum
 from reme.schema import Response, SessionMessage, StreamChunk
 from reme.schema.proactive_agent import ProactiveRunResult
 from reme.steps.proactive.agent import InboxChatStep, ProactiveAgentStep
+from reme.steps.file_io import SaveStep, get_path_lock
+from reme.steps.proactive.tools.inbox import ReadInboxStep, SendChatMessageStep
 from .test_agent_runtime import completed_result, create_agent, running_runtime
 from .test_inbox_fork import prepare
 from .test_proactive_run import install_round
@@ -244,3 +247,134 @@ async def test_silence_rechecks_native_revision_after_outbox_refresh(tmp_path, m
             with pytest.raises(RuntimeError, match="Session changed"):
                 await runtime.notifications.send(turn, "")
         assert list(runtime.notifications.pending) == args["msg_ids"]
+
+
+@pytest.mark.asyncio
+async def test_full_receiver_consumes_both_reminders_without_waiting_for_more_capacity(tmp_path):
+    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+        for name in ("first", "second"):
+            await runtime.create({"agent_name": name, "agent_type": "proactive", "task_description": "Report"})
+            await runtime.append(name, {"event_ts": runtime.now(), "source": "test", "description": "Finished"})
+            await runtime.run(name, AsyncMock(return_value=completed_result(runtime, name)))
+        runtime.inbox.max_pending_items = 1
+        runtime.notifications.config.p0_delay_seconds = 0
+
+        async def decide(_hint, **options):
+            bound = options["injected_job_kwargs"]
+            await ReadInboxStep(app_context=context)(**bound)
+            await SendChatMessageStep(app_context=context)(content="", **bound)
+            return {"status": "completed"}
+
+        async def run_job(name, **kwargs):
+            assert name == "process_chat_reminders"
+            return await InboxChatStep(app_context=context)(**kwargs)
+
+        wrapper.reply = AsyncMock(side_effect=decide)
+        jobs = AsyncMock(side_effect=run_job)
+        async with asyncio.timeout(2):
+            for _ in range(2):
+                await runtime.tick(jobs)
+                if worker := runtime.notifications.worker:
+                    await worker
+        assert jobs.await_count == 2
+        assert (await runtime.inbox.snapshot("Remy"))["pending_count"] == 0
+        assert len(runtime.outbox.records) == 2
+        assert all(item.read_at is not None for item in runtime.outbox.records.values())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stage", ["before_save", "while_save_waits", "after_save"])
+@pytest.mark.parametrize("ack_fails", [False, True])
+async def test_user_reminder_edits_survive_outbox_save_and_receipt_failure(tmp_path, monkeypatch, stage, ack_fails):
+    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+        await create_agent(runtime)
+        now = runtime.now()
+        monkeypatch.setattr(runtime, "now", lambda: now)
+        step = ProactiveAgentStep(app_context=context)
+        paths = step._paths(await runtime.definition("monitor"), now)
+        install_round(runtime, wrapper, monkeypatch, paths)
+        save = runtime.outbox.save
+
+        async def edit_reminder():
+            path = paths["reminder_path"]
+            document = frontmatter.loads(path.read_text())
+            assert ("id" in document) is (stage == "after_save")
+            document.content = "User edited reminder"
+            response = await SaveStep(app_context=context)(
+                path=path.relative_to(tmp_path).as_posix(),
+                content=frontmatter.dumps(document),
+                expected_mtime=datetime.fromtimestamp(path.stat().st_mtime).isoformat(),
+            )
+            assert response.success
+
+        async def edit_during_save(*args, **kwargs):
+            if stage == "while_save_waits":
+                async with await get_path_lock(paths["reminder_path"]):
+                    edit = asyncio.create_task(edit_reminder())
+                    await asyncio.sleep(0)
+                    publication = asyncio.create_task(save(*args, **kwargs))
+                    await asyncio.sleep(0.02)
+                    assert not publication.done()
+                _, refs = await asyncio.gather(edit, publication)
+                return refs
+            if stage == "before_save":
+                await edit_reminder()
+            refs = await save(*args, **kwargs)
+            if stage == "after_save":
+                await edit_reminder()
+            return refs
+
+        monkeypatch.setattr(runtime.outbox, "save", edit_during_save)
+        ack = AsyncMock(wraps=runtime.inbox.ack)
+        monkeypatch.setattr(runtime.inbox, "ack", ack)
+        if ack_fails:
+            replace = runtime.inbox._replace
+
+            def fail_receipt(path, raw):
+                if path.parent.parent.name == "monitor" and path.name == "inbox_read.jsonl":
+                    raise OSError("receipt disk failure")
+                return replace(path, raw)
+
+            monkeypatch.setattr(runtime.inbox, "_replace", fail_receipt)
+        if stage != "after_save":
+            with pytest.raises(RuntimeError, match="changed outside this round"):
+                await step(agent_name="monitor")
+            ack.assert_not_awaited()
+        elif ack_fails:
+            with pytest.raises(OSError, match="receipt disk failure"):
+                await step(agent_name="monitor")
+        else:
+            assert (await step(agent_name="monitor")).success
+        assert paths["reminder_path"].exists()
+        assert frontmatter.loads(paths["reminder_path"].read_text()).content == "User edited reminder"
+    async with running_runtime(tmp_path) as (runtime, _, _):
+        committed = stage == "after_save" and not ack_fails
+        assert (await runtime.inbox.snapshot("monitor"))["pending_count"] == (0 if committed else 1)
+        assert frontmatter.loads(paths["reminder_path"].read_text()).content == "User edited reminder"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["save", "update"])
+async def test_outbox_writers_share_the_file_jobs_path_lock(tmp_path, operation):
+    async with running_runtime(tmp_path) as (runtime, _, _):
+        await create_agent(runtime)
+        result, session = completed_result(runtime)
+        path = runtime.files.path(result.notifications[0].paths[0])
+        if operation == "update":
+            await runtime.run("monitor", AsyncMock(return_value=(result, session)))
+            await runtime.outbox.sync()
+            ref = next(iter(runtime.outbox.committed))
+            action = runtime.outbox.update(ref, user_read_at=runtime.now())
+        else:
+            action = runtime.run("monitor", AsyncMock(return_value=(result, session)))
+        task = None
+        try:
+            async with await get_path_lock(path):
+                task = asyncio.create_task(action)
+                await asyncio.sleep(0.02)
+                assert not task.done()
+            await asyncio.wait_for(task, 2)
+        finally:
+            if task is not None:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)

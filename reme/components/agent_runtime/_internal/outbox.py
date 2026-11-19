@@ -9,6 +9,7 @@ import yaml
 from ....schema.agent_runtime import AgentReminder, ReminderRef
 from ....schema.event import Event
 from ....utils.async_utils import complete_in_thread, finish_cleanup
+from ....utils.path_lock import get_path_lock
 
 
 class AgentOutbox:
@@ -138,7 +139,7 @@ class AgentOutbox:
             paths=[ref.file],
         ).model_dump(mode="json")
 
-    async def save(self, agent, run_id, result, now, *, on_write=None):
+    async def save(self, agent, run_id, result, now, *, on_write=None, before_write=None):
         """Save validated model output before its event consumption receipt is committed."""
         directory = self.runtime.agents.directory_for(agent) / "reminder"
         refs = []
@@ -150,17 +151,20 @@ class AgentOutbox:
                 if date.fromisoformat(path.parent.name).isoformat() != path.parent.name:
                     raise ValueError("reminder directories must use YYYY-MM-DD names")
                 item = AgentReminder(**notification.model_dump(), id=f"{run_id}-{index}", created_at=now)
-                previous = await asyncio.to_thread(self._read, path)
-                if previous is not None:
-                    if previous.id != item.id:
-                        raise ValueError("cannot overwrite another reminder")
-                    item = previous
-                await complete_in_thread(
-                    self._write,
-                    path,
-                    item,
-                    **({"on_write": on_write} if on_write is not None else {}),
-                )
+                async with await get_path_lock(path):
+                    if before_write is not None:
+                        await asyncio.to_thread(before_write, path)
+                    previous = await asyncio.to_thread(self._read, path)
+                    if previous is not None:
+                        if previous.id != item.id:
+                            raise ValueError("cannot overwrite another reminder")
+                        item = previous
+                    await complete_in_thread(
+                        self._write,
+                        path,
+                        item,
+                        **({"on_write": on_write} if on_write is not None else {}),
+                    )
                 refs.append(ReminderRef(file=path.relative_to(self.files.workspace).as_posix(), id=item.id))
                 self.cache.pop(path, None)
         return refs
@@ -171,19 +175,20 @@ class AgentOutbox:
             raise ValueError("only reminder acknowledgements can be updated")
         async with self.lock:
             path = self.files.path(ref.file)
-            item = await asyncio.to_thread(self._read, path)
-            if item is None or item.id != ref.id:
-                raise ValueError("reminder identity is missing or changed")
-            message_ids = changes.pop("chat_message_ids", [])
-            changes = {key: value for key, value in changes.items() if getattr(item, key) is None}
-            if message_ids:
-                combined = list(dict.fromkeys([*item.chat_message_ids, *message_ids]))
-                if combined != item.chat_message_ids:
-                    changes["chat_message_ids"] = combined
-            if changes:
-                item = AgentReminder.model_validate({**item.model_dump(), **changes})
-                await complete_in_thread(self._write, path, item)
-                self.cache.pop(path, None)
+            async with await get_path_lock(path):
+                item = await asyncio.to_thread(self._read, path)
+                if item is None or item.id != ref.id:
+                    raise ValueError("reminder identity is missing or changed")
+                message_ids = changes.pop("chat_message_ids", [])
+                changes = {key: value for key, value in changes.items() if getattr(item, key) is None}
+                if message_ids:
+                    combined = list(dict.fromkeys([*item.chat_message_ids, *message_ids]))
+                    if combined != item.chat_message_ids:
+                        changes["chat_message_ids"] = combined
+                if changes:
+                    item = AgentReminder.model_validate({**item.model_dump(), **changes})
+                    await complete_in_thread(self._write, path, item)
+                    self.cache.pop(path, None)
             if ref in self.records:
                 self.records[ref] = item
 
@@ -202,8 +207,11 @@ class AgentOutbox:
                 if agent is None or not agent.enabled:
                     continue
                 event = self._event(ref)
-            # Capacity waits must leave the outbox available to readers and consumers.
-            await self.runtime.inbox.append("Remy", event)
+            # Let the caller schedule existing consumers before retrying a full receiver.
+            try:
+                await self.runtime.inbox.append("Remy", event, wait=False)
+            except TimeoutError:
+                break
             await self.update(ref, delivered_at=self.runtime.now())
             self.runtime.logger.info(
                 f"Proactive agent={owner} reminder={ref.id} result=delivered path={ref.file}",
