@@ -106,7 +106,7 @@ def test_studio_packages_have_independent_identity() -> None:
     assert main_config["project"]["optional-dependencies"]["core"].count("reme_studio") == 1
     assert "qwenpaw" not in main_config["project"]["optional-dependencies"]
     assert auto_fin_config["project"]["version"] == "0.1.3"
-    assert daily_paper_config["project"]["version"] == "0.1.3"
+    assert daily_paper_config["project"]["version"] == "0.1.4"
     assert dingtalk_config["project"]["version"] == "0.1.0"
     assert main_config["tool"]["setuptools"]["packages"]["find"]["include"] == [
         "reme",
