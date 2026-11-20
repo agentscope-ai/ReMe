@@ -1,5 +1,15 @@
 """Schema"""
 
+from .action_item import (
+    ActionItem,
+    ActionItemEvidence,
+    ActionItemQuery,
+    ActionItemState,
+    action_item_id,
+    apply_update,
+    merge_aliases,
+    state_basis,
+)
 from .application_config import ApplicationConfig, ComponentConfig, JobConfig
 from .agent_reply import AgentReply, collect_reply, replay_reply
 from .agent_session import SessionMessage, SessionSnapshot, SessionStatus
@@ -72,6 +82,14 @@ from .todo import Todo, TodoProgress
 from .traverse_graph import TraverseGraph, TraverseGraphEdge, TraverseGraphNode
 
 __all__ = [
+    "ActionItem",
+    "ActionItemEvidence",
+    "ActionItemQuery",
+    "ActionItemState",
+    "action_item_id",
+    "apply_update",
+    "merge_aliases",
+    "state_basis",
     "ASRResult",
     "AudioFormat",
     "TTSResult",
