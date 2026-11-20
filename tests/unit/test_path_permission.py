@@ -27,9 +27,9 @@ from pathlib import Path
 import pytest
 
 from reme.components.file_store import LocalFileStore
+from reme.steps.file_io import check_path_permission
 from reme.enumeration import LinkScopeEnum
 from reme.schema import FileNode
-from reme.steps.file_io._path import _check_path_permission
 from reme.steps.file_io.delete import DeleteStep
 from reme.steps.file_io.edit import EditStep
 from reme.steps.file_io.frontmatter_delete import FrontmatterDeleteStep
@@ -538,9 +538,9 @@ async def test_nonexistent_allowed_paths_allow_component_bounded_descendants():
         store = await _make_store()
 
         scope = {"_allowed_paths": ["X/Y"]}
-        assert _check_path_permission(workspace, workspace / "X/Y", scope["_allowed_paths"])
-        assert _check_path_permission(workspace, workspace / "X/Y/Z", scope["_allowed_paths"])
-        assert not _check_path_permission(workspace, workspace / "X/YZ", scope["_allowed_paths"])
+        assert check_path_permission(workspace, workspace / "X/Y", scope["_allowed_paths"])
+        assert check_path_permission(workspace, workspace / "X/Y/Z", scope["_allowed_paths"])
+        assert not check_path_permission(workspace, workspace / "X/YZ", scope["_allowed_paths"])
 
         resp = await _run(WriteStep, store, path="X/Y/nested", content="nested", **scope)
         assert resp.success is True

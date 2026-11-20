@@ -309,7 +309,6 @@ async def test_image_only_pipeline_preserves_sessions_and_official_query(candida
             assert kwargs["include_images"] is kwargs["include_source_sessions"] is True
     inputs = calls[-1][1]
     assert inputs["max_iters"] == 30 and "category" not in inputs
-    assert inputs["query"] == memlens.query_prompt(query, "Use the available tools to retrieve relevant evidence.")
     assert judge.run_job.call_args.kwargs["reference"] == "HIDDEN_GOLD"
     assert rows[0]["metrics"]["llm_judge"] == 1 and app.closed
     measured = normalized_usage(

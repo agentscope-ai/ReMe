@@ -98,6 +98,16 @@ def test_show_plugin_reads_manifest_without_importing_backends(monkeypatch, tmp_
     assert "auto_fin" in output
 
 
+def test_object_entry_point_is_listed_as_unsupported_and_cannot_be_shown(monkeypatch, tmp_path, capsys):
+    entry = _FakeEntryPoint("old-plugin", "old_plugin:plugin", _FakeDistribution(tmp_path))
+    monkeypatch.setattr(plugin_cli_module.metadata, "entry_points", lambda: _FakeEntryPoints([entry]))
+
+    assert plugin_cli_module.plugin_cli(["list"]) == 0
+    assert "unsupported" in capsys.readouterr().out
+    assert plugin_cli_module.plugin_cli(["show", "old-plugin"]) == 1
+    assert "package-only entry point and plugin.yaml" in capsys.readouterr().err
+
+
 def test_show_plugin_preserves_registry_when_editable_fallback_imports_package(monkeypatch, tmp_path, capsys):
     package = tmp_path / "fallback_plugin"
     package.mkdir()

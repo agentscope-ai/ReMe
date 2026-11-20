@@ -1,24 +1,20 @@
 """Session-scoped MCP tools backed by the current Application's jobs."""
 
-import asyncio
-from contextlib import contextmanager
 import secrets
-import socket
 from typing import Any
 
+from .loopback_http import LoopbackHTTP
 from .mcp_tools import make_mcp_job_tool
 
 
-class ScopedMCP:
+class ScopedMCP(LoopbackHTTP):
     """Serve isolated tool catalogs on one authenticated, application-owned endpoint."""
 
     def __init__(self) -> None:
+        super().__init__(self)
         self.path = f"/_reme/codex/{secrets.token_hex(12)}"
         self.scopes: dict[str, list[Any]] = {}
         self._app: Any = None
-        self._server: Any = None
-        self._task: asyncio.Task | None = None
-        self._socket: socket.socket | None = None
 
     @property
     def app(self) -> Any:
@@ -63,37 +59,11 @@ class ScopedMCP:
 
     async def listen(self) -> str:
         """Start a loopback listener for embedded/CLI hosts that have no HTTP service."""
-        if self._server is None:
-            import uvicorn
-
-            class LocalServer(uvicorn.Server):
-                """Leave signal handling to the containing ReMe application."""
-
-                @contextmanager
-                def capture_signals(self):
-                    """Keep the caller's signal handlers intact."""
-                    yield
-
-            self._socket = socket.socket()
-            self._socket.bind(("127.0.0.1", 0))
-            self._server = LocalServer(uvicorn.Config(self, log_config=None, access_log=False, ws="none"))
-            self._task = asyncio.create_task(self._server.serve(sockets=[self._socket]))
-        while not self._server.started:
-            if self._task.done():
-                await self._task
-                raise RuntimeError("Codex tool endpoint stopped before startup")
-            await asyncio.sleep(0.01)
-        return f"http://127.0.0.1:{self._socket.getsockname()[1]}{self.path}"
+        return f"{await super().listen()}{self.path}"
 
     async def close(self) -> None:
         """Stop the optional listener and revoke all tool bindings."""
         try:
-            if self._server is not None:
-                self._server.should_exit = True  # pylint: disable=attribute-defined-outside-init
-                try:
-                    await self._task
-                finally:
-                    self._socket.close()
-                    self._server = self._task = self._socket = None
+            await super().close()
         finally:
             self.scopes.clear()

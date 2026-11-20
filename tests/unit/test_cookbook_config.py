@@ -94,7 +94,7 @@ def test_cookbook_enables_embedding_and_separate_agent_backends(monkeypatch):
 
 
 def test_cookbook_dingtalk_keeps_claude_tools_and_adds_only_memory_search(monkeypatch, tmp_path):
-    """The final SDK options retain native tools, disable WebSearch, and add only ReMe search."""
+    """The final SDK options retain native tools and add only ReMe search."""
     config = _cookbook(monkeypatch)
     wrapper_config = dict(config["components"]["agent_wrapper"]["claude_code"])
     wrapper_config.pop("backend")
@@ -109,7 +109,7 @@ def test_cookbook_dingtalk_keeps_claude_tools_and_adds_only_memory_search(monkey
     )
 
     assert opts.tools is None
-    assert opts.disallowed_tools == ["WebSearch"]
+    assert opts.disallowed_tools == []
     assert opts.permission_mode == "bypassPermissions"
     assert opts.allowed_tools == ["search"]
     assert set(opts.mcp_servers) == {wrapper.MCP_SERVER_NAME}

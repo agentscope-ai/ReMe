@@ -1,9 +1,10 @@
 """Base agent wrapper component."""
 
 from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from importlib import metadata
 from pathlib import Path
-from typing import Any, ClassVar, TYPE_CHECKING
+from typing import Any, ClassVar, Literal, TYPE_CHECKING
 
 from pydantic import BaseModel
 
@@ -19,7 +20,27 @@ if TYPE_CHECKING:
 
 
 class BaseAgentWrapper(BaseComponent):
-    """Abstract base for agent wrapper components with swappable backends."""
+    """One session contract for Codex, Claude Code and AgentScope.
+
+    Every backend forks current context independently, including during a turn.
+    Immediate append submits without the generation lock; idle append waits.
+    Both return only after durable persistence, with the same retry identity.
+
+    Codex owns its native active-input queue. Claude uses the invocation's live
+    SDK client, since another resumed CLI cannot update its in-memory context.
+    Claude's no-query batches are serialized to prevent queued user frames
+    being merged into another message's durable ID.
+    AgentScope queues observations until model-input/reply boundaries, because
+    concurrent observe() during SDK compression can be overwritten.
+
+    Native ephemeral threads are a Codex feature: they inherit model context,
+    but cannot expose hydrated turns or provide durable append receipts.
+    Claude/AgentScope forks remain file-backed; releasing runtime resources
+    never deletes history.
+    The shared read-only hint restricts builtins in Claude/AgentScope; it is
+    not their OS command sandbox. Native tool/network settings remain specific
+    to each SDK.
+    """
 
     component_type = ComponentEnum.AGENT_WRAPPER
     SDK_PACKAGE: ClassVar[str | None] = None
@@ -79,8 +100,7 @@ class BaseAgentWrapper(BaseComponent):
 
         A relative configured path resolves from the workspace so applications
         can keep runtime data in a subdirectory such as ``.reme`` while loading
-        project assets from its parent. The workspace remains the default for
-        backward compatibility.
+        project assets from its parent. Defaults to the workspace.
         """
         if not self._project_path:
             return self.workspace_path
@@ -278,11 +298,27 @@ class BaseAgentWrapper(BaseComponent):
         raise NotImplementedError(f"{type(self).__name__} does not support session compaction")
 
     async def create_session(self, **kwargs) -> str:
-        """Create a resumable empty session without generating a reply."""
+        """Create a resumable session without generating a reply.
+
+        With resume and fork_session=True, capture source context in an independent
+        session without waiting for or interrupting a running source. Running
+        tools are not cloned; unfinished work is closed only in the branch.
+        Subsequent source messages are not automatically copied into the fork.
+        """
         raise NotImplementedError(f"{type(self).__name__} does not support session creation")
 
     async def release_session(self, session_id: str) -> None:
         """Release idle runtime resources; persisted session history remains available."""
+
+    @asynccontextmanager
+    async def session_guard(self, session_id: str, *, expected_revision: str):
+        """Hold generation and append writers while committing a content-dependent decision."""
+        raise NotImplementedError("This agent backend does not support guarded decisions")
+        yield  # pylint: disable=unreachable
+
+    async def session_exists(self, session_id: str) -> bool:
+        """Check whether a session can be resumed without generating a reply."""
+        raise NotImplementedError(f"{type(self).__name__} does not support session existence checks")
 
     async def get_session_path(self, session_id: str) -> Path | None:
         """Return the native session file path, or None when no path is available.
@@ -290,6 +326,9 @@ class BaseAgentWrapper(BaseComponent):
         The returned path may precede file creation. Lookup errors propagate.
         """
         raise NotImplementedError(f"{type(self).__name__} does not support session path lookup")
+
+    async def get_tool_calls(self, session_id: str, turn_id: str | None = None) -> list[dict[str, Any]] | None:
+        """Read saved calls for a turn, or None when only live events are available."""
 
     async def read_session(self, session_id: str) -> SessionSnapshot:
         """Read display history without waiting for the session to become idle."""
@@ -305,10 +344,24 @@ class BaseAgentWrapper(BaseComponent):
         content: str,
         *,
         message_id: str,
+        role: Literal["user", "assistant"] = "assistant",
         timeout: float = 30,
         expected_turn_id: str | None = None,
+        expected_revision: str | None = None,
+        delivery: str = "idle",
     ) -> SessionMessage:
-        """Append an idempotent assistant message, optionally requiring the current conversation turn."""
+        """Append a user or assistant message once without generating a reply.
+
+        The optional revision guard rejects any changed display content; the turn guard checks only its anchor.
+        Idle delivery waits for generation. Immediate delivery submits during
+        generation and may wait until a native processing/SDK event boundary.
+
+        Successful return confirms native persistence, not merely input-queue acceptance.
+        Acceptance need not interrupt the current model request or start another turn.
+        A timeout or cancellation after submission does not prove rejection: retry with
+        the same message_id, role and content. An already accepted request keeps its
+        original identity and is recovered before applying guards for a new append.
+        """
         raise NotImplementedError(f"{type(self).__name__} does not support session appending")
 
     async def reply_stream(self, inputs: Any, **kwargs) -> AsyncGenerator[StreamChunk, None]:

@@ -70,7 +70,9 @@ reme/
     as_llm/, as_embedding/   # 模型封装
     as_decision_model/       # 可选的决策模型适配器
     agent_wrapper/           # AgentScope / Claude Code / Codex wrapper
-    codex_app_server.py      # 共享 Codex 进程与会话锁
+    codex_app_server/        # BaseCodexAppServer / SDK 后端 / 共享会话生命周期
+    agent_inbox/             # BaseAgentInbox / 本地存储与 Agent 事件输入
+    agent_runtime/           # BaseAgentRuntime / 本地 Agent 协调
   steps/
     base_step.py             # BaseStep、Ref、dispatch_steps
     common/                  # version、help、health_check、status、chat
@@ -235,8 +237,7 @@ entry-point 名称就是插件标识；使用
 `(component_type, backend)` 时会在装配阶段失败，
 不会互相覆盖。
 
-迁移期间仍兼容旧的 Python `Plugin` descriptor 和 `reme.configs` entry point。配置的 `extends` 可以继承内置配置、
-旧插件配置或文件配置。独立打包示例见[钉钉](../../plugins/dingtalk/README_ZH.md)、
+配置的 `extends` 可以继承内置配置、已安装的命名配置或文件配置。独立打包示例见[钉钉](../../plugins/dingtalk/README_ZH.md)、
 [Auto Fin](../../plugins/auto-fin/README_ZH.md) 与
 [每日论文](../../plugins/daily_paper/README_ZH.md) 插件。
 
@@ -418,7 +419,9 @@ jobs:
       - backend: dream_finish_step
 ```
 
-当前实现使用 `croniter` 计算下一次触发时间，时区来自 `app_config.timezone`。
+使用 `croniter` 按 `app_config.timezone` 计算下一次触发时间。可选的
+[`init_steps`](./configuration.md#cron-初始化) 在进入调度前执行，每次定时触发只运行 `steps`。
+初始化失败交给后台 supervisor 重试，因此初始化必须幂等。
 
 ### 6.5 默认 Job 类型分布
 
@@ -433,6 +436,9 @@ flowchart LR
 ## 7. Step 模型
 
 Step 是具体业务动作。所有 Step 都继承 `BaseStep` 并实现 `execute()`。
+
+`shell_step` 复用本地进程执行器：stdout、stderr 各有 1 MiB 上限，超时、取消和执行结束时都会清理子进程。
+`shell_timeout` 必须是有限的正数，单位为秒。
 
 ```mermaid
 flowchart LR
@@ -555,16 +561,69 @@ payload、顺序、原生元数据和终止状态；缺少或重复的终止结�
 Claude 保留 `ResultMessage`，Codex 保留 `TurnResult`。需要原样重放时应保存完整 AgentReply；原生会话历史提供
 item 快照，不含原始流的逐次增量。Studio 合并内容快照，展示结构化输出和终止状态，历史刷新保留已有实时事件。
 HTTP `stream_chunks()` 完整返回错误事件和 DONE，CLI 与文本辅助函数单独处理报错。
-迁移：用 `result`/`raw` 替代 `last_message`/`turn`，消费终止结果，不再拼接所有流式 payload。
 纯文本生产者使用默认 `delta` 操作。
+
+AgentScope wrapper 支持上述会话操作，保留现有 Agent 生成流程。`resume` 恢复模型上下文；显式 `session_id`
+在该 ID 下使用新的模型上下文，同时保留显示历史。`{mem_session_dir}/agentscope/<UUID>.jsonl` 原子保存当前
+SDK 状态及 `agentscope/history/<UUID>.jsonl` 中已提交的字节位置。显示日志只追加新增或修改的消息尾部，
+已完成的内容块快照替代流式增量；序列化和解析在线程中执行。备份时需一起保留两个文件。
+读取忽略未提交的日志尾部，下一次写入仅清理该尾部。压缩不会丢失显示历史。
+回复、压缩和 idle 追加共用会话锁；读取和 fork 不等待生成。immediate 追加进入队列，在安全的模型输入或回复边界
+处理，落盘后才返回。追加保留展示策略，并通过 `message_id` 在重启后保持幂等。等待审批或外部执行也视为活跃状态。会话所有权和运行状态限定在
+同一个 Application 中，独立进程不能并发写入同一会话。
 
 Codex wrapper 通过 `app_server: default` 或 `app_server: oauth` 引用共享组件。多个 wrapper 可以共享同一个进程，
 并分别配置模型、指令和会话。不传 `session_id` 时创建新 thread；传回已有 `session_id` 时续聊。
 不同 thread 可以并发，同一 thread 的操作串行。
 
+传入 `fork_session=True` 和 `resume` 或 `session_id`，可继承来源会话的原生上下文。
+模型、指令、turn 设置和 job 工具由当前 wrapper 配置与调用参数提供；重启后重新从应用配置和 Step 构造。
+来源为空且尚无原生 rollout 时，创建使用当前配置的独立 thread。
+原生会话准备被拒绝或取消时，保留之前有效的运行中设置和工具绑定。
+
+`create_session()` 在首次查询前保留 `effort` 等进程内 turn 设置。
+`output_schema` 只作用于本次调用；省略时使用调用方 wrapper 的默认值，显式传 `None` 在本次调用关闭该默认值。
+
+主动提醒在临时只读分身中评估，仅绑定 `read_chat_reminders` 和 `submit_chat_reminder`；只有明确提交的文本追加到前台会话，
+分身推理过程与普通回复留在分身中。Codex 把追加内容保存在原生 rollout，不保存另一份应用消息副本。
+`reme_agents/` 保存任务配置、事件收件箱、提醒 Markdown、个人记忆和会话引用。Remy 收件箱从提醒文件及其确认字段生成，
+对话内容保存在原生会话历史中。
+
+Agent Runtime 统一管理临时活动状态与实时输出；桌面通过 `watch_agent_session` 订阅。Codex 原生状态通知只负责操作完成与断连处理。
+三个 wrapper 都支持 `append_session(..., role="user" | "assistant")`，只追加上下文，不触发模型生成，默认角色为 `assistant`。
+同一 `message_id` 重试时必须保持内容和角色一致。注入消息的 `source="proactive"` 与角色独立，重载或 fork 后仍保留。
+`SessionSnapshot.revision` 是与活动状态无关、重载后稳定的内容指纹。通过 `expected_revision` 追加时，
+即使没有新的模型轮次，追加 user 消息等内容变化也会使旧决策失败；`expected_turn_id` 仅检查模型轮次锚点。
+两种检查都在会话写锁内执行；已提交且内容一致的 `message_id` 可携带旧版本安全重试。
+提醒分身提交文本时传递来源版本，过期决策保留收件箱消息，等待重新评估。
+`append_session(..., delivery="idle" | "immediate")` 在消息中保留投递方式与来源会话。`idle` 等待生成结束，
+`immediate` 可以在原生轮次执行期间提交。Codex 读取会话、查询状态时，可恢复的 SDK 异常统一为
+`ConnectionError`；校验错误与取消继续传播。
+
+Claude Code 使用原生流式输入和零推理回执保存追加消息。
+`{mem_session_dir}/claude_sessions/<UUID>.json` 保留原生存储位置、来源及跨重启的重试标识，继续支持显式配置
+工作区外的 `mem_session_dir`。历史和状态读取不等待生成；追加、压缩与生成共用会话锁。
+空会话包含一条隐藏的原生种子输入。
+`continue_conversation=True` 先定位当前项目最近的主会话，再获取它的会话锁；外部 `session_store` 同样支持，
+没有历史会话时创建新会话。
+恢复和 fork 会使用已保存的原生 `cwd`；显式传入不同目录会报错。查询启动被拒绝时，保留先前的轮次锚点与
+审批状态，只有原生历史确认接受输入后才更新。
+
+`session_read` 和 `session_status` Job 使用各自 Step 配置中指定的 wrapper。
+先通过 `reme start config=default` 启动服务，再在另一个终端调用：
+
+```bash
+reme session_read session_id=YOUR_SESSION_ID
+reme session_status session_id=YOUR_SESSION_ID
+```
+
 `await wrapper.get_session_path(session_id)` 返回原生会话文件的 `Path`；Codex 未提供路径时返回 `None`。
 第一轮对话前文件可能尚未创建。查询错误继续传播，返回路径必须位于配置的 `codex_home` 内。
-查询不恢复 thread，也不加载对话历史。其他后端暂时抛出 `NotImplementedError`。
+AgentScope 和 Claude Code 也返回各自的原生会话文件；Claude 配置外部 `session_store` 时返回 `None`。
+路径查询不恢复会话，也不生成新的回复。
+
+`await wrapper.session_exists(session_id)` 检查会话是否可恢复，包括尚未生成 rollout 的 Codex 活跃空会话；
+不支持该能力的后端抛出 `NotImplementedError`。
 
 默认使用 `approval_mode: deny_all` 和 `sandbox: full-access`；SDK 将该模式映射为 `approval_policy: never`，
 可用工具直接执行，不经过人工或模型审批。需要新增权限的请求直接拒绝，不弹出审批。
@@ -583,11 +642,10 @@ API key 模式默认使用 `qwen3.8-max` 处理主对话、代码审查、子任
 thread 的模型。OAuth 使用账号支持的模型，通过独立的 `CODEX_OAUTH_MODEL_NAME` 覆盖。
 使用 `LLM_API_KEY`、`LLM_BASE_URL` 的完整 API key 配置见 [demo 配置](../../reme/config/demo.yaml)。
 
-迁移：将 wrapper 上的 `auth_mode`、`api_key`、`base_url`、`codex_home`、`codex_bin`、`config_overrides` 和
-`experimental_api` 移到 `components.codex_app_server.<名称>`，并使用 `backend: sdk`。默认 Codex 目录为
-`{workspace_dir}/.codex`；如需继续使用原有登录和会话，请将 `codex_home` 指向旧目录。
+在 `components.codex_app_server.<名称>`（`backend: sdk`）中配置 `auth_mode`、`api_key`、`base_url`、`codex_home`、
+`codex_bin`、`config_overrides` 和 `experimental_api`。默认 Codex 目录为 `{workspace_dir}/.codex`。
 多个服务组件需要独立账号或会话存储时，分别显式配置 `codex_home`。
-删除 `mcp_config` 和 `release_threads`。job 工具通过受限 MCP 入口调用当前 Application 中的原有 job，明文 HTTP 模式复用现有
+Job 工具通过受限 MCP 入口调用当前 Application 中的 Job，明文 HTTP 模式复用现有
 监听器，TLS、CLI 和嵌入式模式使用随组件关闭的本地监听器。工具白名单及隐藏参数绑定到已加载的 thread；thread 卸载后可在
 恢复时重新绑定。内部 job 仅对显式选择的工具开放，不改变其公共服务可见性。关闭 wrapper 不关闭共享进程，由 Application
 统一关闭。连接断开时当前请求报错且不重放工具，后续请求可以重连并恢复会话。

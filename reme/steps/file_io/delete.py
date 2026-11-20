@@ -29,7 +29,7 @@ in the workspace, including whole folders.
 import shutil
 from pathlib import Path
 
-from ._path import _check_path_permission, resolve_path
+from ._path import check_path_permission, resolve_path
 from ..base_step import BaseStep
 from ...components import R
 from ...utils.wikilink_handler import WikilinkHandler
@@ -79,7 +79,7 @@ class DeleteStep(BaseStep):
         target, err = resolve_path(workspace_dir, path)
         if err or target is None:
             return {"path": path, "error": err or "invalid path"}
-        if not _check_path_permission(workspace_dir, target, self.context.get("_allowed_paths")):
+        if not check_path_permission(workspace_dir, target, self.context.get("_allowed_paths")):
             return {"path": path, "error": "no permission to delete this path"}
         if target.is_file():
             inbound = await WikilinkHandler.find_inbound(self.file_store, target=path)

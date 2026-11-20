@@ -1,8 +1,11 @@
 """Tests for shared agent wrapper behavior."""
 
+import asyncio
+import os
+import signal
 import sys
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -82,7 +85,7 @@ async def test_session_commands_are_backend_neutral():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("wrapper_class", [BaseAgentWrapper, AsAgentWrapper, CcAgentWrapper])
+@pytest.mark.parametrize("wrapper_class", [BaseAgentWrapper])
 async def test_session_path_lookup_is_explicitly_unsupported(tmp_path, wrapper_class):
     """Backends without native path lookup raise the shared capability error."""
     wrapper = wrapper_class(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
@@ -152,6 +155,49 @@ async def test_agentscope_backend_passes_configured_environment_to_bash(tmp_path
 
 
 @pytest.mark.asyncio
+async def test_agentscope_backend_cancel_kills_and_reaps_before_returning(tmp_path, monkeypatch):
+    """Repeated cancellation cannot release the tool while its child still runs."""
+    entered, reaping, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+    async def communicate():
+        if not entered.is_set():
+            entered.set()
+            await asyncio.Event().wait()
+        reaping.set()
+        await release.wait()
+        return b"", b""
+
+    process = SimpleNamespace(
+        pid=12345,
+        returncode=None,
+        kill=MagicMock(),
+        communicate=AsyncMock(side_effect=communicate),
+    )
+    spawn = AsyncMock(return_value=process)
+    kill_group = MagicMock()
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    if os.name != "nt":
+        monkeypatch.setattr(os, "killpg", kill_group)
+    task = asyncio.create_task(WorkspaceBackend(str(tmp_path)).exec_shell(["test-command"]))
+    await entered.wait()
+    task.cancel()
+    try:
+        await asyncio.wait_for(reaping.wait(), 0.2)
+        task.cancel()
+        await asyncio.sleep(0)
+        assert not task.done()
+        if os.name != "nt":
+            kill_group.assert_called_once_with(process.pid, signal.SIGKILL)
+            assert spawn.call_args.kwargs["start_new_session"]
+        else:
+            process.kill.assert_called_once_with()
+    finally:
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+
+@pytest.mark.asyncio
 async def test_agentscope_bash_uses_managed_proxy_without_changing_subprocess_environment(tmp_path):
     """AgentScope applies the managed proxy only to its command backend."""
     context = ApplicationContext(
@@ -202,14 +248,13 @@ async def test_agentscope_builtin_tools_are_opt_in(tmp_path, monkeypatch, reply_
 
         def __init__(self, **kwargs):
             self.state = kwargs["state"]
-            observed["system_prompt"] = kwargs["system_prompt"]
 
     monkeypatch.setattr(wrapper, "_builtin_tools", builtin_tools)
     monkeypatch.setattr(as_agent_wrapper, "Agent", FakeAgent)
 
     await wrapper._build_agent("hello", **reply_kwargs)  # pylint: disable=protected-access
 
-    assert observed == {"names": expected, "sequential_tool_calls": True, "system_prompt": ""}
+    assert observed == {"names": expected, "sequential_tool_calls": True}
 
 
 @pytest.mark.asyncio
@@ -253,7 +298,7 @@ async def test_agentscope_structured_output_uses_model_tool_choice_policy(tmp_pa
         return None
 
     monkeypatch.setattr(wrapper, "_build_agent", build_agent)
-    monkeypatch.setattr(wrapper, "_dump_state", dump_state)
+    monkeypatch.setattr(wrapper._sessions, "save", dump_state)  # pylint: disable=protected-access
 
     result = await wrapper.reply("hello", output_schema={"type": "object"})
 

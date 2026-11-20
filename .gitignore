@@ -48,6 +48,9 @@ temp*/
 # Local tool indexes (rebuildable, machine-local)
 .codegraph/
 
+# Local previews and experiment outputs
+/outputs/
+
 # ReMe runtime data
 .reme/
 reme_workspace/
@@ -86,3 +89,7 @@ benchmark/*/results/
 # integration tests outputs
 tests/integration/logs/
 daily/
+
+# Desktop generated output
+reme_desktop/out/
+reme_desktop/reports/

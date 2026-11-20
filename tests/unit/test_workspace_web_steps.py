@@ -8,9 +8,7 @@ import pytest
 
 from reme.components.agent_wrapper import CodexAgentWrapper
 from reme.components.application_context import ApplicationContext
-from reme.components.job import StreamJob
 from reme.components.runtime_context import RuntimeContext
-from reme.config.config_parser import _load_config
 from reme.enumeration import ChunkEnum
 from reme.schema import StreamChunk
 from reme.steps.common.chat import ChatStep
@@ -27,9 +25,6 @@ class _StreamingAgent(CodexAgentWrapper):
 
     async def reply(self, inputs, **kwargs) -> dict:
         raise AssertionError("ChatStep must always use reply_stream()")
-
-    async def create_session(self, **kwargs) -> str:
-        return "session-new"
 
     async def reply_stream(self, inputs, **kwargs):
         self.reply_kwargs = kwargs
@@ -150,71 +145,3 @@ async def test_chat_step_streams_rich_chunks_and_resumes_session(tmp_path):
         "traverse",
     ]
     assert agent.reply_kwargs["builtin_tools"] == []
-    assert agent.reply_kwargs["system_prompt"] == ""
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("system_prompt", ["", None, "Custom prompt.\n"])
-async def test_chat_step_passes_system_prompt_override_verbatim(tmp_path, system_prompt):
-    """A caller prompt reaches the wrapper without extra environment text."""
-
-    app_context = ApplicationContext(workspace_dir=str(tmp_path), timezone="Asia/Shanghai")
-    agent = _StreamingAgent(app_context=app_context)
-
-    await ChatStep(agent_wrapper=agent, app_context=app_context)(
-        query="hello",
-        system_prompt=system_prompt,
-        stream_queue=asyncio.Queue(),
-    )
-
-    assert agent.reply_kwargs["system_prompt"] == (system_prompt or "")
-
-
-@pytest.mark.asyncio
-async def test_default_chat_uses_configured_prompt_and_allows_empty_override(tmp_path):
-    """The built-in prompt comes from config and can be explicitly cleared."""
-    config = _load_config("default")
-    app_context = ApplicationContext(workspace_dir=str(tmp_path))
-    agent = _StreamingAgent(app_context=app_context)
-    app_context.components["agent_wrapper"] = {"default": agent}
-    chat = StreamJob(name="chat", app_context=app_context, **config["jobs"]["chat"])
-
-    async with chat:
-        await chat(query="hello", stream_queue=asyncio.Queue())
-        assert agent.reply_kwargs["system_prompt"] == config["jobs"]["chat"]["system_prompt"]
-        assert agent.reply_kwargs["system_prompt"].startswith("You are ReMe Agent")
-        await chat(query="hello", system_prompt="", stream_queue=asyncio.Queue())
-        assert agent.reply_kwargs["system_prompt"] == ""
-
-
-@pytest.mark.asyncio
-async def test_proactive_chat_uses_native_tools_and_loads_its_prompt_template(tmp_path):
-    """The proactive stream opts out of ReMe tools and loads the PA prompt template."""
-
-    config = _load_config("proactive")
-    app_context = ApplicationContext(workspace_dir=str(tmp_path))
-    agent = _StreamingAgent(app_context=app_context)
-    app_context.components["agent_wrapper"] = {"default": agent}
-    chat = StreamJob(name="pa_chat", app_context=app_context, **config["jobs"]["pa_chat"])
-    queue = asyncio.Queue()
-
-    await chat.start()
-    try:
-        await chat(query="Help plan my day", stream_queue=queue)
-        assert agent.reply_kwargs["job_tools"] == []
-        assert agent.reply_kwargs["system_prompt"].startswith("You are Remy")
-        memory = tmp_path / "digest/personal/REME_MEMORY.md"
-        assert f"Personal memory: {memory}" in agent.reply_kwargs["system_prompt"]
-        assert f"Workspace: {tmp_path}" in agent.reply_kwargs["system_prompt"]
-        assert "financial news" in memory.read_text(encoding="utf-8")
-        assert agent.reply_kwargs["resume"] == "session-new"
-        chunks = [await queue.get() for _ in range(5)]
-        assert [chunk.chunk_type for chunk in chunks] == [
-            ChunkEnum.DATA,
-            ChunkEnum.TOOL_CALL,
-            ChunkEnum.CONTENT,
-            ChunkEnum.REPLY_END,
-            ChunkEnum.DONE,
-        ]
-    finally:
-        await chat.close()

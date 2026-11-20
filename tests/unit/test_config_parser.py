@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from reme.config.config_parser import (
-    _expand_env_vars,
+    expand_env_vars,
     _load_config,
     _read_config_file,
     parse_args,
@@ -213,7 +213,7 @@ def test_expand_env_vars_converts_expanded_scalar_types(monkeypatch):
     monkeypatch.setenv("PORT", "18080")
     monkeypatch.setenv("ENABLED", "false")
 
-    expanded = _expand_env_vars(
+    expanded = expand_env_vars(
         {
             "port": "${PORT}",
             "enabled": "${ENABLED}",

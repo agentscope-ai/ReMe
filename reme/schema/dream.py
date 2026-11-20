@@ -6,9 +6,6 @@ from pydantic import BaseModel, Field
 
 from ..enumeration import DreamBucketEnum
 
-# ProactiveResult moved to reme.schema.proactive; re-exported for import compatibility.
-from .proactive import ProactiveResult  # noqa: F401  # pylint: disable=unused-import
-
 
 class DreamUnit(BaseModel):
     """One cross-file memory unit emitted by global extract."""

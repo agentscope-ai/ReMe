@@ -69,8 +69,11 @@ class BaseJob(BaseComponent):
         enable_serve: bool = True,
         enabled: bool = True,
         track_execution: bool | None = None,
+        init_steps: list[ComponentConfig | dict] | None = None,
         **kwargs,
     ):
+        if init_steps:
+            raise ValueError("init_steps is only supported by cron jobs")
         super().__init__(**kwargs)
         self.description = description
         self.parameters = parameters or {}

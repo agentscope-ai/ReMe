@@ -4,22 +4,24 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncGenerator, AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 from dataclasses import dataclass
 from functools import partial
 import json
 import os
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import Any, Literal, TYPE_CHECKING
 
 from .base_agent_wrapper import BaseAgentWrapper
-from .codex_session_history import item_chunks
-from ..codex_app_server import CodexAppServer
+from . import codex_session_history
+from .session_append import check_guard, check_identity, validate_append
+from ..codex_app_server._session_history import item_chunks
+from ..codex_app_server import BaseCodexAppServer, SdkCodexAppServer
 from ..component_registry import R
-from ..job import BackgroundJob, StreamJob
 from ...enumeration import ChunkEnum
 from ...schema import AgentReply, SessionMessage, SessionSnapshot, SessionStatus, StreamChunk, TokenUsage
 from ...schema.stream_chunk import stream_status
+from ...utils.async_utils import finish_cleanup
 
 if TYPE_CHECKING:
     from openai_codex import AsyncThread, RunInput
@@ -68,7 +70,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
     def __init__(self, app_server: str = "default", **kwargs) -> None:
         self._reject_server_options(kwargs)
         super().__init__(**kwargs)
-        self.app_server = self.bind(app_server, CodexAppServer, default_factory=CodexAppServer, optional=False)
+        self.app_server = self.bind(app_server, BaseCodexAppServer, default_factory=SdkCodexAppServer, optional=False)
         self._active = 0
         self._idle = asyncio.Event()
         self._idle.set()
@@ -132,19 +134,24 @@ class CodexAgentWrapper(BaseAgentWrapper):
             "service_tier": kwargs.get("service_tier"),
         }
         if kwargs.get("fork_session"):
+            if kwargs.get("ephemeral"):
+                # Paginated ephemeral forks require excludeTurns; inherited model context is unchanged.
+                options["include_turns"] = False
             options.update(
                 ephemeral=kwargs.get("ephemeral"),
                 thread_source=self._enum(ThreadSource, kwargs.get("thread_source")),
             )
-        else:
-            options["personality"] = self._enum(Personality, kwargs.get("personality"))
-            if not (kwargs.get("resume") or kwargs.get("session_id")):
-                options.update(
-                    ephemeral=kwargs.get("ephemeral"),
-                    service_name=kwargs.get("service_name"),
-                    session_start_source=self._enum(ThreadStartSource, kwargs.get("session_start_source")),
-                    thread_source=self._enum(ThreadSource, kwargs.get("thread_source")),
-                )
+            if kwargs.get("personality") is not None:
+                options["config"]["personality"] = kwargs["personality"]
+            return options
+        options["personality"] = self._enum(Personality, kwargs.get("personality"))
+        if not (kwargs.get("resume") or kwargs.get("session_id")):
+            options.update(
+                ephemeral=kwargs.get("ephemeral"),
+                service_name=kwargs.get("service_name"),
+                session_start_source=self._enum(ThreadStartSource, kwargs.get("session_start_source")),
+                thread_source=self._enum(ThreadSource, kwargs.get("thread_source")),
+            )
         return options
 
     @asynccontextmanager
@@ -163,10 +170,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
         if fork and not thread_id:
             raise ValueError("fork_session=True requires resume or session_id")
         jobs = None if compact else self._resolve_job_tools(list(dict.fromkeys(kwargs.get("job_tools") or [])))
-        if any(isinstance(job, (BackgroundJob, StreamJob)) for job in jobs or []):
-            raise TypeError("Codex job_tools must be non-stream request jobs")
-        if any(not getattr(job, "enabled", True) for job in jobs or []):
-            raise ValueError("Codex job_tools must be enabled")
+        BaseCodexAppServer.validate_job_tools(jobs)
         self._ensure_skills(kwargs.get("skills"))
         await self.start()
         self._active += 1
@@ -176,6 +180,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
                 thread_id,
                 fork=fork,
                 options={} if compact else self._thread_options(kwargs),
+                turn_options={} if compact else self._turn_options(kwargs),
                 jobs=jobs,
                 injected=self._resolve_injected_job_kwargs(kwargs),
                 mcp_startup_timeout=kwargs.get("mcp_startup_timeout", 30),
@@ -214,7 +219,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
         finally:
             await stream.aclose()
 
-    def _finish_reply(self, session_id, completed, items, native_usage, usage, kwargs) -> AgentReply:
+    def _finish_reply(self, session_id, completed, items, native_usage, usage, output_schema) -> AgentReply:
         """Build the native TurnResult and portable outcome from this turn's events."""
         from openai_codex import TurnResult
 
@@ -248,7 +253,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
         status = completed.status.value
         error = completed.error.message if completed.error else None
         structured_output = None
-        if status == "completed" and kwargs.get("output_schema") is not None:
+        if status == "completed" and output_schema is not None:
             try:
                 structured_output = json.loads(final_response or "")
             except json.JSONDecodeError:
@@ -273,6 +278,17 @@ class CodexAgentWrapper(BaseAgentWrapper):
         """Release a superseded empty thread; regular turns already release their leases."""
         await self.app_server.release_session(session_id)
 
+    async def get_tool_calls(self, session_id: str, turn_id: str | None = None) -> list[dict[str, Any]] | None:
+        """Use the original rollout to include calls missing from SDK notifications."""
+        async with self._session_request():
+            path = await self.app_server.get_session_path(session_id)
+            return await asyncio.to_thread(
+                codex_session_history.read_tool_calls,
+                path,
+                self.app_server.session_path,
+                turn_id,
+            )
+
     async def compact_session(self, session_id: str) -> None:
         """Hold the conversation lock until native compaction has finished."""
         async with self._session({"session_id": session_id}, compact=True) as thread:
@@ -283,15 +299,32 @@ class CodexAgentWrapper(BaseAgentWrapper):
         await self.start()
         return await self.app_server.get_session_path(session_id)
 
+    async def session_exists(self, session_id: str) -> bool:
+        """Check resumability without loading or generating conversation content."""
+        await self.start()
+        return await self.app_server.session_exists(session_id)
+
     async def read_session(self, session_id: str) -> SessionSnapshot:
         """Read history without acquiring the generation lease."""
-        await self.start()
-        return await self.app_server.read_session(session_id)
+        async with self._session_request():
+            snapshot = await self.app_server.read_session(session_id)
+            messages = await asyncio.to_thread(
+                codex_session_history.read_appends,
+                snapshot.path,
+                self.app_server.session_path,
+            )
+            return codex_session_history.merge_appends(snapshot, messages)
 
-    async def get_session_status(self, session_id: str) -> SessionStatus:
-        """Report native thread activity, including approval/input waits."""
-        await self.start()
-        return await self.app_server.get_session_status(session_id)
+    @asynccontextmanager
+    async def session_guard(self, session_id: str, *, expected_revision: str):
+        """Keep silent decisions under the same native and append leases as idle injection."""
+        async with (
+            self._session_request(),
+            self.app_server.append_lease(session_id),
+            self._session({"session_id": session_id}, compact=True),
+        ):
+            check_guard(await self.read_session(session_id), None, expected_revision)
+            yield
 
     async def append_session(
         self,
@@ -299,34 +332,157 @@ class CodexAgentWrapper(BaseAgentWrapper):
         content: str,
         *,
         message_id: str,
+        role: Literal["user", "assistant"] = "assistant",
         timeout: float = 30,
         expected_turn_id: str | None = None,
+        expected_revision: str | None = None,
+        delivery: str = "idle",
     ) -> SessionMessage:
-        """Append a proactive message through the shared session owner."""
-        await self.start()
-        return await self.app_server.append_session(
-            session_id,
-            content,
-            message_id=message_id,
-            timeout=timeout,
-            expected_turn_id=expected_turn_id,
-        )
+        """Inject once under the shared session lease, without starting a model turn.
 
-    def _turn_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
+        Native message IDs carry retry identity and presentation metadata; the
+        native rollout remains the only durable copy of the message content.
+        Immediate delivery submits to the native input queue while a turn is active;
+        both policies return only after native history confirms persistence.
+        """
+        from ..codex_app_server._session_history import validate_identifier
+
+        validate_identifier(session_id)
+        validate_append(content, message_id, role, timeout, delivery)
+        if expected_turn_id:
+            validate_identifier(expected_turn_id)
+        async with asyncio.timeout(timeout):
+            async with self._session_request(), self.app_server.append_lease(session_id) as pending:
+                unloaded = (await self.get_session_status(session_id)).status == "not_loaded"
+                lease = (
+                    self._session({"session_id": session_id}, compact=True)
+                    if delivery == "idle" or unloaded
+                    else nullcontext()
+                )
+                async with lease:
+                    return await self._append_message(
+                        session_id,
+                        content,
+                        message_id,
+                        role,
+                        delivery,
+                        expected_turn_id,
+                        expected_revision,
+                        pending,
+                    )
+
+    async def _append_message(
+        self,
+        session_id,
+        content,
+        message_id,
+        role,
+        delivery,
+        expected_turn_id,
+        expected_revision,
+        pending,
+    ) -> SessionMessage:
+        """Keep an accepted or uncertain native dispatch distinct from a persisted message."""
+        identifier = f"reme-proactive-{message_id}"
+        snapshot = await self.read_session(session_id)
+        accepted = next((message for message in snapshot.messages if message.id == identifier), None)
+        receipt = accepted or pending.get(identifier)
+        if receipt is not None:
+            check_identity(receipt, content, role)
+        if accepted is not None:
+            pending.pop(identifier, None)
+            return accepted
+        if receipt is None:
+            check_guard(snapshot, expected_turn_id, expected_revision)
+            if snapshot.path is None:
+                raise ValueError("Appending requires a persisted Codex session")
+            native_id = codex_session_history.item_id(session_id, message_id, snapshot.last_turn_id, delivery)
+
+            async def inject():
+                # Keep uncertain dispatches too: a lost RPC receipt must not cause a duplicate.
+                pending[identifier] = SessionMessage(
+                    id=identifier,
+                    role=role,
+                    content=content,
+                    source="proactive",
+                    turn_id=snapshot.last_turn_id,
+                    delivery=delivery,
+                    origin_session_id=session_id,
+                )
+                try:
+                    await self.app_server.inject_items(
+                        session_id,
+                        [
+                            {
+                                "type": "message",
+                                "id": native_id,
+                                "role": role,
+                                "content": [
+                                    {
+                                        "type": "output_text" if role == "assistant" else "input_text",
+                                        "text": content,
+                                    },
+                                ],
+                            },
+                        ],
+                    )
+                except Exception as exc:
+                    # Protocol rejection is definitive; transport/internal failures may follow acceptance.
+                    if getattr(exc, "code", None) in {-32600, -32601, -32602}:
+                        pending.pop(identifier, None)
+                    raise
+                self.logger.info(
+                    f"Codex append session={session_id} message={message_id} result=accepted delivery={delivery}",
+                )
+
+            await finish_cleanup(inject())
+        while True:
+            saved = await self.read_session(session_id)
+            message = next((message for message in saved.messages if message.id == identifier), None)
+            if message is not None:
+                if (message.content, message.role) != (content, role):
+                    raise RuntimeError("Codex persisted different content for the append ID")
+                pending.pop(identifier, None)
+                self.logger.info(f"Codex append session={session_id} message={message_id} result=persisted")
+                return message
+            await asyncio.sleep(0.05)
+
+    async def get_session_status(self, session_id: str) -> SessionStatus:
+        """Report native thread activity, including approval/input waits."""
+        async with self._session_request():
+            return await self.app_server.get_session_status(session_id)
+
+    @asynccontextmanager
+    async def _session_request(self):
+        """Normalize recoverable SDK failures at the session-owner boundary."""
+        from openai_codex.errors import TransportClosedError, is_retryable_error
+
+        try:
+            await self.start()
+            yield
+        except Exception as exc:
+            if isinstance(exc, TransportClosedError) or is_retryable_error(exc):
+                raise ConnectionError(str(exc)) from exc
+            raise
+
+    def _turn_options(self, kwargs: dict[str, Any]) -> dict[str, Any]:
+        """Resolve persistent turn settings, excluding invocation-scoped output schemas."""
         from openai_codex import ApprovalMode, Sandbox
         from openai_codex.types import Personality, ReasoningEffort, ReasoningSummary
 
-        return {
+        options = {
             "approval_mode": self._enum(ApprovalMode, kwargs.get("approval_mode")),
             "cwd": str(self.cwd),
             "effort": self._enum(ReasoningEffort, kwargs.get("effort")),
             "model": kwargs.get("model"),
-            "output_schema": kwargs.get("output_schema"),
             "personality": self._enum(Personality, kwargs.get("personality")),
             "sandbox": self._enum(Sandbox, kwargs.get("sandbox")),
             "service_tier": kwargs.get("service_tier"),
             "summary": self._enum(ReasoningSummary, kwargs.get("summary")),
         }
+        if kwargs.get("fork_session"):
+            options.pop("cwd")
+        return {key: value for key, value in options.items() if key in kwargs or key == "cwd"}
 
     @classmethod
     # pylint: disable=too-many-return-statements
@@ -485,10 +641,11 @@ class CodexAgentWrapper(BaseAgentWrapper):
     async def reply_stream(self, inputs: RunInput, **kwargs) -> AsyncGenerator[StreamChunk, None]:
         """Execute once, retaining every notification and a complete terminal outcome."""
         kwargs = self._reply_kwargs(kwargs)
+        output_schema = kwargs.get("output_schema")
         emitted_usage = None
         async with self._session(kwargs) as thread:
             usage = _TurnUsage(await self.app_server.token_usage(thread.id))
-            turn = await self.app_server.turn(thread, inputs, **self._turn_kwargs(kwargs))
+            turn = await self.app_server.turn(thread, inputs, output_schema=output_schema)
             stream = self._turn_stream(turn, usage)
             items, native_usage, completed, terminal = [], None, None, None
             try:
@@ -518,7 +675,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
                             yield chunk
                 if completed is None or terminal is None:
                     raise RuntimeError("Codex turn completed event not received")
-                result = self._finish_reply(thread.id, completed, items, native_usage, usage.usage, kwargs)
+                result = self._finish_reply(thread.id, completed, items, native_usage, usage.usage, output_schema)
             finally:
                 if usage.usage is not None:
                     self._record_token_usage(usage.usage)

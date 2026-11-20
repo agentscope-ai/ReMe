@@ -43,7 +43,7 @@ bypass the scope.
 import shutil
 from pathlib import Path
 
-from ._path import _check_path_permission, resolve_path
+from ._path import check_path_permission, resolve_path
 from ..base_step import BaseStep
 from ...components import R
 from ...utils.wikilink_handler import WikilinkHandler
@@ -90,9 +90,9 @@ class MoveStep(BaseStep):
             return precheck_error
         assert src_abs is not None and dst_abs is not None  # narrowed by precheck
         allowed_paths = self.context.get("_allowed_paths")
-        if not _check_path_permission(workspace_dir, src_abs, allowed_paths):
+        if not check_path_permission(workspace_dir, src_abs, allowed_paths):
             return {"src_path": src_path, "dst_path": dst_path, "error": "no permission to move this file"}
-        if not _check_path_permission(workspace_dir, dst_abs, allowed_paths):
+        if not check_path_permission(workspace_dir, dst_abs, allowed_paths):
             return {"src_path": src_path, "dst_path": dst_path, "error": "no permission to move this file"}
         retarget_guard = None
         if retarget and allowed_paths is not None:
@@ -187,7 +187,7 @@ def _retarget_write_guard(workspace_dir: Path, allowed_paths):
 
     The gate maps a workspace-relative referencing file to ``None`` (allowed)
     or a denial reason, using the same ``resolve_path`` +
-    ``_check_path_permission`` helpers as the endpoint checks
+    ``check_path_permission`` helpers as the endpoint checks
     (component-bounded containment, fail-closed on invalid scopes). It is
     passed to ``retarget_links`` for both the dry-run precheck and the real
     rewrite pass, so the constraint is re-evaluated on the files the rewrite
@@ -208,7 +208,7 @@ def _retarget_write_guard(workspace_dir: Path, allowed_paths):
         if rel != rel.strip():
             return f"no permission to retarget links in {rel!r}: path identity would change under trimming"
         resolved, err = resolve_path(workspace_dir, rel)
-        if err or resolved is None or not _check_path_permission(workspace_dir, resolved, allowed_paths):
+        if err or resolved is None or not check_path_permission(workspace_dir, resolved, allowed_paths):
             return f"no permission to retarget links in {rel}"
         return None
 

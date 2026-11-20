@@ -41,13 +41,18 @@ async def demo_app(tmp_path, monkeypatch, request):
         service={"backend": "cli"},
     )
     approval_mode = getattr(request, "param", "deny_all")
+    config["jobs"] = {name: config["jobs"][name] for name in ("add", "llm_demo", "stream_llm_demo")}
     config["components"]["agent_wrapper"]["codex"]["approval_mode"] = approval_mode
-    server_config = config["components"]["codex_app_server"]["default"]
+    server_config = config["components"]["codex_app_server"]["demo"]
     assert server_config["auth_mode"] == "api_key"
     assert server_config["api_key"] == environment["LLM_API_KEY"]
     assert server_config["base_url"] == environment["LLM_BASE_URL"]
+    config["components"] = {
+        "codex_app_server": {"demo": server_config},
+        "agent_wrapper": {"codex": config["components"]["agent_wrapper"]["codex"]},
+    }
     app = Application(**config)
-    server = app.context.components["codex_app_server"]["default"]
+    server = app.context.components["codex_app_server"]["demo"]
     async with app:
         yield app
     models = set()

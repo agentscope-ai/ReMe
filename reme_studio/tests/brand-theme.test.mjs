@@ -109,7 +109,6 @@ test("Studio package versions stay aligned", async () => {
     "utf8",
   );
 
-  assert.equal(packageJson.version, "0.1.2");
   assert.equal(packageLock.version, packageJson.version);
   assert.equal(packageLock.packages[""].version, packageJson.version);
   assert.match(

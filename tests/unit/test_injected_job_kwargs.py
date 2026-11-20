@@ -236,17 +236,6 @@ def test_auto_memory_keeps_original_tool_names():
     assert step.update_tools == ["read", "edit", "frontmatter_update", "write"]
 
 
-def test_auto_memory_create_prompts_match_upstream_date_arguments():
-    """Auto-memory prompts keep the upstream model-supplied date argument."""
-    from pathlib import Path
-
-    prompt_file = Path("reme/steps/evolve/auto_memory.yaml")
-    evolve_prompt = prompt_file.read_text(encoding="utf-8")
-    assert "date={today}" in evolve_prompt or "`date`: {today}" in evolve_prompt or "`date`：{today}" in evolve_prompt
-    assert "enable_tags" not in evolve_prompt
-    assert "tags_key" not in evolve_prompt
-
-
 def test_configs_define_original_jobs_without_daily_variants():
     from reme.config import resolve_app_config
 
