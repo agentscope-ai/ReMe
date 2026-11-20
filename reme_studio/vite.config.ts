@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import vinext from "vinext";
 import { defineConfig } from "vite";
 import { sites } from "./tooling/sites-vite-plugin.ts";
+import { patchedMonacoSanitizer } from "./tooling/patched-monaco-sanitizer.ts";
 
 const SITE_CREATOR_PLACEHOLDER_DATABASE_ID =
   "00000000-0000-4000-8000-000000000000";
@@ -51,6 +52,7 @@ export default defineConfig(async () => {
       ? { watch: { useFsEvents: false, usePolling: true } }
       : undefined,
     plugins: [
+      patchedMonacoSanitizer(),
       vinext(),
       sites(),
       cloudflare({

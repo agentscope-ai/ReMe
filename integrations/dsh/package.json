@@ -124,5 +124,8 @@
     "dsh",
     "plugin"
   ],
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "overrides": {
+    "zod": "4.6.7"
+  }
 }

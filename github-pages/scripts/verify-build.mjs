@@ -86,7 +86,7 @@ assert.equal((await readFile(path.join(outputDir, "CNAME"), "utf8")).trim(), "re
 const homepage = await readFile(path.join(outputDir, "index.html"), "utf8");
 assert.ok(homepage.includes('href="/en/"'), "root language switch must link to /en/");
 assert.ok(!homepage.includes('href="/en/ex"'), "root language switch must not produce /en/ex");
-assert.ok(homepage.includes('"studio-en":"/en/workspace/studio"'), "legacy redirects must be embedded");
+assert.match(homepage, /"studio-en":(?:"|`)\/en\/workspace\/studio(?:"|`)/, "legacy redirects must be embedded");
 
 const ChineseHomepage = await readFile(path.join(outputDir, "zh/index.html"), "utf8");
 assert.match(ChineseHomepage, /8cafe9df-d883-4046-b5e9-36dfd21a4884/);
@@ -134,10 +134,10 @@ assert.match(ChineseConfiguration, /在 GitHub 查看源文件/);
 
 const ChineseBlog = await readFile(path.join(outputDir, "zh/blog_20260920.html"), "utf8");
 assert.match(ChineseBlog, /<h1[^>]*>给记忆加上“标签”/);
-assert.match(ChineseBlog, />记忆标签<\/p>/, "the Chinese sidebar must use the localized article name");
+assert.match(ChineseBlog, />(?:<bdi[^>]*>)?记忆标签(?:<\/bdi>)?<\/p>/, "the Chinese sidebar must use the localized article name");
 assert.match(
   ChineseBlog,
-  /<a class="VPLink link link" href="\/zh\/reme-blog"[^>]*>.*?<h2 class="text"[^>]*>ReMe 博客<\/h2>/,
+  /<a class="VPLink link link" href="\/zh\/reme-blog"[^>]*>.*?<h2 class="text"[^>]*>(?:<bdi[^>]*>)?ReMe 博客(?:<\/bdi>)?<\/h2>/,
   "the blog sidebar heading must link to the blog landing page",
 );
 
