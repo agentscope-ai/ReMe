@@ -5,11 +5,12 @@
 import asyncio
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from agentscope.model import ChatUsage, StructuredResponse
 from reme_home.agent import candidate_gate, workflow_common
+from reme_home.evaluation import component
 from reme_home.evaluation.artifacts import read_json
 from reme_home.evaluation.budget import validation_budget_status
 from reme_home.preparation.code import git
@@ -66,8 +67,6 @@ async def test_gate_before_sampling_preserves_budget_and_pins_code(app, prepared
     )
     set_model(app, "home_candidate_gate", model)
     draws = []
-    from reme_home.evaluation import component
-
     original = component.create_sampling_plan
 
     def draw(*args, **kwargs):
@@ -111,6 +110,8 @@ async def test_baseline_debug_unbudgeted_and_late_phase_skip_gate(app, prepared,
 
     monkeypatch.setattr(candidate_gate, "review_candidate", unexpected)
     assert (await app.run_job("home_evaluate", max_evaluations=10)).success  # Baseline.
+    baseline_repeat = await app.run_job("home_evaluate", max_evaluations=10)
+    assert baseline_repeat.answer["error_code"] == "UNCHANGED_CANDIDATE"
     commit_candidate(prepared)
     assert (await app.run_job("home_evaluate", debug=True, max_evaluations=10)).success
     assert (await app.run_job("home_evaluate")).success  # Ordinary explicit evaluations remain ungated.
@@ -121,6 +122,44 @@ async def test_baseline_debug_unbudgeted_and_late_phase_skip_gate(app, prepared,
     commit_candidate(prepared)
     result = await app.run_job("home_evaluate", max_evaluations=2)
     assert result.answer["error_code"] == "VALIDATION_BUDGET_EXHAUSTED"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("exemption", ["baseline", "retry", "retry_same_commit"])
+async def test_gate_exemption_is_bound_to_checkout(app, prepared, monkeypatch, exemption):
+    commit_candidate(prepared)
+    if exemption == "baseline":
+        origin, destination = "init", "test-candidate"
+    else:
+        monkeypatch.setattr(FakeFactory, "bad_export", True)
+        failed = await app.run_job("home_evaluate")
+        assert not failed.success and failed.answer["result_dir"]
+        monkeypatch.setattr(FakeFactory, "bad_export", False)
+        origin, destination = "test-candidate", "next-candidate"
+        assert (await app.run_job("home_create_candidate_branch", branch_name=destination)).success
+        if exemption == "retry":
+            commit_candidate(prepared)
+    assert (await app.run_job("home_switch_candidate_branch", branch_name=origin)).success
+
+    evaluation = app.context.components["home.evaluation"]["default"]
+    evaluate = evaluation._evaluate
+    gate = AsyncMock(side_effect=AssertionError("Gate must be skipped for the original checkout"))
+    monkeypatch.setattr(candidate_gate, "review_candidate", gate)
+    launches = len(FakeFactory.instances)
+    budget = validation_budget_status(prepared, 10)
+    attempts = set((prepared / "evaluations").glob("*/*/*/manifest.json"))
+
+    async def switch_after_gate(*args):
+        assert (await app.run_job("home_switch_candidate_branch", branch_name=destination)).success
+        return await evaluate(*args)
+
+    monkeypatch.setattr(evaluation, "_evaluate", switch_after_gate)
+    result = await app.run_job("home_evaluate", max_evaluations=10)
+    assert not result.success and "changed during admission" in str(result.answer)
+    gate.assert_not_awaited()
+    assert len(FakeFactory.instances) == launches
+    assert validation_budget_status(prepared, 10) == budget
+    assert set((prepared / "evaluations").glob("*/*/*/manifest.json")) == attempts
 
 
 @pytest.mark.asyncio
@@ -142,8 +181,12 @@ async def test_nearest_ancestor_and_infrastructure_retry(app, prepared, sandbox,
 
     monkeypatch.setattr(candidate_gate, "review_candidate", unexpected)
     monkeypatch.setattr(FakeFactory, "bad_export", False)
+    lookup = Mock(wraps=candidate_gate.previous_candidate_result)
+    monkeypatch.setattr(candidate_gate, "previous_candidate_result", lookup)
+    monkeypatch.setattr(component, "previous_candidate_result", lookup)
     recovered = await app.run_job("home_evaluate", max_evaluations=10, sampling=True)
     assert recovered.success, recovered.answer
+    lookup.assert_called_once_with(prepared, recovered.answer["commit_sha"])
     repeat = await app.run_job("home_evaluate", max_evaluations=10)
     assert repeat.answer["error_code"] == "UNCHANGED_CANDIDATE"
 
@@ -268,7 +311,7 @@ async def test_real_gate_sandbox_denies_evidence_live_code_writes_and_network(
     host_network_probe,
 ):
     commit_candidate(prepared)
-    context = candidate_gate.admission_context(prepared)
+    _, context = candidate_gate.admission_context(prepared)
     root = tmp_path / "review-export"
     root.mkdir()
     scope = candidate_gate.prepare_review_scope(prepared, context, root=root)

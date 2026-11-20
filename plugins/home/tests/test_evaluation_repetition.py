@@ -9,6 +9,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from reme_home.evaluation import repetition
+from reme_home.evaluation.artifacts import write_json
 from reme_home.evaluation.repetition import retryable_result
 from test_evaluation import (  # noqa: F401  # pylint: disable=unused-import
     FakeFactory,
@@ -21,6 +23,35 @@ from test_evaluation import (  # noqa: F401  # pylint: disable=unused-import
 
 def artifacts(home):
     return {path.relative_to(home): path.read_bytes() for path in home.rglob("*") if path.is_file()}
+
+
+def test_tree_lookup_is_cached_without_skipping_attempts(tmp_path, monkeypatch):
+    repo = tmp_path / "code/repo"
+    repo.mkdir(parents=True)
+    runs = {
+        commit: [tmp_path / f"evaluations/{commit}/{commit}/{attempt}" for attempt in (1, 2)]
+        for commit in ("current", "other")
+    }
+    for commit, attempts in runs.items():
+        for run in attempts:
+            write_json(run / "manifest.json", {"commit_sha": commit})
+
+    lookups = []
+
+    def git_tree(repository, *args):
+        assert repository == repo and args[:3] == ("rev-parse", "--verify", "--end-of-options")
+        lookups.append(args[-1])
+        return args[-1]
+
+    monkeypatch.setattr(repetition, "git", git_tree)
+    assert repetition.previous_candidate_result(tmp_path, "current") == runs["current"][1]
+    assert lookups == ["current^{tree}", "other^{tree}"]
+
+    completed = runs["current"][0]
+    write_json(completed / "summary.json", {"cases": {"1": {"status": "completed"}}})
+    with pytest.raises(repetition.UnchangedCandidateError) as error:
+        repetition.previous_candidate_result(tmp_path, "current")
+    assert error.value.path == completed
 
 
 @pytest.mark.asyncio

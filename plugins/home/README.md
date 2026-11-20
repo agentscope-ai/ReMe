@@ -103,6 +103,13 @@ reme home_inspect_validation validation_path=RUN_DIR
 reme home_diagnose 'evaluation_paths=["RUN_DIR"]' 'instruction=Explain the lowest-scoring cases'
 ```
 
+In evaluation manifests, `construction_sources` records replay provenance per
+case. `home_inspect_validation` also shows `construction_source` when all reused
+cases share one source. The primary construction-equivalence report is stored
+under `automatic_construction_reuse.source_reviews`, keyed by its
+`source_validation` path. The evaluation response derives the probability scope
+and per-case reuse reasons from the automatic reuse policy and its selected cases.
+
 For dataset downloads, runner scripts and evaluation on a separate dataset, see
 the [BEAM guide](../../benchmark/beam/README.md#prepare-a-home-experiment) or the
 [LongMemEval guide](../../benchmark/longmemeval/README.md#prepare-a-home-experiment).

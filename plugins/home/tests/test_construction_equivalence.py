@@ -200,7 +200,13 @@ async def test_equivalent_candidate_uses_host_probability(
     assert result.answer["execution_mode"] == ("query_only_replay" if selected else "full_validation")
     run = Path(result.answer["result_dir"])
     manifest = read_json(run / "manifest.json")
-    assert manifest["automatic_construction_reuse"] == decision
+    saved = manifest["automatic_construction_reuse"]
+    derived = {"equivalence_report", "probability_scope", "reuse_reasons"}
+    assert derived.isdisjoint(saved)
+    assert saved["source_reviews"][saved["source_validation"]]["equivalence_report"] == report
+    assert saved == {key: value for key, value in decision.items() if key not in derived}
+    assert decision["probability_scope"] == "all_cases"
+    assert decision["reuse_reasons"] == {case_id: "60_percent_policy" for case_id in saved["case_sources"]}
     assert validation_budget_status(prepared, 10)["used_validations"] == 1
     optimizer.verify_evaluation(prepared, run, result.answer["commit_sha"])
 
@@ -351,12 +357,13 @@ async def test_auto_memory_override_and_whitespace_only_changes(app, prepared, r
 
 
 @pytest.mark.asyncio
-async def test_infrastructure_retry_preserves_replay_and_selection(app, prepared, reviewer, sandbox, monkeypatch):
+@pytest.mark.parametrize("draw", [0.1, 0.9])
+async def test_infrastructure_retry_preserves_replay_and_selection(app, prepared, reviewer, sandbox, monkeypatch, draw):
     assert (await app.run_job("home_evaluate")).success
     commit_candidate(prepared)
     model = ScriptedModel(final='{"decision":"construction_unchanged","reason":"Query only"}')
     set_model(app, "home_construction_equivalence", model)
-    force_draw(monkeypatch, 0.1)
+    force_draw(monkeypatch, draw)
     monkeypatch.setattr(FakeFactory, "bad_export", True)
     failed = await app.run_job("home_evaluate", sampling=True, max_evaluations=10)
     assert not failed.success
@@ -367,13 +374,58 @@ async def test_infrastructure_retry_preserves_replay_and_selection(app, prepared
     recovered = await app.run_job("home_evaluate", sampling=True, max_evaluations=10)
     assert recovered.success, recovered.answer
     manifest = read_json(Path(recovered.answer["result_dir"]) / "manifest.json")
-    assert manifest["automatic_construction_reuse"] == {
+    saved = {
         **failed_manifest["automatic_construction_reuse"],
         "branch_name": "retry-branch",
     }
+    assert manifest["automatic_construction_reuse"] == saved
+    report = saved["source_reviews"][saved["source_validation"]]["equivalence_report"]
+    decision = recovered.answer["automatic_construction_reuse"]
+    assert decision == {
+        **saved,
+        "equivalence_report": report,
+        "probability_scope": "all_cases",
+        "reuse_reasons": {case_id: "60_percent_policy" for case_id in saved["case_sources"]},
+    }
+    assert list(decision).index("equivalence_report") == list(decision).index("source_validation") + 1
     assert manifest["case_ids"] == failed_manifest["case_ids"] and manifest["query_ids"] == failed_manifest["query_ids"]
-    assert recovered.answer["execution_mode"] == "query_only_replay" and len(model.calls) == 1
+    assert recovered.answer["execution_mode"] == ("query_only_replay" if draw < 0.6 else "full_validation")
+    assert len(model.calls) == 1
     assert validation_budget_status(prepared, 10)["used_validations"] == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("draw", [0.1, 0.9])
+async def test_retry_with_missing_equivalence_report(app, prepared, reviewer, sandbox, monkeypatch, draw):
+    assert (await app.run_job("home_evaluate")).success
+    commit_candidate(prepared)
+    model = ScriptedModel(final='{"decision":"construction_unchanged","reason":"Query only"}')
+    set_model(app, "home_construction_equivalence", model)
+    force_draw(monkeypatch, draw)
+    monkeypatch.setattr(FakeFactory, "bad_export", True)
+    failed = await app.run_job("home_evaluate", sampling=True, max_evaluations=10)
+    assert not failed.success
+    path = Path(failed.answer["result_dir"]) / "manifest.json"
+    manifest = read_json(path)
+    saved = manifest["automatic_construction_reuse"]
+    saved["source_reviews"][saved["source_validation"]].pop("equivalence_report")
+    write_json(path, manifest)
+
+    monkeypatch.setattr(FakeFactory, "bad_export", False)
+    monkeypatch.setattr(reuse, "select_query_only", lambda: pytest.fail("Recovery must not redraw"))
+    launches = len(FakeFactory.instances)
+    recovered = await app.run_job("home_evaluate", sampling=True, max_evaluations=10)
+    assert len(model.calls) == 1
+    if draw < 0.6:
+        assert not recovered.success
+        assert "Missing construction-equivalence report for replay" in str(recovered.answer)
+        assert len(FakeFactory.instances) == launches
+    else:
+        assert recovered.success, recovered.answer
+        assert recovered.answer["execution_mode"] == "full_validation"
+        assert "equivalence_report" not in recovered.answer["automatic_construction_reuse"]
+        result = read_json(Path(recovered.answer["result_dir"]) / "manifest.json")
+        assert result["case_ids"] == manifest["case_ids"] and result["query_ids"] == manifest["query_ids"]
 
 
 @pytest.mark.asyncio

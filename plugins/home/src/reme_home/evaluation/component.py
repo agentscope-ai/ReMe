@@ -34,7 +34,14 @@ from ..sampling import SamplingPolicy, create_sampling_plan
 from .history import HomeEvaluationHistory
 from .budget import validation_budget_status
 from .repetition import previous_candidate_result
-from .reuse import automatic_reuse, case_reuse_inputs, construction_fingerprints, reuse_context, verify_candidate
+from .reuse import (
+    automatic_reuse,
+    case_reuse_inputs,
+    construction_fingerprints,
+    reuse_context,
+    reuse_response,
+    verify_candidate,
+)
 
 
 def selection_summary(plan):
@@ -86,7 +93,7 @@ def retain_sampled_reuse(reuse, cases, plan):
     reuse["target_case_ids"] = plan.get("targets", {}).get("retained_case_ids", [])
     had_sources = bool(reuse.get("case_sources"))
     retained = {case.case_id for case in cases}
-    for field in ("case_sources", "rebuild_reasons", "reuse_reasons"):
+    for field in ("case_sources", "rebuild_reasons"):
         if field in reuse:
             reuse[field] = {key: value for key, value in reuse[field].items() if key in retained}
     reuse["selected"] = bool(reuse.get("case_sources"))
@@ -159,11 +166,12 @@ class HomeEvaluation(BaseComponent):
                         "result_dir": None,
                     }
             admission = None
+            admission_checkout = None
             if budgeted and budget["used_validations"] < budget["gated_validation_count"]:
                 from ..agent.candidate_gate import admission_context, review_candidate
 
                 with _initialization_lock(self.workspace.state_path / "workspace.lock"):
-                    context = await blocking(admission_context, self.workspace.home_path)
+                    admission_checkout, context = await blocking(admission_context, self.workspace.home_path)
                 if context is not None:
                     admission = await review_candidate(
                         self.candidate_gate,
@@ -181,7 +189,7 @@ class HomeEvaluation(BaseComponent):
                             "validation_budget": budget,
                             "result_dir": None,
                         }
-            result = await self._evaluate(spec, admission)
+            result = await self._evaluate(spec, admission, admission_checkout)
             if budgeted:
                 result["validation_budget"] = await blocking(
                     validation_budget_status,
@@ -190,7 +198,7 @@ class HomeEvaluation(BaseComponent):
                 )
             return result
 
-    def _prepare(self, spec, environment, admission=None):
+    def _prepare(self, spec, environment, admission_checkout=None):
         home = self.workspace.home_path
         recovery_plan = None
         previous_manifest = None
@@ -198,12 +206,19 @@ class HomeEvaluation(BaseComponent):
         with _initialization_lock(self.workspace.state_path / "workspace.lock"):
             record, dataset, cases = load_inputs(home, spec)
             snapshot, commit, branch = snapshot_code(home, record)
-            if admission is not None and (commit, branch) != (
-                admission["candidate_commit"],
-                admission["branch_name"],
+            if admission_checkout is not None and (commit, branch) != (
+                admission_checkout.commit,
+                admission_checkout.branch,
             ):
-                raise ValueError("Candidate changed during admission review; retry evaluation on the reviewed commit")
-            previous = None if spec.debug else previous_candidate_result(home, commit)
+                raise ValueError("Candidate changed during admission; retry on the intended commit and branch")
+            previous = None
+            if not spec.debug:
+                # The admission check already looked up recovery for this non-baseline checkout.
+                previous = (
+                    admission_checkout.previous_result
+                    if admission_checkout is not None and commit != record["code"]["initial_commit"]
+                    else previous_candidate_result(home, commit)
+                )
             if previous is not None:
                 manifest = read_json(contained(home, previous / "manifest.json"))
                 previous_manifest = manifest
@@ -246,8 +261,8 @@ class HomeEvaluation(BaseComponent):
             fingerprints = construction_fingerprints(record, dataset, spec, environment)
             if previous_manifest is not None:
                 sources = previous_manifest.get("construction_sources", {})
-                if not sources and previous_manifest.get("construction_source"):
-                    sources = {case.case_id: previous_manifest["construction_source"] for case in cases}
+                if not sources and previous_manifest.get("execution_mode") in {"query_only_replay", "mixed_validation"}:
+                    raise ValueError("Recovery requires saved per-case construction sources")
                 sources, archives = case_reuse_inputs(home, spec, cases, fingerprints, sources)
             elif spec.sampling and not spec.debug and not defer_sampling:
                 source, verified_archives, eligibility = replay_sampling_inputs(home, spec, cases, fingerprints)
@@ -404,9 +419,9 @@ class HomeEvaluation(BaseComponent):
                 retain_sampled_reuse(reuse, cases, sampling_plan)
         return cases, sampling_plan, reuse
 
-    async def _evaluate(self, spec, admission=None):
+    async def _evaluate(self, spec, admission=None, admission_checkout=None):
         environment = {**os.environ, **self.app_context.app_config.environment}
-        prepared = await blocking(self._prepare, spec, environment, admission)
+        prepared = await blocking(self._prepare, spec, environment, admission_checkout)
         record, dataset, cases, snapshot, commit, branch, fingerprints, sources, archives, sampling_plan, previous = (
             prepared
         )
@@ -416,21 +431,6 @@ class HomeEvaluation(BaseComponent):
             saved = previous.get("automatic_construction_reuse")
             if saved is not None:
                 reuse = {**saved, "candidate_commit": commit, "branch_name": branch}
-                if sources and "construction_sources" not in previous:
-                    # Upgrade a frozen legacy single-source authorization without another review or draw.
-                    source = previous["construction_source"]
-                    reuse.update(
-                        case_sources=sources,
-                        source_reviews={
-                            source["result_dir"]: {
-                                "candidate_commit": commit,
-                                "base_commit": source["commit_sha"],
-                                "source_validation": source["result_dir"],
-                                "case_ids": list(sources),
-                                "equivalence_report": saved.get("equivalence_report", {}),
-                            },
-                        },
-                    )
         elif (
             not spec.debug
             and spec.reuse_construction_from is None
@@ -454,6 +454,7 @@ class HomeEvaluation(BaseComponent):
                     reuse["case_sources"],
                 )
         await blocking(self._verify_candidate, commit, branch)
+        reuse_feedback = reuse_response(reuse) if reuse is not None else None
         # Each case can load a verified snapshot or build its own memory.
         jobs = {case.case_id: build_jobs(case) for case in cases if case.case_id not in sources}
         mode = (
@@ -491,8 +492,6 @@ class HomeEvaluation(BaseComponent):
             }
             if sources:
                 manifest["construction_sources"] = sources
-                if len({value["result_dir"] for value in sources.values()}) == 1:
-                    manifest["construction_source"] = next(iter(sources.values()))
             if sampling_plan is not None and "targets" in sampling_plan:
                 manifest["target_selection"] = sampling_plan["targets"]
             if "test_evaluation" in record:
@@ -634,7 +633,7 @@ class HomeEvaluation(BaseComponent):
                 "selection": selection_summary(sampling_plan),
                 "selection_plan_path": manifest.get("sampling", {}).get("plan_path"),
                 **({"candidate_gate": admission} if admission is not None else {}),
-                **({"automatic_construction_reuse": reuse} if reuse is not None else {}),
+                **({"automatic_construction_reuse": reuse_feedback} if reuse_feedback is not None else {}),
                 **{key: value for key, value in summary.items() if key != "cases"},
             }
         except BaseException as error:

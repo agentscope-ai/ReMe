@@ -60,6 +60,7 @@ def reuse_context(home, spec, cases, fingerprints, commit, branch, *, replay_sel
     paired = replay_selection and parent != record["code"]["initial_commit"]
     identity = {"candidate_commit": commit, "branch_name": branch, "parent_commit": parent}
     ancestors = set(git(repo, "rev-list", commit).splitlines()) - {commit}
+    distances = {}
     candidates = []
     for path in sorted((home / "evaluations").glob("*/*/*/manifest.json")):
         try:
@@ -67,29 +68,29 @@ def reuse_context(home, spec, cases, fingerprints, commit, branch, *, replay_sel
             if not isinstance(manifest, dict):
                 continue
             base = manifest.get("commit_sha")
-            if base not in ancestors:
+            if (
+                base not in ancestors
+                or manifest.get("mode") != "scored"
+                or manifest.get("dataset_kind") != "training-set"
+                or manifest.get("status") != "completed"
+                or manifest.get("success") is False
+            ):
+                continue
+            source_fingerprints = manifest.get("fingerprints")
+            if not isinstance(source_fingerprints, dict) or any(
+                source_fingerprints.get(key) != fingerprints[key] for key in ("dataset", "construction_config")
+            ):
                 continue
             summary = read_json(contained(home, path.parent / "summary.json"))
             if not isinstance(summary, dict):
                 continue
-            if (
-                manifest.get("mode") != "scored"
-                or manifest.get("dataset_kind") != "training-set"
-                or manifest.get("status", summary.get("status")) != "completed"
-                or manifest.get("success") is False
-            ):
-                continue
             counts = [summary.get(key, {}) for key in ("case_status_counts", "query_status_counts")]
-            source_fingerprints = manifest.get("fingerprints")
-            if (
-                any(not isinstance(value, dict) or value.get("infra_error", 0) for value in counts)
-                or not isinstance(source_fingerprints, dict)
-                or any(source_fingerprints.get(key) != fingerprints[key] for key in ("dataset", "construction_config"))
-            ):
+            if any(not isinstance(value, dict) or value.get("infra_error", 0) for value in counts):
                 continue
-            distance = int(git(repo, "rev-list", "--count", f"{base}..{commit}"))
+            if base not in distances:
+                distances[base] = int(git(repo, "rev-list", "--count", f"{base}..{commit}"))
             case_ids = _reusable_case_hints(summary.get("cases")) if targeted else ()
-            candidates.append((distance, str(path.parent), base, case_ids))
+            candidates.append((distances[base], str(path.parent), base, case_ids))
         except (OSError, ValueError, KeyError, TypeError):
             continue
     candidates.sort(key=lambda entry: entry[:3])
@@ -122,6 +123,23 @@ def _reusable_case_hints(rows):
         and row.get("queries")
         and not row.get("query_error_count")
     ]
+
+
+def reuse_response(reuse):
+    """Expand derived tool response fields in their usual order."""
+    response = {}
+    for key, value in reuse.items():
+        if key == "probability_selected":
+            response["probability_scope"] = "all_cases"
+        response[key] = value
+        if key == "source_validation":
+            report = reuse.get("source_reviews", {}).get(value, {}).get("equivalence_report")
+            if report is not None:
+                response["equivalence_report"] = report
+            elif reuse["case_sources"]:
+                raise ValueError(f"Missing construction-equivalence report for replay: {value}")
+    response["reuse_reasons"] = {case_id: "60_percent_policy" for case_id in reuse["case_sources"]}
+    return response
 
 
 def _replay_selection(home, spec, cases, manifest):
@@ -220,14 +238,9 @@ def verify_case_reuse(home, run, manifest, commit):
         ),
     ):
         raise ValueError("Reused evidence requires host-selected per-case construction sources")
-    if "probability_selected" in reuse:
-        targets = set(manifest.get("target_selection", {}).get("retained_case_ids", []))
-        # Legacy manifests allowed reviewed targets to bypass the draw.
-        requires_draw = set(sources) if reuse.get("probability_scope") == "all_cases" else set(sources) - targets
-        if targets != set(reuse.get("target_case_ids", [])) or (
-            requires_draw and reuse["probability_selected"] is not True
-        ):
-            raise ValueError("Reused cases require target priority or a successful host probability draw")
+    targets = set(manifest.get("target_selection", {}).get("retained_case_ids", []))
+    if targets != set(reuse.get("target_case_ids", [])) or reuse.get("probability_selected") is not True:
+        raise ValueError("Reused cases require matching targets and a successful host probability draw")
     for case_id, source in sources.items():
         group = reuse.get("source_reviews", {}).get(source["result_dir"], {})
         report = group.get("equivalence_report", {})
@@ -342,7 +355,6 @@ async def automatic_reuse(wrapper, home, prepared, *, memory_limit_mib=None, cas
         "source_reviews": {},
         "case_sources": {},
         "target_case_ids": [],
-        "probability_scope": "all_cases",
         "probability_selected": None,
     }
     pending = {case.case_id: case for case in requested_cases}
@@ -372,8 +384,8 @@ async def automatic_reuse(wrapper, home, prepared, *, memory_limit_mib=None, cas
             continue
         report = await _review_source(wrapper, home, group, memory_limit_mib=memory_limit_mib)
         group_context = group["context"]
-        if "equivalence_report" not in selection:
-            selection.update(group_context, equivalence_report=report)
+        if "source_validation" not in selection:
+            selection.update(group_context)
         selection["source_reviews"][path] = {
             **group_context,
             "case_ids": [case.case_id for case in group["cases"]],
@@ -381,7 +393,7 @@ async def automatic_reuse(wrapper, home, prepared, *, memory_limit_mib=None, cas
         }
         if report["decision"] == "construction_unchanged":
             if not approved:
-                selection.update(group_context, equivalence_report=report)
+                selection.update(group_context)
             for case in group["cases"]:
                 approved[case.case_id] = {"result_dir": path, "commit_sha": group_context["base_commit"]}
                 pending.pop(case.case_id, None)
@@ -414,5 +426,4 @@ async def automatic_reuse(wrapper, home, prepared, *, memory_limit_mib=None, cas
         for case in requested_cases
         if case.case_id not in selection["case_sources"]
     }
-    selection["reuse_reasons"] = {key: "60_percent_policy" for key in selection["case_sources"]}
     return selection

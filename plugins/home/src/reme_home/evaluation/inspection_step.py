@@ -131,6 +131,12 @@ def _commit_filter(home, spec):
 def _catalog_row(run, manifest):
     summary, summary_path = _summary(run)
     options = manifest.get("options", {})
+    sources = manifest.get("construction_sources")
+    source = None
+    if isinstance(sources, dict) and sources:
+        first = next(iter(sources.values()))
+        if isinstance(first, dict) and all(item == first for item in sources.values()):
+            source = first
     row = {
         "validation_path": str(run),
         "manifest_path": str(run / "manifest.json"),
@@ -149,11 +155,11 @@ def _catalog_row(run, manifest):
                 "dataset_kind",
                 "mode",
                 "execution_mode",
-                "construction_source",
-                "construction_sources",
-                "fingerprints",
             )
         },
+        "construction_source": source,
+        "construction_sources": sources,
+        "fingerprints": manifest.get("fingerprints"),
         "sampling": options.get("sampling", False),
         "record_history": options.get("record_history", True) and manifest.get("mode") != "debug",
         "selected_case_count": len(manifest.get("case_ids", [])),

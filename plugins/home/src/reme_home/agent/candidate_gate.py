@@ -1,8 +1,9 @@
 """Early candidate admission using read-only, commit-pinned source exports."""
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 import shutil
-from typing import Literal
+from typing import Literal, NamedTuple
 from uuid import uuid4
 
 from pydantic import Field
@@ -25,11 +26,23 @@ class CandidateGateReport(SpecModel):
     reason: str = Field(min_length=1, pattern=r"\S")
 
 
-def admission_context(home):
-    """Called under the workspace lock; retries and the baseline bypass admission."""
+class AdmissionCheckout(NamedTuple):
+    """Pin the checkout and recovery result even when a review is skipped."""
+
+    commit: str
+    branch: str
+    previous_result: Path | None
+
+
+def admission_context(home: Path) -> tuple[AdmissionCheckout, dict[str, str] | None]:
+    """Capture the checkout and optional review context under the workspace lock."""
     repo, record, commit = validate_candidate(home)
-    if commit == record["code"]["initial_commit"] or previous_candidate_result(home, commit) is not None:
-        return None
+    initial = record["code"]["initial_commit"]
+    if commit == initial:
+        return AdmissionCheckout(commit, "init", None), None
+    checkout = AdmissionCheckout(commit, current_branch(repo), previous_candidate_result(home, commit))
+    if checkout.previous_result is not None:
+        return checkout, None
     ancestors = set(git(repo, "rev-list", commit).splitlines())
     candidates = []
     for path in sorted((home / "evaluations").glob("*/*/*/manifest.json")):
@@ -38,8 +51,8 @@ def admission_context(home):
         if previous != commit and previous in ancestors:
             distance = int(git(repo, "rev-list", "--count", f"{previous}..{commit}"))
             candidates.append((distance, previous))
-    base = min(candidates)[1] if candidates else record["code"]["initial_commit"]
-    return {"base_commit": base, "candidate_commit": commit, "branch_name": current_branch(repo)}
+    base = min(candidates)[1] if candidates else initial
+    return checkout, {"base_commit": base, "candidate_commit": commit, "branch_name": checkout.branch}
 
 
 @asynccontextmanager

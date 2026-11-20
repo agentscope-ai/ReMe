@@ -292,27 +292,7 @@ def verify_evaluation(home, path, commit, *, baseline=False):
             raise ValueError("Initial baseline cannot reuse construction")
         verify_case_reuse(home, run, manifest, commit)
     elif mode != "full_validation":
-        reuse = manifest.get("automatic_construction_reuse", {})
-        report = reuse.get("equivalence_report", {})
-        source = manifest.get("construction_source", {})
-        if baseline or not all(
-            (
-                mode == "query_only_replay",
-                reuse.get("selected") is True,
-                reuse.get("policy") == "automatic_60_percent",
-                reuse.get("candidate_commit") == commit,
-                reuse.get("branch_name") == manifest.get("branch_name"),
-                report.get("candidate_commit") == commit,
-                report.get("decision") == "construction_unchanged",
-                bool(source.get("commit_sha")),
-                bool(source.get("result_dir")),
-                report.get("base_commit") == reuse.get("base_commit"),
-                source.get("commit_sha") == report.get("base_commit"),
-                source.get("result_dir") == report.get("source_validation"),
-                source.get("result_dir") == reuse.get("source_validation"),
-            ),
-        ):
-            raise ValueError("Query-only evidence requires host-selected, construction-equivalent replay")
+        raise ValueError("Reused evidence requires host-selected per-case construction sources")
     _record, dataset, cases = load_inputs(home, EvaluationSpec())
     if manifest.get("fingerprints", {}).get("dataset") != dataset.normalized_fingerprint:
         raise ValueError("Evaluation dataset no longer matches the prepared dataset")

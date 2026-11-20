@@ -67,7 +67,9 @@ def previous_candidate_result(home: Path, commit: str) -> Path | None:
     Read source artifacts directly, including attempts excluded from history.
     """
     repository = contained(home, "code/repo", directory=True)
-    current_tree = git(repository, "rev-parse", "--verify", "--end-of-options", f"{commit}^{{tree}}")
+    revision = f"{commit}^{{tree}}"
+    current_tree = git(repository, "rev-parse", "--verify", "--end-of-options", revision)
+    trees = {revision: current_tree}
     recoverable = None
     evaluations = contained(home, "evaluations", directory=True)
     for path in sorted(evaluations.glob("*/*/*/manifest.json")):
@@ -78,8 +80,10 @@ def previous_candidate_result(home: Path, commit: str) -> Path | None:
         previous_commit = manifest.get("commit_sha")
         if not previous_commit:
             continue
-        previous_tree = git(repository, "rev-parse", "--verify", "--end-of-options", f"{previous_commit}^{{tree}}")
-        if previous_tree != current_tree:
+        revision = f"{previous_commit}^{{tree}}"
+        if revision not in trees:
+            trees[revision] = git(repository, "rev-parse", "--verify", "--end-of-options", revision)
+        if trees[revision] != current_tree:
             continue
         if previous_commit != commit or not retryable_result(run):
             raise UnchangedCandidateError(run)

@@ -186,7 +186,7 @@ def load_reuse_source(home: Path, value: str, fingerprints: dict, *, sampling: b
         raise ValueError("Expected construction source manifest and summary objects")
     if (
         manifest.get("dataset_kind") != "training-set"
-        or manifest.get("status", summary.get("status")) != "completed"
+        or manifest.get("status") != "completed"
         or (sampling and manifest.get("mode") == "debug")
     ):
         if sampling:

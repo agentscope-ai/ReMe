@@ -34,6 +34,68 @@ def cases():
     ]
 
 
+def test_reuse_scan_filters_manifest_first_and_caches_distance(tmp_path, monkeypatch):
+    fingerprints = {"dataset": "data", "construction_config": "config"}
+    manifest = {
+        "commit_sha": "near",
+        "mode": "scored",
+        "dataset_kind": "training-set",
+        "fingerprints": fingerprints,
+    }
+    summary = {
+        "status": "completed",
+        "cases": {"1": {"construction": {"status": "success"}, "queries": {"q1": {}}}},
+    }
+    paths = {}
+    for branch, overrides in (
+        ("a-far", {"commit_sha": "init", "status": "completed"}),
+        ("b-missing-status", {}),
+        ("c-near-first", {"status": "completed"}),
+        ("d-near-second", {"status": "completed"}),
+        ("e-mismatch", {"fingerprints": {}, "status": "completed"}),
+        ("f-infra-error", {"status": "completed"}),
+    ):
+        run = tmp_path / "evaluations" / branch / "prefix/1"
+        paths[branch] = run
+        write_json(run / "manifest.json", {**manifest, **overrides})
+        write_json(
+            run / "summary.json",
+            {**summary, "query_status_counts": {"infra_error": int(branch == "f-infra-error")}},
+        )
+
+    distances = []
+    summaries = []
+
+    def git(repo, *args):
+        assert repo == tmp_path
+        if args == ("rev-parse", "current^1"):
+            return "near"
+        if args == ("rev-list", "current"):
+            return "current\nnear\ninit"
+        assert args[:2] == ("rev-list", "--count")
+        distances.append(args[-1])
+        return {"init..current": "2", "near..current": "1"}[args[-1]]
+
+    def track_summary(path):
+        if path.name == "summary.json":
+            summaries.append(path.parent.parent.parent.name)
+        return read_json(path)
+
+    monkeypatch.setattr(reuse, "verify_candidate", lambda *_: (tmp_path, {"code": {"initial_commit": "init"}}))
+    monkeypatch.setattr(reuse, "git", git)
+    monkeypatch.setattr(reuse, "read_json", track_summary)
+
+    result = reuse.reuse_context(tmp_path, None, [], fingerprints, "current", "candidate", targeted=True)
+    assert summaries == ["a-far", "c-near-first", "d-near-second", "f-infra-error"]
+    assert distances == ["init..current", "near..current"]
+    assert result["sources"] == [
+        (str(paths["c-near-first"]), "near"),
+        (str(paths["d-near-second"]), "near"),
+        (str(paths["a-far"]), "init"),
+    ]
+    assert result["candidate_sources"] == {"1": str(paths["c-near-first"])}
+
+
 def test_target_forms_invalid_ids_and_remaining_capacity(monkeypatch):
     monkeypatch.setattr(sampling.time, "time_ns", lambda: 12345)
     state = {"round": 2, "cases": {}, "queries": {}}
@@ -140,7 +202,8 @@ async def test_partial_reuse_preserves_targets_and_recovers_frozen_plan(app, pre
     )
     assert not failed.success
     assert isinstance(failed.answer, dict), failed.answer
-    old = read_json(Path(failed.answer["result_dir"]) / "manifest.json")
+    path = Path(failed.answer["result_dir"]) / "manifest.json"
+    old = read_json(path)
     assert old["execution_mode"] == "mixed_validation"
     assert set(old["case_ids"]) == {"1", "2"}
     assert set(old["construction_sources"]) == {"1"}
@@ -156,6 +219,12 @@ async def test_partial_reuse_preserves_targets_and_recovers_frozen_plan(app, pre
     monkeypatch.setattr(sampling, "create_sampling_plan", no_draw)
     monkeypatch.setattr("reme_home.evaluation.component.create_sampling_plan", no_draw)
     monkeypatch.setattr(reuse, "select_query_only", no_draw)
+    write_json(path, {key: value for key, value in old.items() if key != "construction_sources"})
+    launches = len(FakeFactory.instances)
+    rejected = await app.run_job("home_evaluate", sampling=True)
+    assert not rejected.success and "Recovery requires saved per-case construction sources" in str(rejected.answer)
+    assert len(FakeFactory.instances) == launches
+    write_json(path, old)
     recovered = await app.run_job(
         "home_evaluate",
         sampling=True,
@@ -203,29 +272,23 @@ async def test_multiple_sources_reuse_every_available_selected_case(app, prepare
     assert manifest["execution_mode"] == "query_only_replay"
     assert manifest["construction_sources"]["1"]["result_dir"] == first.answer["result_dir"]
     assert manifest["construction_sources"]["2"]["result_dir"] == second.answer["result_dir"]
+    assert "construction_source" not in manifest
+    decision = response.answer["automatic_construction_reuse"]
+    saved = manifest["automatic_construction_reuse"]
+    assert "equivalence_report" not in saved
+    assert len(saved["source_reviews"]) == 2
+    assert saved["source_reviews"][saved["source_validation"]]["equivalence_report"] == decision["equivalence_report"]
     assert len(allow_reuse[0]) == 2 and len(allow_reuse[1]) == 1
     assert all(event[1] != "build" for event in FakeFactory.instances[-1].events)
     verify_evaluation(prepared, run, manifest["commit_sha"])
-
-
-@pytest.mark.asyncio
-async def test_legacy_single_source_recovery_keeps_authorization(app, prepared, allow_reuse, monkeypatch):
-    assert (await app.run_job("home_evaluate")).success
-    commit_candidate(prepared)
-    monkeypatch.setattr(FakeFactory, "bad_export", True)
-    failed = await app.run_job("home_evaluate", sampling=True)
-    assert not failed.success
-    path = Path(failed.answer["result_dir"]) / "manifest.json"
-    manifest = read_json(path)
+    saved.pop("probability_selected")
+    write_json(run / "manifest.json", manifest)
+    with pytest.raises(ValueError, match="successful host probability draw"):
+        verify_evaluation(prepared, run, manifest["commit_sha"])
     manifest.pop("construction_sources")
-    manifest["automatic_construction_reuse"].pop("case_sources")
-    manifest["automatic_construction_reuse"].pop("source_reviews")
-    write_json(path, manifest)
-    monkeypatch.setattr(FakeFactory, "bad_export", False)
-    recovered = await app.run_job("home_evaluate", sampling=True)
-    assert recovered.success, recovered.answer
-    verify_evaluation(prepared, Path(recovered.answer["result_dir"]), recovered.answer["commit_sha"])
-    assert len(allow_reuse[0]) == len(allow_reuse[1]) == 1
+    write_json(run / "manifest.json", manifest)
+    with pytest.raises(ValueError, match="host-selected per-case construction sources"):
+        verify_evaluation(prepared, run, manifest["commit_sha"])
 
 
 @pytest.mark.asyncio
@@ -433,7 +496,7 @@ async def test_targets_share_one_draw_with_background(
         manifest = read_json(path)
         manifest["automatic_construction_reuse"]["target_case_ids"] = []
         write_json(path, manifest)
-        with pytest.raises(ValueError, match="target priority"):
+        with pytest.raises(ValueError, match="matching targets"):
             verify_evaluation(prepared, run, response.answer["commit_sha"])
 
 
