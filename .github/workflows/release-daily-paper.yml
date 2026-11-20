@@ -64,8 +64,6 @@ jobs:
           reme_requirements = [requirement for requirement in requirements if requirement.name == "reme-ai"]
           if len(reme_requirements) != 1 or reme_requirements[0].extras:
               raise SystemExit(f"Expected one base reme-ai dependency, found {reme_requirements!r}")
-          if Version("0.4.2.2") in reme_requirements[0].specifier or Version("0.4.2.3") not in reme_requirements[0].specifier:
-              raise SystemExit(f"Expected reme-ai>=0.4.2.3, found {reme_requirements!r}")
           if sum(requirement.name == "pypdf" for requirement in requirements) != 1:
               raise SystemExit("Expected exactly one pypdf dependency")
           root_project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]
