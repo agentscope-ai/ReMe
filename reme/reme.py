@@ -4,7 +4,6 @@ import asyncio
 import socket
 import sys
 from collections.abc import Iterator, Sequence
-from pathlib import Path
 
 import psutil
 from yaml import YAMLError
@@ -95,8 +94,8 @@ def _start_arguments(cmdline: list[str]) -> list[str] | None:
     return [argument for argument in cmdline[action_index + 1 :] if "=" in argument]
 
 
-def _iter_running_configs() -> Iterator[tuple[int, dict]]:
-    """Resolve running ReMe configurations in their startup directories."""
+def _iter_running_configs(*, allow_partial: bool = False) -> Iterator[tuple[int, dict]]:
+    """Replay running ReMe configurations and allow startup overrides for port probes."""
     for proc in psutil.process_iter(["pid", "cmdline"]):
         try:
             info = proc.info
@@ -113,15 +112,13 @@ def _iter_running_configs() -> Iterator[tuple[int, dict]]:
         if "job" in overrides:
             continue
         try:
-            config_name = overrides.get("config")
-            config_dir = (
-                Path(proc.cwd()) if isinstance(config_name, str) and not Path(config_name).is_absolute() else None
-            )
-            config = resolve_app_config(log_config=False, _config_dir=config_dir, **overrides)
+            config = resolve_app_config(log_config=False, _get_config_dir=proc.cwd, **overrides)
         except psutil.NoSuchProcess:
             continue
         except (OSError, ValueError, psutil.AccessDenied, YAMLError):
-            # An unreadable config can identify a service only through explicit settings.
+            # An incomplete replay can supply a probe address without selecting a job client.
+            if not allow_partial:
+                continue
             service = overrides.get("service")
             if not isinstance(service, dict) or not service:
                 continue
@@ -132,7 +129,7 @@ def _iter_running_configs() -> Iterator[tuple[int, dict]]:
 
 def _scan_reme_procs() -> Iterator[tuple[int, str, int]]:
     """Yield running ReMe PIDs and their configured HTTP probe addresses."""
-    for pid, config in _iter_running_configs():
+    for pid, config in _iter_running_configs(allow_partial=True):
         service = config.get("service")
         service = service if isinstance(service, dict) else {}
         host = service.get("host") or REME_DEFAULT_HOST
@@ -165,7 +162,7 @@ async def call_server(job_name: str, /, **kwargs):
     the server however it was actually started (``http`` REST or ``mcp``
     streamable-http / sse / stdio), including ``service.*`` overrides that never
     touched the on-disk config file. Falls back to local config resolution when
-    no server is detected. Explicit ``backend=`` / ``transport=`` / ``host=`` /
+    no running config can be replayed. Explicit ``backend=`` / ``transport=`` / ``host=`` /
     ``port=`` kwargs still win and never leak into the tool payload.
     """
     # config-selecting keys steer client construction; they are not tool args.
@@ -185,11 +182,12 @@ async def call_server(job_name: str, /, **kwargs):
     service = app_config.get("service")
     service = service if isinstance(service, dict) else {}
 
-    backend: str = kwargs.pop("backend", None) or service.get("backend", "http")
+    service_backend = service.get("backend") or "http"
+    backend: str = kwargs.pop("backend", None) or service_backend
     # Seed client kwargs from the service config only when we are actually using
     # that service's backend — transport/host/port are backend-specific, so an
     # explicit backend override must not inherit the other backend's settings.
-    seed = service if backend == service.get("backend") else {}
+    seed = service if backend == service_backend else {}
     client_kwargs = {k: seed[k] for k in _CLIENT_KWARGS if k in seed}
     client_kwargs.update({key: kwargs.pop(key) for key in list(kwargs) if key in _CLIENT_KWARGS})
 

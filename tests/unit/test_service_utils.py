@@ -323,6 +323,29 @@ def test_discovery_uses_server_cwd_for_relative_config(tmp_path, monkeypatch):
     }
 
 
+@pytest.mark.parametrize("name", ["default", "external.yaml"])
+def test_discovery_resolves_named_configs_without_process_cwd(name, tmp_path, monkeypatch):
+    if name == "external.yaml":
+        path = tmp_path / "external-config.yaml"
+        path.write_text("service: {backend: http}\n")
+        entry = SimpleNamespace(name=name, group="reme.configs", load=lambda: path)
+        monkeypatch.setattr(
+            "reme.config.config_parser.find_entry_points",
+            lambda group, requested: [entry] if group == entry.group and requested == name else [],
+        )
+
+    proc = _FakeProc(2, cmdline=["reme", "start", f"config={name}"])
+
+    def denied():
+        raise psutil.AccessDenied(pid=2)
+
+    monkeypatch.setattr(proc, "cwd", denied)
+    _patch_iter(monkeypatch, [proc])
+
+    assert su.running_app_config()["service"]["backend"] == "http"
+    assert list(su._scan_reme_procs()) == [(2, su.REME_DEFAULT_HOST, su.REME_DEFAULT_PORT)]
+
+
 def test_discovery_keeps_overrides_when_running_config_is_missing(tmp_path, monkeypatch):
     server_cwd = tmp_path / "server"
     server_cwd.mkdir()
@@ -334,7 +357,7 @@ def test_discovery_keeps_overrides_when_running_config_is_missing(tmp_path, monk
     )
 
     assert list(su._scan_reme_procs()) == [(2, su.REME_DEFAULT_HOST, 8127)]
-    assert su.running_app_config()["service"] == {"port": 8127}
+    assert su.running_app_config() is None
 
 
 def test_discovery_skips_local_jobs_and_unreadable_configs_without_service_settings(tmp_path, monkeypatch):

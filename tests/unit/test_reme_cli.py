@@ -434,6 +434,28 @@ def test_call_server_uses_running_plugins_and_their_service_defaults(monkeypatch
     assert capsys.readouterr().out == "plugin-ok\n"
 
 
+def test_call_server_uses_caller_config_when_running_config_cannot_be_replayed(tmp_path, monkeypatch, capsys):
+    """An incomplete process replay can locate a port but cannot select the job client."""
+    monkeypatch.delenv("REME_TEST_SERVER_ONLY_TOKEN", raising=False)
+    server_config = tmp_path / "server.yaml"
+    server_config.write_text("service: {backend: http}\nserver_token: '${REME_TEST_SERVER_ONLY_TOKEN}'\n")
+    client_config = tmp_path / "client.yaml"
+    client_config.write_text("service: {port: 8128}\n")
+    proc = SimpleNamespace(
+        info={"pid": 17, "cmdline": ["reme", "start", f"config={server_config}", "service.port=8127"]},
+        cwd=lambda: str(tmp_path),
+    )
+    monkeypatch.setattr(reme_module.psutil, "process_iter", lambda _attrs: iter([proc]))
+    seen = {}
+    _set_client_backend(monkeypatch, _recording_client(seen))
+
+    asyncio.run(reme_module.call_server("version", config=str(client_config)))
+
+    assert seen["client_kwargs"] == {"port": 8128}
+    assert seen["payload"] == {}
+    assert capsys.readouterr().out == "ok\n"
+
+
 def test_call_server_skips_local_fallback_when_server_is_running(monkeypatch, capsys):
     """A usable running config prevents eager parsing of the local fallback."""
     seen = {}
