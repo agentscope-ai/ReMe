@@ -51,6 +51,10 @@ users retain control of the durable files.
 
 <!-- Keep at most 5 updates expanded; move older entries into the collapsed section below. -->
 
+- [2026.11] - **`NEW`** **[ReMe5 Preview — Proactive Runtime](docs/en/reme5_preview.md)**. ReMe puts file-native memory at
+  the core of its event-driven and scheduled agents. Give ReMe a task to follow, and it will record new developments
+  and let you know when your attention is needed. We aim to release ReMe5 **by the end of 2026**. Read the preview
+  for the design, development plan, and milestones.
 - [2026.10] - **[Decision-model context compaction](docs/en/context_compaction.md)**: score old tool calls and results
   against the next action, preserve protected history, and return a recoverable compaction proposal. Includes an SVG
   walkthrough, two live-model integration scenarios, and a 14-query fixed-summary Top-N benchmark with a forced Hermes summary baseline.
@@ -72,12 +76,13 @@ users retain control of the durable files.
 
 - [2026.09] - **[ReMe Memory Tags](https://reme.agentscope.io/en/blog_20260920) published**: an introduction
   to file-native entity tags, rebuildable tag indexes, and tag-filtered memory search.
-- [2026.09] - **[Hermes Agent memory provider](https://reme.agentscope.io/en/integrations/hermes) available**: choose HTTP or embedded
-  mode for automatic recall before model calls and asynchronous `auto_memory` after completed turns. The integration
-  supports Hermes Agent 0.21+ and includes profile-aware background work.
 
 <details>
 <summary>More updates</summary>
+
+- [2026.09] - **[Hermes Agent memory provider](https://reme.agentscope.io/en/integrations/hermes) available**: choose HTTP or embedded
+  mode for automatic recall before model calls and asynchronous `auto_memory` after completed turns. The integration
+  supports Hermes Agent 0.21+ and includes profile-aware background work.
 
 - [2026.09] - **[OpenClaw plugin](https://reme.agentscope.io/en/integrations/openclaw) released**: install it from
   [ClawHub](https://clawhub.ai/agentscope-ai/plugins/reme-openclaw-plugin) or
