@@ -144,7 +144,8 @@ def running_app_config() -> dict | None:
         try:
             _, kwargs = parse_args("start", *argv)
             config = resolve_app_config(log_config=False, **kwargs)
-        except ValueError:
+        except (OSError, ValueError):
+            # A different process's relative config file may be unavailable.
             continue
         if isinstance(config, dict):
             return config
