@@ -1,0 +1,231 @@
+backends:
+  procedure_memory_store: reme_procedure_memory.store:ProcedureMemoryStore
+  procedure_auto_memory_step: reme_procedure_memory.auto_memory:ProcedureAutoMemoryStep
+  procedure_search_step: reme_procedure_memory.search:ProcedureSearchStep
+  procedure_read_step: reme_procedure_memory.read:ProcedureReadStep
+  procedure_create_step: reme_procedure_memory.mutation:ProcedureCreateStep
+  procedure_update_step: reme_procedure_memory.mutation:ProcedureUpdateStep
+  procedure_reindex_step: reme_procedure_memory.reindex:ProcedureReindexStep
+application_defaults:
+  components:
+    procedure_memory:
+      default:
+        backend: procedure_memory_store
+        procedure_dir: procedures
+        trajectory_subdir: trajectories
+        tokenizer_source: ${PROCEDURE_TOKENIZER_SOURCE:-Qwen/Qwen3.8-27B}
+        token_limits:
+          segment: 98304
+          summary: 8192
+          description: 128
+          when-to-use: 512
+          content: 2048
+          context: 262144
+          reserve: 4096
+    as_embedding:
+      procedure:
+        backend: ${EMBEDDING_BACKEND:-openai}
+        model: ${EMBEDDING_MODEL_NAME:-text-embedding-v4}
+        dimensions: 1024
+        credential:
+          api_key: ${EMBEDDING_API_KEY:-}
+          base_url: ${EMBEDDING_BASE_URL}
+    embedding_store:
+      procedure:
+        backend: local
+        as_embedding: procedure
+    tokenizer:
+      procedure:
+        backend: regex
+    agent_wrapper:
+      procedure:
+        backend: agentscope
+        as_llm: default
+        builtin_tools: []
+        react_config:
+          max_iters: 30
+        context_config:
+          tool_result_limit: 50000
+    file_graph:
+      procedure_when_to_use:
+        backend: local
+      procedure_when_to_use_content:
+        backend: local
+    keyword_index:
+      procedure_when_to_use:
+        backend: bm25
+        tokenizer: procedure
+      procedure_when_to_use_content:
+        backend: bm25
+        tokenizer: procedure
+    file_store:
+      procedure_when_to_use:
+        backend: local
+        embedding_store: procedure
+        keyword_index: procedure_when_to_use
+        file_graph: procedure_when_to_use
+      procedure_when_to_use_content:
+        backend: local
+        embedding_store: procedure
+        keyword_index: procedure_when_to_use_content
+        file_graph: procedure_when_to_use_content
+  jobs:
+    procedure_auto_memory:
+      backend: base
+      description: Extract procedural experiences from one local trajectory file.
+      enable_serve: false
+      parameters:
+        type: object
+        properties:
+          file:
+            type: string
+            description: Local source file path on the ReMe host.
+          filename:
+            type: string
+            description: Desired original filename; collisions get -2, -3, etc.
+          request_id:
+            type: string
+            description: Stable request identifier for retries and resume.
+          source_id:
+            type: string
+            description: Optional caller source label.
+          memory_hint:
+            type: string
+            description: Optional extraction focus.
+        required:
+        - file
+        - filename
+        additionalProperties: false
+      steps:
+      - backend: procedure_auto_memory_step
+        agent_wrapper: procedure
+    procedure_search:
+      backend: base
+      description: Search experiences with a selectable hybrid vector + BM25 index.
+      enable_serve: true
+      parameters:
+        type: object
+        properties:
+          query:
+            type: string
+            description: Search query.
+          index:
+            type: string
+            enum:
+            - when_to_use
+            - when_to_use_content
+            default: when_to_use
+          limit:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 5
+        required:
+        - query
+        additionalProperties: false
+      steps:
+      - backend: procedure_search_step
+    procedure_read:
+      backend: base
+      description: Read a full experience/version, or a bounded saved-trajectory excerpt.
+      enable_serve: true
+      parameters:
+        type: object
+        properties:
+          path:
+            type: string
+            description: Workspace-relative experience or saved trajectory path.
+          kind:
+            type: string
+            enum:
+            - experience
+            - trajectory
+            default: experience
+          offset:
+            type: integer
+            minimum: 0
+            default: 0
+          length:
+            type: integer
+            minimum: 1
+            maximum: 50000
+            default: 8192
+        required:
+        - path
+        additionalProperties: false
+      steps:
+      - backend: procedure_read_step
+    procedure_create:
+      backend: base
+      description: Create an experience and immediately synchronize both indexes.
+      enable_serve: false
+      parameters:
+        type: object
+        properties:
+          filename:
+            type: string
+            description: Meaningful lowercase-hyphenated name ending in .json.
+          description: &id001
+            type: string
+            description: Concise description of the reusable experience.
+          when-to-use: &id002
+            type: string
+            description: Prerequisites, applicability and scope.
+          content: &id003
+            type: string
+            description: Recommended actions or actions to avoid, with qualifications.
+          operation_key: &id004
+            type: string
+            description: Stable unique key for this operation within the current segment;
+              reuse only for identical retries.
+        required:
+        - filename
+        - description
+        - when-to-use
+        - content
+        - operation_key
+        additionalProperties: false
+      steps:
+      - backend: procedure_create_step
+    procedure_update:
+      backend: base
+      description: Revise experience fields, preserve sources, and synchronize both
+        indexes.
+      enable_serve: false
+      parameters:
+        type: object
+        properties:
+          path:
+            type: string
+            description: Existing experience workspace-relative path.
+          expected_version:
+            type: string
+            description: Version from procedure_read/search.
+          changes:
+            type: object
+            properties:
+              description: *id001
+              when-to-use: *id002
+              content: *id003
+            minProperties: 1
+            additionalProperties: false
+          operation_key: *id004
+        required:
+        - path
+        - expected_version
+        - changes
+        - operation_key
+        additionalProperties: false
+      steps:
+      - backend: procedure_update_step
+    procedure_reindex:
+      backend: base
+      description: Rebuild both procedure indexes from experience JSON files.
+      enable_serve: false
+      parameters:
+        type: object
+        properties: {}
+        required: []
+        additionalProperties: false
+      steps:
+      - backend: procedure_reindex_step
