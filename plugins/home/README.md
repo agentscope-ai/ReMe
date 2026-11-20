@@ -11,7 +11,8 @@ previous evaluation results.
 
 ## 1. Install and configure
 
-From the ReMe repository root, in the Python environment where you run ReMe:
+HoMe requires ReMe 0.4.2.3 or newer. From the ReMe repository root, in the
+Python environment where you run ReMe:
 
 ```bash
 pip install -e '.[benchmark-docker]'
@@ -49,10 +50,12 @@ and `candidate.paths: [plugins/lme/src]`. Use case IDs from that dataset.
 **Using your own dataset.** Convert your conversation histories and questions
 to LongMemEval format if you have reference answers, or to BEAM format if you
 have grading rubrics. Point `benchmark.source` at the converted data and use
-the corresponding benchmark configuration and judge. HoMe checks case and query
-IDs during preparation, so you can correct invalid IDs and retry in the same
-workspace. Supporting a different input format or scoring rule requires
-extending the dataset loader or judge.
+the corresponding benchmark configuration and judge. On Linux, case and query
+IDs are used verbatim. On macOS, HoMe also checks for names that collide after
+Unicode normalization and case folding. Query IDs must avoid reserved artifact
+names such as `result.json`. HoMe checks these IDs during preparation, so you can
+correct invalid IDs and retry in the same workspace. Supporting a different
+input format or scoring rule requires extending the dataset loader or judge.
 
 Start ReMe in the first terminal:
 

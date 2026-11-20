@@ -7,11 +7,16 @@ import json
 from datetime import datetime
 import math
 import random
+import re
+from sys import platform
 from typing import Iterable
-
-from deploy.benchmark_docker.models import validate_case_id, validate_query_artifact_id
+import unicodedata
 
 from .models import CaseSpec, DatasetManifest, QuerySpec, SessionSpec, canonical_json_bytes, fingerprint
+
+_CASE_ID_MAX_LENGTH = 128
+# Match the Docker case-name contract when running against older ReMe wheels.
+_CASE_ID_RE = re.compile(rf"[A-Za-z0-9][A-Za-z0-9_.-]{{0,{_CASE_ID_MAX_LENGTH - 1}}}")
 
 
 def select_case_ids(available: list[str], requested: Iterable[str] | None) -> list[str]:
@@ -28,19 +33,32 @@ def select_case_ids(available: list[str], requested: Iterable[str] | None) -> li
     return requested_ids
 
 
+def artifact_name_key(value: str) -> str:
+    """Account for aliasing on macOS and preserve verbatim names on Linux."""
+    return unicodedata.normalize("NFC", value.casefold()) if platform == "darwin" else value
+
+
 def validate_artifact_ids(case: CaseSpec) -> None:
     """Check normalized identifiers against the sandbox and Home artifact layout."""
-    try:
-        validate_case_id(case.case_id)
-    except ValueError as error:
-        raise ValueError(f"Invalid case_id {case.case_id!r}: {error}") from error
+    if not _CASE_ID_RE.fullmatch(case.case_id):
+        raise ValueError(
+            f"Invalid case_id {case.case_id!r}: case_id must start with a letter or number, "
+            f"use only letters, numbers, '.', '_' or '-', and be at most {_CASE_ID_MAX_LENGTH} characters",
+        )
+    query_names = set()
     for query in case.queries:
-        try:
-            validate_query_artifact_id(query.query_id)
-            if query.query_id == "result.json":
-                raise ValueError("query ID conflicts with the case's query results file")
-        except ValueError as error:
-            raise ValueError(f"Invalid query_id {query.query_id!r} in case {case.case_id!r}: {error}") from error
+        query_id = query.query_id
+        name = artifact_name_key(query_id)
+        if (
+            not query_id
+            or len(query_id.encode("utf-8")) > 255
+            or name in {".", "..", "summary.json", "result.json"}
+            or any(character in query_id for character in "/\\\x00")
+        ):
+            raise ValueError(f"Invalid query_id {query_id!r} in case {case.case_id!r}: expected a safe artifact name")
+        if name in query_names:
+            raise ValueError(f"Duplicate query IDs in case {case.case_id}: {query_id!r} aliases another artifact name")
+        query_names.add(name)
 
 
 def write_normalized_dataset(
@@ -54,12 +72,15 @@ def write_normalized_dataset(
     cases_directory = directory / "cases"
     cases_directory.mkdir(parents=True)
     case_ids: list[str] = []
+    case_names = set()
     case_fingerprints: list[str] = []
     query_count = 0
     for index, case in enumerate(cases):
         validate_artifact_ids(case)
-        if case.case_id in case_ids:
+        name = artifact_name_key(case.case_id)
+        if name in case_names:
             raise ValueError(f"Duplicate normalized case ID: {case.case_id}")
+        case_names.add(name)
         (cases_directory / f"{index:06d}.json").write_bytes(canonical_json_bytes(case) + b"\n")
         case_ids.append(case.case_id)
         case_fingerprints.append(fingerprint(case))
@@ -123,6 +144,9 @@ def derive_debug_cases(
             source = eligible_sessions[index]
             sessions.append(source.model_copy(update={"messages": source.messages[:messages_per_session]}))
         debug_id = f"debug-{case.case_id}"
+        if len(debug_id) > _CASE_ID_MAX_LENGTH:
+            # This prefix cannot collide with a verbatim debug ID.
+            debug_id = f"debug.long-{source_case_index}"
         debug_cases.append(
             case.model_copy(
                 update={

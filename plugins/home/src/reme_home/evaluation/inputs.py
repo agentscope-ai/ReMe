@@ -13,7 +13,7 @@ from pydantic import Field, field_validator, model_validator
 from deploy.benchmark_docker import SourceSnapshot
 
 from ..preparation.code import export_git_tree, git, git_tree, runtime_roots, tree_fingerprint
-from ..preparation.data.basic import validate_artifact_ids
+from ..preparation.data.basic import artifact_name_key, validate_artifact_ids
 from ..preparation.data.models import CaseSpec, DatasetManifest, fingerprint
 from .artifacts import contained, file_sha256, inspect_archive, read_json
 from ..preparation.spec import SpecModel
@@ -100,15 +100,15 @@ def load_inputs(home: Path, spec: EvaluationSpec):
     directory = contained(home, f"datasets/{spec.dataset_kind}", directory=True)
     manifest = DatasetManifest.model_validate(read_json(directory / "manifest.json"))
     cases = {}
+    case_names = set()
     hashes = []
     for path in sorted((directory / "cases").glob("*.json")):
         case = CaseSpec.model_validate(read_json(path))
         validate_artifact_ids(case)
-        if case.case_id in cases or not case.queries:
+        name = artifact_name_key(case.case_id)
+        if name in case_names or not case.queries:
             raise ValueError("Dataset contains duplicate case IDs or a case without queries")
-        ids = [query.query_id for query in case.queries]
-        if len(ids) != len(set(ids)):
-            raise ValueError(f"Duplicate query IDs in case {case.case_id}")
+        case_names.add(name)
         hashes.append(fingerprint(case))
         cases[case.case_id] = case
     if list(cases) != manifest.case_ids or fingerprint(hashes) != manifest.normalized_fingerprint:

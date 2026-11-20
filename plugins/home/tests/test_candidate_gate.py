@@ -206,6 +206,28 @@ async def test_admission_base_requires_usable_budgeted_ancestor(app, prepared, m
 
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("rebuild_review")
+async def test_admission_rebuilds_history_after_evaluation_is_archived(app, prepared, tmp_path, monkeypatch):
+    commit_candidate(prepared)
+    first = await app.run_job("home_evaluate")
+    assert first.success, first.answer
+    commit_candidate(prepared)
+    second = await app.run_job("home_evaluate")
+    assert second.success, second.answer
+    Path(second.answer["result_dir"]).rename(tmp_path / "archived-evaluation")
+    commit_candidate(prepared)
+
+    async def reject(wrapper, home, context, budget, **kwargs):
+        return {**context, "decision": "reject", "reason": "Stop after capturing the admission context"}
+
+    monkeypatch.setattr(candidate_gate, "review_candidate", reject)
+    response = await app.run_job("home_evaluate", max_evaluations=10)
+
+    assert response.answer["error_code"] == "CANDIDATE_GATE_REJECTED"
+    assert response.answer["candidate_gate"]["base_commit"] == first.answer["commit_sha"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("rebuild_review")
 async def test_admission_base_uses_latest_evaluation_at_equal_ancestry_distance(app, prepared):
     repo = prepared / "code/repo"
     # The left lineage is longer, but both evaluated tips are direct parents of the merge.

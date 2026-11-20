@@ -335,6 +335,9 @@ class HomeEvaluation(BaseComponent):
                     raise ValueError("Invalid evaluation commit directory")
             folder.mkdir(exist_ok=True)
             numbers = [int(path.name) for path in folder.iterdir() if path.name.isdigit()]
+            # Started plans reserve attempt IDs even after their results are archived.
+            plans = contained(home, f"sampling/plans/{branch}/{folder.name}", directory=True)
+            numbers.extend(int(path.stem) for path in plans.glob("*.json") if path.stem.isdigit())
             run = folder / str(max(numbers, default=0) + 1)
             run.mkdir()
             manifest["validation_id"] = run.name

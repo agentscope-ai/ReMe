@@ -778,6 +778,30 @@ async def test_lme_evidence_and_time_cutoff_debug_cases(app, inputs):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("app", ["lme-judge"], indirect=True)
+async def test_lme_preparation_derives_debug_cases_for_long_ids(app, inputs):
+    """The default debug dataset preserves provenance for every valid training ID."""
+    spec, source = inputs
+    item = json.loads(source.read_text())[0]
+    case_ids = ["x" * 122, "x" * 123, "x" * 128, "long-1"]
+    source.write_text(json.dumps([{**item, "question_id": case_id} for case_id in case_ids]))
+    spec["benchmark"] = {"name": "longmemeval", "source": str(source), "all_cases": True}
+
+    response = await app.run_job("home_prepare", spec=spec)
+
+    assert response.success, response.answer
+    assert response.answer["dataset"]["case_ids"] == case_ids
+    folder = Path(app.config.workspace_dir) / "home/datasets/debug-cases/cases"
+    cases = [json.loads(path.read_text()) for path in sorted(folder.glob("*.json"))]
+    assert [case["metadata"]["source_case_id"] for case in cases] == case_ids
+    debug_ids = [case["case_id"] for case in cases]
+    assert len(set(debug_ids)) == 4
+    assert all(len(case_id) <= 128 for case_id in debug_ids)
+    assert debug_ids[0] == f"debug-{case_ids[0]}"
+    assert debug_ids[-1] == "debug-long-1"
+
+
+@pytest.mark.asyncio
 async def test_concurrent_preparation_rejects_second_writer(app, inputs, monkeypatch):
     """Two active Jobs share the process lock rather than racing to publish."""
     spec, _ = inputs

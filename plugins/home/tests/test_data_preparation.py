@@ -1,12 +1,48 @@
 """Debug derivation reads only selected cases and preserves deterministic output."""
 
 from pathlib import Path
+import json
 
 import pytest
 
+from reme_home.evaluation.inputs import EvaluationSpec, load_inputs
+from reme_home.preparation.data import basic
 from reme_home.preparation.data.basic import derive_debug_cases, write_normalized_dataset
 from reme_home.preparation.data.models import CaseSpec, GroundTruth, QuerySpec, SessionSpec
 from reme_home.preparation.spec import DebugSpec
+
+
+@pytest.mark.parametrize("platform", ["linux", "darwin"])
+@pytest.mark.parametrize(
+    "records,error",
+    [
+        ([("Case", ["q"]), ("case", ["q"])], "Duplicate normalized case ID"),
+        ([("case", ["Result.json"])], "Invalid query_id"),
+        ([("case", ["Q", "q"])], "Duplicate query IDs"),
+        ([("case", ["é", "e\u0301"])], "Duplicate query IDs"),
+    ],
+)
+def test_artifact_names_follow_platform_rules(tmp_path, monkeypatch, platform, records, error):
+    """Keep distinct names on Linux and reject names that can alias on macOS."""
+    monkeypatch.setattr(basic, "platform", platform)
+    training = tmp_path / "datasets/training-set"
+    cases = [
+        CaseSpec(
+            case_id=case_id,
+            sessions=[],
+            queries=[QuerySpec(query_id=query_id, question="What?", groundtruth=GroundTruth()) for query_id in queries],
+        )
+        for case_id, queries in records
+    ]
+    if platform == "darwin":
+        with pytest.raises(ValueError, match=error):
+            write_normalized_dataset(training, "longmemeval", None, cases)
+    else:
+        manifest = write_normalized_dataset(training, "longmemeval", None, cases)
+        metadata = tmp_path / "metadata"
+        metadata.mkdir()
+        (metadata / "preparation.json").write_text(json.dumps({"dataset": manifest.model_dump(mode="json")}))
+        assert load_inputs(tmp_path, EvaluationSpec())[2] == cases
 
 
 def test_debug_derivation_reads_only_selected_cases(tmp_path, monkeypatch):
