@@ -144,99 +144,52 @@ Memory Construction average token consumption (default agent, full build over 35
 | default | 31,943,817 | 1,417,061 | 33,360,878 |
 
 
-## Prepare a Home experiment
+## 7. HoMe
 
-`run_home.py` prepares all BEAM **100K** cases, the workspace, and committed candidate
-code. It exits after preparation; it does not evaluate cases or start optimization.
-Run from the repository root after obtaining the dataset described above:
+### Experiment setup
+
+Get the dataset above and follow the [HoMe setup and run guide](../../plugins/home/README.md#4-run-a-benchmark-experiment).
+[config_home.yaml](config_home.yaml) defaults to `benchmark/beam/workspaces/home-100K` and all **100K** cases for optimization.
+[config_home_eval.yaml](config_home_eval.yaml) defaults to `benchmark/beam/workspaces/home-test-100K`
+and all **100K** cases, which can overlap with training. Change `variant` or select `case_ids` to evaluate a different set.
+
+Prepare the optimization workspace from the repository root:
 
 ```bash
-reme plugins install plugins/home
 python benchmark/beam/run_home.py
-# Optional separate workspace (a successful preparation cannot be repeated):
-python benchmark/beam/run_home.py --workspace-dir /path/to/new-workspace
 ```
 
-[config_home.yaml](config_home.yaml) controls the preparation. Its paths are
-repository-relative regardless of the current working directory; `--config`
-accepts an alternative runner YAML file. The default workspace is
-`benchmark/beam/workspaces/home-100K`. The evaluated runtime loads `beam`;
-the host application loads `home`. `source_ref: HEAD` exports committed source
-only, excluding uncommitted modifications. Preparation failure rolls back its
-outputs; after success, another call fails instead of resetting the experiment.
+### Run the experiment
 
-The top-level `sampling_policy` configures Home evaluation defaults: `max_cases`,
-`max_queries` (null means unlimited), `temperature`, `ewma_alpha` and
-`uniform_exploration`. The runner validates these and passes them to the host
-`home.evaluation` Component. It still only prepares; it does not run evaluations.
-Each evaluation controls `sampling` and `record_history` separately.
-
-The top-level `validation_cycle_time_budget_minutes` configures the host optimizer's
-advisory time between completed formal evaluations. It defaults to 150 minutes;
-set a positive number to change it or null to disable timed reminders.
-
-The top-level `max_evaluations` sets the optimizer's formal-evaluation budget
-(positive integer, default 10). A slot is consumed at first sandbox startup,
-including later failures or cancellations; initial baseline and debug are excluded.
-
-The top-level `memory_limit_mib` sets the host agent sandbox memory limit for
-optimization, diagnosis, case studies and evaluation reviews. Set `memory_limit_mib: 0`
-in the runner YAML to disable the Linux cgroup limit. Null or omission keeps platform
-defaults (4096 MiB on Linux); macOS does not enforce memory limits.
-
-After preparation, run local one-shot optimization with the same configuration:
+Run local one-shot optimization:
 
 ```bash
 python benchmark/beam/run_home.py --optimize
-# Use the same --config and --workspace-dir overrides as preparation, if supplied.
-python benchmark/beam/run_home.py --optimize --instruction "Improve retrieval quality"
 ```
 
-This starts a fresh application, applies both budgets and the sampling policy,
-runs `home_optimize`, and closes the application. It does not repeat preparation.
-Python callers can use `await optimize(config_path, workspace_dir=...)` from the
-same module. The default `run()` and CLI behavior remain preparation only.
-
-Python callers can use the same lifecycle:
-
-```python
-from benchmark.beam.run_home import run
-
-result = await run(workspace_dir="/path/to/new-workspace")
-```
-
-
-## Evaluate a candidate on an independent test set
-
-The default evaluates every 100K case, matching the previous standalone evaluation. This is an independent
-workspace, not a disjoint held-out split. Select another `variant`, or replace `all_cases: true` with
-`case_ids: [...]`, in [config_home_eval.yaml](config_home_eval.yaml) for a different test set.
-
-The entry point imports a full candidate SHA or unambiguous hexadecimal prefix from an existing Home
-optimization workspace and copies its prepared fixed runtime. It does not require the original ReMe source
-repository or change the optimizer's checkout. Paths in the configuration are repository-relative.
-
-Prepare first, then use the service from two terminals (replace `CANDIDATE_SHA`):
+Set `CANDIDATE_SHA` to the optimizer's `commit_sha` or a unique hexadecimal prefix, then run local one-shot evaluation:
 
 ```bash
-python benchmark/beam/run_home_eval.py --commit CANDIDATE_SHA --prepare-only
-# Terminal 1:
-reme start workspace_dir=benchmark/beam/workspaces/home-test-100K 'plugins=["home","beam-judge"]'
-# Terminal 2:
-reme home_evaluate workspace_dir=benchmark/beam/workspaces/home-test-100K record_history=false
+python benchmark/beam/run_home_eval.py --commit "$CANDIDATE_SHA"
 ```
 
-### Local one-shot test evaluation
+See the [HoMe evaluation guide](../../plugins/home/README.md#evaluate-through-the-service) for service-based evaluation.
 
-```bash
-python benchmark/beam/run_home_eval.py --commit CANDIDATE_SHA
-# Optional overrides: --config /path/to/test.yaml --source-workspace /path/to/search --test-workspace /path/to/test
-```
+### Experiment results
 
-Python callers can use `await benchmark.beam.run_home_eval.run(commit="CANDIDATE_SHA")`.
-The runner rebuilds construction and scores every selected query with sampling and history recording disabled.
-It uses the existing Docker evaluation runtime and host judge configuration; model credentials are required
-for evaluation. Results stay in the test workspace's `home/evaluations/`, with original candidate provenance
-in each manifest's `test_evaluation`. The exported snapshot has its own local `evaluation_commit_sha`.
-Rerunning the same request reopens unchanged prepared inputs and creates another evaluation result. Use a
-new test workspace for another candidate or selection. Source and test workspaces must not overlap.
+HoMe is optimized on BEAM-100K and evaluated on BEAM-1M (35 cases, 700 queries).
+Token counts and LLM calls are per-query averages for the answering stage.
+
+| Question category | Score | Total tokens | Input tokens | Output tokens | LLM calls |
+|---|---:|---:|---:|---:|---:|
+| **Overall** | **0.704** | **60.4K** | **57.8K** | **2.6K** | **6.7** |
+| Abstention | 0.636 | 43.4K | 41.9K | 1.5K | 6.6 |
+| Contradiction Resolution | 0.705 | 22.4K | 21.0K | 1.4K | 4.6 |
+| Event Ordering | 0.546 | 123.0K | 116.6K | 6.4K | 12.7 |
+| Information Extraction | 0.735 | 32.5K | 31.2K | 1.2K | 5.2 |
+| Instruction Following | 0.901 | 30.7K | 29.4K | 1.3K | 5.5 |
+| Knowledge Update | 0.671 | 19.2K | 18.3K | 0.9K | 4.0 |
+| Multi-session Reasoning | 0.682 | 93.5K | 88.1K | 5.4K | 8.5 |
+| Preference Following | 0.833 | 25.0K | 23.8K | 1.2K | 4.8 |
+| Summarization | 0.726 | 173.2K | 169.0K | 4.2K | 9.4 |
+| Temporal Reasoning | 0.604 | 41.4K | 39.1K | 2.3K | 6.0 |
