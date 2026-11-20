@@ -266,6 +266,22 @@ async def test_find_reme_detects_wildcard_conflict_on_another_local_address(monk
     assert probed_hosts == ["127.0.0.1"]
 
 
+def test_running_app_config_skips_missing_config(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(su, "_reme_start_argv", lambda: [["config=./missing.yaml"]])
+
+    assert su.running_app_config() is None
+
+
+def test_running_app_config_uses_later_valid_candidate(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    config = tmp_path / "reme.json"
+    config.write_text(json.dumps({"service": {"backend": "http", "port": 8125}}))
+    monkeypatch.setattr(su, "_reme_start_argv", lambda: [["config=./missing.yaml"], [f"config={config}"]])
+
+    assert su.running_app_config()["service"]["port"] == 8125
+
+
 def test_running_app_config_preserves_plugins(monkeypatch):
     """Process replay exposes the full config while the compatibility helper returns service only."""
     monkeypatch.setattr(su, "_reme_start_argv", lambda: [["config=example"]])
