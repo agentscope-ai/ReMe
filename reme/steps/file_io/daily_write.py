@@ -5,7 +5,7 @@ from ._base import _FileIOStep
 from ._daily_index import parse_daily_date, refresh_day_index, validate_session_id
 from ._path import validate_filename_component
 from ...utils.files.paths import normalize_posix_path
-from ...components import R
+from ...core.registry import R
 from ...steps.evolve import now
 
 _RESERVED_METADATA_KEYS = {"name", "description", "session_id", "source_conversation"}

@@ -16,10 +16,9 @@ from agentscope.message import DataBlock, TextBlock, UserMsg
 from watchfiles import Change
 
 from ...core.context import RuntimeContext
-from ...utils.files.file_watch import normalize_change
 from ..base_step import BaseStep
 from ..file_io import refresh_day_index, resolve_path, validate_filename_component
-from ._evolve import agent_reply_result_text, note_modified, now
+from ._evolve import agent_reply_result_text, now
 
 _SOURCE_RESOURCE_KEY = "source_resource"
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -165,6 +164,13 @@ class BaseAutoResourceStep(BaseStep):
         file_path = change.get("path") or change.get("file_path", "")
         return Path(str(file_path)).suffix.lower() in cls.resource_suffixes
 
+    def _normalize_change(self, raw) -> Change | None:
+        if isinstance(raw, Change):
+            return raw
+        if isinstance(raw, str):
+            return Change.__members__.get(raw)
+        return None
+
     def _today(self) -> str:
         tz = self.app_context.app_config.timezone if self.app_context is not None else None
         return now(tz).strftime("%Y-%m-%d")
@@ -252,6 +258,14 @@ class BaseAutoResourceStep(BaseStep):
         if not note_path.is_file():
             return None
         return note_path.read_bytes()
+
+    def _note_modified(self, before_path: str, before_bytes: bytes | None, after_path: str) -> bool:
+        if not after_path:
+            return False
+        after_bytes = self._note_bytes(after_path)
+        if after_bytes is None:
+            return before_bytes is not None
+        return after_path != before_path or before_bytes != after_bytes
 
     async def _refresh_day_index(self, day: str) -> dict:
         """Refresh and return the derived daily index for a resource-note change."""
@@ -595,7 +609,7 @@ class BaseAutoResourceStep(BaseStep):
             {
                 "path": state.path if staged_bytes is not None else None,
                 "created": state.created and staged_bytes is not None,
-                "modified": note_modified(state.path, state.before_bytes, state.path, self._note_bytes),
+                "modified": self._note_modified(state.path, state.before_bytes, state.path),
             },
         )
         note_path = await self._resolve_written_note(state, day, file_path)
@@ -603,7 +617,7 @@ class BaseAutoResourceStep(BaseStep):
             self.context.response.metadata.update({"path": None, "created": False, "modified": False})
             return None
 
-        modified = note_modified(state.path, state.before_bytes, note_path, self._note_bytes)
+        modified = self._note_modified(state.path, state.before_bytes, note_path)
         self.context.response.metadata.update({"path": note_path, "created": state.created, "modified": modified})
         await self._ensure_resource_frontmatter(note_path, file_path, metadata)
         note_path = await self._rename_from_frontmatter_name(
@@ -613,7 +627,7 @@ class BaseAutoResourceStep(BaseStep):
             note_stem,
             allow_rename=state.created,
         )
-        modified = note_modified(state.path, state.before_bytes, note_path, self._note_bytes)
+        modified = self._note_modified(state.path, state.before_bytes, note_path)
         self.context.response.metadata.update({"path": note_path, "created": state.created, "modified": modified})
         index_payload = await self._refresh_day_index(day)
         self.context.response.metadata.update(
@@ -708,7 +722,7 @@ class BaseAutoResourceStep(BaseStep):
             self.logger.warning(f"[{self.name}] missing file_path change={raw_change!r}")
             return {"success": False, "path": file_path, "change": raw_change, "answer": self.context.response.answer}
 
-        change = normalize_change(raw_change)
+        change = self._normalize_change(raw_change)
         if change is None:
             self.context.response.success = False
             self.context.response.answer = f"Invalid change type: {raw_change}"
@@ -784,7 +798,7 @@ class BaseAutoResourceStep(BaseStep):
         file_path = str(file_path or "")
         if Path(file_path).is_absolute():
             file_path = self.to_workspace_relative(file_path)
-        change = normalize_change(raw_change)
+        change = self._normalize_change(raw_change)
         change_name = change.name if change is not None else str(raw_change)
         answer = f"Failed to process resource: {file_path}: {exc}"
         metadata = dict(self.context.response.metadata)

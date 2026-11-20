@@ -5,7 +5,7 @@ import json
 
 from ...base_step import BaseStep
 from .._evolve import agent_reply_result_text, passthrough_response
-from ....components import R
+from ....core.registry import R
 from ....schema import ProactiveState
 from ..dream.utils import daily_dir, pack_paths, today, workspace_dir
 from .utils import (
@@ -16,7 +16,6 @@ from .utils import (
     parse_extract_reply,
     resolve_agent_wrapper,
     scan_material_daily,
-    store_state,
 )
 
 
@@ -130,7 +129,7 @@ class ProactiveExtractStep(BaseStep):
         # topics (audit #1).
         meta = await self._extract_with_retry(wrapper, state, ws, day, daily)
         if meta is None:
-            store_state(self.context, state)
+            self._store(state)
             return passthrough_response(self, self.skip_key)
         self._clean_output(state, meta, set(m_daily), day)
         answer = (
@@ -250,8 +249,14 @@ class ProactiveExtractStep(BaseStep):
                 },
             )
 
+    def _store(self, state: ProactiveState) -> None:
+        assert self.context is not None
+        data = state.model_dump()
+        self.context["proactive"] = data
+        self.context.response.metadata["proactive"] = data
+
     def _finish(self, state: ProactiveState, answer: str):
-        store_state(self.context, state)
+        self._store(state)
         self.context.response.success = True
         self.context.response.answer = answer
         self.logger.info(f"[{self.name}] finish answer={answer!r}")

@@ -45,7 +45,7 @@ from pathlib import Path
 
 from ._path import check_path_permission, resolve_path
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 from ...utils.documents.wikilink_handler import WikilinkHandler
 
 

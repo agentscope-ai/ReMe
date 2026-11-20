@@ -703,7 +703,7 @@ def test_embedded_start_timeout_closes_real_application_resources(monkeypatch, t
     import reme.config
 
     from reme import Application
-    from reme.components import BaseComponent
+    from reme.components.base import BaseComponent
 
     component_closed = threading.Event()
 

@@ -16,9 +16,8 @@ from agentscope.message import AssistantMsg, Base64Source, DataBlock, Msg, TextB
 from PIL import Image
 import pytest
 
-from reme.components import R
+from reme.core.registry import R, create_application_registry
 from reme.components.agent_wrapper.as_agent_wrapper import AsAgentWrapper
-from reme.components.component_registry import create_application_registry
 from reme.components.file_store import LocalFileStore
 from reme.plugin import PluginManager
 from reme.plugin.manager import _load_plugin

@@ -8,7 +8,7 @@ import pytest
 from reme_home.workspace import DIRECTORIES, HomeWorkspace, _initialization_lock
 
 from reme import Application
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext
 
 
 def component(root, **config):

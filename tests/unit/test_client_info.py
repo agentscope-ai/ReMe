@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from reme.components import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.schema.agent_view import ClientInfo
 from reme.steps.common.app_config import ClientInfoStep
 

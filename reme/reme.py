@@ -4,13 +4,15 @@ import asyncio
 import socket
 import sys
 from collections.abc import Iterator, Sequence
+from pathlib import Path
 
 import psutil
+from yaml import YAMLError
 
-from .core.application import ReMe
+from .core.application import Application
 from .constants import REME_DEFAULT_HOST, REME_DEFAULT_PORT, normalize_connect_host
 from .components.service.cli_service import prepare_start_config, should_precheck_start
-from .config import parse_action, parse_args, parse_kwargs, resolve_app_config
+from .config import parse_action, parse_kwargs, resolve_app_config
 from .enumeration import ComponentEnum
 from .plugin import resolve_plugin_runtime
 from .utils.env_utils import load_env
@@ -93,8 +95,8 @@ def _start_arguments(cmdline: list[str]) -> list[str] | None:
     return [argument for argument in cmdline[action_index + 1 :] if "=" in argument]
 
 
-def _iter_reme_starts() -> Iterator[tuple[int, list[str]]]:
-    """Yield the PID and original start options for running ReMe processes."""
+def _iter_running_configs() -> Iterator[tuple[int, dict]]:
+    """Resolve running ReMe configurations in their startup directories."""
     for proc in psutil.process_iter(["pid", "cmdline"]):
         try:
             info = proc.info
@@ -102,57 +104,46 @@ def _iter_reme_starts() -> Iterator[tuple[int, list[str]]]:
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
         arguments = _start_arguments(cmdline)
-        if arguments is not None:
-            yield info["pid"], arguments
-
-
-def _scan_reme_procs() -> list[tuple[int, str, int]]:
-    """List running 'reme ... start' processes as (pid, host, port)."""
-    procs: list[tuple[int, str, int]] = []
-    for pid, arguments in _iter_reme_starts():
+        if arguments is None:
+            continue
         try:
             overrides = parse_kwargs(*arguments)
         except ValueError:
             continue
+        if "job" in overrides:
+            continue
         try:
-            config = resolve_app_config(log_config=False, **overrides)
-        except (OSError, ValueError):
-            # A different process's relative config file may be unavailable.
+            config_name = overrides.get("config")
+            config_dir = (
+                Path(proc.cwd()) if isinstance(config_name, str) and not Path(config_name).is_absolute() else None
+            )
+            config = resolve_app_config(log_config=False, _config_dir=config_dir, **overrides)
+        except psutil.NoSuchProcess:
+            continue
+        except (OSError, ValueError, psutil.AccessDenied, YAMLError):
+            # An unreadable config can identify a service only through explicit settings.
+            service = overrides.get("service")
+            if not isinstance(service, dict) or not service:
+                continue
             config = overrides
-        service = config.get("service") or {}
+        if should_precheck_start(config):
+            yield info["pid"], config
+
+
+def _scan_reme_procs() -> Iterator[tuple[int, str, int]]:
+    """Yield running ReMe PIDs and their configured HTTP probe addresses."""
+    for pid, config in _iter_running_configs():
+        service = config.get("service")
+        service = service if isinstance(service, dict) else {}
         host = service.get("host") or REME_DEFAULT_HOST
         port_value = str(service.get("port", REME_DEFAULT_PORT))
         port = int(port_value) if port_value.isdigit() else REME_DEFAULT_PORT
-        procs.append((pid, host, port))
-    return procs
+        yield pid, host, port
 
 
 def running_app_config() -> dict | None:
-    """Resolve the full config of a running ReMe by replaying its start args.
-
-    Reads the live ``reme start ...`` process cmdline and re-runs the same
-    ``resolve_app_config`` the server used. Returning the full config preserves
-    enabled plugins as well as service connection settings for CLI clients.
-    Returns ``None`` when no running reme is found or its args can't be parsed.
-    """
-    for _, argv in _iter_reme_starts():
-        try:
-            _, kwargs = parse_args("start", *argv)
-            config = resolve_app_config(log_config=False, **kwargs)
-        except ValueError:
-            continue
-        if isinstance(config, dict):
-            return config
-    return None
-
-
-def running_service_config() -> dict | None:
-    """Return only the service section of the running ReMe configuration."""
-    config = running_app_config()
-    if config is None:
-        return None
-    service = config.get("service")
-    return service if isinstance(service, dict) else None
+    """Return a running ReMe's application config, including enabled plugins."""
+    return next((config for _, config in _iter_running_configs()), None)
 
 
 async def locate_reme() -> tuple[str, int, int | None] | None:
@@ -254,7 +245,7 @@ def _start_application(kwargs: dict, environment: dict) -> None:
     kwargs["environment"] = environment
     if should_precheck_start(kwargs) and not precheck_start(kwargs.get("service")):
         return
-    ReMe(**kwargs).run_app()
+    Application(**kwargs).run_app()
 
 
 def main() -> None:

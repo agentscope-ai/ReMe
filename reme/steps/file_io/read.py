@@ -6,7 +6,7 @@ from ._base import _FileIOStep
 from ._file_io import read_file_lines_safe, read_file_safe, truncate_session_output, truncate_text_output
 from ._path import check_path_permission, NON_MD_WARNING, gate_md, resolve_path
 from ..index._source_format import is_session_path
-from ...components import R
+from ...core.registry import R
 from ...constants import DEFAULT_MAX_BYTES, MAX_FILE_READ_BYTES
 from ...utils.documents.link_expansion import expand_links, render_expansion_lines
 

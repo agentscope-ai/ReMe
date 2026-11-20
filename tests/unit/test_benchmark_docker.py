@@ -461,12 +461,12 @@ def test_worker_merges_plugin_defaults_before_validating_config(tmp_path, monkey
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mode", ["job", "queries"])
 async def test_worker_keeps_startup_error_or_cancellation_when_close_fails(tmp_path, monkeypatch, mode):
-    import reme.reme as reme_module
+    import reme
 
     primary = RuntimeError("startup exploded") if mode == "job" else asyncio.CancelledError("startup cancelled")
     closed = False
 
-    class FakeReMe:
+    class FakeApplication:
         def __init__(self, **_kwargs):
             pass
 
@@ -478,7 +478,7 @@ async def test_worker_keeps_startup_error_or_cancellation_when_close_fails(tmp_p
             closed = True
             raise RuntimeError("close exploded")
 
-    monkeypatch.setattr(reme_module, "ReMe", FakeReMe)
+    monkeypatch.setattr(reme, "Application", FakeApplication)
     monkeypatch.setattr(sandbox_worker, "_prepare_runtime", lambda _request: (tmp_path, {}))
     runner = sandbox_worker._run if mode == "job" else sandbox_worker._run_queries
     with pytest.raises(type(primary)) as failure:
@@ -491,11 +491,11 @@ async def test_worker_keeps_startup_error_or_cancellation_when_close_fails(tmp_p
 @pytest.mark.parametrize("mode", ["job", "build", "queries"])
 @pytest.mark.parametrize("job_fails", [True, "result", False], ids=["exception", "failed-result", "close-only"])
 def test_worker_response_preserves_failed_job_when_close_fails(tmp_path, monkeypatch, mode, job_fails):
-    import reme.reme as reme_module
+    import reme
     from types import SimpleNamespace
-    from reme.components import ApplicationContext
+    from reme.core.context import ApplicationContext
 
-    class FakeReMe:
+    class FakeApplication:
         def __init__(self, **_kwargs):
             self.context = ApplicationContext(workspace_dir=str(tmp_path))
             self.context.jobs["build"] = object()
@@ -514,7 +514,7 @@ def test_worker_response_preserves_failed_job_when_close_fails(tmp_path, monkeyp
         async def close(self):
             raise ValueError("close exploded")
 
-    monkeypatch.setattr(reme_module, "ReMe", FakeReMe)
+    monkeypatch.setattr(reme, "Application", FakeApplication)
     monkeypatch.setattr(sandbox_worker, "_prepare_runtime", lambda _request: (tmp_path, {}))
     request = {
         "mode": mode,
@@ -593,7 +593,7 @@ async def test_build_log_captures_initialization_failure(tmp_path, monkeypatch, 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failure_phase", [None, "start", "checkpoint", "close", "start_and_close", "job"])
 async def test_build_log_captures_runtime_failures_and_preserves_primary_error(tmp_path, monkeypatch, failure_phase):
-    import reme.reme as reme_module
+    import reme
     from reme.utils.logger_utils import get_logger
 
     monkeypatch.setattr(sandbox_worker, "_prepare_runtime", lambda _request: (tmp_path, {}))
@@ -602,7 +602,7 @@ async def test_build_log_captures_runtime_failures_and_preserves_primary_error(t
     close_error = RuntimeError("close exploded")
     closed = False
 
-    class FakeReMe:
+    class FakeApplication:
         def __init__(self, **_kwargs):
             get_logger(log_to_console=False, log_to_file=False, force_init=True)
 
@@ -624,7 +624,7 @@ async def test_build_log_captures_runtime_failures_and_preserves_primary_error(t
     def checkpoint(*_args):
         raise checkpoint_error
 
-    monkeypatch.setattr(reme_module, "ReMe", FakeReMe)
+    monkeypatch.setattr(reme, "Application", FakeApplication)
     monkeypatch.setattr(sandbox_worker, "_run_job_on_app", run_job)
     monkeypatch.setattr(sandbox_worker, "_commit_memory_checkpoint", checkpoint)
     jobs = [{"job": "build"}]
@@ -662,14 +662,14 @@ async def test_build_log_captures_runtime_failures_and_preserves_primary_error(t
 
 @pytest.mark.asyncio
 async def test_worker_clears_search_budget_between_queries(tmp_path, monkeypatch):
-    import reme.reme as reme_module
+    import reme
     from reme.utils.logger_utils import get_logger
 
     monkeypatch.setattr(sandbox_worker, "_prepare_runtime", lambda _request: (tmp_path, {}))
     seen_metadata: list[dict] = []
     apps = []
 
-    class FakeReMe:
+    class FakeApplication:
         def __init__(self, **_kwargs):
             from types import SimpleNamespace
 
@@ -689,7 +689,7 @@ async def test_worker_clears_search_budget_between_queries(tmp_path, monkeypatch
         app.context.metadata["__search_call_budgets"] = {"same-id": {"count": 1}}
         return {"success": True, "answer": "ok", "metadata": {}, "error": None}
 
-    monkeypatch.setattr(reme_module, "ReMe", FakeReMe)
+    monkeypatch.setattr(reme, "Application", FakeApplication)
     monkeypatch.setattr(sandbox_worker, "_run_job_on_app", run_job)
 
     result = await sandbox_worker._run_queries(

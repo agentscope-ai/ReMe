@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.steps.common.python_execute import PythonExecuteStep
 from reme.utils.file_sandbox.path_seatbelt_backend import PathSeatbeltBackend
 from reme.utils.local_backend import LocalProcessBackend, OUTPUT_LIMIT_BYTES

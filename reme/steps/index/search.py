@@ -10,7 +10,7 @@ from ._source_format import ALL_RETURNED_MESSAGE, NO_RESULTS_MESSAGE
 from ._tool_context import _ToolContextMixin
 from ..base_step import BaseStep
 from ..file_io import extract_daily_date
-from ...components import R
+from ...core.registry import R
 from ...schema import FileChunk
 from ...utils.documents.link_expansion import expand_links, render_expansion_lines
 from ...utils.files.paths import canonical_index_path

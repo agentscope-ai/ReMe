@@ -150,7 +150,13 @@ def _external_config_path(name: str, entry: EntryPoint | None) -> Path | None:
     return path
 
 
-def _load_config(name_or_path: str, encoding: str = "utf-8", _stack: tuple[str, ...] = ()) -> dict:
+def _load_config(
+    name_or_path: str,
+    encoding: str = "utf-8",
+    _stack: tuple[str, ...] = (),
+    *,
+    relative_to: Path | None = None,
+) -> dict:
     """Load a built-in, installed-plugin, or direct YAML/JSON config."""
     if name_or_path in _stack:
         chain = " -> ".join((*_stack, name_or_path))
@@ -161,29 +167,35 @@ def _load_config(name_or_path: str, encoding: str = "utf-8", _stack: tuple[str, 
     if built_in is not None and external_entries:
         raise ValueError(f"Config '{name_or_path}' is provided by both ReMe and an installed distribution")
     if built_in is not None:
-        return _load_config_path(built_in, name_or_path, encoding, _stack)
+        return _load_config_path(built_in, name_or_path, encoding, _stack, relative_to)
 
     external_entry = unique_entry_point(external_entries, name_or_path, provider="Config")
     external = _external_config_path(name_or_path, external_entry)
     if external is not None:
-        return _load_config_path(external, name_or_path, encoding, _stack)
+        return _load_config_path(external, name_or_path, encoding, _stack, relative_to)
 
     p = Path(name_or_path)
     if p.suffix in _SUPPORTED_EXTS:
-        candidates = [p]
+        candidates = [p if relative_to is None else relative_to / p]
         if not p.is_absolute():
             candidates.append(_CONFIG_DIR / p)
         for candidate in candidates:
             if candidate.exists():
                 identity = str(candidate.resolve())
-                return _load_config_path(candidate, identity, encoding, _stack)
+                return _load_config_path(candidate, identity, encoding, _stack, relative_to)
         raise FileNotFoundError(f"Config file not found: {p}")
 
     known = ", ".join(sorted(_CONFIG_REGISTRY)) if _CONFIG_REGISTRY else "none"
     raise FileNotFoundError(f"Config file not found: {name_or_path}. Available: {known}")
 
 
-def _load_config_path(path: Path, identity: str, encoding: str, stack: tuple[str, ...]) -> dict:
+def _load_config_path(
+    path: Path,
+    identity: str,
+    encoding: str,
+    stack: tuple[str, ...],
+    relative_to: Path | None,
+) -> dict:
     """Load one config and merge its optional parents before its own values."""
     config = _read_config_file(path, encoding)
     raw_parents = config.pop("extends", ())
@@ -196,7 +208,8 @@ def _load_config_path(path: Path, identity: str, encoding: str, stack: tuple[str
         relative = path.parent / parent
         if Path(parent).suffix in _SUPPORTED_EXTS and relative.is_file():
             parent_name = str(relative.resolve())
-        merged = deep_merge_config(merged, _load_config(parent_name, encoding, (*stack, identity)))
+        parent_config = _load_config(parent_name, encoding, (*stack, identity), relative_to=relative_to)
+        merged = deep_merge_config(merged, parent_config)
     return deep_merge_config(merged, config)
 
 
@@ -267,9 +280,12 @@ def parse_args(*args: str) -> tuple[str, dict]:
     return parse_action(args[0]), parse_kwargs(*args[1:])
 
 
-def resolve_app_config(*, log_config: bool = True, **kwargs) -> dict:
+def resolve_app_config(*, log_config: bool = True, _config_dir: Path | None = None, **kwargs) -> dict:
     """Resolve full app-start config: load `config=path` file, fall back to
     `default`, then deep-merge with the remaining kwargs as overrides.
+
+    Service discovery supplies the running process's working directory as
+    ``_config_dir`` when resolving relative configuration paths.
 
     Therefore ``reme start plugins=[...]`` layers that plugin selection over
     ``default.yaml`` without requiring an explicit ``config=default``.
@@ -289,7 +305,7 @@ def resolve_app_config(*, log_config: bool = True, **kwargs) -> dict:
         kwargs.pop("config")
         if log_config:
             logger.info(f"Loading config: {config_value}")
-        configs.append(_load_config(config_value))
+        configs.append(_load_config(config_value, relative_to=_config_dir))
     elif "default" in _CONFIG_REGISTRY:
         if log_config:
             logger.info("No config specified, loading 'default'")

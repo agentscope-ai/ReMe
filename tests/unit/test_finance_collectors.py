@@ -12,7 +12,8 @@ from zoneinfo import ZoneInfo
 import httpx
 import pytest
 
-from reme.components import ApplicationContext, LocalAgentRuntime, RuntimeContext
+from reme.core.context import ApplicationContext, RuntimeContext
+from reme.components import LocalAgentRuntime
 from reme.utils.files.workspace_files import WorkspaceFiles
 from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.agent_inbox import AgentEventInbox

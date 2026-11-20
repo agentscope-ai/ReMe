@@ -2,7 +2,7 @@
 
 import asyncio
 
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.components.base import BaseComponent, Dependency
 from reme.enumeration import ComponentEnum
 from reme.steps.common.status import (

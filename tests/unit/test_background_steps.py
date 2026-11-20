@@ -27,13 +27,13 @@ import numpy as np
 import pytest
 from watchfiles import Change
 
-from reme.components import R
+from reme.core.registry import R
 from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.file_chunker import DefaultFileChunker, JsonFileChunker
 from reme.components.file_catalog import LocalFileCatalog
 from reme.components.file_store import LocalFileStore
 from reme.components.job.background_job import BackgroundJob
-from reme.components.runtime_context import RuntimeContext
+from reme.core.context import RuntimeContext
 from reme.enumeration import ComponentEnum
 from reme.schema import FileChunk, FileNode
 from reme.steps.evolve.auto_memory import AutoMemoryStep

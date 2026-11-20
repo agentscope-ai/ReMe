@@ -14,7 +14,7 @@ from reme_home.agent import BoundedAgentWrapper, BoundedReActAgent, RunTimeBudge
 from test_bounded_agent import RecordingModel
 
 from reme.components.agent_wrapper import AsAgentWrapper
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.components.job import BaseJob
 from reme.enumeration import ComponentEnum
 from reme.plugin import resolve_plugin_runtime

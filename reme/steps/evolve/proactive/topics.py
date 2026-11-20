@@ -19,25 +19,25 @@ import re
 
 from ...base_step import BaseStep
 from .._evolve import passthrough_response
-from ....components import R
+from ....core.registry import R
 from ....enumeration import ComponentEnum
 from ....schema import ProactiveState, ProactiveStateFile, ProactiveTopic
 from ....schema.proactive import clamp_confidence
-from ....utils.similarity_utils import cosine_similarity
 from ..dream.utils import daily_dir, previous_dates, today, workspace_dir
 from .utils import (
+    current_now,
     dump_topic,
     interests_path_for,
     load_state,
     norm_path,
     normalize_topic,
     parse_interests_topics,
-    publish_interests,
     read_interests_data,
+    render_interests,
     save_state,
     sort_topics,
-    store_state,
     trim_state_file,
+    write_interests_if_changed,
 )
 
 
@@ -61,7 +61,6 @@ class ProactiveTopicsStep(BaseStep):
         digest_compare_limit: int = 500,
         known_threshold_calibrated_for: str = "text-embedding-v4@1024",
         skip_key: str = "proactive_skip",
-        defer_interests_write: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -72,7 +71,6 @@ class ProactiveTopicsStep(BaseStep):
         self.dedup_lookback_days = max(int(dedup_lookback_days), 0)
         self.digest_compare_limit = max(int(digest_compare_limit), 0)
         self.skip_key = skip_key
-        self.defer_interests_write = defer_interests_write
 
     # pylint: disable=too-many-statements
     async def execute(self):
@@ -250,26 +248,24 @@ class ProactiveTopicsStep(BaseStep):
         else:
             file_skip_reason = "all_duplicates"
 
-        # 5) Prepare the daily result. The built-in chain publishes it in Agenda.
+        # 5) Render from the truth source and write idempotently (A4).
         topics_out = sort_topics(list(state_file.open_topics))[: self.max_topics]
-        state.date = day
-        state.daily_dir = daily
+        now_dt = current_now(self)
+        rendered = render_interests(day, topics_out, push, now_dt)
+        interests_path = interests_path_for(ws, daily, day)
+        written = write_interests_if_changed(ws, interests_path, rendered)
+        rel_path = norm_path(interests_path.relative_to(ws).as_posix())
+
         state.topics_out = [dump_topic(t) for t in topics_out]
         state.push_candidates = [dump_topic(t) for t in push_candidates]
         state.push = push
         state.file_skip_reason = file_skip_reason
-        self.context["proactive_interests_pending"] = self.defer_interests_write
-        if self.defer_interests_write:
-            state.interests_path = ""
-            state.interests_written = False
-            publication = "publication deferred to agenda"
-        else:
-            state.interests_written = False
-            written = publish_interests(self, state)
-            publication = f"written={written} to {state.interests_path}"
-        store_state(self.context, state)
+        state.interests_path = rel_path
+        state.interests_written = written
+        self._store(state)
         answer = (
-            f"Topics: {len(topics_out)} rendered, push={push}, " f"skip_reason={file_skip_reason or '-'}, {publication}"
+            f"Topics: {len(topics_out)} rendered, push={push}, "
+            f"skip_reason={file_skip_reason or '-'}, written={written} to {rel_path}"
         )
         self.context.response.success = True
         self.context.response.answer = answer
@@ -381,9 +377,7 @@ class ProactiveTopicsStep(BaseStep):
             return "keep", "", 0.0
         best, best_idx = 0.0, -1
         for idx, other in enumerate(vectors[1:]):
-            if len(vectors[0]) != len(other):
-                continue
-            similarity = cosine_similarity(vectors[0], other)
+            similarity = _cosine(vectors[0], other)
             if similarity > best:
                 best, best_idx = similarity, idx
         matched = comparison[best_idx][0] if 0 <= best_idx < len(comparison) else ""
@@ -431,6 +425,12 @@ class ProactiveTopicsStep(BaseStep):
             dimensions = 0
         return f"{model}@{dimensions}" if model and dimensions else ""
 
+    def _store(self, state: ProactiveState) -> None:
+        assert self.context is not None
+        data = state.model_dump()
+        self.context["proactive"] = data
+        self.context.response.metadata["proactive"] = data
+
 
 def _embed_text(candidate: dict) -> str:
     """Vector text for a candidate (v5.2 calibration: title+reason)."""
@@ -446,3 +446,14 @@ def _known_text(title: str, reason: str) -> str:
 
 
 _EVIDENCE_DATE_RE = re.compile(r"(?:^|/)(\d{4}-\d{2}-\d{2})/")
+
+
+def _cosine(a: list[float], b: list[float]) -> float:
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = sum(x * x for x in a) ** 0.5
+    norm_b = sum(x * x for x in b) ** 0.5
+    if norm_a == 0.0 or norm_b == 0.0:
+        return 0.0
+    return dot / (norm_a * norm_b)

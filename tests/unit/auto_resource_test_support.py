@@ -12,10 +12,10 @@ from agentscope.formatter import OpenAIChatFormatter
 from agentscope.message import Msg
 from PIL import Image
 
-from reme.components import R
+from reme.core.registry import R
 from reme.components.agent_wrapper import AsAgentWrapper, BaseAgentWrapper
 from reme.components.file_store import LocalFileStore
-from reme.components.runtime_context import RuntimeContext
+from reme.core.context import RuntimeContext
 from reme.steps.evolve.auto_image_resource import AutoImageResourceStep
 from reme.steps.evolve.auto_resource import AutoResourceStep
 from reme.steps.evolve.base_auto_resource import BaseAutoResourceStep

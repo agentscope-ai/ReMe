@@ -12,9 +12,8 @@ from agentscope.model import ChatModelBase
 
 from reme import Application
 from reme.components.agent_wrapper import BaseAgentWrapper
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext, RuntimeContext
 from reme.components.file_catalog import LocalFileCatalog
-from reme.components.runtime_context import RuntimeContext
 from reme.config import resolve_app_config
 from reme.schema import DreamState, FileNode
 from reme.steps.evolve.dream.finish import DreamFinishStep

@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from ...base_step import BaseStep
-from ....components import R
+from ....core.registry import R
 from ....schema import DreamState, FileNode
 from .utils import state_from_context, store_state, workspace_dir
 

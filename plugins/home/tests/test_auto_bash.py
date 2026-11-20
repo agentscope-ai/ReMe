@@ -20,7 +20,7 @@ from reme.utils.local_backend import LocalProcessBackend
 
 from reme.utils.file_sandbox.path_bubble_backend import PathBubbleBackend
 from reme.utils.file_sandbox.path_seatbelt_backend import PathSeatbeltBackend
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.config.config_parser import _load_config
 from reme.enumeration import ComponentEnum
 from reme.plugin import resolve_plugin_runtime

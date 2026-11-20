@@ -15,11 +15,9 @@ from .hashing import hash_text
 from .logger_utils import get_logger
 from .qwen_token_tools import QwenTokenTools, estimate_token_count
 from .similarity_utils import batch_cosine_similarity, cosine_similarity
-from .streaming import execute_stream_task
 
 __all__ = [
     "hash_text",
-    "execute_stream_task",
     "load_env",
     "parse_env_file",
     "expand_links",

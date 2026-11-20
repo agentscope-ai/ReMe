@@ -1,6 +1,4 @@
-"""Components and their shared interfaces."""
-
-import sys
+"""Built-in component packages."""
 
 from . import agent_wrapper
 from . import anthropic_relay
@@ -27,31 +25,8 @@ from . import service
 from . import tag_index
 from . import tokenizer
 from . import tts
-from . import base as base_component
-from .base import BaseComponent, ComponentMixin
-from ..core import context as application_context
-from ..core import registry as component_registry
-from ..core.context import ApplicationContext, RuntimeContext
-from ..core.registry import ComponentRegistry, R, create_application_registry
-from ..steps import prompt as prompt_handler
-from ..steps.prompt import PromptHandler
-
-# Keep published component imports pointed at their canonical modules.
-runtime_context = application_context
-for _name, _module in {
-    "application_context": application_context,
-    "base_component": base_component,
-    "component_registry": component_registry,
-    "prompt_handler": prompt_handler,
-    "runtime_context": runtime_context,
-}.items():
-    sys.modules[f"{__name__}.{_name}"] = _module
 
 __all__ = [
-    "ApplicationContext",
-    "BaseComponent",
-    "ComponentMixin",
-    "ComponentRegistry",
     "BaseCodexAppServer",
     "SdkCodexAppServer",
     "BaseAgentInbox",
@@ -59,10 +34,6 @@ __all__ = [
     "AgentEventInbox",
     "BaseAgentRuntime",
     "LocalAgentRuntime",
-    "R",
-    "create_application_registry",
-    "PromptHandler",
-    "RuntimeContext",
     # base components
     "agent_wrapper",
     "agent_runtime",

@@ -4,6 +4,7 @@ import asyncio
 import heapq
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import aclosing
 from inspect import getattr_static
 from pathlib import Path
 from typing import Any, AsyncGenerator, TypeVar
@@ -411,20 +412,11 @@ class Application(BaseComponent):
         job = self._get_enabled_job(name)
         stream_queue: asyncio.Queue = asyncio.Queue()
         task = asyncio.create_task(job(stream_queue=stream_queue, **kwargs))
-        async for chunk in execute_stream_task(
-            stream_queue=stream_queue,
-            task=task,
-            task_name=name,
-            output_format="chunk",
-        ):
-            assert isinstance(chunk, StreamChunk)
-            yield chunk
+        async with aclosing(execute_stream_task(stream_queue, task, name)) as chunks:
+            async for chunk in chunks:
+                yield chunk
 
     def run_app(self):
         """Serve the application through the configured service backend."""
         assert isinstance(self.context.service, BaseService)
         self.context.service.run_app(app=self)
-
-
-class ReMe(Application):
-    """ReMe memory management application."""

@@ -17,7 +17,7 @@ import pytest
 import yaml
 
 from reme import Application
-from reme.components import R
+from reme.core.registry import R
 from reme.components.agent_wrapper.as_agent_wrapper import AsAgentWrapper
 from reme.components.agent_wrapper.cc_agent_wrapper import CcAgentWrapper
 from reme.components.file_store import LocalFileStore

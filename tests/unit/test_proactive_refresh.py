@@ -19,10 +19,9 @@ import yaml
 from agentscope.model import ChatModelBase
 
 from reme.components.agent_wrapper.base_agent_wrapper import BaseAgentWrapper
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext, RuntimeContext
 from reme.components.file_catalog import BaseFileCatalog
 from reme.components.file_store import BaseFileStore
-from reme.components.runtime_context import RuntimeContext
 from reme.schema import FileNode, ProactiveTopic
 from reme.steps.evolve.dream.extract import DreamExtractStep
 from reme.steps.evolve.dream.utils import pack_paths
@@ -1469,8 +1468,7 @@ async def _run_full_chain(
     )
     extract = ProactiveExtractStep(app_context=app, **(extract_kwargs or {}))
     resp_extract = await extract(context)
-    options = {"defer_interests_write": True, **(topics_kwargs or {})}
-    topics = ProactiveTopicsStep(app_context=app, **options)
+    topics = ProactiveTopicsStep(app_context=app, **(topics_kwargs or {}))
     resp_topics = await topics(context)
     plan = ProactivePlanStep(app_context=app, **(plan_kwargs or {}))
     resp_plan = await plan(context)
@@ -1509,11 +1507,7 @@ async def test_plan_agenda_chain_e2e(tmp_path):
         [{"topic_id": fid, "order_reason": "卡点已解除，今天最适合收尾"}],
         [{"topic_id": eid, "reason": f"merged into {fid}"}],
     )
-    with patch.object(os, "replace", wraps=os.replace) as replace:
-        _, wrapper, _, context, resps = await _run_full_chain(ws, [extract_reply, plan_reply, agenda_text])
-        _, _, _, repeated, _ = await _run_full_chain(ws, [extract_reply, plan_reply, agenda_text])
-    assert sum(call.args[1] == _interests(ws) for call in replace.call_args_list) == 1
-    assert not repeated.get("proactive")["interests_written"]
+    _, wrapper, _, context, resps = await _run_full_chain(ws, [extract_reply, plan_reply, agenda_text])
     assert all(r.success for r in resps)
     assert wrapper.calls == 3
     state = context.get("proactive")
@@ -1571,8 +1565,8 @@ async def test_plan_agenda_fallback_without_llm(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_agenda_no_candidates_publishes_basic_topics(tmp_path):
-    """Without push candidates publish the basic result without more LLM calls."""
+async def test_agenda_no_candidates_keeps_topics_render(tmp_path):
+    """Without push candidates plan/agenda skip and the topics-only render stays."""
 
     ws = tmp_path
     _touch(ws / "daily" / DAY / "session.md", "material")
@@ -1592,37 +1586,6 @@ async def test_agenda_no_candidates_publishes_basic_topics(tmp_path):
     data = yaml.safe_load(_interests(ws).read_text(encoding="utf-8"))
     assert data["push"] is False
     assert "agenda" not in data and "suppressed" not in data
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("failing_step", [ProactivePlanStep, ProactiveAgendaStep])
-async def test_refresh_preserves_existing_interests_on_failure(tmp_path, monkeypatch, failing_step):
-    """An interrupted round preserves the published file and can be retried."""
-    material = f"daily/{DAY}/session.md"
-    _touch(tmp_path / material, "new material")
-    previous = "version: 2\npush: true\ntopics: []\nagenda: []\n"
-    path = _touch(_interests(tmp_path), previous)
-    topic = "新的待办"
-    replies = [
-        _reply(follow_ups=[_topic(topic, confidence=0.9, paths=[material])]),
-        _plan_reply([_card(topic_id(topic))]),
-    ]
-    catalog = _Catalog()
-
-    async def fail(_step):
-        raise RuntimeError("interrupted")
-
-    with monkeypatch.context() as patch_step:
-        patch_step.setattr(failing_step, "execute", fail)
-        with pytest.raises(RuntimeError, match="interrupted"):
-            await _run_full_chain(tmp_path, replies, catalog=catalog)
-
-    assert path.read_text(encoding="utf-8") == previous
-    assert not catalog.upserts
-    _, _, _, context, _ = await _run_full_chain(tmp_path, replies, catalog=catalog)
-    assert context.get("proactive")["interests_written"]
-    assert yaml.safe_load(path.read_text(encoding="utf-8"))["agenda"][0]["title"] == topic
-    assert [node.path for node in catalog.upserts] == [material]
 
 
 @pytest.mark.asyncio

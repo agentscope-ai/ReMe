@@ -9,9 +9,8 @@ import anyio
 import pytest
 from watchfiles import Change
 
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext, RuntimeContext
 from reme.components.file_catalog import LocalFileCatalog
-from reme.components.runtime_context import RuntimeContext
 from reme.schema import FileNode
 from reme.steps.base_step import BaseStep
 from reme.steps.index import _threaded_watch

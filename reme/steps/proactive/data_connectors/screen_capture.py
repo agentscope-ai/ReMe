@@ -7,7 +7,7 @@ from stat import S_ISREG
 from .base_connector import BaseConnectorStep
 from ...file_io import check_path_permission
 from ....utils.files.path_lock import get_path_lock
-from ....components import R
+from ....core.registry import R
 from ....utils.files.workspace_files import WorkspaceFiles
 from ....schema import ResourceMetadata
 from ....schema.resource_metadata import ResourceFile

@@ -16,7 +16,7 @@ import frontmatter
 
 from ._base import frontmatter_target
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 
 
 @R.register("frontmatter_update_step")

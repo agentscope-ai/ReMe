@@ -11,13 +11,12 @@ from unittest.mock import AsyncMock, Mock, patch
 import frontmatter
 import pytest
 
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext, RuntimeContext
 from reme.components.as_llm import BaseAsLLM
 from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.file_catalog import BaseFileCatalog
 from reme.components.file_store import BaseFileStore
 from reme.components.job import BaseJob
-from reme.components.runtime_context import RuntimeContext
 from reme.components.tag_index import LocalTagIndex
 from reme.config import resolve_app_config
 from reme.enumeration import ComponentEnum

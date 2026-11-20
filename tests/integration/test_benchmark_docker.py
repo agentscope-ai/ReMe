@@ -233,7 +233,7 @@ async def test_real_docker_preserves_caught_job_errors(base_image, tmp_path):
     source = _candidate_source(tmp_path)
     (source / "reme/steps/smoke_failure.py").write_text(
         "from reme.steps.base_step import BaseStep\n"
-        "from reme.components.component_registry import R\n"
+        "from reme.core.registry import R\n"
         '@R.register("smoke_failure_step")\n'
         "class SmokeFailureStep(BaseStep):\n"
         "    async def execute(self):\n"

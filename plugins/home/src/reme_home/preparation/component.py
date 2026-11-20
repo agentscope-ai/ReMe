@@ -10,7 +10,7 @@ from uuid import uuid4
 
 import yaml
 
-from reme.components.base_component import BaseComponent
+from reme.components.base import BaseComponent
 from reme.steps.base_step import BaseStep, Ref
 from reme.utils.async_utils import finish_cleanup
 from reme.utils.files.file_sync import sync_directory

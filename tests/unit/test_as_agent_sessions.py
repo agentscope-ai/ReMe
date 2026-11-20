@@ -14,7 +14,7 @@ from agentscope.message import AssistantMsg, Base64Source, DataBlock, HintBlock,
 from agentscope.model import ChatResponse, ChatUsage
 
 from reme.components.agent_wrapper import AsAgentWrapper
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.enumeration import ChunkEnum
 from reme.components.agent_wrapper.as_state_io import AsStateHandler
 

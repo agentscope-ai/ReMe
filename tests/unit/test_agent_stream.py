@@ -20,9 +20,8 @@ from reme.components.agent_wrapper.as_agent_wrapper import AsAgentWrapper
 from reme.components.agent_wrapper.cc_agent_wrapper import CcAgentWrapper
 from reme.components.agent_wrapper.codex_agent_wrapper import CodexAgentWrapper
 from reme.components.codex_app_server._session_history import item_chunks
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext, RuntimeContext
 from reme.components.client.http_client import HttpClient
-from reme.components.runtime_context import RuntimeContext
 from reme.enumeration import ChunkEnum
 from reme.schema import StreamChunk
 from reme.steps.common.chat import ChatStep

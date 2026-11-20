@@ -13,7 +13,7 @@ import yaml
 from agentscope.tool import ExecResult
 
 from reme.utils.file_sandbox.path_bubble_backend import PathBubbleBackend
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.components.job import BaseJob
 from reme.components.service import HttpService, MCPService
 from reme.steps.common.python_execute import PythonExecuteStep

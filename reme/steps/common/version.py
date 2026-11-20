@@ -2,7 +2,7 @@
 
 from ..base_step import BaseStep
 
-from ...components import R
+from ...core.registry import R
 
 
 @R.register("version_step")

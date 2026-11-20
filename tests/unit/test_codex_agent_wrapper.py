@@ -30,7 +30,7 @@ from openai_codex.generated.v2_all import (
 from pydantic import BaseModel
 
 from reme import Application
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.components.agent_wrapper.codex_agent_wrapper import CodexAgentWrapper
 from reme.components.codex_app_server import SdkCodexAppServer
 from reme.components.job import BackgroundJob, StreamJob

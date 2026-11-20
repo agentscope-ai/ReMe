@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 
 from reme import Application
-from reme.components.base_component import BaseComponent, ComponentMixin
-from reme.components.component_registry import ComponentRegistry, R
+from reme.components.base import BaseComponent, ComponentMixin
+from reme.core.registry import ComponentRegistry, R
 from reme.config.config_parser import _load_config
 from reme.enumeration import ComponentEnum
 from reme.plugin import Backend, Plugin, PluginManager, resolve_plugin_runtime
@@ -189,7 +189,7 @@ def test_plugin_manager_loads_package_manifest(monkeypatch, tmp_path):
     package.mkdir()
     (package / "__init__.py").write_text("", encoding="utf-8")
     (package / "backend.py").write_text(
-        "from reme.components.base_component import ComponentMixin\n"
+        "from reme.components.base import ComponentMixin\n"
         "from reme.enumeration import ComponentEnum\n"
         "class ExampleStep(ComponentMixin):\n"
         "    component_type = ComponentEnum.STEP\n",
@@ -290,7 +290,8 @@ def test_plugin_entry_point_import_side_effect_does_not_leak(monkeypatch, tmp_pa
     package = tmp_path / "side_effect_plugin"
     package.mkdir()
     (package / "__init__.py").write_text(
-        "from reme.components import ComponentMixin, R\n"
+        "from reme.components.base import ComponentMixin\n"
+        "from reme.core.registry import R\n"
         "@R.register('undeclared-client')\n"
         "class UndeclaredClient(ComponentMixin):\n"
         "    component_type = 'client'\n",

@@ -6,7 +6,7 @@ from ....constants import CHAT_AGENT_NAME
 from .base import BaseAgentStep
 from .chat import BaseChatAgentStep
 from ....utils.files.path_lock import get_path_lock
-from ....components import R
+from ....core.registry import R
 from ....enumeration import ChunkEnum
 from ....schema import StreamChunk
 from ....utils.agent_transcript import TranscriptProjector

@@ -3,7 +3,7 @@
 import copy
 import inspect
 
-from ...components import R
+from ...core.registry import R
 from ...enumeration import ComponentEnum
 from ..base_step import BaseStep
 from .base_auto_resource import BaseAutoResourceStep, _resource_lookup_scope, _results_answer

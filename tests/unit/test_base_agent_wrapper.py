@@ -19,7 +19,7 @@ from reme.components.agent_wrapper import (
 from reme.components.agent_wrapper.as_agent_wrapper import WorkspaceBackend
 from reme.components.agent_wrapper import as_agent_wrapper
 from reme.components.agent_wrapper import base_agent_wrapper
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.components.outbound_proxy import FixedHttpOutboundProxy
 from reme.components import base as base_component
 from reme.enumeration import ComponentEnum

@@ -10,7 +10,7 @@ from collections.abc import Callable
 import pytest
 
 from reme import Application
-from reme.components import R
+from reme.core.registry import R
 from reme.components.outbound_proxy import FixedHttpOutboundProxy, SshHttpOutboundProxy
 from reme.enumeration import ComponentEnum
 

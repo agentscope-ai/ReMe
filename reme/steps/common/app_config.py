@@ -7,7 +7,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from ...constants import DEFAULT_MEMORY_TAG_KEY
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 from ...schema.agent_view import ClientInfo
 
 _SECRET_KEYS = {

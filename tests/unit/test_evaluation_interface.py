@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from reme.components.job import BaseJob, StreamJob
-from reme.components import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.utils.counter import global_counter_add
 from reme.utils.evaluation_interface import (
     check_agent_token_count,

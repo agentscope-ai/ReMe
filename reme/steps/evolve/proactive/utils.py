@@ -13,21 +13,16 @@ import tempfile
 import time
 import unicodedata
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import yaml
 
 from ....enumeration import ComponentEnum
-from ....schema import ProactiveState, ProactiveStateFile, ProactiveTopic
+from ....schema import ProactiveStateFile, ProactiveTopic
 from ....schema.proactive import clamp_confidence
 from ....utils.logger_utils import get_logger
 from ....utils.files.path_lock import get_path_lock
 from .._evolve import now, strip_frontmatter
-from ..dream.utils import clean_paths, daily_dir, recent_dates, scan_day_files, workspace_dir
-
-if TYPE_CHECKING:
-    from ...base_step import BaseStep
-    from ....core.context import RuntimeContext
+from ..dream.utils import clean_paths, recent_dates, scan_day_files
 
 logger = get_logger(log_to_file=False)
 
@@ -202,14 +197,17 @@ async def save_state(ws: Path, state_file: ProactiveStateFile, daily: str = "dai
     path = state_file_path(ws, daily)
     lock = await get_path_lock(path)
     async with lock:
-        _write_yaml_atomic(path, state_file.model_dump())
-
-
-def store_state(context: "RuntimeContext", state: ProactiveState) -> None:
-    """Expose the round state to later steps and to the job caller."""
-    data = state.model_dump()
-    context["proactive"] = data
-    context.response.metadata["proactive"] = data
+        path.parent.mkdir(parents=True, exist_ok=True)
+        rendered = yaml.safe_dump(state_file.model_dump(), allow_unicode=True, sort_keys=False)
+        fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(rendered if rendered.endswith("\n") else f"{rendered}\n")
+            os.replace(tmp, path)
+        except Exception:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp)
+            raise
 
 
 def _safe_date(text: str) -> dt.date | None:
@@ -440,25 +438,7 @@ def render_interests(
     return rendered
 
 
-def publish_interests(step: "BaseStep", state: ProactiveState, *, include_agenda: bool = False) -> bool:
-    """Publish the day's result and record whether this round changed the file."""
-    ws = workspace_dir(step)
-    path = interests_path_for(ws, state.daily_dir or daily_dir(step), state.date)
-    rendered = render_interests(
-        state.date,
-        state.topics_out,
-        state.push,
-        current_now(step),
-        agenda=state.agenda if include_agenda else None,
-        suppressed=state.suppressed if include_agenda else None,
-    )
-    written = write_interests_if_changed(path, rendered)
-    state.interests_path = norm_path(path.relative_to(ws).as_posix())
-    state.interests_written = state.interests_written or written
-    return written
-
-
-def write_interests_if_changed(path: Path, rendered: dict) -> bool:
+def write_interests_if_changed(ws: Path, path: Path, rendered: dict) -> bool:  # pylint: disable=unused-argument
     """Apply A4 render-write rules (idempotent skip + atomic replace).
 
     v5 (R1): the "push=false never overwrites nightly v1" special case is
@@ -479,13 +459,8 @@ def write_interests_if_changed(path: Path, rendered: dict) -> bool:
             and (existing.get("suppressed") or []) == (rendered.get("suppressed") or [])
         ):
             return False
-    _write_yaml_atomic(path, rendered)
-    return True
-
-
-def _write_yaml_atomic(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
+    payload = yaml.safe_dump(rendered, allow_unicode=True, sort_keys=False)
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -495,6 +470,7 @@ def _write_yaml_atomic(path: Path, data: dict) -> None:
         with contextlib.suppress(OSError):
             os.unlink(tmp)
         raise
+    return True
 
 
 # ---------------------------------------------------------------------------

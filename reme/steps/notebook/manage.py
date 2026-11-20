@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from ..base_step import BaseStep
 from ...utils.files.path_lock import get_path_lock
-from ...components import R
+from ...core.registry import R
 from ...schema import Idea, Todo, TodoProgress
 from ...schema.notebook import IdeaRequest, TodoRequest
 from ._store import RecordStore

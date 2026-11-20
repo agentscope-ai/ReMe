@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock
 import frontmatter
 import pytest
 
-from reme.components import RuntimeContext
+from reme.core.context import RuntimeContext
 from reme.schema import Event, Response
 from reme.schema.proactive_agent import ProactiveAgentConfig, ProactiveRunResult
 from reme.steps.proactive.agent import AgentChatStep, ProactiveAgentStep

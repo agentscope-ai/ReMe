@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.components.job import BaseJob
 from reme.config import resolve_app_config
 from reme.steps.evolve.dream.utils import pack_paths

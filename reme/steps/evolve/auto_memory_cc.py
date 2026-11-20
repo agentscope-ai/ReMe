@@ -28,7 +28,7 @@ from typing import Any
 
 from .auto_memory import AutoMemoryStep
 from ...utils.files.paths import normalize_posix_path
-from ...components import R
+from ...core.registry import R
 from ...components.agent_wrapper import CcFileSessionStore
 
 # Whole-message-drop when a user turn is only Claude-Code-injected boilerplate.

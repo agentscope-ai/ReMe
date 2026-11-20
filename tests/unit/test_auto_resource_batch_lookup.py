@@ -8,8 +8,8 @@ from unittest.mock import patch
 import frontmatter
 import pytest
 
-from reme.components import R
-from reme.components.runtime_context import RuntimeContext
+from reme.core.registry import R
+from reme.core.context import RuntimeContext
 from reme.schema import Response
 from reme.steps.evolve import base_auto_resource as resource_module
 from reme.steps.evolve.auto_resource import AutoResourceStep

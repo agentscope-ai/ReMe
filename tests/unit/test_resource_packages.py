@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from pydantic import ValidationError
 
-from reme.components import ApplicationContext, RuntimeContext
+from reme.core.context import ApplicationContext, RuntimeContext
 from reme.components.agent_runtime import BaseAgentRuntime
 from reme.utils.files.workspace_files import WorkspaceFiles
 from reme.schema import ResourceMetadata

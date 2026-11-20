@@ -35,7 +35,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from reme.components import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.components.file_store import LocalFileStore
 from reme.schema import FileNode
 from reme.steps.file_io import (

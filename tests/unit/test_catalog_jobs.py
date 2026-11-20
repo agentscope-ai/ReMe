@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.components.file_catalog import LocalFileCatalog
 from reme.schema import FileNode
 

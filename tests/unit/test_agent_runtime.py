@@ -11,7 +11,9 @@ from unittest.mock import AsyncMock
 import frontmatter
 import pytest
 
-from reme.components import LocalAgentRuntime, ApplicationContext, R, RuntimeContext
+from reme.components import LocalAgentRuntime
+from reme.core.context import ApplicationContext, RuntimeContext
+from reme.core.registry import R
 from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.agent_inbox import AgentEventInbox
 from reme.config import resolve_app_config
@@ -222,6 +224,7 @@ async def test_automatic_agent_uses_wrapper_sandbox_and_denies_approvals(tmp_pat
         options = step.session_options(agent)
         assert "sandbox" not in options
         assert options["approval_mode"] == "deny_all"
+        assert options["effort"] == "low"
 
 
 def test_network_policy_has_no_per_agent_override():

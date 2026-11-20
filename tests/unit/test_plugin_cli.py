@@ -9,7 +9,7 @@ import pytest
 
 from reme.plugin import cli as plugin_cli_module
 from reme import reme as reme_module
-from reme.components import R
+from reme.core.registry import R
 from reme.enumeration import ComponentEnum
 
 
@@ -113,7 +113,8 @@ def test_show_plugin_preserves_registry_when_editable_fallback_imports_package(m
     package.mkdir()
     (package / "__init__.py").write_text("from .backend import FallbackStep\n", encoding="utf-8")
     (package / "backend.py").write_text(
-        "from reme.components import ComponentMixin, R\n"
+        "from reme.components.base import ComponentMixin\n"
+        "from reme.core.registry import R\n"
         "from reme.enumeration import ComponentEnum\n"
         "@R.register('fallback_import_side_effect')\n"
         "class FallbackStep(ComponentMixin):\n"
@@ -211,7 +212,7 @@ def test_validate_local_supports_backend_independent_src_layout(tmp_path, build_
     )
     (package / "__init__.py").write_text("", encoding="utf-8")
     (package / "backend.py").write_text(
-        "from reme.components import ComponentMixin\n"
+        "from reme.components.base import ComponentMixin\n"
         "from reme.enumeration import ComponentEnum\n"
         "class ExampleStep(ComponentMixin):\n"
         "    component_type = ComponentEnum.STEP\n",
@@ -240,7 +241,7 @@ def test_validate_local_supports_setuptools_find_source_root(tmp_path):
     )
     (package / "__init__.py").write_text("", encoding="utf-8")
     (package / "backend.py").write_text(
-        "from reme.components import ComponentMixin\n"
+        "from reme.components.base import ComponentMixin\n"
         "from reme.enumeration import ComponentEnum\n"
         "class ExampleStep(ComponentMixin):\n"
         "    component_type = ComponentEnum.STEP\n",
@@ -269,7 +270,8 @@ def test_validate_local_preserves_registry_during_backend_imports(tmp_path):
     )
     (package / "__init__.py").write_text("", encoding="utf-8")
     (package / "backend.py").write_text(
-        "from reme.components import ComponentMixin, R\n"
+        "from reme.components.base import ComponentMixin\n"
+        "from reme.core.registry import R\n"
         "from reme.enumeration import ComponentEnum\n"
         "@R.register('local_import_side_effect')\n"
         "class DecoratedStep(ComponentMixin):\n"

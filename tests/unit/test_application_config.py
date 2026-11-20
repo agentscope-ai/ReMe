@@ -9,7 +9,7 @@ from agentscope.message import Msg
 from pydantic import ValidationError
 
 from reme import Application
-from reme.components import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.schema import ApplicationConfig, FileChunk
 from reme.steps.evolve.auto_memory import AutoMemoryStep
 from reme.steps.file_io.daily_write import DailyWriteStep

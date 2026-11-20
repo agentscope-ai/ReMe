@@ -6,7 +6,7 @@ import math
 
 from ....constants import CHAT_AGENT_NAME
 from .chat import BaseChatAgentStep
-from ....components import R
+from ....core.registry import R
 from ....schema.agent_runtime import InboxWakeRequest
 
 

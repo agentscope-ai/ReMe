@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.components.file_chunker import MarkdownFileChunker
 from reme.components.file_store import LocalFileStore
 from reme.components.tag_index import LocalTagIndex

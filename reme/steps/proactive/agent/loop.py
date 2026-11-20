@@ -3,7 +3,7 @@
 import asyncio
 
 from .base import BaseAgentStep
-from ....components import R
+from ....core.registry import R
 
 
 @R.register("agent_loop_step")

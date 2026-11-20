@@ -117,7 +117,7 @@ flowchart LR
     C -->|" start "| D["load_env()"]
     D --> E["resolve_app_config(**kwargs)"]
     E --> F["precheck_start(service)"]
-    F --> G["ReMe(**config).run_app()"]
+    F --> G["Application(**config).run_app()"]
     C -->|" find_reme "| H["cli_find_reme()"]
     C -->|" 其他 action "| I["call_server(action, **kwargs)"]
     I --> J["R.get(ComponentEnum.CLIENT, backend)"]
@@ -199,7 +199,7 @@ MCP 服务可通过 `injected_job_kwargs` 注入由服务端管理的参数，�
 ReMe 使用进程级单例 `R = ComponentRegistry()`。所有组件、Job、Step 都通过 `@R.register("name")` 注册。
 
 ```python
-from ...components import R
+from ...core.registry import R
 
 
 @R.register("version_step")
@@ -664,7 +664,7 @@ embedding store。
 
 ```python
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 
 
 @R.register("uppercase_step")
@@ -739,7 +739,7 @@ steps:
 ```python
 import pytest
 
-from reme.components import RuntimeContext
+from reme.core.context import RuntimeContext
 from reme.steps.common.uppercase import UppercaseStep
 
 
@@ -861,7 +861,7 @@ jobs:
 
 ```python
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 from ...enumeration import ChunkEnum
 
 

@@ -4,7 +4,7 @@ from hashlib import sha256
 from pathlib import PurePosixPath
 
 from ..agent import BaseAgentStep
-from ....components import R
+from ....core.registry import R
 from ....schema import Event, ResourceMetadata
 
 

@@ -35,7 +35,7 @@ from collections import defaultdict
 
 from ._ranking import RRF_K, candidate_count
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 
 
 def _rrf_merge_nodes(

@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from reme.components.runtime_context import RuntimeContext
+from reme.core.context import RuntimeContext
 
 
 @pytest.fixture(name="judge")

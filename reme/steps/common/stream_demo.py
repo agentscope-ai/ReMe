@@ -3,7 +3,7 @@
 import asyncio
 
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 from ...enumeration import ChunkEnum
 
 

@@ -4,7 +4,7 @@ from agentscope.message import UserMsg
 from agentscope.model import ChatResponse
 
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 
 
 @R.register("compressor_step")

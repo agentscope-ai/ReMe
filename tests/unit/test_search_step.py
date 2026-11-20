@@ -12,8 +12,7 @@ from agentscope.message import Msg
 from reme.components.file_store import BaseFileStore
 from reme.components.file_store.local_file_store import LocalFileStore
 from reme.components.tag_index import LocalTagIndex
-from reme.components import ApplicationContext
-from reme.components.runtime_context import RuntimeContext
+from reme.core.context import ApplicationContext, RuntimeContext
 from reme.config.config_parser import parse_kwargs
 from reme.enumeration import LinkScopeEnum
 from reme.schema import FileChunk, FileLink, FileNode, Response

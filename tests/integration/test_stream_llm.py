@@ -53,8 +53,7 @@ async def _test_stream_llm_basic_chat():
             )
 
             print("\n[stream_basic] streaming output:")
-            async for raw in execute_stream_task(queue, task, output_format="chunk"):
-                chunk: StreamChunk = raw  # type: ignore[assignment]
+            async for chunk in execute_stream_task(queue, task):
                 chunks.append(chunk)
                 if chunk.chunk_type == ChunkEnum.CONTENT:
                     sys.stdout.write(chunk.chunk)
@@ -98,8 +97,7 @@ async def _test_stream_llm_with_tool():
             )
 
             print("\n[stream_tool] streaming output:")
-            async for raw in execute_stream_task(queue, task, output_format="chunk"):
-                chunk: StreamChunk = raw  # type: ignore[assignment]
+            async for chunk in execute_stream_task(queue, task):
                 chunks.append(chunk)
                 if chunk.chunk_type == ChunkEnum.CONTENT:
                     sys.stdout.write(chunk.chunk)
@@ -149,8 +147,7 @@ async def _test_stream_llm_fallback_no_stream():
             )
 
             print("\n[fallback_stream] streaming output:")
-            async for raw in execute_stream_task(queue, task, output_format="chunk"):
-                chunk: StreamChunk = raw  # type: ignore[assignment]
+            async for chunk in execute_stream_task(queue, task):
                 chunks.append(chunk)
                 if chunk.chunk_type == ChunkEnum.CONTENT:
                     sys.stdout.write(chunk.chunk)
@@ -206,8 +203,7 @@ async def _demo_stream_print():
                 ),
             )
 
-            async for raw in execute_stream_task(queue, task, output_format="chunk"):
-                chunk: StreamChunk = raw  # type: ignore[assignment]
+            async for chunk in execute_stream_task(queue, task):
                 if chunk.chunk_type == ChunkEnum.CONTENT:
                     sys.stdout.write(chunk.chunk)
                     sys.stdout.flush()

@@ -12,7 +12,7 @@ from watchfiles import Change
 
 from ._change_batch import bucket_changes
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 from ...components.file_chunker import BaseFileChunker
 from ...enumeration import ComponentEnum
 from ...schema import FileChunk, FileNode

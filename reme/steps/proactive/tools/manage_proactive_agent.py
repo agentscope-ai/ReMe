@@ -2,7 +2,7 @@
 
 from ....constants import CHAT_AGENT_NAME
 from ..agent import BaseAgentStep
-from ....components import R
+from ....core.registry import R
 from ....schema.proactive_agent import ManageProactiveAgentRequest
 
 

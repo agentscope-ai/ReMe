@@ -7,21 +7,19 @@ from . import enumeration
 from . import schema
 from . import steps
 from . import utils
-from .components import BaseComponent, R
-from .core.application import Application, ReMe
+from .core.application import Application
+from .core.registry import R as _R
 from .plugin import Backend, Plugin
 
 # Component and Step packages above have completed their decorator-driven
 # bootstrap. Runtime code receives mutable copies of this immutable template.
-R.freeze()
+_R.freeze()
 
 __all__ = [
     "__version__",
     "Application",
-    "BaseComponent",
     "Backend",
     "Plugin",
-    "ReMe",
     # submodules
     "config",
     "constants",

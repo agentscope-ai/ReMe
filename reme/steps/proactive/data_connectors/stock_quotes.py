@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 import httpx
 
 from ._finance import FinanceCollectorStep
-from ....components import R
+from ....core.registry import R
 from ....schema import ResourceMetadata
 from ....schema.finance import StockQuote
 

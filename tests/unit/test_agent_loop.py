@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from reme.components import RuntimeContext
+from reme.core.context import RuntimeContext
 from reme.schema import Response
 from reme.steps.proactive.agent import AgentLoopStep, InboxChatStep
 from reme.steps.proactive.tools.inbox import ReadInboxStep

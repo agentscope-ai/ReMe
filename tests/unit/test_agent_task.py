@@ -6,7 +6,7 @@ import os
 
 import pytest
 
-from reme.components import RuntimeContext
+from reme.core.context import RuntimeContext
 from reme.schema.agent_view import AgentTaskRequest
 from reme.steps.proactive.agent.api import AgentTaskStep
 from .test_agent_runtime import running_runtime

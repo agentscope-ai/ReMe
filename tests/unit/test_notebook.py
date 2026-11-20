@@ -13,7 +13,7 @@ from pydantic import ValidationError
 import pytest
 import pytest_asyncio
 
-from reme.components import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.components.client.http_client import HttpClient
 from reme.components.client.mcp_client import MCPClient
 from reme.components.job import BaseJob

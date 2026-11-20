@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from reme.components import RuntimeContext
+from reme.core.context import RuntimeContext
 from reme.enumeration import ChunkEnum
 from reme.schema import SessionMessage, SessionSnapshot, SessionStatus, StreamChunk
 from reme.components.agent_runtime._internal.views import AgentViews

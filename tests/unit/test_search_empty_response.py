@@ -8,10 +8,9 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from reme.components import ApplicationContext
+from reme.core.context import ApplicationContext, RuntimeContext
 from reme.components.client.http_client import HttpClient
 from reme.components.file_store import BaseFileStore
-from reme.components.runtime_context import RuntimeContext
 from reme.components.service.cli_service import CliService
 from reme.schema import FileChunk
 from reme.steps.index import SearchStep

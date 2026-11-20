@@ -18,7 +18,7 @@ from ..schema import ApplicationConfig, Response
 from ..constants import DEFAULT_MAX_FILE_BYTES
 
 if TYPE_CHECKING:
-    from ..components import ApplicationContext
+    from ..core.context import ApplicationContext
     from ..components.job import BaseJob
 
 _UNSET = object()

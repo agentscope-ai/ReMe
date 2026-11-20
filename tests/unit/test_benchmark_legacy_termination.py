@@ -15,7 +15,7 @@ from PIL import Image
 import pytest
 
 from reme.components.agent_wrapper.as_agent_wrapper import AsAgentWrapper
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.components.file_store import LocalFileStore
 from reme.config import resolve_app_config
 from reme.plugin import resolve_plugin_runtime

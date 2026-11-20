@@ -1,37 +1,20 @@
-"""Forward job stream chunks through the application and HTTP transport."""
+"""Forward job stream chunks and manage the producer's lifetime."""
 
 import asyncio
 from collections.abc import AsyncGenerator
-from typing import Any, Literal
+from typing import Any
 
-from ..constants import REME_SSE_DONE_MARKER
 from ..enumeration import ChunkEnum
 from ..schema import StreamChunk
 from .logger_utils import get_logger
-
-
-def _format_chunk(
-    chunk: StreamChunk,
-    output_format: Literal["str", "bytes", "chunk"],
-) -> str | bytes | StreamChunk:
-    """Render a StreamChunk in the requested transport format."""
-    if output_format == "chunk":
-        return chunk
-    payload = REME_SSE_DONE_MARKER if chunk.done else chunk.model_dump_json()
-    data = f"data:{payload}\n\n"
-    return data.encode() if output_format == "bytes" else data
 
 
 async def execute_stream_task(
     stream_queue: asyncio.Queue[StreamChunk],
     task: asyncio.Task[Any],
     task_name: str | None = None,
-    output_format: Literal["str", "bytes", "chunk"] = "str",
-) -> AsyncGenerator[str | bytes | StreamChunk, None]:
-    """Yield chunks from stream_queue while monitoring task; cancels task on exit.
-
-    output_format: "str"/"bytes" emit SSE frames, "chunk" emits raw StreamChunk.
-    """
+) -> AsyncGenerator[StreamChunk, None]:
+    """Yield queued chunks while monitoring the producer and cancel it on exit."""
     logger = get_logger()
     consumer: asyncio.Task[StreamChunk] | None = None
     try:
@@ -42,7 +25,7 @@ async def execute_stream_task(
             # Producer still running — relay the next chunk and continue.
             if task not in done:
                 chunk = get_chunk.result()
-                yield _format_chunk(chunk, output_format)
+                yield chunk
                 if chunk.done:
                     return
                 continue
@@ -72,16 +55,16 @@ async def execute_stream_task(
             # Producer ended cleanly — flush pending + drain queue so no chunk is lost,
             # then emit the terminal sentinel.
             if pending_chunk is not None:
-                yield _format_chunk(pending_chunk, output_format)
+                yield pending_chunk
                 if pending_chunk.done:
                     return
             while not stream_queue.empty():
                 chunk = stream_queue.get_nowait()
-                yield _format_chunk(chunk, output_format)
+                yield chunk
                 if chunk.done:
                     return
 
-            yield _format_chunk(StreamChunk(chunk_type=ChunkEnum.DONE, chunk="", done=True), output_format)
+            yield StreamChunk(chunk_type=ChunkEnum.DONE, chunk="", done=True)
             return
 
     finally:

@@ -34,7 +34,6 @@ proactive_refresh:
       max_chars_per_file: 60000
       max_total_chars: 300000
     - backend: proactive_topics_step
-      defer_interests_write: true
       known_threshold: 0.85
       known_threshold_calibrated_for: text-embedding-v4@1024
       min_push_confidence: 0.5
@@ -50,11 +49,7 @@ proactive_refresh_cron:
   steps: *proactive_refresh_steps
 ```
 
-`default.yaml` shares this step list through the same YAML anchor. The refresh publishes `interests.yaml` at most once
-per round, after Plan and Agenda processing. With no push candidates it publishes the basic topics. An unexpected
-failure in Plan or Agenda leaves the previous file in place. A standalone Topics step publishes directly by default.
-
-The read job is:
+`default.yaml` shares this step list through the same YAML anchor. The read job is:
 
 ```yaml
 proactive_read:

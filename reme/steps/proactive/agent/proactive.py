@@ -13,7 +13,7 @@ import frontmatter
 
 from .base import BaseAgentStep
 from ._artifacts import RoundArtifacts
-from ....components import R
+from ....core.registry import R
 from ....enumeration import ChunkEnum
 from ....schema.agent_runtime import InboxPriority
 from ....schema.proactive_agent import CRON_EVENT_SOURCE, ProactiveRunResult

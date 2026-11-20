@@ -12,8 +12,8 @@ import yaml
 from reme.components.service import cli_service
 from reme.components.service.cli_service import CliService
 from reme import reme as reme_module
-from reme.components.base_component import ComponentMixin
-from reme.components.component_registry import create_application_registry
+from reme.components.base import ComponentMixin
+from reme.core.registry import create_application_registry
 from reme.enumeration import ComponentEnum
 from reme.plugin import Backend, Plugin, PluginManager, PluginRuntime
 
@@ -121,7 +121,7 @@ def test_main_saves_loaded_environment_in_start_config(monkeypatch):
     """The startup config keeps the environment captured by the single global load."""
     observed = {}
 
-    class FakeReMe:
+    class FakeApplication:
         """Capture the fully resolved application configuration."""
 
         def __init__(self, **kwargs):
@@ -136,7 +136,7 @@ def test_main_saves_loaded_environment_in_start_config(monkeypatch):
     monkeypatch.setattr("sys.argv", ["reme", "start"])
     monkeypatch.setitem(main_globals, "load_env", lambda: {"TOOL_ENV": "configured"})
     monkeypatch.setitem(main_globals, "prepare_start_config", lambda _kwargs: {"service": {"backend": "cli"}})
-    monkeypatch.setitem(main_globals, "ReMe", FakeReMe)
+    monkeypatch.setitem(main_globals, "Application", FakeApplication)
 
     reme_module.main()
 

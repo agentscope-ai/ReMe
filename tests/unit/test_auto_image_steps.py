@@ -24,10 +24,9 @@ import pytest
 from agentscope.message import DataBlock
 from PIL import Image, JpegImagePlugin
 
-from reme.components import R
-from reme.components.component_registry import ComponentRegistry
+from reme.core.registry import ComponentRegistry, R
 from reme.components.job import BaseJob
-from reme.components.runtime_context import RuntimeContext
+from reme.core.context import RuntimeContext
 from reme.enumeration import ComponentEnum
 from reme.steps.evolve.auto_image_resource import (
     AutoImageResourceStep,

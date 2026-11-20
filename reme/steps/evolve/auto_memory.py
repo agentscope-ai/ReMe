@@ -16,15 +16,14 @@ import frontmatter
 from agentscope.agent import ContextConfig
 from agentscope.message import DataBlock, Msg, TextBlock, UserMsg
 
-from ...constants import SESSION_DIALOG_SUBDIR
-from ._evolve import agent_reply_result_text, format_history, note_modified, now
+from ._evolve import agent_reply_result_text, format_history, now
 from ..base_step import BaseStep
 from ..file_io import extract_daily_date, parse_daily_date, refresh_day_index, write_file_safe
 from ...utils.files.path_lock import get_path_lock
 from ..file_io import validate_filename_component, validate_session_id
 from ..file_io import IMAGE_MIME_BY_EXT, check_path_permission, resolve_path
 from ...utils.files.paths import normalize_posix_path
-from ...components import R
+from ...core.registry import R
 from ...schema import Response
 from ...utils.documents.wikilink_handler import WikilinkHandler
 
@@ -223,10 +222,10 @@ class AutoMemoryStep(BaseStep):
         return normalize_posix_path(str(self.config_value("session_dir")))
 
     def _session_path(self, session_id: str) -> Path:
-        return self.file_store.workspace_path / self._session_dir() / SESSION_DIALOG_SUBDIR / f"{session_id}.jsonl"
+        return self.file_store.workspace_path / self._session_dir() / "dialog" / f"{session_id}.jsonl"
 
     def _session_source_path(self, session_id: str) -> str:
-        return normalize_posix_path(f"{self._session_dir()}/{SESSION_DIALOG_SUBDIR}/{session_id}.jsonl")
+        return normalize_posix_path(f"{self._session_dir()}/dialog/{session_id}.jsonl")
 
     def _session_link(self, session_id: str) -> str:
         return f"[[{self._session_source_path(session_id)}]]"
@@ -243,6 +242,14 @@ class AutoMemoryStep(BaseStep):
         if not note_path.is_file():
             return None
         return note_path.read_bytes()
+
+    def _note_modified(self, before_path: str, before_bytes: bytes | None, after_path: str) -> bool:
+        if not after_path:
+            return False
+        after_bytes = self._note_bytes(after_path)
+        if after_bytes is None:
+            return before_bytes is not None
+        return after_path != before_path or before_bytes != after_bytes
 
     def _find_session_note(self, notes: list[dict], session_id: str) -> dict | None:
         source = self._session_link(session_id)
@@ -708,14 +715,14 @@ class AutoMemoryStep(BaseStep):
                         "date": day,
                         "path": note_path,
                         "created": created,
-                        "modified": note_modified(before_note_path, before_note_bytes, note_path, self._note_bytes),
+                        "modified": self._note_modified(before_note_path, before_note_bytes, note_path),
                         "n_messages": len(messages),
                     },
                 )
                 self.logger.info(f"[{self.name}] post-update failed path={note_path} answer={str(exc)!r}")
                 return
 
-        modified = note_modified(before_note_path, before_note_bytes, note_path, self._note_bytes)
+        modified = self._note_modified(before_note_path, before_note_bytes, note_path)
         if modified:
             self.context["changes"] = [{"change": "added" if created else "modified", "path": note_path}]
         daily_dir = self.config_value("daily_dir")

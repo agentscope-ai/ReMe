@@ -122,7 +122,7 @@ flowchart LR
     C -->|" start "| D["load_env()"]
     D --> E["resolve_app_config(**kwargs)"]
     E --> F["precheck_start(service)"]
-    F --> G["ReMe(**config).run_app()"]
+    F --> G["Application(**config).run_app()"]
     C -->|" find_reme "| H["cli_find_reme()"]
     C -->|" other actions "| I["call_server(action, **kwargs)"]
     I --> J["R.get(ComponentEnum.CLIENT, backend)"]
@@ -206,7 +206,7 @@ ReMe uses the process-wide singleton `R = ComponentRegistry()`. Every component,
 `@R.register("name")`.
 
 ```python
-from ...components import R
+from ...core.registry import R
 
 
 @R.register("version_step")
@@ -699,7 +699,7 @@ Create a file such as `reme/steps/common/uppercase.py`:
 
 ```python
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 
 
 @R.register("uppercase_step")
@@ -774,7 +774,7 @@ A Step can be instantiated directly and passed a `RuntimeContext`:
 ```python
 import pytest
 
-from reme.components import RuntimeContext
+from reme.core.context import RuntimeContext
 from reme.steps.common.uppercase import UppercaseStep
 
 
@@ -897,7 +897,7 @@ Example streaming Step:
 
 ```python
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 from ...enumeration import ChunkEnum
 
 

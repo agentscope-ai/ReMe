@@ -3,6 +3,7 @@
 import asyncio
 import warnings
 from collections.abc import AsyncGenerator
+from contextlib import aclosing
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -16,7 +17,14 @@ from starlette.routing import Route
 from .base_service import BaseService
 from ...core.registry import R
 from ..job import BaseJob, StreamJob
-from ...constants import DEFAULT_MCP_PATH, OPENAPI_SCHEMA_PATH, REME_DEFAULT_HOST, REME_DEFAULT_PORT, SSE_MEDIA_TYPE
+from ...constants import (
+    DEFAULT_MCP_PATH,
+    OPENAPI_SCHEMA_PATH,
+    REME_DEFAULT_HOST,
+    REME_DEFAULT_PORT,
+    REME_SSE_DONE_MARKER,
+    SSE_MEDIA_TYPE,
+)
 from ...schema import Request, Response
 from ...utils.streaming import execute_stream_task
 from .web_static import resolve_web_static_dir
@@ -252,14 +260,10 @@ class HttpService(BaseService):
             )
 
             async def body() -> AsyncGenerator[bytes, None]:
-                async for chunk in execute_stream_task(
-                    stream_queue=stream_queue,
-                    task=task,
-                    task_name=job.name,
-                    output_format="bytes",
-                ):
-                    assert isinstance(chunk, bytes)
-                    yield chunk
+                async with aclosing(execute_stream_task(stream_queue, task, job.name)) as chunks:
+                    async for chunk in chunks:
+                        payload = REME_SSE_DONE_MARKER if chunk.done else chunk.model_dump_json()
+                        yield f"data:{payload}\n\n".encode()
 
             return StreamingResponse(body(), media_type=SSE_MEDIA_TYPE)
 

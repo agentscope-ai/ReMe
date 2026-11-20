@@ -48,7 +48,7 @@ application_defaults:
 ## 实现 Step
 
 ```python
-from reme.components import R
+from reme.core.registry import R
 from reme.steps.base_step import BaseStep
 
 

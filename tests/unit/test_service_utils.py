@@ -15,6 +15,7 @@ shell-outs:
 import os
 import json
 import socket
+from pathlib import Path
 from types import SimpleNamespace
 
 import psutil
@@ -35,10 +36,14 @@ def _conn(port: int, status=psutil.CONN_LISTEN, has_laddr: bool = True):
 class _FakeProc:
     """Stand-in for a psutil.Process yielded by process_iter."""
 
-    def __init__(self, pid: int, *, cmdline=None, conns=None, conn_exc=None):
+    def __init__(self, pid: int, *, cmdline=None, conns=None, conn_exc=None, cwd=None):
         self.info = {"pid": pid, "cmdline": cmdline if cmdline is not None else []}
         self._conns = conns or []
         self._conn_exc = conn_exc
+        self._cwd = cwd
+
+    def cwd(self):
+        return str(self._cwd or Path.cwd())
 
     def net_connections(self, kind="tcp"):
         if self._conn_exc is not None:
@@ -125,7 +130,7 @@ def test_scan_reme_procs_parses_host_and_port(monkeypatch):
         ),
     ]
     _patch_iter(monkeypatch, procs)
-    assert su._scan_reme_procs() == [(123, "0.0.0.0", 8123)]
+    assert list(su._scan_reme_procs()) == [(123, "0.0.0.0", 8123)]
 
 
 def test_scan_reme_procs_accepts_prefixed_cli_arguments(monkeypatch):
@@ -136,13 +141,13 @@ def test_scan_reme_procs_accepts_prefixed_cli_arguments(monkeypatch):
         ),
     ]
     _patch_iter(monkeypatch, procs)
-    assert su._scan_reme_procs() == [(123, "0.0.0.0", 8123)]
+    assert list(su._scan_reme_procs()) == [(123, "0.0.0.0", 8123)]
 
 
 def test_scan_reme_procs_defaults_when_args_absent(monkeypatch):
     procs = [_FakeProc(7, cmdline=["reme", "start"])]
     _patch_iter(monkeypatch, procs)
-    assert su._scan_reme_procs() == [(7, su.REME_DEFAULT_HOST, su.REME_DEFAULT_PORT)]
+    assert list(su._scan_reme_procs()) == [(7, su.REME_DEFAULT_HOST, su.REME_DEFAULT_PORT)]
 
 
 def test_scan_reme_procs_filters_unrelated(monkeypatch):
@@ -152,14 +157,14 @@ def test_scan_reme_procs_filters_unrelated(monkeypatch):
         _FakeProc(3, cmdline=[]),  # empty cmdline
     ]
     _patch_iter(monkeypatch, procs)
-    assert not su._scan_reme_procs()
+    assert not list(su._scan_reme_procs())
 
 
 def test_scan_reme_procs_ignores_non_digit_port(monkeypatch):
     """A malformed service.port= falls back to the default port, not a crash."""
     procs = [_FakeProc(9, cmdline=["reme", "start", "service.port=notaport"])]
     _patch_iter(monkeypatch, procs)
-    assert su._scan_reme_procs() == [(9, su.REME_DEFAULT_HOST, su.REME_DEFAULT_PORT)]
+    assert list(su._scan_reme_procs()) == [(9, su.REME_DEFAULT_HOST, su.REME_DEFAULT_PORT)]
 
 
 def test_scan_reme_procs_skips_access_denied(monkeypatch):
@@ -169,7 +174,7 @@ def test_scan_reme_procs_skips_access_denied(monkeypatch):
         _FakeProc(5, cmdline=["reme", "start"]),
     ]
     _patch_iter(monkeypatch, procs)
-    assert su._scan_reme_procs() == [(5, su.REME_DEFAULT_HOST, su.REME_DEFAULT_PORT)]
+    assert list(su._scan_reme_procs()) == [(5, su.REME_DEFAULT_HOST, su.REME_DEFAULT_PORT)]
 
 
 def test_connect_host_converts_wildcard_bind_address():
@@ -267,9 +272,8 @@ async def test_find_reme_detects_wildcard_conflict_on_another_local_address(monk
 
 
 def test_running_app_config_preserves_plugins(monkeypatch):
-    """Process replay exposes the full config while the compatibility helper returns service only."""
-    monkeypatch.setattr(su, "_iter_reme_starts", lambda: iter([(1, ["config=example"])]))
-    monkeypatch.setattr(su, "parse_args", lambda *_args: ("start", {"config": "example"}))
+    """Process replay keeps the enabled plugins with the service settings."""
+    _patch_iter(monkeypatch, [_FakeProc(1, cmdline=["reme", "start", "config=example"])])
     monkeypatch.setattr(
         su,
         "resolve_app_config",
@@ -283,7 +287,6 @@ def test_running_app_config_preserves_plugins(monkeypatch):
         "plugins": ["example"],
         "service": {"backend": "plugin-client", "port": 9911},
     }
-    assert su.running_service_config() == {"backend": "plugin-client", "port": 9911}
 
 
 def test_discovery_ignores_container_init_and_replays_real_cli(monkeypatch):
@@ -293,9 +296,8 @@ def test_discovery_ignores_container_init_and_replays_real_cli(monkeypatch):
         _FakeProc(2, cmdline=["/opt/venv/bin/python", "/opt/venv/bin/reme", "start", 'service={"port":8124}']),
     ]
     _patch_iter(monkeypatch, procs)
-    assert list(su._iter_reme_starts()) == [(2, ['service={"port":8124}'])]
-    assert su.running_service_config()["port"] == 8124
-    assert su._scan_reme_procs() == [(2, su.REME_DEFAULT_HOST, 8124)]
+    assert su.running_app_config()["service"]["port"] == 8124
+    assert list(su._scan_reme_procs()) == [(2, su.REME_DEFAULT_HOST, 8124)]
 
 
 def test_discovery_resolves_mounted_config_port(tmp_path, monkeypatch):
@@ -303,7 +305,49 @@ def test_discovery_resolves_mounted_config_port(tmp_path, monkeypatch):
     config = tmp_path / "reme.json"
     config.write_text(json.dumps({"service": {"backend": "http", "host": "0.0.0.0", "port": 8125}}))
     _patch_iter(monkeypatch, [_FakeProc(2, cmdline=["reme", "start", f"config={config}"])])
-    assert su._scan_reme_procs() == [(2, "0.0.0.0", 8125)]
+    assert list(su._scan_reme_procs()) == [(2, "0.0.0.0", 8125)]
+
+
+def test_discovery_uses_server_cwd_for_relative_config(tmp_path, monkeypatch):
+    server_cwd = tmp_path / "server"
+    server_cwd.mkdir()
+    (server_cwd / "reme.yaml").write_text("service: {backend: http, port: 8126}\nplugins: [example]\n")
+    (tmp_path / "reme.yaml").write_text("service: {port: 9999}\n")
+    monkeypatch.chdir(tmp_path)
+    _patch_iter(monkeypatch, [_FakeProc(2, cmdline=["reme", "start", "config=reme.yaml"], cwd=server_cwd)])
+
+    assert list(su._scan_reme_procs()) == [(2, su.REME_DEFAULT_HOST, 8126)]
+    assert su.running_app_config() == {
+        "service": {"backend": "http", "port": 8126},
+        "plugins": ["example"],
+    }
+
+
+def test_discovery_keeps_overrides_when_running_config_is_missing(tmp_path, monkeypatch):
+    server_cwd = tmp_path / "server"
+    server_cwd.mkdir()
+    (tmp_path / "reme.yaml").write_text("service: {backend: mcp, port: 9999}\n")
+    monkeypatch.chdir(tmp_path)
+    _patch_iter(
+        monkeypatch,
+        [_FakeProc(2, cmdline=["reme", "start", "config=reme.yaml", "service.port=8127"], cwd=server_cwd)],
+    )
+
+    assert list(su._scan_reme_procs()) == [(2, su.REME_DEFAULT_HOST, 8127)]
+    assert su.running_app_config()["service"] == {"port": 8127}
+
+
+def test_discovery_skips_local_jobs_and_unreadable_configs_without_service_settings(tmp_path, monkeypatch):
+    procs = [
+        _FakeProc(1, cmdline=["reme", "start", "job=auto_dream", "service.port=8181"]),
+        _FakeProc(2, cmdline=["reme", "start", "config=missing.yaml"], cwd=tmp_path),
+        _FakeProc(3, cmdline=["reme", "start", "service.backend=cli", "service.job=auto_dream"]),
+        _FakeProc(4, cmdline=["reme", "start", "service.backend=http", "service.port=8184"]),
+    ]
+    _patch_iter(monkeypatch, procs)
+
+    assert su.running_app_config()["service"]["port"] == 8184
+    assert list(su._scan_reme_procs()) == [(4, su.REME_DEFAULT_HOST, 8184)]
 
 
 @pytest.mark.parametrize(
@@ -317,8 +361,8 @@ def test_discovery_resolves_mounted_config_port(tmp_path, monkeypatch):
 )
 def test_discovery_accepts_cli_launchers_and_action_prefixes(command, monkeypatch):
     _patch_iter(monkeypatch, [_FakeProc(7, cmdline=command)])
-    assert list(su._iter_reme_starts()) == [(7, [])]
-    assert su._scan_reme_procs() == [(7, su.REME_DEFAULT_HOST, su.REME_DEFAULT_PORT)]
+    assert su._start_arguments(command) == []
+    assert list(su._scan_reme_procs()) == [(7, su.REME_DEFAULT_HOST, su.REME_DEFAULT_PORT)]
 
 
 @pytest.mark.parametrize(
@@ -333,5 +377,5 @@ def test_discovery_accepts_cli_launchers_and_action_prefixes(command, monkeypatc
 )
 def test_discovery_filters_supervisors_and_unrelated_commands(command, monkeypatch):
     _patch_iter(monkeypatch, [_FakeProc(7, cmdline=command)])
-    assert not list(su._iter_reme_starts())
-    assert not su._scan_reme_procs()
+    assert su.running_app_config() is None
+    assert not list(su._scan_reme_procs())

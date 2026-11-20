@@ -15,7 +15,7 @@ from ._codex_dialogue import CodexDialogueIndex
 from .base_connector import resource_package_id
 from ..agent import BaseAgentStep
 from ....utils.files.path_lock import get_path_lock
-from ....components import R
+from ....core.registry import R
 from ....utils.files.workspace_files import WorkspaceFiles
 from ....schema import Event, ResourceMetadata
 from ....schema.agent_runtime import validate_agent_name

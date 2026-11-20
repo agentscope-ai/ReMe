@@ -4,7 +4,7 @@ from pathlib import Path
 
 from ..base_step import BaseStep
 from ..file_io._path import check_path_permission, resolve_path
-from ...components import R
+from ...core.registry import R
 
 
 @R.register("list_tag_files_step")
