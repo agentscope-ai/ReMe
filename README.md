@@ -51,10 +51,10 @@ users retain control of the durable files.
 
 <!-- Keep at most 5 updates expanded; move older entries into the collapsed section below. -->
 
-- [2026.11] - **[ReMe 0.5 Preview — Proactive Runtime](docs/en/reme_0_5_preview.md)**. See how ReMe is bringing its
-  file-native memory into a local-first runtime for event-driven and scheduled agents, with a desktop preview planned
-  for macOS and Windows. The preview covers the prototype on `main`, the Auto Memory and Auto Dream roadmap, and the
-  year-end release target.
+- [2026.11] - **[ReMe 0.5 Preview — Proactive Runtime](docs/en/reme_0_5_preview.md)**. ReMe puts file-native memory at
+  the core of its event-driven and scheduled agents. Give ReMe a task to follow, and it will record new developments
+  and let you know when your attention is needed. We aim to release ReMe 0.5 **by the end of 2026**. Read the preview
+  for the design, development plan, and milestones.
 - [2026.10] - **[Decision-model context compaction](docs/en/context_compaction.md)**: score old tool calls and results
   against the next action, preserve protected history, and return a recoverable compaction proposal. Includes an SVG
   walkthrough, two live-model integration scenarios, and a 14-query fixed-summary Top-N benchmark with a forced Hermes summary baseline.
