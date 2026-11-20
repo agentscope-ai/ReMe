@@ -8,7 +8,7 @@ from pydantic import Field, field_validator, model_validator
 from reme.steps.base_step import BaseStep, Ref
 from reme.utils.async_utils import finish_cleanup
 
-from ..code.repository import current_branch, resolve_revision, validate_branch, validate_repository
+from ..code.repository import EVALUATED_PREFIX, current_branch, resolve_revision, validate_branch, validate_repository
 from ..preparation.code import git
 from ..preparation.spec import SpecModel
 from ..workspace import HomeWorkspace, _initialization_lock
@@ -131,6 +131,12 @@ def _commit_filter(home, spec):
 def _catalog_row(run, manifest):
     summary, summary_path = _summary(run)
     options = manifest.get("options", {})
+    sources = manifest.get("construction_sources")
+    source = None
+    if isinstance(sources, dict) and sources:
+        first = next(iter(sources.values()))
+        if isinstance(first, dict) and all(item == first for item in sources.values()):
+            source = first
     row = {
         "validation_path": str(run),
         "manifest_path": str(run / "manifest.json"),
@@ -138,6 +144,7 @@ def _catalog_row(run, manifest):
             key: manifest.get(key)
             for key in (
                 "branch_name",
+                "evaluated_branch",
                 "commit_sha",
                 "validation_id",
                 "status",
@@ -148,10 +155,11 @@ def _catalog_row(run, manifest):
                 "dataset_kind",
                 "mode",
                 "execution_mode",
-                "construction_source",
-                "fingerprints",
             )
         },
+        "construction_source": source,
+        "construction_sources": sources,
+        "fingerprints": manifest.get("fingerprints"),
         "sampling": options.get("sampling", False),
         "record_history": options.get("record_history", True) and manifest.get("mode") != "debug",
         "selected_case_count": len(manifest.get("case_ids", [])),
@@ -168,10 +176,18 @@ def _catalog_row(run, manifest):
 
 def _list_results(home, spec):
     branch, commit = _commit_filter(home, spec)
+    branch_filter = branch
+    if branch is not None and branch.startswith(EVALUATED_PREFIX):
+        # Preserved refs point to evidence recorded under the original working branch.
+        with _initialization_lock(contained(home, "metadata/workspace.lock")):
+            repo, _ = validate_repository(home)
+            pinned = resolve_revision(repo, "refs/heads/" + branch)
+        commit = commit or pinned
+        branch_filter = None
     evaluations = contained(home, "evaluations", directory=True)
     rows = []
     for path in evaluations.glob("*/*/*/manifest.json"):
-        if branch is not None and path.parent.parent.parent.name != branch:
+        if branch_filter is not None and path.parent.parent.parent.name != branch_filter:
             continue
         row = {"validation_path": str(path.parent), "manifest_path": str(path)}
         try:
@@ -262,7 +278,7 @@ def _case_inspection(run, manifest, spec):
                 key: _preview(query[key], 2000)
                 for key in (
                     "question",
-                    "golden_answer",
+                    "groundtruth",
                     "answer",
                     "score",
                     "question_type",

@@ -49,15 +49,16 @@ def test_hermes_text_runtime_accepts_host_pins() -> None:
 
 
 def test_home_requires_workflow_and_sandbox_release() -> None:
-    """Home requires workflow interfaces, request path rejection and environment isolation."""
+    """Home requires the benchmark pool's case callbacks and artifact export options."""
     config = tomllib.loads((REPOSITORY / "plugins" / "home" / "pyproject.toml").read_text(encoding="utf-8"))
     requirement = next(Requirement(value) for value in config["project"]["dependencies"] if value.startswith("reme-ai"))
 
-    assert requirement.extras == {"as"}
+    assert requirement.extras == {"benchmark-docker"}
     assert Version("0.4.1.14") not in requirement.specifier
     assert Version("0.4.2.0") not in requirement.specifier
     assert Version("0.4.2.1") not in requirement.specifier
-    assert Version("0.4.2.2") in requirement.specifier
+    assert Version("0.4.2.2") not in requirement.specifier
+    assert Version("0.4.2.3") in requirement.specifier
     assert Version(bump_version.read_version()) in requirement.specifier
 
 

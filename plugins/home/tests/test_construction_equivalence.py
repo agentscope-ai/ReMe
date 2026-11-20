@@ -17,7 +17,7 @@ from reme_home.code.snapshot import read_code_file
 from reme_home.evaluation import reuse
 from reme_home.evaluation.artifacts import file_sha256, read_json, write_json
 from reme_home.evaluation.budget import validation_budget_status
-from reme_home.evaluation.inputs import EvaluationSpec
+from reme_home.evaluation.inputs import EvaluationSpec, load_inputs
 
 from test_evaluation import (  # noqa: F401  # pylint: disable=unused-import
     FakeFactory,
@@ -27,7 +27,7 @@ from test_evaluation import (  # noqa: F401  # pylint: disable=unused-import
     preparation_inputs,
     prepared_home,
     os_sandbox_available,
-    host_network_command,
+    host_network_probe_fixture,
 )
 from test_workflows import ScriptedModel, final_report, set_model
 
@@ -200,7 +200,13 @@ async def test_equivalent_candidate_uses_host_probability(
     assert result.answer["execution_mode"] == ("query_only_replay" if selected else "full_validation")
     run = Path(result.answer["result_dir"])
     manifest = read_json(run / "manifest.json")
-    assert manifest["automatic_construction_reuse"] == decision
+    saved = manifest["automatic_construction_reuse"]
+    derived = {"equivalence_report", "probability_scope", "reuse_reasons"}
+    assert derived.isdisjoint(saved)
+    assert saved["source_reviews"][saved["source_validation"]]["equivalence_report"] == report
+    assert saved == {key: value for key, value in decision.items() if key not in derived}
+    assert decision["probability_scope"] == "all_cases"
+    assert decision["reuse_reasons"] == {case_id: "60_percent_policy" for case_id in saved["case_sources"]}
     assert validation_budget_status(prepared, 10)["used_validations"] == 1
     optimizer.verify_evaluation(prepared, run, result.answer["commit_sha"])
 
@@ -293,14 +299,15 @@ async def test_invalid_nearest_source_falls_back_to_older_ancestor(
 
 
 @pytest.mark.asyncio
-async def test_nearest_source_limits_replay_but_full_rebuild_restores_all_cases(
+async def test_targeted_sampling_uses_nearest_source_and_older_source_fills_coverage(
     app,
     prepared,
     reviewer,
     sandbox,
     monkeypatch,
 ):
-    assert (await app.run_job("home_evaluate")).success
+    baseline = await app.run_job("home_evaluate")
+    assert baseline.success
     commit_candidate(prepared)
     recent = await app.run_job("home_evaluate", case_ids=["1"])
     commit_candidate(prepared)
@@ -312,10 +319,13 @@ async def test_nearest_source_limits_replay_but_full_rebuild_restores_all_cases(
         ),
     )
     force_draw(monkeypatch, 0.1)
-    replay = await app.run_job("home_evaluate", sampling=True)
+    replay = await app.run_job("home_evaluate", sampling=True, target_queries={"1": [], "2": []})
     assert replay.success, replay.answer
     assert replay.answer["automatic_construction_reuse"]["source_validation"] == recent.answer["result_dir"]
-    assert replay.answer["case_count"] == 1
+    assert replay.answer["case_count"] == 2
+    sources = replay.answer["automatic_construction_reuse"]["case_sources"]
+    assert sources["1"]["result_dir"] == recent.answer["result_dir"]
+    assert sources["2"]["result_dir"] == baseline.answer["result_dir"]
     commit_candidate(prepared)
     force_draw(monkeypatch, 0.8)
     rebuilt = await app.run_job("home_evaluate", sampling=True)
@@ -347,12 +357,13 @@ async def test_auto_memory_override_and_whitespace_only_changes(app, prepared, r
 
 
 @pytest.mark.asyncio
-async def test_infrastructure_retry_preserves_replay_and_selection(app, prepared, reviewer, sandbox, monkeypatch):
+@pytest.mark.parametrize("draw", [0.1, 0.9])
+async def test_infrastructure_retry_preserves_replay_and_selection(app, prepared, reviewer, sandbox, monkeypatch, draw):
     assert (await app.run_job("home_evaluate")).success
     commit_candidate(prepared)
     model = ScriptedModel(final='{"decision":"construction_unchanged","reason":"Query only"}')
     set_model(app, "home_construction_equivalence", model)
-    force_draw(monkeypatch, 0.1)
+    force_draw(monkeypatch, draw)
     monkeypatch.setattr(FakeFactory, "bad_export", True)
     failed = await app.run_job("home_evaluate", sampling=True, max_evaluations=10)
     assert not failed.success
@@ -363,13 +374,58 @@ async def test_infrastructure_retry_preserves_replay_and_selection(app, prepared
     recovered = await app.run_job("home_evaluate", sampling=True, max_evaluations=10)
     assert recovered.success, recovered.answer
     manifest = read_json(Path(recovered.answer["result_dir"]) / "manifest.json")
-    assert manifest["automatic_construction_reuse"] == {
+    saved = {
         **failed_manifest["automatic_construction_reuse"],
         "branch_name": "retry-branch",
     }
+    assert manifest["automatic_construction_reuse"] == saved
+    report = saved["source_reviews"][saved["source_validation"]]["equivalence_report"]
+    decision = recovered.answer["automatic_construction_reuse"]
+    assert decision == {
+        **saved,
+        "equivalence_report": report,
+        "probability_scope": "all_cases",
+        "reuse_reasons": {case_id: "60_percent_policy" for case_id in saved["case_sources"]},
+    }
+    assert list(decision).index("equivalence_report") == list(decision).index("source_validation") + 1
     assert manifest["case_ids"] == failed_manifest["case_ids"] and manifest["query_ids"] == failed_manifest["query_ids"]
-    assert recovered.answer["execution_mode"] == "query_only_replay" and len(model.calls) == 1
+    assert recovered.answer["execution_mode"] == ("query_only_replay" if draw < 0.6 else "full_validation")
+    assert len(model.calls) == 1
     assert validation_budget_status(prepared, 10)["used_validations"] == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("draw", [0.1, 0.9])
+async def test_retry_with_missing_equivalence_report(app, prepared, reviewer, sandbox, monkeypatch, draw):
+    assert (await app.run_job("home_evaluate")).success
+    commit_candidate(prepared)
+    model = ScriptedModel(final='{"decision":"construction_unchanged","reason":"Query only"}')
+    set_model(app, "home_construction_equivalence", model)
+    force_draw(monkeypatch, draw)
+    monkeypatch.setattr(FakeFactory, "bad_export", True)
+    failed = await app.run_job("home_evaluate", sampling=True, max_evaluations=10)
+    assert not failed.success
+    path = Path(failed.answer["result_dir"]) / "manifest.json"
+    manifest = read_json(path)
+    saved = manifest["automatic_construction_reuse"]
+    saved["source_reviews"][saved["source_validation"]].pop("equivalence_report")
+    write_json(path, manifest)
+
+    monkeypatch.setattr(FakeFactory, "bad_export", False)
+    monkeypatch.setattr(reuse, "select_query_only", lambda: pytest.fail("Recovery must not redraw"))
+    launches = len(FakeFactory.instances)
+    recovered = await app.run_job("home_evaluate", sampling=True, max_evaluations=10)
+    assert len(model.calls) == 1
+    if draw < 0.6:
+        assert not recovered.success
+        assert "Missing construction-equivalence report for replay" in str(recovered.answer)
+        assert len(FakeFactory.instances) == launches
+    else:
+        assert recovered.success, recovered.answer
+        assert recovered.answer["execution_mode"] == "full_validation"
+        assert "equivalence_report" not in recovered.answer["automatic_construction_reuse"]
+        result = read_json(Path(recovered.answer["result_dir"]) / "manifest.json")
+        assert result["case_ids"] == manifest["case_ids"] and result["query_ids"] == manifest["query_ids"]
 
 
 @pytest.mark.asyncio
@@ -542,7 +598,7 @@ async def test_optimizer_final_selection_accepts_automatic_replay(app, prepared,
     manifest = read_json(Path(result.answer["evaluation_path"]) / "manifest.json")
     assert manifest["execution_mode"] == "query_only_replay"
     schema = next(tool for tool in model.calls[0]["tools"] if tool["function"]["name"] == "home_evaluate")
-    assert set(schema["function"]["parameters"]["properties"]) == {"debug"}
+    assert set(schema["function"]["parameters"]["properties"]) == {"debug", "target_queries"}
 
 
 @pytest.mark.asyncio
@@ -552,20 +608,32 @@ async def test_real_equivalence_sandbox_allows_only_copied_construction_and_sour
     prepared,
     tmp_path,
     monkeypatch,
+    host_network_probe,
 ):
     source = await app.run_job("home_evaluate")
     assert source.success
     commit_candidate(prepared)
     spec = EvaluationSpec(sampling=True)
-    context = reuse.reuse_context(prepared, spec, {**os.environ, **app.context.app_config.environment})
+    record, dataset, cases = load_inputs(prepared, spec)
+    fingerprints = reuse.construction_fingerprints(
+        record,
+        dataset,
+        spec,
+        {**os.environ, **app.context.app_config.environment},
+    )
+    context = {
+        "source_validation": source.answer["result_dir"],
+        "base_commit": source.answer["commit_sha"],
+        "candidate_commit": command(prepared / "code/repo", "rev-parse", "HEAD"),
+    }
     root = tmp_path / "review-export"
     root.mkdir()
     scope = construction_equivalence.prepare_equivalence_scope(
         prepared,
-        context["context"],
-        context["spec"],
-        context["cases"],
-        context["fingerprints"],
+        context,
+        spec.model_copy(update={"reuse_construction_from": source.answer["result_dir"]}),
+        cases,
+        fingerprints,
         root=root,
     )
     backend = workflow_common.WorkflowSandbox(scope, memory_limit_mib=0)
@@ -599,9 +667,8 @@ async def test_real_equivalence_sandbox_allows_only_copied_construction_and_sour
     with pytest.raises(OSError):
         await backend.read_file(str(root / "escape"))
     assert not list(root.rglob(".git")) and not list(root.rglob("queries"))
-    with host_network_command() as network_command:
-        network = await backend.exec_shell(network_command, timeout=10)
-        assert not network.ok()
+    network = await backend.exec_shell(host_network_probe, timeout=10)
+    assert not network.ok()
     monkeypatch.setenv("HOME_REVIEW_PRIVATE_TOKEN", "private-marker")
     environment = await backend.exec_shell(
         [sys.executable, "-I", "-B", "-c", "import os; print(os.environ.get('HOME_REVIEW_PRIVATE_TOKEN', 'absent'))"],

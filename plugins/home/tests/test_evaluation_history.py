@@ -46,6 +46,41 @@ def manifest(response):
 
 
 @pytest.mark.asyncio
+async def test_archived_evaluation_keeps_budget_charge_and_reserves_attempt_id(app, prepared, tmp_path):
+    commit_candidate(prepared)
+    first = await app.run_job("home_evaluate", case_ids=["1"])
+    assert first.success, first.answer
+    first_manifest = manifest(first)
+    plan_path = prepared / first_manifest["sampling"]["plan_path"]
+    original_plan = plan_path.read_bytes()
+    first_run = Path(first.answer["result_dir"])
+    archived = first_run.rename(tmp_path / "archived-evaluation")
+
+    state = read_state(prepared)
+    assert state["successful_round"] == 0 and not state["cases"]
+    assert validation_budget_status(prepared, 1)["remaining_validations"] == 0
+    assert rebuild_sampling_state(prepared) == state
+
+    second = await app.run_job("home_evaluate", case_ids=["2"], max_evaluations=2)
+
+    assert second.success, second.answer
+    new_manifest = manifest(second)
+    assert new_manifest["validation_id"] == "2"
+    assert new_manifest["sampling"]["round"] == 2
+    assert new_manifest["sampling"]["plan_path"] != first_manifest["sampling"]["plan_path"]
+    assert plan_path.read_bytes() == original_plan
+    assert second.answer["validation_budget"]["remaining_validations"] == 0
+    assert set(read_state(prepared)["cases"]) == {"2"}
+
+    archived.rename(first_run)
+    restored_state = read_state(prepared)
+    assert restored_state["successful_round"] == 2
+    assert set(restored_state["cases"]) == {"1", "2"}
+    assert rebuild_sampling_state(prepared) == restored_state
+    assert validation_budget_status(prepared, 2)["used_validations"] == 2
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("cancelled", [False, True])
 async def test_completion_waits_for_concurrent_code_browsing(app, prepared, monkeypatch, cancelled):
     from reme_home.code.component import OPERATIONS

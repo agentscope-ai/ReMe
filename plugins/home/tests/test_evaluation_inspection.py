@@ -86,6 +86,24 @@ async def test_real_evaluation_catalog_and_case_query_navigation_are_read_only(a
 
 
 @pytest.mark.asyncio
+async def test_inspection_reports_a_single_source_from_per_case_sources(app, prepared):
+    source = {"commit_sha": "b" * 40, "result_dir": "old-source"}
+    other = {"commit_sha": "c" * 40, "result_dir": "other-source"}
+    sources = {"case~a": source, "missing-case": source}
+    compact = write_run(prepared, construction_sources=sources)
+    mixed = write_run(prepared, "2", construction_sources={**sources, "missing-case": other})
+    before = snapshot(prepared)
+
+    catalog = await call(app, "home_list_validation_results")
+    rows = {row["validation_path"]: row for row in catalog["rows"]}
+    for run, expected in ((compact, source), (mixed, None)):
+        result = await call(app, "home_inspect_validation", validation_path=str(run))
+        assert result["construction_source"] == rows[str(run)]["construction_source"] == expected
+    assert rows[str(compact)]["construction_sources"] == sources
+    assert snapshot(prepared) == before
+
+
+@pytest.mark.asyncio
 async def test_partial_missing_and_corrupt_runs_are_visible_without_rebuilding(app, prepared):
     run = write_run(prepared)
     write_json(
@@ -142,7 +160,7 @@ async def test_failure_and_query_paging_previews_and_source_coordinates(app, pre
                     "score": 0,
                     "answer": "a" * 3000,
                     "judge_result": {"success": True},
-                    "golden_answer": ["rubric"],
+                    "groundtruth": {"golden_answer": None, "rubric": ["rubric"]},
                     "answer_result": None,
                 },
                 {"query_id": "q1", "score": None, "error": "e" * 900},
@@ -160,7 +178,7 @@ async def test_failure_and_query_paging_previews_and_source_coordinates(app, pre
     result = await call(app, "home_inspect_validation", validation_path=str(run), case_id="case~a", query_id="q2")
     assert result["rows"][0]["pointer"] == "/queries/0"
     assert "truncated" in result["rows"][0]["fields"]["answer"]
-    assert result["rows"][0]["fields"]["golden_answer"] == ["rubric"]
+    assert result["rows"][0]["fields"]["groundtruth"] == {"golden_answer": None, "rubric": ["rubric"]}
     assert result["rows"][0]["score"] == 0
 
 

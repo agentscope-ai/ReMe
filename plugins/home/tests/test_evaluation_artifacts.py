@@ -17,7 +17,7 @@ from reme_home.evaluation.artifacts import (
     write_json,
 )
 from reme_home.evaluation.compaction import compact_construction, compact_query
-from reme_home.preparation.data.models import CaseSpec, QuerySpec
+from reme_home.preparation.data.models import CaseSpec, GroundTruth, QuerySpec
 
 
 @pytest.mark.parametrize("stage", ["construction", "answer"])
@@ -43,7 +43,7 @@ def test_scores_are_rounded_without_changing_reference_text_or_token_metrics(tmp
     raw = {
         "query_id": "q",
         "question": "?",
-        "golden_answer": {"score": 0.123456789},
+        "groundtruth": {"golden_answer": {"score": 0.123456789}, "rubric": []},
         "answer": "0.123456789",
         "score": 1 / 3,
         "error": None,
@@ -60,10 +60,11 @@ def test_scores_are_rounded_without_changing_reference_text_or_token_metrics(tmp
     assert result["score"] == result["judge_result"]["metadata"]["llm_judge_score"] == 0.3333
     assert raw["score"] == 1 / 3
     assert result["judge_result"]["metadata"]["event_ordering"] == {"precision": 0.3333, "f1": 0.6667, "count": 2}
-    assert result["golden_answer"] == raw["golden_answer"]
+    assert result["groundtruth"] == raw["groundtruth"]
     assert result["answer"] == raw["answer"]
     assert result["judge_result"]["metadata"]["raw_answer_judgement"] == "0.333333333"
-    case = CaseSpec(case_id="c", sessions=[], queries=[QuerySpec(query_id="q", question="?", golden_answer=None)])
+    query = QuerySpec(query_id="q", question="?", groundtruth=GroundTruth())
+    case = CaseSpec(case_id="c", sessions=[], queries=[query])
     write_json(tmp_path / "cases/c/memory_construction/result.json", {"status": "success", "jobs": []})
     # Legacy long-precision query files also produce short-precision summaries.
     write_json(tmp_path / "cases/c/queries/result.json", {"queries": [raw]})
@@ -80,7 +81,7 @@ def test_summary_separates_query_errors_from_scores(tmp_path, scoring_enabled):
     case = CaseSpec(
         case_id="c",
         sessions=[],
-        queries=[QuerySpec(query_id=value, question="?", golden_answer=None) for value in ids],
+        queries=[QuerySpec(query_id=value, question="?", groundtruth=GroundTruth()) for value in ids],
     )
     queries = [
         {"query_id": "zero", "score": 0},
@@ -113,7 +114,7 @@ def test_summary_separates_query_errors_from_scores(tmp_path, scoring_enabled):
 def test_query_compaction_preserves_evidence_without_duplicate_prompts_or_costs():
     raw = {
         "question": "What happened?",
-        "golden_answer": "An event.",
+        "groundtruth": {"golden_answer": "An event.", "rubric": []},
         "answer": "The event happened.",
         "score": 1.0,
         "error": None,
@@ -166,7 +167,7 @@ def test_query_compaction_preserves_evidence_without_duplicate_prompts_or_costs(
         "metadata": {"raw_answer_judgement": "Yes, the answer is correct."},
     }
     assert result["question"] == raw["question"]
-    assert result["golden_answer"] == raw["golden_answer"]
+    assert result["groundtruth"] == raw["groundtruth"]
     assert result["answer"] == raw["answer"]
 
 
@@ -253,7 +254,7 @@ def test_summary_matches_reviewed_dev_meta_fields_and_denominators(tmp_path):
         CaseSpec(
             case_id=case_id,
             sessions=[],
-            queries=[QuerySpec(query_id=query_id, question="?", golden_answer="a") for query_id in ids],
+            queries=[QuerySpec(query_id=query_id, question="?", groundtruth=GroundTruth()) for query_id in ids],
         )
         for case_id, ids in [("one", ["q1", "q2"]), ("two", ["q3"])]
     ]
@@ -387,7 +388,7 @@ async def test_judge_interruption_preserves_all_frozen_answers_and_compacts_each
     case = CaseSpec(
         case_id="case",
         sessions=[],
-        queries=[QuerySpec(query_id=f"q{i}", question="?", golden_answer="a") for i in range(2)],
+        queries=[QuerySpec(query_id=f"q{i}", question="?", groundtruth=GroundTruth()) for i in range(2)],
     )
     answers = [
         {

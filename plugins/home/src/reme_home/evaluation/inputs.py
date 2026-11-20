@@ -6,12 +6,14 @@ from typing import Literal
 import shutil
 import tempfile
 import tarfile
+import zlib
 
 from pydantic import Field, field_validator, model_validator
 
 from deploy.benchmark_docker import SourceSnapshot
 
 from ..preparation.code import export_git_tree, git, git_tree, runtime_roots, tree_fingerprint
+from ..preparation.data.basic import artifact_name_key, validate_artifact_ids
 from ..preparation.data.models import CaseSpec, DatasetManifest, fingerprint
 from .artifacts import contained, file_sha256, inspect_archive, read_json
 from ..preparation.spec import SpecModel
@@ -24,6 +26,7 @@ class EvaluationSpec(SpecModel):
 
     case_ids: list[str] | None = None
     query_ids: dict[str, list[str]] | None = None
+    target_queries: dict[str, list[str] | None] | None = None
     reuse_construction_from: str | None = Field(default=None, min_length=1)
     debug: bool = False
     sampling: bool = False
@@ -71,6 +74,12 @@ class EvaluationSpec(SpecModel):
             raise ValueError("Budgeted formal evaluations require record_history=true")
         if self.debug and self.reuse_construction_from:
             raise ValueError("Construction reuse requires training-set")
+        if self.debug or not self.target_queries:
+            self.target_queries = None
+        if self.target_queries is not None and (
+            not self.sampling or self.case_ids is not None or self.query_ids is not None
+        ):
+            raise ValueError("target_queries requires sampled formal evaluation without exact case/query selections")
         if self.sampling and not self.debug and (self.case_ids is not None or self.query_ids is not None):
             raise ValueError("sampling=true selects case/query IDs automatically; omit explicit selections")
         if "fail_fast" not in self.model_fields_set:
@@ -91,15 +100,15 @@ def load_inputs(home: Path, spec: EvaluationSpec):
     directory = contained(home, f"datasets/{spec.dataset_kind}", directory=True)
     manifest = DatasetManifest.model_validate(read_json(directory / "manifest.json"))
     cases = {}
+    case_names = set()
     hashes = []
     for path in sorted((directory / "cases").glob("*.json")):
         case = CaseSpec.model_validate(read_json(path))
-        entity_id(case.case_id)
-        if case.case_id in cases or not case.queries:
+        validate_artifact_ids(case)
+        name = artifact_name_key(case.case_id)
+        if name in case_names or not case.queries:
             raise ValueError("Dataset contains duplicate case IDs or a case without queries")
-        ids = [entity_id(query.query_id) for query in case.queries]
-        if len(ids) != len(set(ids)):
-            raise ValueError(f"Duplicate query IDs in case {case.case_id}")
+        case_names.add(name)
         hashes.append(fingerprint(case))
         cases[case.case_id] = case
     if list(cases) != manifest.case_ids or fingerprint(hashes) != manifest.normalized_fingerprint:
@@ -108,22 +117,27 @@ def load_inputs(home: Path, spec: EvaluationSpec):
         raise ValueError("Prepared dataset counts do not match its manifest")
     if spec.dataset_kind == "training-set" and manifest != DatasetManifest.model_validate(record["dataset"]):
         raise ValueError("Prepared training manifest has changed")
-    selected = spec.case_ids if spec.case_ids is not None else list(cases)
+    return record, manifest, select_cases(cases, spec.case_ids, spec.query_ids)
+
+
+def select_cases(cases: dict[str, CaseSpec], case_ids, query_ids):
+    """Select cases and queries in caller order from an already validated dataset."""
+    selected = case_ids if case_ids is not None else list(cases)
     if not selected or set(selected) - cases.keys():
         raise ValueError(f"Unknown or empty case selection: {sorted(set(selected) - cases.keys())}")
-    if spec.query_ids is not None and set(spec.query_ids) - set(selected):
+    if query_ids is not None and set(query_ids) - set(selected):
         raise ValueError("query_ids contains cases outside case_ids")
     result = []
     for case_id in selected:
         case = cases[case_id]
-        if spec.query_ids is not None and case_id in spec.query_ids:
+        if query_ids is not None and case_id in query_ids:
             queries = {query.query_id: query for query in case.queries}
-            ids = spec.query_ids[case_id]
+            ids = query_ids[case_id]
             if set(ids) - queries.keys():
                 raise ValueError(f"Unknown query selection for {case_id}")
             case = case.model_copy(update={"queries": [queries[key] for key in ids]})
         result.append(case)
-    return record, manifest, result
+    return result
 
 
 def snapshot_code(home: Path, record: dict):
@@ -135,7 +149,8 @@ def snapshot_code(home: Path, record: dict):
     if git(repository, "status", "--porcelain=v2", "--untracked-files=all", "--ignore-submodules=none"):
         raise ValueError("Commit candidate changes before evaluation")
     commit = git(repository, "rev-parse", "--verify", "HEAD^{commit}")
-    branch = "init" if commit == record["code"]["initial_commit"] else git(repository, "branch", "--show-current")
+    checkout_branch = git(repository, "branch", "--show-current")
+    branch = "init" if commit == record["code"]["initial_commit"] else checkout_branch
     entity_id(branch)
     entries = git_tree(repository, commit)
     roots = runtime_roots(record["code"]["plugins"])
@@ -163,10 +178,10 @@ def snapshot_code(home: Path, record: dict):
             if not (combined / project / "pyproject.toml").is_file():
                 raise ValueError(f"Candidate is missing install project {project}")
         snapshot = SourceSnapshot.from_directory(combined)
-    return snapshot, commit, branch
+    return snapshot, commit, branch, checkout_branch
 
 
-def _reuse_source(home: Path, value: str):
+def load_reuse_source(home: Path, value: str, fingerprints: dict, *, sampling: bool = False):
     """Read current source artifacts within the managed evaluation tree."""
     evaluations = contained(home, "evaluations", directory=True)
     source = contained(home, value, directory=True)
@@ -174,31 +189,48 @@ def _reuse_source(home: Path, value: str):
         raise ValueError("reuse_construction_from must be inside home/evaluations")
     manifest = read_json(contained(source, "manifest.json"))
     summary = read_json(contained(source, "summary.json"))
-    return source, manifest, summary
+    if not isinstance(manifest, dict) or not isinstance(summary, dict):
+        raise ValueError("Expected construction source manifest and summary objects")
+    if (
+        manifest.get("dataset_kind") != "training-set"
+        or manifest.get("status") != "completed"
+        or (sampling and manifest.get("mode") == "debug")
+    ):
+        if sampling:
+            raise ValueError("Replay sampling requires a completed scored training-set run")
+        raise ValueError("Reuse requires a completed training-set evaluation")
+    source_fingerprints = manifest.get("fingerprints")
+    for key in ("dataset", "construction_config"):
+        if not isinstance(source_fingerprints, dict) or source_fingerprints.get(key) != fingerprints[key]:
+            raise ValueError(f"Construction source has incompatible {key}")
+    return source, manifest
+
+
+def validate_snapshot(source: Path, case_id: str, max_artifact_bytes: int):
+    """Resolve and check one successful construction archive."""
+    folder = contained(source, f"cases/{case_id}/memory_construction", directory=True)
+    result = read_json(contained(folder, "result.json"))
+    archive = contained(folder, "reme_workspace.tar.gz")
+    if not isinstance(result, dict) or result.get("success") is not True:
+        raise ValueError("construction was not successful")
+    if not result.get("workspace_sha256") or file_sha256(archive) != result["workspace_sha256"]:
+        raise ValueError("construction archive checksum mismatch")
+    try:
+        inspect_archive(archive, max_artifact_bytes)
+    except (EOFError, zlib.error) as error:
+        raise ValueError(f"Unreadable construction archive: {archive}") from error
+    return archive, result["workspace_sha256"]
 
 
 def reuse_inputs(home: Path, spec: EvaluationSpec, cases: list, fingerprints: dict):
     """Preflight the entire requested selection; never silently skip or rebuild cases."""
     if spec.reuse_construction_from is None:
         return None, {}
-    source, manifest, summary = _reuse_source(home, spec.reuse_construction_from)
-    if manifest.get("dataset_kind") != "training-set" or manifest.get("status", summary.get("status")) != "completed":
-        raise ValueError("Reuse requires a completed training-set evaluation")
-    for key in ("dataset", "construction_config"):
-        if manifest.get("fingerprints", {}).get(key) != fingerprints[key]:
-            raise ValueError(f"Construction source has incompatible {key}")
+    source, manifest = load_reuse_source(home, spec.reuse_construction_from, fingerprints)
     archives, errors = {}, []
     for case in cases:
         try:
-            folder = contained(source, f"cases/{case.case_id}/memory_construction", directory=True)
-            result = read_json(folder / "result.json")
-            archive = contained(folder, "reme_workspace.tar.gz")
-            if result.get("success") is not True:
-                raise ValueError("construction was not successful")
-            if not result.get("workspace_sha256") or file_sha256(archive) != result["workspace_sha256"]:
-                raise ValueError("construction archive checksum mismatch")
-            inspect_archive(archive, spec.max_artifact_bytes)
-            archives[case.case_id] = (archive, result["workspace_sha256"])
+            archives[case.case_id] = validate_snapshot(source, case.case_id, spec.max_artifact_bytes)
         except (ValueError, OSError, KeyError, tarfile.TarError) as error:
             errors.append(f"{case.case_id}: {error}")
     if errors:
@@ -206,42 +238,48 @@ def reuse_inputs(home: Path, spec: EvaluationSpec, cases: list, fingerprints: di
     return {"result_dir": str(source), "commit_sha": manifest["commit_sha"]}, archives
 
 
-def replay_sampling_eligibility(home: Path, spec: EvaluationSpec, cases: list[CaseSpec]) -> dict | None:
-    """Port dev_meta's replay eligibility without restricting future full rebuilds."""
-    if spec.reuse_construction_from is None:
-        return None
-    source, manifest, summary = _reuse_source(home, spec.reuse_construction_from)
-    if (
-        manifest.get("dataset_kind") != "training-set"
-        or manifest.get("mode") == "debug"
-        or (manifest.get("status", summary.get("status")) != "completed")
-    ):
-        raise ValueError("Replay sampling requires a completed scored training-set run")
+def replay_sampling_inputs(home: Path, spec: EvaluationSpec, cases: list[CaseSpec], fingerprints: dict):
+    """Limit explicit replay sampling to preflighted snapshots with successful answers."""
+    source, manifest = load_reuse_source(home, spec.reuse_construction_from, fingerprints, sampling=True)
     case_ids = manifest.get("case_ids")
     if not isinstance(case_ids, list) or not case_ids or len(set(case_ids)) != len(case_ids):
         raise ValueError("Replay source must select unique nonempty cases")
-    reusable = set()
+    archives = {}
     for case_id in case_ids:
         entity_id(case_id)
-        folder = contained(source, f"cases/{case_id}", directory=True)
-        result_path = contained(folder, "memory_construction/result.json")
-        archive = contained(folder, "memory_construction/reme_workspace.tar.gz")
-        if not result_path.is_file() or not archive.is_file() or read_json(result_path).get("success") is not True:
+        try:
+            archives[case_id] = validate_snapshot(source, case_id, spec.max_artifact_bytes)
+        except (OSError, ValueError, tarfile.TarError):
             continue
-        reusable.add(case_id)
-    if (len(case_ids) - len(reusable)) / len(case_ids) > 0.05:
+    if (len(case_ids) - len(archives)) / len(case_ids) > 0.05:
         raise ValueError("Replay source construction failure ratio exceeds 5%")
-    for case_id in reusable:
-        payload = read_json(contained(source, f"cases/{case_id}/queries/result.json"))
-        queries = payload.get("queries")
-        if not queries or not all(
+    for case_id in archives:
+        validate_replay_answers(source, case_id)
+    # A construction snapshot can answer new query subsets from the same case;
+    # dev_meta intentionally considers every installed query of a reusable case.
+    eligibility = {
+        case.case_id: [query.query_id for query in case.queries] for case in cases if case.case_id in archives
+    }
+    return {"result_dir": str(source), "commit_sha": manifest["commit_sha"]}, archives, eligibility
+
+
+def validate_replay_answers(source: Path, case_id: str):
+    """Require a nonempty set of successful answers from the source run."""
+    result_path = contained(source, f"cases/{case_id}/queries/result.json")
+    try:
+        payload = read_json(result_path)
+    except (OSError, ValueError) as error:
+        raise ValueError(f"Replay source cannot read answers for case {case_id}: {error}") from error
+    queries = payload.get("queries") if isinstance(payload, dict) else None
+    if (
+        not isinstance(queries, list)
+        or not queries
+        or not all(
             isinstance(query, dict)
             and query.get("error") is None
             and isinstance(query.get("answer"), str)
             and query["answer"].strip()
             for query in queries
-        ):
-            raise ValueError(f"Replay source has no completed successful answers for {case_id}")
-    # A construction snapshot can answer new query subsets from the same case;
-    # dev_meta intentionally considers every installed query of a reusable case.
-    return {case.case_id: [query.query_id for query in case.queries] for case in cases if case.case_id in reusable}
+        )
+    ):
+        raise ValueError(f"Replay source has no completed successful answers for {case_id}")

@@ -1,4 +1,4 @@
-"""Meta-ReMe compression recovery adapted to AgentScope's native context pipeline."""
+"""Context compression recovery for AgentScope agents."""
 
 import logging
 from pathlib import Path

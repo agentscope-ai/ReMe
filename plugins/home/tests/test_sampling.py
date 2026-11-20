@@ -6,14 +6,17 @@ import asyncio
 import copy
 import json
 from pathlib import Path
+from threading import Event
 
 import pytest
 from reme_home import sampling
 from reme_home.evaluation import history as history_module
-from reme_home.preparation.data.models import CaseSpec, QuerySpec
+from reme_home.preparation.data.models import CaseSpec, GroundTruth, QuerySpec
 from reme_home.workspace import _initialization_lock
 from test_evaluation import (  # noqa: F401  # pylint: disable=unused-import
     FakeFactory,
+    archive,
+    command,
     commit_candidate,
     home_application,
     preparation_inputs,
@@ -30,7 +33,8 @@ def cases():
             case_id=key,
             sessions=[],
             queries=[
-                QuerySpec(query_id=f"query-{key}-{index}", question="?", golden_answer="answer") for index in range(4)
+                QuerySpec(query_id=f"query-{key}-{index}", question="?", groundtruth=GroundTruth())
+                for index in range(4)
             ],
         )
         for key in "abc"
@@ -270,13 +274,26 @@ async def test_started_cancellation_retains_round_but_no_partial_quality(app, pr
 
 
 @pytest.mark.asyncio
-async def test_replay_sampling_is_limited_to_donor_cases(app, prepared):
+async def test_replay_sampling_is_limited_to_donor_cases(app, prepared, monkeypatch):
+    from reme_home.evaluation import inputs
+
     baseline = await app.run_job("home_evaluate", case_ids=["1"])
     assert baseline.success, baseline.answer
+    source = Path(baseline.answer["result_dir"])
     commit_candidate(prepared)
+    reads = []
+    read_json = inputs.read_json
+
+    def track_source_metadata(path):
+        if path in {source / "manifest.json", source / "summary.json"}:
+            reads.append(path.name)
+        return read_json(path)
+
+    monkeypatch.setattr(inputs, "read_json", track_source_metadata)
     app.context.components["home.evaluation"]["default"].sampling_policy = sampling.SamplingPolicy(max_cases=1)
-    response = await app.run_job("home_evaluate", sampling=True, reuse_construction_from=baseline.answer["result_dir"])
+    response = await app.run_job("home_evaluate", sampling=True, reuse_construction_from=str(source))
     assert response.success, response.answer
+    assert reads == ["manifest.json", "summary.json"]
     manifest = json.loads((Path(response.answer["result_dir"]) / "manifest.json").read_text())
     assert manifest["case_ids"] == ["1"]
     plan = json.loads((prepared / manifest["sampling"]["plan_path"]).read_text())
@@ -351,19 +368,21 @@ async def test_started_callback_is_idempotent(app, prepared):
     assert state(prepared) == original
 
 
-@pytest.mark.parametrize("missing", [1, 2])
-def test_replay_eligibility_uses_dev_meta_five_percent_threshold(tmp_path, missing):
-    from reme_home.evaluation.inputs import EvaluationSpec, replay_sampling_eligibility
-    from reme_home.evaluation.artifacts import write_json
+@pytest.mark.parametrize("invalid_count", [1, 2])
+@pytest.mark.parametrize("damage", ["missing_result", "invalid_result", "checksum", "unsafe_archive"])
+def test_replay_eligibility_uses_dev_meta_five_percent_threshold(tmp_path, invalid_count, damage):
+    from reme_home.evaluation.inputs import EvaluationSpec, replay_sampling_inputs
+    from reme_home.evaluation.artifacts import file_sha256, write_json
 
     home = tmp_path / "home"
     source = home / "evaluations/init/commit/1"
+    fingerprints = {"dataset": "dataset", "construction_config": "config"}
     selected = [
         CaseSpec(
             case_id=f"case-{index}",
             sessions=[],
             queries=[
-                QuerySpec(query_id="q", question="?", golden_answer="answer"),
+                QuerySpec(query_id="q", question="?", groundtruth=GroundTruth()),
             ],
         )
         for index in range(20)
@@ -374,22 +393,135 @@ def test_replay_eligibility_uses_dev_meta_five_percent_threshold(tmp_path, missi
             "dataset_kind": "training-set",
             "mode": "scored",
             "status": "completed",
+            "commit_sha": "commit",
+            "fingerprints": fingerprints,
             "case_ids": [case.case_id for case in selected],
         },
     )
     write_json(source / "summary.json", {})
-    for case in selected[missing:]:
+    for index, case in enumerate(selected):
         folder = source / "cases" / case.case_id
-        write_json(folder / "memory_construction/result.json", {"success": True})
-        (folder / "memory_construction/reme_workspace.tar.gz").write_bytes(b"fixture")
+        construction = folder / "memory_construction"
+        invalid = index < invalid_count
+        entry = "../unsafe" if invalid and damage == "unsafe_archive" else "daily/note.md"
+        snapshot = archive(construction / "reme_workspace.tar.gz", {entry: "fixture"})
+        result_path = construction / "result.json"
+        if invalid and damage in {"missing_result", "invalid_result"}:
+            if damage == "invalid_result":
+                result_path.write_text("{", encoding="utf-8")
+            continue
+        write_json(result_path, {"success": True, "workspace_sha256": file_sha256(snapshot)})
+        if invalid and damage == "checksum":
+            snapshot.write_bytes(b"corrupt")
         write_json(folder / "queries/result.json", {"queries": [{"answer": "answer", "error": None}]})
     spec = EvaluationSpec(reuse_construction_from=str(source))
-    if missing == 1:
-        eligible = replay_sampling_eligibility(home, spec, selected)
-        assert len(eligible) == 19 and "case-0" not in eligible
+    if invalid_count == 1:
+        _, archives, eligible = replay_sampling_inputs(home, spec, selected, fingerprints)
+        assert archives.keys() == eligible.keys() == {case.case_id for case in selected[1:]}
     else:
         with pytest.raises(ValueError, match="5%"):
-            replay_sampling_eligibility(home, spec, selected)
+            replay_sampling_inputs(home, spec, selected, fingerprints)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("artifact", "bad_result", "error"),
+    [
+        ("memory_construction/result.json", "[]", "Replay source construction failure ratio exceeds 5%"),
+        ("memory_construction/reme_workspace.tar.gz", "corrupt", "Replay source construction failure ratio exceeds 5%"),
+        ("queries/result.json", "[]", "Replay source has no completed successful answers for 2"),
+        ("queries/result.json", "{", "Replay source cannot read answers for case 2"),
+    ],
+)
+async def test_explicit_replay_sampling_reports_invalid_source(app, prepared, artifact, bad_result, error):
+    baseline = await app.run_job("home_evaluate")
+    assert baseline.success, baseline.answer
+    source = Path(baseline.answer["result_dir"])
+    (source / "cases" / "2" / artifact).write_text(bad_result, encoding="utf-8")
+    commit_candidate(prepared)
+    launches = len(FakeFactory.instances)
+
+    response = await app.run_job(
+        "home_evaluate",
+        sampling=True,
+        reuse_construction_from=str(source),
+        target_queries={"1": ["fact:1"]},
+        sampling_policy={"max_cases": 1, "max_queries": 1},
+    )
+
+    assert not response.success and error in str(response.answer)
+    assert len(FakeFactory.instances) == launches
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", [None, "archive", "branch_during_preflight", "branch_during_copy"])
+async def test_explicit_replay_archive_preflight_allows_status_job(app, prepared, monkeypatch, change):
+    from reme_home.evaluation import component, inputs
+
+    baseline = await app.run_job("home_evaluate")
+    assert baseline.success, baseline.answer
+    source = Path(baseline.answer["result_dir"])
+    selected_archive = source / "cases/1/memory_construction/reme_workspace.tar.gz"
+    repo = prepared / "code/repo"
+    commit_candidate(prepared)
+    command(repo, "branch", "different-branch")
+    launches = len(FakeFactory.instances)
+    entered = asyncio.Event()
+    resume = Event()
+    loop = asyncio.get_running_loop()
+    inspect_archive = inputs.inspect_archive
+
+    def inspect(path, max_bytes):
+        if path.is_relative_to(source / "cases/2"):
+            loop.call_soon_threadsafe(entered.set)
+            assert resume.wait(timeout=10)
+        return inspect_archive(path, max_bytes)
+
+    monkeypatch.setattr(inputs, "inspect_archive", inspect)
+    if change in {"archive", "branch_during_copy"}:
+        copyfile = component.shutil.copyfile
+
+        def copy(src, dst, **kwargs):
+            if src == selected_archive and change == "archive":
+                selected_archive.write_bytes(b"changed after preflight")
+            result = copyfile(src, dst, **kwargs)
+            if src == selected_archive and change == "branch_during_copy":
+                command(repo, "switch", "different-branch")
+            return result
+
+        monkeypatch.setattr(component.shutil, "copyfile", copy)
+
+    task = asyncio.create_task(
+        app.run_job(
+            "home_evaluate",
+            sampling=True,
+            reuse_construction_from=str(source),
+            target_queries={"1": ["fact:1"]},
+            sampling_policy={"max_cases": 1, "max_queries": 1},
+        ),
+    )
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=10)
+        status = await app.run_job("home_code_status")
+        if change == "branch_during_preflight":
+            command(repo, "switch", "different-branch")
+    finally:
+        resume.set()
+        response = await task
+    assert status.success, status.answer
+    if change is None:
+        assert response.success, response.answer
+        manifest = json.loads((Path(response.answer["result_dir"]) / "manifest.json").read_text())
+        assert manifest["query_ids"] == {"1": ["fact:1"]}
+        assert len(FakeFactory.instances) == launches + 1
+    else:
+        error = (
+            "Construction source changed after preflight"
+            if change == "archive"
+            else "Candidate changed during equivalence review"
+        )
+        assert not response.success and error in str(response.answer)
+        assert len(FakeFactory.instances) == launches
 
 
 @pytest.mark.asyncio
