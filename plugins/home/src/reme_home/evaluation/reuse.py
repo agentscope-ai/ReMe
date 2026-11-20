@@ -12,8 +12,7 @@ from ..code.snapshot import tree
 from ..preparation.code import git
 from ..preparation.data.models import fingerprint
 from .artifacts import contained, file_sha256, read_json
-from .inputs import load_inputs, reuse_inputs
-from .repetition import previous_candidate_result
+from .inputs import load_inputs, load_reuse_source, reuse_inputs, validate_replay_answers, validate_snapshot
 
 AUTO_MEMORY_FILENAMES = {
     "auto_memory.py",
@@ -43,21 +42,23 @@ def construction_fingerprints(record, dataset, spec, environment):
     }
 
 
-def reuse_context(home, spec, cases, fingerprints, *, replay_selection=False, targeted=False):
+def verify_candidate(home, commit, branch):
+    """Check the prepared checkout while the caller holds the workspace lock."""
+    repo, record, current = validate_candidate(home)
+    actual_branch = "init" if current == record["code"]["initial_commit"] else current_branch(repo)
+    if (current, actual_branch) != (commit, branch):
+        raise ValueError("Candidate changed during equivalence review; retry evaluation on the reviewed commit")
+    return repo, record
+
+
+def reuse_context(home, spec, cases, fingerprints, commit, branch, *, replay_selection=False, targeted=False):
     """Find compatible ancestors from saved metadata without opening any archives."""
-    repo, record, commit = validate_candidate(home)
-    identity = {"candidate_commit": commit, "branch_name": current_branch(repo)}
-    previous = previous_candidate_result(home, commit)
-    if previous is not None:
-        saved = read_json(contained(home, previous / "manifest.json")).get("automatic_construction_reuse")
-        # A managed branch may move to the same failed commit. Retain its
-        # commit-pinned review/draw while preserving the existing retry contract.
-        return {"recovery": {**saved, **identity}} if saved is not None else None
+    repo, record = verify_candidate(home, commit, branch)
     if commit == record["code"]["initial_commit"]:
         return None
     parent = git(repo, "rev-parse", f"{commit}^1")
     paired = replay_selection and parent != record["code"]["initial_commit"]
-    identity["parent_commit"] = parent
+    identity = {"candidate_commit": commit, "branch_name": branch, "parent_commit": parent}
     ancestors = set(git(repo, "rev-list", commit).splitlines()) - {commit}
     candidates = []
     for path in sorted((home / "evaluations").glob("*/*/*/manifest.json")):
@@ -123,63 +124,55 @@ def _reusable_case_hints(rows):
     ]
 
 
-def prepare_replay_source(home, spec, cases, fingerprints, context):
+def _replay_selection(home, spec, cases, manifest):
     """Keep one historical question set intact, within the current sampling limits."""
+    case_ids, query_ids = manifest["case_ids"], manifest["query_ids"]
+    if not case_ids or set(query_ids) != set(case_ids) or set(case_ids) - {case.case_id for case in cases}:
+        return None
+    policy = spec.sampling_policy
+    if len(case_ids) > policy.max_cases or (
+        policy.max_queries is not None and sum(len(ids) for ids in query_ids.values()) > policy.max_queries
+    ):
+        return None
+    selection = {"case_ids": case_ids, "query_ids": query_ids}
+    selection_spec = type(spec).model_validate(
+        {**spec.model_dump(), "sampling": False, "target_queries": None, **selection},
+    )
+    _, _, selected = load_inputs(home, selection_spec)
+    return selected, selection
+
+
+def prepare_source(home, spec, cases, fingerprints, context, *, paired=False):
+    """Validate candidate snapshots, requiring every case for a paired replay."""
+    path = context["source_validation"]
+    source_spec = spec.model_copy(update={"reuse_construction_from": path})
     try:
-        manifest = read_json(contained(home, context["source_validation"] + "/manifest.json"))
-        case_ids, query_ids = manifest["case_ids"], manifest["query_ids"]
-        if not case_ids or set(query_ids) != set(case_ids):
+        source, manifest = load_reuse_source(home, path, fingerprints)
+        if manifest["commit_sha"] != context["base_commit"]:
             return None
-        policy = spec.sampling_policy
-        if len(case_ids) > policy.max_cases or (
-            policy.max_queries is not None and sum(len(ids) for ids in query_ids.values()) > policy.max_queries
-        ):
-            return None
-        selection_spec = spec.model_copy(
-            update={"sampling": False, "target_queries": None, "case_ids": case_ids, "query_ids": query_ids},
-        )
-        # Validate saved IDs, including uniqueness, instead of silently dropping pairs.
-        selection_spec = type(spec).model_validate(selection_spec.model_dump())
-        _, _, selected = load_inputs(home, selection_spec)
-        if set(case_ids) - {case.case_id for case in cases}:
-            return None
-        prepared = prepare_source(home, spec, selected, fingerprints, context)
-        if prepared is None or len(prepared["cases"]) != len(selected):
-            return None
-        prepared["replay_selection"] = {"case_ids": case_ids, "query_ids": query_ids}
-        return prepared
+        if paired:
+            replay = _replay_selection(home, spec, cases, manifest)
+            if replay is None:
+                return None
+            cases, selection = replay
     except (OSError, ValueError, KeyError, TypeError):
         return None
-
-
-def prepare_source(home, spec, cases, fingerprints, context):
-    """An invalid or missing case snapshot does not disqualify the other cases."""
-    source_spec = spec.model_copy(update={"reuse_construction_from": context["source_validation"]})
     reusable = []
     for case in cases:
         try:
-            reuse_inputs(home, source_spec, [case], fingerprints)
-            source = contained(home, context["source_validation"], directory=True)
-            rows = read_json(contained(source, f"cases/{case.case_id}/queries/result.json"))
-            queries = rows.get("queries") if isinstance(rows, dict) else None
-            if (
-                not isinstance(queries, list)
-                or not queries
-                or not all(
-                    isinstance(query, dict)
-                    and query.get("error") is None
-                    and isinstance(query.get("answer"), str)
-                    and query["answer"].strip()
-                    for query in queries
-                )
-            ):
-                continue
-            reusable.append(case)
+            validate_snapshot(source, case.case_id, spec.max_artifact_bytes)
+            validate_replay_answers(source, case.case_id)
         except (OSError, ValueError, KeyError, TypeError, tarfile.TarError):
+            if paired:
+                return None
             continue
+        reusable.append(case)
     if not reusable:
         return None
-    return {"context": context, "spec": source_spec, "cases": reusable, "fingerprints": fingerprints}
+    prepared = {"context": context, "spec": source_spec, "cases": reusable, "fingerprints": fingerprints}
+    if paired:
+        prepared["replay_selection"] = selection
+    return prepared
 
 
 def case_reuse_inputs(home, spec, cases, fingerprints, sources):
@@ -339,8 +332,6 @@ async def automatic_reuse(wrapper, home, prepared, *, memory_limit_mib=None, cas
     """Review the selected snapshots, then draw once for all authorized cases."""
     if prepared is None:
         return None
-    if "recovery" in prepared:
-        return prepared["recovery"]
     context = prepared["context"]
     requested_cases = prepared["cases"] if cases is None else cases
     candidate_sources = prepared["candidate_sources"]
@@ -369,12 +360,13 @@ async def automatic_reuse(wrapper, home, prepared, *, memory_limit_mib=None, cas
         if not selected:
             continue
         group = await blocking(
-            prepare_replay_source if prepared["paired_replay"] else prepare_source,
+            prepare_source,
             home,
             prepared["spec"],
             selected,
             prepared["fingerprints"],
             {**context, "base_commit": base, "source_validation": path},
+            paired=prepared["paired_replay"],
         )
         if group is None:
             continue

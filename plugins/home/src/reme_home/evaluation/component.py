@@ -13,7 +13,7 @@ from reme.utils.async_utils import complete_in_thread as blocking
 from reme.utils.async_utils import finish_cleanup
 
 from ..preparation.data.models import utc_now
-from ..code.repository import current_branch, validate_candidate, preserve_evaluated, validate_repository
+from ..code.repository import preserve_evaluated, validate_repository
 from .adapters import accepts_build, build_jobs, evaluation_query
 from .artifacts import (
     contained,
@@ -26,7 +26,7 @@ from .artifacts import (
     answer_exception,
     failure_kind,
 )
-from .inputs import EvaluationSpec, load_inputs, reuse_inputs, snapshot_code, replay_sampling_eligibility
+from .inputs import EvaluationSpec, load_inputs, replay_sampling_inputs, reuse_inputs, snapshot_code
 from .compaction import compact_construction, compact_query
 from ..judge import HomeJudge
 from ..workspace import HomeWorkspace, _initialization_lock, _validate_directory
@@ -34,7 +34,7 @@ from ..sampling import SamplingPolicy, create_sampling_plan
 from .history import HomeEvaluationHistory
 from .budget import validation_budget_status
 from .repetition import previous_candidate_result
-from .reuse import automatic_reuse, case_reuse_inputs, construction_fingerprints, reuse_context
+from .reuse import automatic_reuse, case_reuse_inputs, construction_fingerprints, reuse_context, verify_candidate
 
 
 def selection_summary(plan):
@@ -243,8 +243,14 @@ class HomeEvaluation(BaseComponent):
         )
         with _initialization_lock(self.workspace.state_path / "workspace.lock"):
             plan = recovery_plan
-            if spec.sampling and not spec.debug and previous is None and not defer_sampling:
-                eligibility = replay_sampling_eligibility(home, spec, cases)
+            fingerprints = construction_fingerprints(record, dataset, spec, environment)
+            if previous_manifest is not None:
+                sources = previous_manifest.get("construction_sources", {})
+                if not sources and previous_manifest.get("construction_source"):
+                    sources = {case.case_id: previous_manifest["construction_source"] for case in cases}
+                sources, archives = case_reuse_inputs(home, spec, cases, fingerprints, sources)
+            elif spec.sampling and not spec.debug and not defer_sampling:
+                source, verified_archives, eligibility = replay_sampling_inputs(home, spec, cases, fingerprints)
                 plan = create_sampling_plan(
                     cases,
                     sampling_state,
@@ -253,12 +259,8 @@ class HomeEvaluation(BaseComponent):
                     target_queries=spec.target_queries,
                 )
                 cases = selected_cases(cases, plan)
-            fingerprints = construction_fingerprints(record, dataset, spec, environment)
-            if previous_manifest is not None:
-                sources = previous_manifest.get("construction_sources", {})
-                if not sources and previous_manifest.get("construction_source"):
-                    sources = {case.case_id: previous_manifest["construction_source"] for case in cases}
-                sources, archives = case_reuse_inputs(home, spec, cases, fingerprints, sources)
+                sources = {case.case_id: source for case in cases}
+                archives = {case.case_id: verified_archives[case.case_id] for case in cases}
             else:
                 source, archives = reuse_inputs(home, spec, cases, fingerprints)
                 sources = {case.case_id: source for case in cases} if source else {}
@@ -279,10 +281,7 @@ class HomeEvaluation(BaseComponent):
     def _verify_candidate(self, commit, branch):
         """Reject checkout changes between selection, review and execution."""
         with _initialization_lock(self.workspace.state_path / "workspace.lock"):
-            repo, record, current = validate_candidate(self.workspace.home_path)
-            actual_branch = "init" if current == record["code"]["initial_commit"] else current_branch(repo)
-            if (current, actual_branch) != (commit, branch):
-                raise ValueError("Candidate changed during equivalence review; retry evaluation on the reviewed commit")
+            verify_candidate(self.workspace.home_path, commit, branch)
 
     def _sampling_started(self, run, manifest, plan, policy=None, *, record_history=True):
         """The factory invokes this only after a real sandbox successfully initializes."""
@@ -337,13 +336,11 @@ class HomeEvaluation(BaseComponent):
                 spec,
                 cases,
                 fingerprints,
+                commit,
+                branch,
                 replay_selection=deferred_sampling and not targeted,
                 targeted=targeted,
             )
-        if context is not None:
-            identity = context.get("context", context)
-            if (identity["candidate_commit"], identity["branch_name"]) != (commit, branch):
-                raise ValueError("Candidate changed during equivalence review; retry evaluation")
         review_cases = None
         if targeted:
             sampling_state = await blocking(self.history.sampling_state)

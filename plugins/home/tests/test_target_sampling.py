@@ -229,6 +229,52 @@ async def test_legacy_single_source_recovery_keeps_authorization(app, prepared, 
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("same_commit", [False, True])
+async def test_checkout_change_after_prepare_is_rejected_before_replay_scan(
+    app,
+    prepared,
+    allow_reuse,
+    monkeypatch,
+    same_commit,
+):
+    component = app.context.components["home.evaluation"]["default"]
+    repo = prepared / "code/repo"
+    assert (await app.run_job("home_evaluate")).success
+    commit_candidate(prepared)
+    monkeypatch.setattr(FakeFactory, "bad_export", True)
+    failed = await app.run_job("home_evaluate", sampling=True)
+    assert not failed.success
+    manifest = read_json(Path(failed.answer["result_dir"]) / "manifest.json")
+    assert manifest["automatic_construction_reuse"]["selected"]
+    if same_commit:
+        commit_candidate(prepared)
+        command(repo, "branch", "other-candidate")
+    else:
+        command(repo, "switch", "-c", "next-candidate", "init")
+        path = repo / "plugins/beam/src/reme_beam/__init__.py"
+        path.write_text(path.read_text() + "\nsibling = True\n")
+        commit_candidate(prepared)
+
+    prepare = component._prepare
+    launches = len(FakeFactory.instances)
+
+    def switch_after_prepare(*args):
+        result = prepare(*args)
+        command(repo, "switch", "other-candidate" if same_commit else "test-candidate")
+        return result
+
+    def unexpected_read(path):
+        pytest.fail(f"Replay read {path} after the checkout changed")
+
+    monkeypatch.setattr(component, "_prepare", switch_after_prepare)
+    monkeypatch.setattr(reuse, "read_json", unexpected_read)
+    result = await app.run_job("home_evaluate", sampling=True)
+    assert not result.success and "Candidate changed during equivalence review" in str(result.answer)
+    assert len(FakeFactory.instances) == launches
+    assert len(allow_reuse[0]) == len(allow_reuse[1]) == 1
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("selected", [True, False])
 async def test_each_init_child_samples_after_review_and_draw(app, prepared, allow_reuse, monkeypatch, selected):
     from reme_home.evaluation import component

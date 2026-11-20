@@ -14,6 +14,7 @@ from reme_home.preparation.data.models import CaseSpec, GroundTruth, QuerySpec
 from reme_home.workspace import _initialization_lock
 from test_evaluation import (  # noqa: F401  # pylint: disable=unused-import
     FakeFactory,
+    archive,
     commit_candidate,
     home_application,
     preparation_inputs,
@@ -271,13 +272,26 @@ async def test_started_cancellation_retains_round_but_no_partial_quality(app, pr
 
 
 @pytest.mark.asyncio
-async def test_replay_sampling_is_limited_to_donor_cases(app, prepared):
+async def test_replay_sampling_is_limited_to_donor_cases(app, prepared, monkeypatch):
+    from reme_home.evaluation import inputs
+
     baseline = await app.run_job("home_evaluate", case_ids=["1"])
     assert baseline.success, baseline.answer
+    source = Path(baseline.answer["result_dir"])
     commit_candidate(prepared)
+    reads = []
+    read_json = inputs.read_json
+
+    def track_source_metadata(path):
+        if path in {source / "manifest.json", source / "summary.json"}:
+            reads.append(path.name)
+        return read_json(path)
+
+    monkeypatch.setattr(inputs, "read_json", track_source_metadata)
     app.context.components["home.evaluation"]["default"].sampling_policy = sampling.SamplingPolicy(max_cases=1)
-    response = await app.run_job("home_evaluate", sampling=True, reuse_construction_from=baseline.answer["result_dir"])
+    response = await app.run_job("home_evaluate", sampling=True, reuse_construction_from=str(source))
     assert response.success, response.answer
+    assert reads == ["manifest.json", "summary.json"]
     manifest = json.loads((Path(response.answer["result_dir"]) / "manifest.json").read_text())
     assert manifest["case_ids"] == ["1"]
     plan = json.loads((prepared / manifest["sampling"]["plan_path"]).read_text())
@@ -353,13 +367,14 @@ async def test_started_callback_is_idempotent(app, prepared):
 
 
 @pytest.mark.parametrize("invalid_count", [1, 2])
-@pytest.mark.parametrize("bad_result", [None, "[]", "{"])
-def test_replay_eligibility_uses_dev_meta_five_percent_threshold(tmp_path, invalid_count, bad_result):
-    from reme_home.evaluation.inputs import EvaluationSpec, replay_sampling_eligibility
-    from reme_home.evaluation.artifacts import write_json
+@pytest.mark.parametrize("damage", ["missing_result", "invalid_result", "checksum", "unsafe_archive"])
+def test_replay_eligibility_uses_dev_meta_five_percent_threshold(tmp_path, invalid_count, damage):
+    from reme_home.evaluation.inputs import EvaluationSpec, replay_sampling_inputs
+    from reme_home.evaluation.artifacts import file_sha256, write_json
 
     home = tmp_path / "home"
     source = home / "evaluations/init/commit/1"
+    fingerprints = {"dataset": "dataset", "construction_config": "config"}
     selected = [
         CaseSpec(
             case_id=f"case-{index}",
@@ -376,6 +391,8 @@ def test_replay_eligibility_uses_dev_meta_five_percent_threshold(tmp_path, inval
             "dataset_kind": "training-set",
             "mode": "scored",
             "status": "completed",
+            "commit_sha": "commit",
+            "fingerprints": fingerprints,
             "case_ids": [case.case_id for case in selected],
         },
     )
@@ -383,38 +400,42 @@ def test_replay_eligibility_uses_dev_meta_five_percent_threshold(tmp_path, inval
     for index, case in enumerate(selected):
         folder = source / "cases" / case.case_id
         construction = folder / "memory_construction"
-        construction.mkdir(parents=True)
-        (construction / "reme_workspace.tar.gz").write_bytes(b"fixture")
+        invalid = index < invalid_count
+        entry = "../unsafe" if invalid and damage == "unsafe_archive" else "daily/note.md"
+        snapshot = archive(construction / "reme_workspace.tar.gz", {entry: "fixture"})
         result_path = construction / "result.json"
-        if index < invalid_count:
-            if bad_result is not None:
-                result_path.write_text(bad_result, encoding="utf-8")
+        if invalid and damage in {"missing_result", "invalid_result"}:
+            if damage == "invalid_result":
+                result_path.write_text("{", encoding="utf-8")
             continue
-        write_json(result_path, {"success": True})
+        write_json(result_path, {"success": True, "workspace_sha256": file_sha256(snapshot)})
+        if invalid and damage == "checksum":
+            snapshot.write_bytes(b"corrupt")
         write_json(folder / "queries/result.json", {"queries": [{"answer": "answer", "error": None}]})
     spec = EvaluationSpec(reuse_construction_from=str(source))
     if invalid_count == 1:
-        eligible = replay_sampling_eligibility(home, spec, selected)
-        assert len(eligible) == 19 and "case-0" not in eligible
+        _, archives, eligible = replay_sampling_inputs(home, spec, selected, fingerprints)
+        assert archives.keys() == eligible.keys() == {case.case_id for case in selected[1:]}
     else:
         with pytest.raises(ValueError, match="5%"):
-            replay_sampling_eligibility(home, spec, selected)
+            replay_sampling_inputs(home, spec, selected, fingerprints)
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("stage", "bad_result", "error"),
+    ("artifact", "bad_result", "error"),
     [
-        ("memory_construction", "[]", "Replay source construction failure ratio exceeds 5%"),
-        ("queries", "[]", "Replay source has no completed successful answers for 2"),
-        ("queries", "{", "Replay source cannot read answers for case 2"),
+        ("memory_construction/result.json", "[]", "Replay source construction failure ratio exceeds 5%"),
+        ("memory_construction/reme_workspace.tar.gz", "corrupt", "Replay source construction failure ratio exceeds 5%"),
+        ("queries/result.json", "[]", "Replay source has no completed successful answers for 2"),
+        ("queries/result.json", "{", "Replay source cannot read answers for case 2"),
     ],
 )
-async def test_explicit_replay_sampling_reports_invalid_source(app, prepared, stage, bad_result, error):
+async def test_explicit_replay_sampling_reports_invalid_source(app, prepared, artifact, bad_result, error):
     baseline = await app.run_job("home_evaluate")
     assert baseline.success, baseline.answer
     source = Path(baseline.answer["result_dir"])
-    (source / "cases" / "2" / stage / "result.json").write_text(bad_result, encoding="utf-8")
+    (source / "cases" / "2" / artifact).write_text(bad_result, encoding="utf-8")
     commit_candidate(prepared)
     launches = len(FakeFactory.instances)
 
