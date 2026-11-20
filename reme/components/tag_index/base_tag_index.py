@@ -3,7 +3,7 @@
 from abc import abstractmethod
 from typing import ClassVar, Literal, TypedDict
 
-from ..base_component import BaseComponent
+from ..base import BaseComponent
 from ...constants import DEFAULT_MAX_MEMORY_TAG_LENGTH, DEFAULT_MAX_MEMORY_TAGS, DEFAULT_MEMORY_TAG_KEY
 from ...enumeration import ComponentEnum
 from ...schema import FileNode

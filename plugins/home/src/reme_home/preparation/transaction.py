@@ -12,6 +12,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from reme.utils.files.file_sync import sync_directory
+
 from ..workspace import _validate_directory
 
 OUTPUTS = ("code/runtime", "code/repo", "datasets/training-set", "datasets/debug-cases", "domain_spec.yaml", "docs")
@@ -24,16 +26,6 @@ class Journal(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     schema_version: Literal[1, 2] = 2
     existed: list[bool]
-
-
-def sync_directory(path: Path) -> None:
-    """Persist directory entries on POSIX."""
-    if os.name != "nt":
-        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-        try:
-            os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
 
 
 def write_json(path: Path, value: dict) -> None:

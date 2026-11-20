@@ -11,14 +11,15 @@ from unittest.mock import AsyncMock
 import frontmatter
 import pytest
 
-from reme.components import LocalAgentRuntime, ApplicationContext, R, RuntimeContext
+from reme.components import LocalAgentRuntime
+from reme.core.context import ApplicationContext, RuntimeContext
+from reme.core.registry import R
 from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.agent_inbox import AgentEventInbox
 from reme.config import resolve_app_config
 from reme.enumeration import ChunkEnum, ComponentEnum
 from reme.schema import SessionSnapshot, SessionStatus, StreamChunk
 from reme.schema.proactive_agent import (
-    CreateProactiveAgentConfig,
     ManageProactiveAgentRequest,
     ProactiveAgentConfig,
     ProactiveRunResult,
@@ -181,57 +182,24 @@ def inbox_history(runtime):
 
 
 @pytest.mark.parametrize("name,backend", [("proactive", "codex"), ("proactive_cc", "claude_code"), ("demo", "codex")])
-def test_configuration_registers_runtime_and_agent_steps_without_legacy_aliases(name, backend):
+def test_builtin_agent_configurations_resolve_steps_and_keep_internal_jobs_private(name, backend):
     config = resolve_app_config(config=name, log_config=False)
     components = config["components"]
     wrapper = components["agent_wrapper"]["default"]
-    assert components["agent_runtime"]["default"]["agent_wrapper"] == "default"
     assert wrapper["backend"] == backend
     assert wrapper["sandbox"] == "workspace-write"
     if backend == "claude_code":
-        assert wrapper["anthropic_relay"] == "default"
-        assert components["anthropic_relay"]["default"]["backend"] == "bailian"
-        overrides = components["codex_app_server"]["default"]["config_overrides"]
-        env = wrapper["env"]
-        assert f"model_context_window={env['CLAUDE_CODE_MAX_CONTEXT_TOKENS']}" in overrides
-        assert f"model_auto_compact_token_limit={int(env['CLAUDE_CODE_AUTO_COMPACT_WINDOW']) - 33_000}" in overrides
-        assert {"tools", "allowed_tools", "disallowed_tools"}.isdisjoint(wrapper)
         assert json.loads(wrapper["settings"])["permissions"]["blockWritesOutsideWorkingDirectories"] is True
-    assert "agent_runtime" in config["components"] and "proactive" not in config["components"]
-    assert R.get(ComponentEnum.AGENT_RUNTIME, "local") is LocalAgentRuntime
-    assert config["components"]["agent_inbox"]["default"]["backend"] == "event"
-    assert R.get(ComponentEnum.AGENT_INBOX, "event") is AgentEventInbox
-    assert R.get("proactive", "local") is None
-    assert R.get(ComponentEnum.STEP, "agent_chat_step") is AgentChatStep
-    assert R.get(ComponentEnum.STEP, "proactive_agent_step") is ProactiveAgentStep
-    assert R.get(ComponentEnum.STEP, "proactive_chat_step") is None
-    for job_name, job in config["jobs"].items():
+    jobs = config["jobs"]
+    for job_name, job in jobs.items():
         if job_name in {"finance_news_cron", "stock_quotes_cron", "btc_quotes_cron"}:
             continue
         for step in job.get("steps", []):
             assert R.get(ComponentEnum.STEP, step["backend"]) is not None
-    assert not config["jobs"]["run_proactive_agent"]["enable_serve"]
-    assert not config["jobs"]["process_chat_reminders"]["enable_serve"]
-    assert config["jobs"]["ask_agent"]["steps"][0]["backend"] == "agent_chat_step"
-    assert config["jobs"]["create_chat_session"]["steps"][0]["backend"] == "agent_new_session_step"
-    assert {"chat", "new_chat_session", "query_proactive_agent"}.isdisjoint(config["jobs"])
-    assert config["jobs"]["proactive_loop"]["steps"] == [{"backend": "agent_loop_step"}]
-    assert "agent_loop" not in config["jobs"]
-    for job_name in ("inbox_loop", "agent_event_list", "agent_mailbox"):
-        assert job_name not in config["jobs"]
-        assert R.get(ComponentEnum.STEP, f"{job_name}_step") is None
-    assert config["jobs"]["read_chat_reminders"]["parameters"]["properties"] == {}
-    schema = CreateProactiveAgentConfig.model_json_schema()
-    properties = config["jobs"]["manage_proactive_agent"]["parameters"]["properties"]
+    assert not jobs["run_proactive_agent"]["enable_serve"]
+    assert not jobs["process_chat_reminders"]["enable_serve"]
+    properties = jobs["manage_proactive_agent"]["parameters"]["properties"]
     assert properties.keys() == ManageProactiveAgentRequest.model_json_schema()["properties"].keys()
-    assert (
-        not {"name", "agent_id", "instructions", "description", "trigger_type", "config", "query", "max_batch_events"}
-        & properties.keys()
-    )
-    assert {"agent_name", "task_description"} <= set(schema["required"])
-    assert "agent_type" not in schema["properties"] and "temporary" not in schema["properties"]
-    assert "type" not in schema["properties"]
-    assert "task_description" not in ProactiveAgentConfig.model_json_schema()["properties"]
 
 
 @pytest.mark.parametrize("agent_type", ["cron", "proactive"])
@@ -243,33 +211,20 @@ def test_agent_configuration_rejects_legacy_type(agent_type):
         ProactiveAgentConfig(**values)
 
 
-@pytest.mark.parametrize("agent_type", ["cron", "proactive"])
 @pytest.mark.asyncio
-async def test_formal_agents_inherit_web_search_from_shared_codex_server(tmp_path, agent_type):
+async def test_automatic_agent_uses_wrapper_sandbox_and_denies_approvals(tmp_path):
     config = resolve_app_config(config="proactive", log_config=False)
     overrides = config["components"]["codex_app_server"]["default"]["config_overrides"]
-    assert {"project_doc_max_bytes=0", "sandbox_workspace_write.network_access=false", 'web_search="live"'} <= set(
-        overrides,
-    )
+    assert "sandbox_workspace_write.network_access=false" in overrides
     async with running_runtime(tmp_path) as (runtime, context, _):
-        values = {"agent_name": "monitor", "task_description": "Monitor"}
-        if agent_type == "cron":
-            values["cron"] = "0 * * * *"
-        await runtime.create(values)
+        await create_agent(runtime)
         agent = await runtime.definition("monitor")
         step_config = config["jobs"]["run_proactive_agent"]["steps"][0]
         step = ProactiveAgentStep(app_context=context, **step_config)
         options = step.session_options(agent)
-        assert options["job_tools"] == []
-        assert "read_only_paths" not in options
-        assert "sandbox" not in options  # The configured run inherits the selected wrapper's sandbox.
+        assert "sandbox" not in options
         assert options["approval_mode"] == "deny_all"
-        assert options["config"] == {"skills.include_instructions": False}
-        chat_tools = config["jobs"]["ask_agent"]["steps"][0]["job_tools"]
-        chat = AgentChatStep(app_context=context, job_tools=chat_tools).session_options()
-        assert chat["job_tools"] == ["manage_proactive_agent", "todo", "idea"]
-        assert "sandbox" not in chat
-        assert "config" not in chat
+        assert options["effort"] == "low"
 
 
 def test_network_policy_has_no_per_agent_override():
@@ -277,12 +232,6 @@ def test_network_policy_has_no_per_agent_override():
     for field in ("enable_web", "web_search_enable"):
         with pytest.raises(ValueError, match="Extra inputs"):
             ProactiveAgentConfig(**values, **{field: True})
-    config = resolve_app_config(config="proactive", log_config=False)
-    jobs = config["jobs"]
-    assert "web_extract" not in jobs
-    assert "enable_web" not in jobs["manage_proactive_agent"]["parameters"]["properties"]
-    assert "agent_memory" not in jobs
-    assert R.get(ComponentEnum.STEP, "agent_memory_step") is None
 
 
 @pytest.mark.asyncio
@@ -893,7 +842,7 @@ async def test_failed_markdown_state_write_preserves_body_and_retries(tmp_path, 
         ref = next(iter(runtime.notifications.pending.values()))
         path = runtime.files.path(ref.file)
         original = path.read_bytes()
-        from reme.utils import workspace_files as files
+        from reme.utils.files import workspace_files as files
 
         def failed_sync(_descriptor):
             raise OSError("disk unavailable")

@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
-from reme.application import Application
+from reme import Application
 from reme.enumeration import ChunkEnum
 from reme.steps.base_step import BaseStep
 

@@ -7,7 +7,6 @@ import threading
 import numpy as np
 import pytest
 
-from reme.utils import common_utils
 from reme.utils.counter import (
     COUNTER_LOCK_KEY,
     COUNTER_TREE_KEY,
@@ -18,6 +17,8 @@ from reme.utils.counter import (
     global_counter_inc,
 )
 from reme.utils.similarity_utils import batch_cosine_similarity, cosine_similarity
+
+from . import service_test_support
 
 
 def test_batch_cosine_similarity_rejects_1d_inputs():
@@ -101,11 +102,11 @@ def test_mock_reme_server_uses_reme_entrypoint(monkeypatch):
     async def fake_wait_ready(_host, _port, _timeout):
         return None
 
-    monkeypatch.setattr(common_utils.subprocess, "Popen", fake_popen)
-    monkeypatch.setattr(common_utils, "_wait_reme_ready", fake_wait_ready)
+    monkeypatch.setattr(service_test_support.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(service_test_support, "_wait_reme_ready", fake_wait_ready)
 
     async def run():
-        async with common_utils.mock_reme_server(port=45678, log_to_file=False, enable_logo=False):
+        async with service_test_support.mock_reme_server(port=45678, log_to_file=False, enable_logo=False):
             pass
 
     asyncio.run(run())

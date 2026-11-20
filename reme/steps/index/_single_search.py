@@ -4,12 +4,12 @@ from abc import abstractmethod
 from typing import Final
 
 from ._dedup import _ToolContextDedupMixin
+from ._ranking import candidate_count
 from ._source_format import ALL_RETURNED_MESSAGE, NO_RESULTS_MESSAGE, join_chunk_entries
 from ._source_format import merge_session_chunk_intervals, render_chunk_entries
 from ..base_step import BaseStep
 from ...schema import FileChunk
 
-_MAX_CANDIDATES: Final = 200
 _CANDIDATE_MULTIPLIER: Final = 10
 
 
@@ -35,7 +35,7 @@ class _SingleSearchStep(_ToolContextDedupMixin, BaseStep):
             return self.context.response
         assert limit > 0, f"limit must be positive, got {limit}"
 
-        candidates = min(_MAX_CANDIDATES, max(1, limit * _CANDIDATE_MULTIPLIER))
+        candidates = candidate_count(limit, _CANDIDATE_MULTIPLIER)
         results = await self._retrieve(query, candidates)
         self.logger.info(f"[{self.name}] query={query!r} candidates={candidates} hits={len(results)}")
 

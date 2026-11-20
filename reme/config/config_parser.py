@@ -4,14 +4,14 @@ import json
 import math
 import os
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from importlib.metadata import EntryPoint
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-from ..entry_point import (
+from ..core.entry_point import (
     CONFIG_ENTRY_POINT_GROUP,
     find_entry_points,
     load_entry_point,
@@ -27,6 +27,10 @@ _ENV_VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?}")
 _LEADING_ZERO_RE = re.compile(r"^-?0\d")
 
 
+class UndefinedEnvironmentVariableError(ValueError):
+    """A configuration placeholder has no environment value or fallback."""
+
+
 def _repl(m: re.Match) -> str:
     name: str = m.group(1)
     # group(2) is None when the placeholder has no `:-default` part
@@ -35,19 +39,24 @@ def _repl(m: re.Match) -> str:
     if v is None:
         if default is not None:
             return default
-        raise ValueError(f"Config references undefined env var: {name}")
+        raise UndefinedEnvironmentVariableError(f"Config references undefined env var: {name}")
     return v
 
 
-def expand_env_vars(value: Any) -> Any:
-    """Recursively expand `${VAR}` / `${VAR:-default}` placeholders in strings."""
+def expand_env_vars(value: Any, *, defer_undefined: bool = False) -> Any:
+    """Expand placeholders, optionally keeping undefined-variable errors as values for merging."""
     if isinstance(value, str):
-        expanded = _ENV_VAR_RE.sub(_repl, value)
+        try:
+            expanded = _ENV_VAR_RE.sub(_repl, value)
+        except UndefinedEnvironmentVariableError as error:
+            if defer_undefined:
+                return error
+            raise
         return _convert_value(expanded) if expanded != value else value
     if isinstance(value, dict):
-        return {k: expand_env_vars(v) for k, v in value.items()}
+        return {k: expand_env_vars(v, defer_undefined=defer_undefined) for k, v in value.items()}
     if isinstance(value, list):
-        return [expand_env_vars(v) for v in value]
+        return [expand_env_vars(v, defer_undefined=defer_undefined) for v in value]
     return value
 
 
@@ -123,7 +132,7 @@ def _convert_value(value_str: str) -> Any:
     # JSON handles lists, dicts, and explicitly-quoted strings
     try:
         return json.loads(s)
-    except (ValueError, json.JSONDecodeError):
+    except ValueError:
         pass
 
     # Fallback to original string
@@ -141,7 +150,13 @@ def _external_config_path(name: str, entry: EntryPoint | None) -> Path | None:
     return path
 
 
-def _load_config(name_or_path: str, encoding: str = "utf-8", _stack: tuple[str, ...] = ()) -> dict:
+def _load_config(
+    name_or_path: str,
+    encoding: str = "utf-8",
+    _stack: tuple[str, ...] = (),
+    *,
+    get_config_dir: Callable[[], str] | None = None,
+) -> dict:
     """Load a built-in, installed-plugin, or direct YAML/JSON config."""
     if name_or_path in _stack:
         chain = " -> ".join((*_stack, name_or_path))
@@ -152,29 +167,36 @@ def _load_config(name_or_path: str, encoding: str = "utf-8", _stack: tuple[str, 
     if built_in is not None and external_entries:
         raise ValueError(f"Config '{name_or_path}' is provided by both ReMe and an installed distribution")
     if built_in is not None:
-        return _load_config_path(built_in, name_or_path, encoding, _stack)
+        return _load_config_path(built_in, name_or_path, encoding, _stack, get_config_dir)
 
     external_entry = unique_entry_point(external_entries, name_or_path, provider="Config")
     external = _external_config_path(name_or_path, external_entry)
     if external is not None:
-        return _load_config_path(external, name_or_path, encoding, _stack)
+        return _load_config_path(external, name_or_path, encoding, _stack, get_config_dir)
 
     p = Path(name_or_path)
     if p.suffix in _SUPPORTED_EXTS:
         candidates = [p]
         if not p.is_absolute():
-            candidates.append(_CONFIG_DIR / p)
+            config_dir = Path(get_config_dir()) if get_config_dir is not None else Path()
+            candidates = [config_dir / p, _CONFIG_DIR / p]
         for candidate in candidates:
             if candidate.exists():
                 identity = str(candidate.resolve())
-                return _load_config_path(candidate, identity, encoding, _stack)
+                return _load_config_path(candidate, identity, encoding, _stack, get_config_dir)
         raise FileNotFoundError(f"Config file not found: {p}")
 
     known = ", ".join(sorted(_CONFIG_REGISTRY)) if _CONFIG_REGISTRY else "none"
     raise FileNotFoundError(f"Config file not found: {name_or_path}. Available: {known}")
 
 
-def _load_config_path(path: Path, identity: str, encoding: str, stack: tuple[str, ...]) -> dict:
+def _load_config_path(
+    path: Path,
+    identity: str,
+    encoding: str,
+    stack: tuple[str, ...],
+    get_config_dir: Callable[[], str] | None,
+) -> dict:
     """Load one config and merge its optional parents before its own values."""
     config = _read_config_file(path, encoding)
     raw_parents = config.pop("extends", ())
@@ -187,7 +209,8 @@ def _load_config_path(path: Path, identity: str, encoding: str, stack: tuple[str
         relative = path.parent / parent
         if Path(parent).suffix in _SUPPORTED_EXTS and relative.is_file():
             parent_name = str(relative.resolve())
-        merged = deep_merge_config(merged, _load_config(parent_name, encoding, (*stack, identity)))
+        parent_config = _load_config(parent_name, encoding, (*stack, identity), get_config_dir=get_config_dir)
+        merged = deep_merge_config(merged, parent_config)
     return deep_merge_config(merged, config)
 
 
@@ -258,9 +281,12 @@ def parse_args(*args: str) -> tuple[str, dict]:
     return parse_action(args[0]), parse_kwargs(*args[1:])
 
 
-def resolve_app_config(*, log_config: bool = True, **kwargs) -> dict:
+def resolve_app_config(*, log_config: bool = True, _get_config_dir: Callable[[], str] | None = None, **kwargs) -> dict:
     """Resolve full app-start config: load `config=path` file, fall back to
     `default`, then deep-merge with the remaining kwargs as overrides.
+
+    Service discovery supplies ``_get_config_dir`` to obtain the running
+    process's working directory only when resolving relative file paths.
 
     Therefore ``reme start plugins=[...]`` layers that plugin selection over
     ``default.yaml`` without requiring an explicit ``config=default``.
@@ -268,7 +294,7 @@ def resolve_app_config(*, log_config: bool = True, **kwargs) -> dict:
     Set ``log_config=False`` for user-facing client calls that should print only
     the requested job's output.
     """
-    from ..utils import get_logger
+    from ..utils.logger_utils import get_logger
 
     logger = get_logger(log_to_file=False)
     configs: list[dict] = []
@@ -280,7 +306,7 @@ def resolve_app_config(*, log_config: bool = True, **kwargs) -> dict:
         kwargs.pop("config")
         if log_config:
             logger.info(f"Loading config: {config_value}")
-        configs.append(_load_config(config_value))
+        configs.append(_load_config(config_value, get_config_dir=_get_config_dir))
     elif "default" in _CONFIG_REGISTRY:
         if log_config:
             logger.info("No config specified, loading 'default'")

@@ -18,7 +18,7 @@ sys.path.insert(0, str(INTEGRATION_DIR))
 from _workspace_fixture import WorkspaceEnv, temp_chdir  # noqa: E402
 import test_reme_e2e as e2e  # noqa: E402
 
-from reme.utils import load_env  # noqa: E402
+from reme.utils.env_utils import load_env  # noqa: E402
 
 
 async def main() -> None:

@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from reme.components.agent_wrapper import BaseAgentWrapper
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.enumeration import ChunkEnum
 from reme.schema import StreamChunk
 from reme.steps.index._dedup import _ToolContextDedupMixin

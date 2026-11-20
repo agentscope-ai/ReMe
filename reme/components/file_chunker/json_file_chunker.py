@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .base_file_chunker import BaseFileChunker
-from ..component_registry import R
+from ...core.registry import R
 from ...schema import FileChunk, FileNode
 
 

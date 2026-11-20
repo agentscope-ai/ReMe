@@ -6,7 +6,7 @@ from pathlib import Path
 from ...base_step import BaseStep
 from ...file_io import refresh_day_index
 from .._evolve import agent_reply_result_text
-from ....components import R
+from ....core.registry import R
 from ....enumeration import DreamBucketEnum
 from ....schema import DreamExtractOutput, DreamState
 from .utils import (

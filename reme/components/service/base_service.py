@@ -6,13 +6,13 @@ from abc import abstractmethod
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
-from ..base_component import BaseComponent
+from ..base import BaseComponent
 from ..job.base_job import BaseJob
 from ...constants import REME_SERVICE_INFO, normalize_connect_host
 from ...enumeration import ComponentEnum
 
 if TYPE_CHECKING:
-    from ...application import Application
+    from ...core.application import Application
 
 
 class BaseService(BaseComponent):

@@ -1,7 +1,7 @@
 """Log changes step: mock dispatch target that logs detected changes."""
 
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 
 
 @R.register("log_changes_step")

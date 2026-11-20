@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from agentscope.tool import ExecResult
 
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.steps.common.python_execute import PythonExecuteStep
 from reme.utils.local_backend import LocalProcessBackend, ProcessTimeout
 from reme.utils.file_sandbox import create_file_sandbox_backend

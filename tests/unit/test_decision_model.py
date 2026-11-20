@@ -491,7 +491,7 @@ def test_adapter_uses_sdk_default_or_explicit_model(monkeypatch, model_name):
 
 def test_injected_model_is_borrowed_and_accepts_json_questions(provider, tmp_path):
     """Application injection shares the host instance without owning its client."""
-    from reme.application import Application
+    from reme import Application
 
     factory, model = provider
 

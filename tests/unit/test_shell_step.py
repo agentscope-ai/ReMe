@@ -10,10 +10,10 @@ from unittest.mock import AsyncMock
 import psutil
 import pytest
 
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.enumeration import ComponentEnum
 from reme.steps.common.shell import DEFAULT_TIMEOUT, ShellStep
-from reme.components import R
+from reme.core.registry import R
 from reme.utils.local_backend import OUTPUT_LIMIT_BYTES
 
 

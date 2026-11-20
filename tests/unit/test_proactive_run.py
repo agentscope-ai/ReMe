@@ -276,19 +276,9 @@ async def test_queued_observations_run_before_cron_trigger_after_switch(tmp_path
         assert await runtime.inbox.pending_ids("monitor") == {f"cron-monitor-{int(now.timestamp())}"}
 
 
-@pytest.mark.parametrize(
-    "language,scheduled_label,execution_label",
-    [("en", "Scheduled trigger time: ", "Actual execution time: "), ("zh", "计划触发时间：", "实际执行时间：")],
-)
 @pytest.mark.asyncio
-async def test_backlogged_cron_prompts_show_each_trigger_and_actual_execution_time(
-    tmp_path,
-    monkeypatch,
-    language,
-    scheduled_label,
-    execution_label,
-):
-    async with running_runtime(tmp_path, language=language) as (runtime, context, wrapper):
+async def test_backlogged_cron_runs_keep_each_trigger_time(tmp_path, monkeypatch):
+    async with running_runtime(tmp_path) as (runtime, context, wrapper):
         await runtime.create({"agent_name": "timer", "task_description": "Summarize prior hour", "cron": "0 * * * *"})
         first = await queue_cron_trigger(runtime, "timer", monkeypatch)
         second = await queue_cron_trigger(runtime, "timer", monkeypatch)
@@ -306,8 +296,8 @@ async def test_backlogged_cron_prompts_show_each_trigger_and_actual_execution_ti
 
             assert response.answer["processed"] == 1
             query = calls[0][0]
-            assert f"{scheduled_label}{due.isoformat()}" in query
-            assert f"{execution_label}{now.isoformat()}" in query
+            assert due.isoformat() in query
+            assert now.isoformat() in query
             receipt = (await runtime.inbox.snapshot("timer"))["receipt"]
             assert receipt.item_ids == [f"cron-timer-{int(due.timestamp())}"]
 

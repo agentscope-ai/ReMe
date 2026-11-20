@@ -1,7 +1,7 @@
 """Explicit scoped rebuild of search indexes from already-ingested chunks."""
 
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 
 
 def _render_reindex(details: dict) -> str:

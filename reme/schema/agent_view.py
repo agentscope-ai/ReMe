@@ -4,6 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 
+from ..constants import CHAT_AGENT_NAME
 from .agent_runtime import AgentName, AgentType
 from .agent_activity import ActivityPhase
 from .agent_message import AgentMessage, ClientModel
@@ -35,7 +36,7 @@ class AgentRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    agent_name: AgentName = "Remy"
+    agent_name: AgentName = CHAT_AGENT_NAME
 
 
 class AgentChatRequest(AgentRequest):

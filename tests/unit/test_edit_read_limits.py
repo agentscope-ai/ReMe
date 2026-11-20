@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from reme.components import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.steps.file_io import _file_io, edit as edit_module
 
 

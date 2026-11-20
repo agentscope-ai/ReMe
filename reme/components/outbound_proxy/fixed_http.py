@@ -3,7 +3,7 @@
 from urllib.parse import urlsplit
 
 from .base import BaseOutboundProxy, OutboundProxyEndpoint
-from ..component_registry import R
+from ...core.registry import R
 
 
 @R.register("fixed_http")

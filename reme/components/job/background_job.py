@@ -9,8 +9,8 @@ import time
 from contextvars import ContextVar
 
 from .base_job import BaseJob
-from ..component_registry import R
-from ..runtime_context import RuntimeContext
+from ...core.registry import R
+from ...core.context import RuntimeContext
 from ...schema import Response
 
 _supervised_job: ContextVar["BackgroundJob | None"] = ContextVar(

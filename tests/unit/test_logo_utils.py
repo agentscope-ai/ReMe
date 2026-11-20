@@ -5,11 +5,11 @@ from types import SimpleNamespace
 
 from rich.console import Console
 
-from reme import application as application_module
-from reme.application import Application
+from reme.core import application as application_module
+from reme import Application
 from reme.constants import REME_DEFAULT_HOST, REME_DEFAULT_PORT
 from reme.schema import ApplicationConfig, ComponentConfig
-from reme.utils import logo_utils
+from reme.core import banner as logo_utils
 
 
 def _render_logo(monkeypatch, config: ApplicationConfig, runtime_service=None) -> str:

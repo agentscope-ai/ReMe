@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 import sys
 
-from reme.application import Application
+from reme import Application
 
 
 async def main(workspace: str):

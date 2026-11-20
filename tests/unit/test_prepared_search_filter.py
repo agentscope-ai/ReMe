@@ -13,7 +13,7 @@ import pytest
 
 from reme.components.file_store import FaissLocalFileStore, LocalFileStore, ZvecLocalFileStore
 from reme.components.keyword_index import BM25Index
-from reme.components.runtime_context import RuntimeContext
+from reme.core.context import RuntimeContext
 from reme.components.tokenizer import RegexTokenizer
 from reme.schema import FileChunk
 from reme.steps.index import SearchStep

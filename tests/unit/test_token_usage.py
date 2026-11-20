@@ -6,9 +6,9 @@ from agentscope.model._model_usage import ChatUsage
 import pytest
 
 from reme.components.agent_wrapper import AsAgentWrapper, BaseAgentWrapper
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.schema import TokenUsage
-from reme.utils import global_counter_get_all
+from reme.utils.counter import global_counter_get_all
 
 
 class _UsageWrapper(BaseAgentWrapper):

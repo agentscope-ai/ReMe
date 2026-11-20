@@ -8,9 +8,16 @@ from pathlib import Path
 from threading import Lock
 from typing import Any
 
-from .token_utils import estimate_token_count
-
 DEFAULT_TOKENIZER = "Qwen/Qwen3.8-27B"
+
+
+def estimate_token_count(
+    text: str,
+    estimate_divisor: float = 4,
+    encoding: str = "utf-8",
+) -> int:
+    """Estimate the number of tokens in *text* by byte length."""
+    return int(len(text.encode(encoding)) / estimate_divisor + 0.5)
 
 
 def _estimated_count(text: str) -> int:

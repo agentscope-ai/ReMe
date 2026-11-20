@@ -5,10 +5,10 @@ from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from ..base_component import BaseComponent
+from ..base import BaseComponent
 from ...enumeration import ComponentEnum
 from ...schema import ApplicationConfig, FileNode
-from ...utils.file_watch import WatchRule, build_watch_rules
+from ...utils.files.file_watch import WatchRule, build_watch_rules
 
 
 class BaseFileCatalog(BaseComponent):

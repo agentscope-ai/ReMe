@@ -22,11 +22,12 @@ from agentscope.message import (
 from agentscope.permission import PermissionContext, PermissionMode
 from agentscope.state import AgentState
 
+from ...constants import PROACTIVE_MESSAGE_ID_PREFIX
 from .session_append import SessionAppends, check_guard, check_identity, validate_append
 
 from ...enumeration import ChunkEnum
 from ...schema import SessionMessage, SessionSnapshot, SessionStatus, StreamChunk
-from ...utils.agent_state_io import AsSessionData, AsStateHandler
+from .as_state_io import AsSessionData, AsStateHandler
 
 _UUID = re.compile(r"[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}", re.IGNORECASE)
 
@@ -450,7 +451,7 @@ class AsSessionStore:
         expected_turn_id,
         expected_revision,
     ):
-        identifier = f"reme-proactive-{message_id}"
+        identifier = f"{PROACTIVE_MESSAGE_ID_PREFIX}{message_id}"
         pending = runtime.appends.get(identifier, content, role)
         if pending is not None:
             return pending, None

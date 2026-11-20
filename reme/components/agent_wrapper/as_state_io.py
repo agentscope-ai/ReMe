@@ -11,9 +11,9 @@ from pathlib import Path
 from agentscope.message import Msg, UserMsg
 from agentscope.state import AgentState
 
-from .async_utils import complete_in_thread
-from .file_sync import sync_directory, sync_file
-from ..schema.agent_session import SessionMessage
+from ...utils.async_utils import complete_in_thread
+from ...utils.files.file_sync import sync_directory, sync_file
+from ...schema.agent_session import SessionMessage
 
 
 @dataclass

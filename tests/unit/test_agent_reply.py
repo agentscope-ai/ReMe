@@ -18,8 +18,8 @@ import pytest
 from openai_codex.generated.v2_all import AgentMessageThreadItem, ItemCompletedNotification
 
 from reme.components.agent_wrapper import AsAgentWrapper, CcAgentWrapper
-from reme.components.application_context import ApplicationContext
-from reme.utils import global_counter_get_all
+from reme.core.context import ApplicationContext
+from reme.utils.counter import global_counter_get_all
 
 from .test_codex_agent_wrapper import _Turn, _usage_event, system as _codex_system
 

@@ -3,6 +3,7 @@
 import asyncio
 from time import monotonic
 
+from ....constants import CHAT_AGENT_NAME
 from ....schema.agent_view import (
     AgentSessionView,
     AgentView,
@@ -24,7 +25,7 @@ class AgentViews:
     async def view(self, agent_name):
         """Read identity, native activity and original file references."""
         runtime = self.runtime
-        if agent_name == "Remy":
+        if agent_name == CHAT_AGENT_NAME:
             inbox = runtime.notifications
             config, facts, agent_type = (
                 {},
@@ -36,7 +37,7 @@ class AgentViews:
                 },
                 "chat",
             )
-            directory = runtime.agents.path("Remy")
+            directory = runtime.agents.path(CHAT_AGENT_NAME)
             document = {"memory_path": runtime.agents.chat_memory_path().relative_to(runtime.workspace_path).as_posix()}
             running = runtime.chat_lock.locked() or inbox.worker is not None
         else:
@@ -53,7 +54,7 @@ class AgentViews:
         problems = [
             f"{path}: {message}"
             for path, message in issues.items()
-            if agent_name == "Remy" or path.startswith(prefix) or path.startswith(str(directory) + "/")
+            if agent_name == CHAT_AGENT_NAME or path.startswith(prefix) or path.startswith(str(directory) + "/")
         ]
         if problems:
             error = "; ".join(filter(None, [error, *problems]))[:2000]
@@ -91,7 +92,7 @@ class AgentViews:
     async def list(self):
         """Include the fixed chat identity before named tasks."""
         agents = await asyncio.to_thread(self.runtime.agents.load)
-        items = [await self.view(agent_name) for agent_name in ["Remy", *agents]]
+        items = [await self.view(agent_name) for agent_name in [CHAT_AGENT_NAME, *agents]]
         return {
             "items": [item.model_dump(mode="json") for item in items],
             "total": len(items),
@@ -132,7 +133,7 @@ class AgentViews:
         current = self.runtime.live_turns.overlay(agent_name, value)
         activities = {}
         for name, activity in self.runtime.activities.items():
-            if name != agent_name and (agent_name != "Remy" or name not in self.runtime.workers):
+            if name != agent_name and (agent_name != CHAT_AGENT_NAME or name not in self.runtime.workers):
                 continue
             if name == agent_name and activity.session_id != current["session_id"]:
                 continue
@@ -148,7 +149,7 @@ class AgentViews:
             messages=project_messages(
                 current["session_id"] or "",
                 (current["snapshot"] or {}).get("messages", []),
-                notifications=agent_name == "Remy",
+                notifications=agent_name == CHAT_AGENT_NAME,
             ),
             activities=activities,
         ).model_dump(mode="json")
@@ -181,7 +182,7 @@ class AgentViews:
                     or (live and live.session_id != value["session_id"])
                 ):
                     value = await self.native(agent_name)
-                    agents = (await self.list())["items"] if agent_name == "Remy" else None
+                    agents = (await self.list())["items"] if agent_name == CHAT_AGENT_NAME else None
                     if epoch != self.runtime.live_turns.epoch:
                         continue
                     polled_epoch, next_poll = epoch, monotonic() + interval

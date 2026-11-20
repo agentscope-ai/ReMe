@@ -12,18 +12,18 @@ from pydantic import (
     field_validator,
 )
 
+from ..constants import WINDOWS_RESERVED_DEVICE_NAMES
 from .event import Event
 
 
 def validate_agent_name(value: str) -> str:
     """Keep application identities portable as workspace directory names."""
-    reserved = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
     valid_length = isinstance(value, str) and 1 <= len(value) <= 80
     if (
         not valid_length
         or len(value.encode("utf-8")) > 192
         or not re.fullmatch(r"[\w-]+", value)
-        or value.upper() in reserved
+        or value.upper() in WINDOWS_RESERVED_DEVICE_NAMES
     ):
         raise ValueError("agent_name must contain only letters, numbers, underscores or hyphens")
     return value

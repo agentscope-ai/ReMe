@@ -8,13 +8,13 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from ..base_component import BaseComponent
+from ..base import BaseComponent
 from ...enumeration import ComponentEnum
 
 if TYPE_CHECKING:
     import asyncio
 
-    from ...utils.workspace_files import WorkspaceFiles
+    from ...utils.files.workspace_files import WorkspaceFiles
     from ._internal.notifications import ChatNotifications
     from ._internal.outbox import AgentOutbox
     from ._internal.registry import AgentRegistry

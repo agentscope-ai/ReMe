@@ -7,7 +7,7 @@ import numpy as np
 
 from ..base_step import BaseStep
 from ... import __version__
-from ...components import R
+from ...core.registry import R
 from ...enumeration import ComponentEnum
 
 # ---------------------------------------------------------------------------

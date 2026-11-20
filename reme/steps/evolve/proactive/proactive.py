@@ -13,7 +13,7 @@ import datetime as dt
 import yaml
 
 from ...base_step import BaseStep
-from ....components import R
+from ....core.registry import R
 from ....schema import ProactiveResult
 from ..dream.utils import today, workspace_dir
 from .utils import (

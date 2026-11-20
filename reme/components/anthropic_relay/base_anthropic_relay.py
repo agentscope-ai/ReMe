@@ -2,7 +2,7 @@
 
 from abc import abstractmethod
 
-from ..base_component import BaseComponent
+from ..base import BaseComponent
 from ...enumeration import ComponentEnum
 
 

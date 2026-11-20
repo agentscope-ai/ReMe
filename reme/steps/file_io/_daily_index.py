@@ -8,7 +8,7 @@ import frontmatter
 import yaml
 
 from ._path import check_path_permission, resolve_path, validate_filename_component
-from ...utils import get_logger
+from ...utils.logger_utils import get_logger
 
 logger = get_logger(log_to_file=False)
 

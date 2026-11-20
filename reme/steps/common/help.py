@@ -1,7 +1,7 @@
 """Return a one-line summary of every registered job for LLM consumption."""
 
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 
 
 def _format_params(parameters: dict) -> str:

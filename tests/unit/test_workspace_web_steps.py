@@ -7,8 +7,7 @@ from datetime import datetime
 import pytest
 
 from reme.components.agent_wrapper import CodexAgentWrapper
-from reme.components.application_context import ApplicationContext
-from reme.components.runtime_context import RuntimeContext
+from reme.core.context import ApplicationContext, RuntimeContext
 from reme.enumeration import ChunkEnum
 from reme.schema import StreamChunk
 from reme.steps.common.chat import ChatStep

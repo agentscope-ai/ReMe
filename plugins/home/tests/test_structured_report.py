@@ -17,7 +17,7 @@ from reme_home.agent.structured_report import StructuredReportAgent, parse_json_
 
 from test_workflows import ScriptedModel
 
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.schema import collect_reply, replay_reply
 from reme.utils import global_counter_get
 

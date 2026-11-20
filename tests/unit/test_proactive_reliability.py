@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, Mock
 import frontmatter
 import pytest
 
-from reme.components import ApplicationContext, RuntimeContext
+from reme.core.context import ApplicationContext, RuntimeContext
 from reme.components.agent_wrapper import CodexAgentWrapper
 from reme.components.job import CronJob
 from reme.enumeration import ChunkEnum

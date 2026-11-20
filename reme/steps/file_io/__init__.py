@@ -1,7 +1,8 @@
 """File I/O step helpers."""
 
 from ._daily_index import extract_daily_date, parse_daily_date, refresh_day_index, validate_session_id
-from ._file_io import get_path_lock, write_file_safe
+from ._file_io import write_file_safe
+from ...utils.files.path_lock import get_path_lock
 from ._path import (
     IMAGE_MIME_BY_EXT,
     IMAGE_SUFFIXES,

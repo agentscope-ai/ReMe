@@ -1,7 +1,6 @@
 """Local embedding store with LRU cache and disk persistence."""
 
 import asyncio
-import hashlib
 from collections import OrderedDict
 from pathlib import Path
 
@@ -9,7 +8,8 @@ import numpy as np
 
 from ._embedding_types import _EmbeddingError, _EmbeddingResult
 from .base_embedding_store import BaseEmbeddingStore
-from ..component_registry import R
+from ...core.registry import R
+from ...utils.hashing import hash_text
 from ..as_embedding import BaseAsEmbedding
 
 Miss = tuple[int, str, str]  # (result_index, text, cache_key)
@@ -156,7 +156,7 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
         results: list[np.ndarray | None] = [None] * len(texts)
         misses: list[Miss] = []
         for idx, text in enumerate(texts):
-            key = self._cache_key(text)
+            key = hash_text(text)
             hit = self._cache_get(key)
             if hit is not None:
                 results[idx] = hit
@@ -395,9 +395,6 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
                 self._cache = cache
                 self._cache_space = space
                 return
-
-    def _cache_key(self, text: str) -> str:
-        return hashlib.sha256(text.encode()).hexdigest()
 
     def _cache_get(self, key: str) -> np.ndarray | None:
         if not self.enable_cache or key not in self._cache:

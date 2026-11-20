@@ -32,7 +32,7 @@ import pytest
 
 import frontmatter
 
-from reme.components import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.components.file_store import LocalFileStore
 from reme.enumeration import ComponentEnum
 from reme.steps.file_io import (

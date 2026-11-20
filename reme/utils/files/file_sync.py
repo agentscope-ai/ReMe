@@ -18,7 +18,7 @@ def sync_file(fd: int) -> None:
 def sync_directory(path: Path) -> None:
     """Persist directory entries after creation, replacement or removal."""
     if os.name != "nt":
-        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
         try:
             os.fsync(fd)
         finally:

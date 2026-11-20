@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from threading import RLock
 from typing import Callable, TypeVar, cast
 
-from .base_component import ComponentMixin
+from ..components.base import ComponentMixin
 from ..enumeration import ComponentEnum, ComponentType, component_type_name
 
 T = TypeVar("T", bound=ComponentMixin)

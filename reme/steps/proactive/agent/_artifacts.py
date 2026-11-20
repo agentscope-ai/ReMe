@@ -4,7 +4,7 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from uuid import uuid4
 
 from ....utils.async_utils import complete_in_thread
-from ....utils.path_lock import get_path_lock
+from ....utils.files.path_lock import get_path_lock
 
 
 class RoundArtifacts:

@@ -3,7 +3,7 @@
 from agentscope.credential import OpenAICredential
 
 from .base_as_embedding import BaseAsEmbedding
-from ..component_registry import R
+from ...core.registry import R
 
 
 @R.register("openai")

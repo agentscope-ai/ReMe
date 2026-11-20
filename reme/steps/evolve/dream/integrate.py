@@ -6,7 +6,7 @@ from pathlib import Path
 
 from ...base_step import BaseStep
 from .._evolve import agent_reply_result_text
-from ....components import R
+from ....core.registry import R
 from ....enumeration import DreamBucketEnum
 from ....schema import IntegrateOutcome
 from .utils import llm_available, pack_paths, parse_structured_reply, state_from_context, store_state, workspace_dir

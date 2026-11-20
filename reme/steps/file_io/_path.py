@@ -3,7 +3,8 @@
 import re
 from pathlib import Path
 
-from ...utils import get_logger
+from ...constants import WINDOWS_RESERVED_DEVICE_NAMES
+from ...utils.logger_utils import get_logger
 
 logger = get_logger(log_to_file=False)
 
@@ -32,14 +33,6 @@ IMAGE_SUFFIXES = frozenset(IMAGE_MIME_BY_EXT)
 
 
 _INVALID_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
-_RESERVED_NAMES = {
-    "CON",
-    "PRN",
-    "AUX",
-    "NUL",
-    *(f"COM{i}" for i in range(1, 10)),
-    *(f"LPT{i}" for i in range(1, 10)),
-}
 
 
 # pylint: disable=too-many-return-statements
@@ -55,7 +48,7 @@ def validate_filename_component(name: str, *, kind: str = "filename") -> str | N
         return f'{kind} contains invalid characters (one of < > : " / \\ | ? * or a control char): {name!r}'
     if name.endswith("."):
         return f"{kind} cannot end with '.': {name!r}"
-    if name.split(".", 1)[0].upper() in _RESERVED_NAMES:
+    if name.split(".", 1)[0].upper() in WINDOWS_RESERVED_DEVICE_NAMES:
         return f"{kind} is a Windows-reserved device name: {name!r}"
     return None
 
