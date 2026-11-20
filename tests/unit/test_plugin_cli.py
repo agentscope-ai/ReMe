@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from reme import plugin_cli as plugin_cli_module
+from reme.plugin import cli as plugin_cli_module
 from reme import reme as reme_module
 from reme.components import R
 from reme.enumeration import ComponentEnum

@@ -5,8 +5,9 @@ import json
 
 from pydantic import BaseModel
 
+from ...constants import CHAT_AGENT_NAME
 from .local_agent_inbox import LocalAgentInbox
-from ..component_registry import R
+from ...core.registry import R
 from ...schema.agent_runtime import validate_agent_name
 from ...schema.application_config import ApplicationConfig
 from ...schema.event import Event
@@ -29,7 +30,7 @@ class AgentEventInbox(LocalAgentInbox):
         return [
             self._normalize_name(path.parent.name)
             for path in sorted(self._root.glob("*/inbox"))
-            if path.parent.name != "Remy"
+            if path.parent.name != CHAT_AGENT_NAME
         ]
 
     def _inbox_path(self, name):

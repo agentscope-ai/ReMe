@@ -7,8 +7,8 @@ import pytest
 from agentscope.message import AssistantMsg, TextBlock, ToolCallBlock, UserMsg
 from agentscope.state import AgentState
 
-from reme.utils import AsStateHandler
-from reme.utils.agent_state_io import AsSessionData
+from reme.components.agent_wrapper.as_state_io import AsStateHandler
+from reme.components.agent_wrapper.as_state_io import AsSessionData
 from reme.schema import SessionMessage
 
 

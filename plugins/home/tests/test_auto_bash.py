@@ -462,7 +462,7 @@ def test_home_manifest_declares_step_and_job():
 def test_home_plugin_registers_job_and_step(monkeypatch):
     """Enabling home adds its job and Step to one application runtime."""
     entry = EntryPoint(name="home", value="reme_home", group="reme.plugins")
-    monkeypatch.setattr("reme.plugin.find_entry_points", lambda group, name: [entry] if name == "home" else [])
+    monkeypatch.setattr("reme.plugin.manager.find_entry_points", lambda group, name: [entry] if name == "home" else [])
     config = _load_config("default")
     assert "auto_bash" not in config["jobs"]
     config["plugins"] = ["home"]

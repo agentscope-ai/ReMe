@@ -9,11 +9,11 @@ from datetime import date
 from pathlib import Path, PureWindowsPath
 
 from .base_file_catalog import BaseFileCatalog
-from ..component_registry import R
+from ...core.registry import R
 from ...schema import FileNode
 from ...utils.async_utils import complete_in_thread
-from ...utils.file_watch import WatchRule, collect_existing, match_file
-from ...utils.jsonl_zst import read_jsonl_zst, write_jsonl_zst
+from ...utils.files.file_watch import WatchRule, collect_existing, match_file
+from ...utils.files.jsonl_zst import read_jsonl_zst, write_jsonl_zst
 
 
 @R.register("local")

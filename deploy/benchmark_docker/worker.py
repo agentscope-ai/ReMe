@@ -194,7 +194,7 @@ def _atomic_write_json(path: Path, value: Any) -> None:
 
 def _start_case_log(path: Path) -> Any:
     """Attach an exact artifact path to ReMe's configured logger backend."""
-    from reme.utils import get_logger
+    from reme.utils.logger_utils import get_logger
 
     path.parent.mkdir(parents=True, exist_ok=True)
     logger = get_logger(log_to_console=False, log_to_file=False, force_init=True)
@@ -287,7 +287,7 @@ async def _run_build(request: dict[str, Any]) -> dict[str, Any]:
     try:
         case_root, app_config = _prepare_runtime(request)
         from reme.reme import ReMe
-        from reme.utils import get_logger
+        from reme.utils.logger_utils import get_logger
 
         jobs = request.get("jobs")
         if not isinstance(jobs, list) or not jobs:
@@ -419,7 +419,7 @@ async def _run_queries(request: dict[str, Any], *, write_summary: bool = True) -
     """
     case_root, app_config = _prepare_runtime(request)
     from reme.reme import ReMe
-    from reme.utils import get_logger
+    from reme.utils.logger_utils import get_logger
 
     queries = request.get("queries")
     if not isinstance(queries, list) or not queries:

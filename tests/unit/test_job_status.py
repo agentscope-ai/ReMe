@@ -12,7 +12,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from reme.application import Application
+from reme import Application
 from reme.components import ApplicationContext
 from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.job import BackgroundJob, BaseJob, CronJob, StreamJob

@@ -9,10 +9,10 @@ work sharing its Application instance.
 
 from typing import TYPE_CHECKING
 
-from .counter import global_counter_get, global_counter_get_all
+from .counter import global_counter_get_all
 
 if TYPE_CHECKING:
-    from ..components.application_context import ApplicationContext
+    from ..core.context import ApplicationContext
 
 
 _TOKEN_METRICS = (
@@ -72,6 +72,20 @@ def track_job_counts(job_names: list[str], app_context: "ApplicationContext") ->
     return JobCountTracker(job_names, app_context)
 
 
+def _token_snapshot(
+    agent_name: str,
+    app_context: "ApplicationContext",
+    metrics: tuple[str, ...],
+) -> dict[str, int | None]:
+    tree = global_counter_get_all(app_context.metadata, ["__token_counter", agent_name])
+    children = tree["children"] if tree is not None else {}
+    return {metric: children[metric]["value"] if metric in children else None for metric in metrics}
+
+
+def _token_delta(start: int | None, end: int | None) -> int | None:
+    return None if end is None else end - (start or 0)
+
+
 def check_agent_token_count(
     agent_name: str,
     app_context: "ApplicationContext",
@@ -83,7 +97,7 @@ def check_agent_token_count(
     example ``"bench"``), and ``metric`` is one leaf in ReMe's token counter
     tree, such as ``input_tokens`` or ``total_tokens``.
     """
-    return global_counter_get(app_context.metadata, ["__token_counter", agent_name, metric])
+    return _token_snapshot(agent_name, app_context, (metric,))[metric] or 0
 
 
 def check_agent_token_usage(agent_name: str, app_context: "ApplicationContext") -> dict[str, int | None]:
@@ -92,13 +106,7 @@ def check_agent_token_usage(agent_name: str, app_context: "ApplicationContext") 
     A metric remains ``None`` until the backend has reported it. This keeps
     unavailable usage distinct from zero.
     """
-    tree = global_counter_get_all(app_context.metadata, ["__token_counter", agent_name])
-    children = tree.get("children", {}) if tree is not None else {}
-    usage: dict[str, int | None] = {}
-    for metric in _TOKEN_METRICS:
-        node = children.get(metric)
-        usage[metric] = node["value"] if node is not None else None
-    return usage
+    return _token_snapshot(agent_name, app_context, _TOKEN_METRICS)
 
 
 class AgentTokenCountTracker:
@@ -128,7 +136,7 @@ class AgentTokenCountTracker:
     def __exit__(self, exc_type, exc_value, traceback) -> bool:
         self.counts.update(
             {
-                name: check_agent_token_count(name, self.app_context, self.metric) - start_count
+                name: _token_delta(start_count, check_agent_token_count(name, self.app_context, self.metric)) or 0
                 for name, start_count in self._start_counts.items()
             },
         )
@@ -172,12 +180,9 @@ class AgentTokenUsageTracker:
     def __exit__(self, exc_type, exc_value, traceback) -> bool:
         for name in self.agent_names:
             end_usage = check_agent_token_usage(name, self.app_context)
-            delta: dict[str, int | None] = {}
-            for metric in _TOKEN_METRICS:
-                current = end_usage[metric]
-                start = self._start_usage[name][metric]
-                delta[metric] = None if current is None else current - (start or 0)
-            self.usages[name] = delta
+            self.usages[name] = {
+                metric: _token_delta(self._start_usage[name][metric], end_usage[metric]) for metric in _TOKEN_METRICS
+            }
         return False
 
 

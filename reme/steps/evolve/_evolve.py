@@ -2,11 +2,27 @@
 
 import datetime
 import zoneinfo
+from collections.abc import Callable
 
 import yaml
 from agentscope.message import Msg
 
 from ...schema import AgentReply, Response
+
+
+def note_modified(
+    before_path: str,
+    before_bytes: bytes | None,
+    after_path: str,
+    read_note: Callable[[str], bytes | None],
+) -> bool:
+    """Compare a note with its snapshot using the caller's path handling."""
+    if not after_path:
+        return False
+    after_bytes = read_note(after_path)
+    if after_bytes is None:
+        return before_bytes is not None
+    return after_path != before_path or before_bytes != after_bytes
 
 
 def now(timezone: str | None = None) -> datetime.datetime:

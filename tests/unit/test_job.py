@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from reme.enumeration import ComponentEnum
-from reme.application import Application
+from reme import Application
 from reme.components import ApplicationContext
 from reme.components.base_component import BaseComponent
 from reme.components.component_registry import ComponentRegistry, R

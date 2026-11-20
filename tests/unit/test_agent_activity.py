@@ -5,7 +5,7 @@ from datetime import datetime
 import pytest
 
 from reme.schema import AgentActivity, StreamChunk
-from reme.utils.agent_activity import ActivityTracker
+from reme.steps.proactive.agent._activity import ActivityTracker
 
 
 def test_task_activity_requires_a_run_identity_and_keeps_it_through_phase_changes():

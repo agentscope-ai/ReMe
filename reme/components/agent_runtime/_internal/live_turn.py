@@ -3,6 +3,7 @@
 import asyncio
 from contextlib import contextmanager
 
+from ....constants import CHAT_AGENT_NAME
 from ....enumeration import ChunkEnum
 from ....schema import StreamChunk
 
@@ -177,7 +178,7 @@ class LiveTurns:
             self.notify()
             return value
         retained = [message for message in messages if message.get("turn_id") != turn.turn_id]
-        if agent_name != "Remy":
+        if agent_name != CHAT_AGENT_NAME:
             retained = []
         return {
             **value,

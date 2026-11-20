@@ -5,7 +5,7 @@ import base64
 import re
 
 from .base_asr import BaseASR
-from ..component_registry import R
+from ...core.registry import R
 from ...schema.speech import ASRResult, AudioFormat
 from ...utils.dashscope_speech import DashScopeSpeechClient
 

@@ -5,7 +5,7 @@ from abc import abstractmethod
 from contextlib import asynccontextmanager
 from functools import wraps
 
-from ..base_component import BaseComponent
+from ..base import BaseComponent
 from ..tag_index import BaseTagIndex
 from ...enumeration import ComponentEnum, LinkScopeEnum
 from ...schema import FileChunk, FileLink, FileNode

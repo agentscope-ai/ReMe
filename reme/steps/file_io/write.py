@@ -3,7 +3,8 @@
 import frontmatter
 
 from ._base import _FileIOStep
-from ._file_io import detect_file_encoding, get_path_lock, write_file_safe
+from ._file_io import detect_file_encoding, write_file_safe
+from ...utils.files.path_lock import get_path_lock
 from ._path import check_path_permission, NON_MD_WARNING, gate_md, resolve_path
 from ...components import R
 

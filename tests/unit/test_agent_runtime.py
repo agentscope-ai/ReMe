@@ -245,7 +245,7 @@ def test_agent_configuration_rejects_legacy_type(agent_type):
 
 @pytest.mark.parametrize("agent_type", ["cron", "proactive"])
 @pytest.mark.asyncio
-async def test_formal_agents_inherit_web_search_from_shared_codex_server(tmp_path, agent_type):
+async def test_formal_agent_options_from_proactive_config(tmp_path, agent_type):
     config = resolve_app_config(config="proactive", log_config=False)
     overrides = config["components"]["codex_app_server"]["default"]["config_overrides"]
     assert {"project_doc_max_bytes=0", "sandbox_workspace_write.network_access=false", 'web_search="live"'} <= set(
@@ -260,6 +260,7 @@ async def test_formal_agents_inherit_web_search_from_shared_codex_server(tmp_pat
         step_config = config["jobs"]["run_proactive_agent"]["steps"][0]
         step = ProactiveAgentStep(app_context=context, **step_config)
         options = step.session_options(agent)
+        assert options["effort"] == "low"
         assert options["job_tools"] == []
         assert "read_only_paths" not in options
         assert "sandbox" not in options  # The configured run inherits the selected wrapper's sandbox.
@@ -267,6 +268,8 @@ async def test_formal_agents_inherit_web_search_from_shared_codex_server(tmp_pat
         assert options["config"] == {"skills.include_instructions": False}
         chat_tools = config["jobs"]["ask_agent"]["steps"][0]["job_tools"]
         chat = AgentChatStep(app_context=context, job_tools=chat_tools).session_options()
+        assert "effort" not in chat
+        assert config["components"]["agent_wrapper"]["default"]["effort"] == "xhigh"
         assert chat["job_tools"] == ["manage_proactive_agent", "todo", "idea"]
         assert "sandbox" not in chat
         assert "config" not in chat
@@ -893,7 +896,7 @@ async def test_failed_markdown_state_write_preserves_body_and_retries(tmp_path, 
         ref = next(iter(runtime.notifications.pending.values()))
         path = runtime.files.path(ref.file)
         original = path.read_bytes()
-        from reme.utils import workspace_files as files
+        from reme.utils.files import workspace_files as files
 
         def failed_sync(_descriptor):
             raise OSError("disk unavailable")

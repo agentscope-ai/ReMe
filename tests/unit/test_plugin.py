@@ -6,13 +6,14 @@ from pathlib import Path
 
 import pytest
 
-from reme.application import Application
+from reme import Application
 from reme.components.base_component import BaseComponent, ComponentMixin
 from reme.components.component_registry import ComponentRegistry, R
 from reme.config.config_parser import _load_config
 from reme.enumeration import ComponentEnum
-from reme.plugin import Backend, Plugin, PluginManager, _load_backend
-from reme.plugin_manifest import parse_plugin_manifest
+from reme.plugin import Backend, Plugin, PluginManager, resolve_plugin_runtime
+from reme.plugin.manager import _load_backend
+from reme.plugin.manifest import parse_plugin_manifest
 from reme.schema import ApplicationConfig
 
 
@@ -41,7 +42,7 @@ class _FakeEntryPoints(list):
 
 
 def _set_entry_points(monkeypatch, *entries):
-    monkeypatch.setattr("reme.entry_point.metadata.entry_points", lambda: _FakeEntryPoints(entries))
+    monkeypatch.setattr("reme.core.entry_point.metadata.entry_points", lambda: _FakeEntryPoints(entries))
 
 
 @pytest.mark.parametrize("name", ["lme", "beam"])
@@ -80,6 +81,33 @@ def test_plugin_application_defaults_expand_environment(monkeypatch):
     manager = PluginManager([Plugin(name="example", config={"limit": "${PLUGIN_LIMIT}"})])
 
     assert manager.merge_config({})["limit"] == 12
+
+
+def test_only_effective_plugin_defaults_require_environment(monkeypatch):
+    monkeypatch.delenv("REME_TEST_PLUGIN_URL", raising=False)
+    monkeypatch.setenv("REME_TEST_PLUGIN_CREDENTIAL", '{"kind": "api"}')
+    manager = PluginManager(
+        [
+            Plugin(name="example", config={"credential": "${REME_TEST_PLUGIN_CREDENTIAL}"}),
+            Plugin(name="default-url", config={"credential": {"base_url": "${REME_TEST_PLUGIN_URL}"}}),
+        ],
+    )
+
+    assert manager.merge_config({"credential": {"base_url": "configured", "label": "${USER_LITERAL}"}}) == {
+        "credential": {"kind": "api", "base_url": "configured", "label": "${USER_LITERAL}"},
+    }
+    with pytest.raises(ValueError, match="undefined env var: REME_TEST_PLUGIN_URL"):
+        manager.merge_config({})
+
+
+@pytest.mark.parametrize("value", ["home", {"home": True}, ["home", 1]])
+def test_invalid_plugin_list_is_rejected_before_discovery(monkeypatch, value):
+    def unexpected_lookup(*_args):
+        pytest.fail("Plugin discovery must follow config validation")
+
+    monkeypatch.setattr("reme.plugin.manager.find_entry_points", unexpected_lookup)
+    with pytest.raises(ValueError, match="'plugins' must be a list of strings"):
+        resolve_plugin_runtime({"plugins": value})
 
 
 def test_plugin_registers_into_only_the_supplied_registry():

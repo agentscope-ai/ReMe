@@ -10,7 +10,7 @@ from starlette.responses import JSONResponse, Response, StreamingResponse
 from starlette.types import Receive, Scope, Send
 
 from .base_anthropic_relay import BaseAnthropicRelay
-from ..component_registry import R
+from ...core.registry import R
 from ..service.loopback_http import LoopbackHTTP
 
 _HOP_HEADERS = {

@@ -58,12 +58,12 @@ from agentscope.tool import (
 from .base_agent_wrapper import BaseAgentWrapper
 from .as_session_store import AsSessionStore, record_chunk, record_end, record_inputs
 from ..as_llm import BaseAsLLM
-from ..component_registry import R
+from ...core.registry import R
 from ...enumeration import ChunkEnum
 from ...schema import AgentReply, SessionMessage, SessionSnapshot, SessionStatus, StreamChunk, TokenUsage
 from ...schema.stream_chunk import stream_status
 from ...utils.async_utils import finish_cleanup
-from ...utils.agent_state_io import AsStateHandler
+from .as_state_io import AsStateHandler
 
 if TYPE_CHECKING:
     from ..job.base_job import BaseJob

@@ -5,6 +5,7 @@ from hashlib import sha256
 import json
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from ...constants import DEFAULT_MEMORY_TAG_KEY
 from ..base_step import BaseStep
 from ...components import R
 from ...schema.agent_view import ClientInfo
@@ -131,7 +132,7 @@ class ClientInfoStep(BaseStep):
             resource_dir=config.resource_dir,
             daily_dir=config.daily_dir,
             digest_dir=config.digest_dir,
-            tag_key=getattr(index, "tag_key", "memory_tags"),
+            tag_key=getattr(index, "tag_key", DEFAULT_MEMORY_TAG_KEY),
             jobs=jobs,
             asr="asr" in jobs,
             tts="tts" in jobs,

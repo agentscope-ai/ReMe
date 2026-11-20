@@ -19,7 +19,7 @@ sys.path.insert(0, str(INTEGRATION_DIR))
 # pylint: disable=wrong-import-position
 from _workspace_fixture import workspace_env  # noqa: E402
 
-from reme.utils import load_env  # noqa: E402
+from reme.utils.env_utils import load_env  # noqa: E402
 
 AUTO_TAG_JOB = {
     "integration_auto_tag": {

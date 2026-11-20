@@ -16,7 +16,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from watchfiles import Change
 
-from reme.application import Application
+from reme import Application
 from reme.components.application_context import ApplicationContext
 from reme.components.file_chunker import DefaultFileChunker, JsonFileChunker, JsonlFileChunker, MarkdownFileChunker
 from reme.components.file_store import LocalFileStore

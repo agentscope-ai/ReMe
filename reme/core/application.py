@@ -8,14 +8,17 @@ from inspect import getattr_static
 from pathlib import Path
 from typing import Any, AsyncGenerator, TypeVar
 
-from . import __version__
-from .components import ApplicationContext, BaseComponent
-from .components.job import BackgroundJob, BaseJob, CronJob, StreamJob
-from .components.service import BaseService
-from .enumeration import ComponentEnum, ComponentType, component_type_name
-from .plugin import resolve_plugin_runtime
-from .schema import ComponentConfig, Response, StreamChunk
-from .utils import execute_stream_task, print_logo, get_logger
+from .context import ApplicationContext
+from .._version import __version__
+from ..components.base import BaseComponent
+from ..components.job import BackgroundJob, BaseJob, CronJob, StreamJob
+from ..components.service import BaseService
+from ..enumeration import ComponentEnum, ComponentType, component_type_name
+from ..plugin import resolve_plugin_runtime
+from ..schema import ComponentConfig, Response, StreamChunk
+from ..utils.streaming import execute_stream_task
+from .banner import print_logo
+from ..utils.logger_utils import get_logger
 
 T = TypeVar("T", bound=BaseComponent)
 _NodeKey = tuple[str, str]
@@ -421,3 +424,7 @@ class Application(BaseComponent):
         """Serve the application through the configured service backend."""
         assert isinstance(self.context.service, BaseService)
         self.context.service.run_app(app=self)
+
+
+class ReMe(Application):
+    """ReMe memory management application."""

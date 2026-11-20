@@ -16,7 +16,7 @@ import pytest
 from reme.components.file_graph import LocalFileGraph
 from reme.components.file_store import FaissLocalFileStore, LocalFileStore, ZvecLocalFileStore
 from reme.schema import FileNode
-from reme.utils.jsonl_zst import write_jsonl_zst
+from reme.utils.files.jsonl_zst import write_jsonl_zst
 
 from .file_store_test_support import FakeEmbeddingStore, _new_faiss_store, _new_zvec_store, chunk, node
 

@@ -26,7 +26,8 @@ from reme.components.runtime_context import RuntimeContext
 from reme.enumeration import ChunkEnum
 from reme.schema import StreamChunk
 from reme.steps.common.chat import ChatStep
-from reme.utils.common_utils import call_action
+
+from .service_test_support import call_action
 
 
 @pytest.mark.parametrize(
@@ -249,7 +250,7 @@ async def test_http_text_consumers_reconcile_snapshots_and_skip_null_or_diagnost
 async def test_agentscope_closing_stream_records_reported_usage_and_closes_sdk(tmp_path, monkeypatch):
     from agentscope.event import ModelCallEndEvent
     from unittest.mock import AsyncMock
-    from reme.utils import global_counter_get_all
+    from reme.utils.counter import global_counter_get_all
 
     closed = []
 

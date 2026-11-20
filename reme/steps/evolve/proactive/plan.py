@@ -24,7 +24,7 @@ from .._evolve import agent_reply_result_text, passthrough_response
 from ....components import R
 from ....schema import ProactiveState
 from ..dream.utils import workspace_dir
-from .utils import load_personal_profile_block, parse_plan_reply, resolve_agent_wrapper
+from .utils import load_personal_profile_block, parse_plan_reply, resolve_agent_wrapper, store_state
 
 SCENARIO_TYPES = ("resume_task", "answer_pending", "explore_interest", "prepare_upcoming")
 DELIVERY_MODES = ("in_conversation", "notification", "agenda_item")
@@ -141,7 +141,7 @@ class ProactivePlanStep(BaseStep):
         candidates = [c for c in state.push_candidates if isinstance(c, dict) and c.get("id")]
         if not candidates:
             state.scenario_cards = []
-            self._store(state)
+            store_state(self.context, state)
             self.context.response.success = True
             self.context.response.answer = "Plan: no push candidates, 0 cards, 0 LLM calls"
             self.logger.info(f"[{self.name}] no push candidates; skipping")
@@ -172,7 +172,7 @@ class ProactivePlanStep(BaseStep):
             cards.append(card)
 
         state.scenario_cards = cards
-        self._store(state)
+        store_state(self.context, state)
         answer = f"Plan: {len(cards)} scenario card(s), fallback={fallbacks}, llm_calls={state.plan_llm_calls}"
         self.context.response.success = True
         self.context.response.answer = answer
@@ -235,9 +235,3 @@ class ProactivePlanStep(BaseStep):
         """Digest-personal profile sketch so openers respect user preferences."""
         digest_dir = str(self.config_value("digest_dir"))
         return load_personal_profile_block(ws, digest_dir, self.profile_max_chars)
-
-    def _store(self, state: ProactiveState) -> None:
-        assert self.context is not None
-        data = state.model_dump()
-        self.context["proactive"] = data
-        self.context.response.metadata["proactive"] = data

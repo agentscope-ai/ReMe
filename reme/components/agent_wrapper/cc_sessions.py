@@ -17,7 +17,7 @@ from .session_append import SessionAppends
 
 from ...schema import SessionMessage, SessionStatus, StreamChunk
 from ...utils.async_utils import complete_in_thread
-from ...utils.file_sync import sync_directory, sync_file
+from ...utils.files.file_sync import sync_directory, sync_file
 
 
 def native_id(session_id: str, name: str) -> str:

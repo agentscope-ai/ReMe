@@ -14,15 +14,16 @@ from fastapi.staticfiles import StaticFiles
 from starlette.routing import Route
 
 from .base_service import BaseService
-from ..component_registry import R
+from ...core.registry import R
 from ..job import BaseJob, StreamJob
-from ...constants import REME_DEFAULT_HOST, REME_DEFAULT_PORT
+from ...constants import DEFAULT_MCP_PATH, OPENAPI_SCHEMA_PATH, REME_DEFAULT_HOST, REME_DEFAULT_PORT, SSE_MEDIA_TYPE
 from ...schema import Request, Response
-from ...utils import execute_stream_task, resolve_web_static_dir
+from ...utils.streaming import execute_stream_task
+from .web_static import resolve_web_static_dir
 from .mcp_tools import add_mcp_job
 
 if TYPE_CHECKING:
-    from ...application import Application
+    from ...core.application import Application
 
 
 # uvicorn 0.41 still imports these deprecated websockets symbols on startup,
@@ -44,7 +45,7 @@ class HttpService(BaseService):
         web_enabled: bool = True,
         web_static_dir: str | None = None,
         mcp_enabled: bool = True,
-        mcp_path: str = "/mcp",
+        mcp_path: str = DEFAULT_MCP_PATH,
         mcp_stateless_http: bool = False,
         injected_job_kwargs: dict[str, Any] | None = None,
         tool_error_on_failure: bool = False,
@@ -88,6 +89,7 @@ class HttpService(BaseService):
         self.service = FastAPI(
             title=app.config.app_name,
             lifespan=lifespan,
+            openapi_url=OPENAPI_SCHEMA_PATH,
         )
         for server in servers.values():
             gateway = server.jobs_mcp
@@ -224,7 +226,7 @@ class HttpService(BaseService):
             char.isspace() or ord(char) < 32 or ord(char) == 127 for char in path
         ):
             raise ValueError("mcp_path must be a literal URL path without route, query, or fragment syntax")
-        if path in {"/assets", "/docs", "/redoc", "/openapi.json"}:
+        if path in {"/assets", "/docs", "/redoc", OPENAPI_SCHEMA_PATH}:
             raise ValueError(f"mcp_path conflicts with reserved HTTP path {path!r}")
         return path
 
@@ -259,6 +261,6 @@ class HttpService(BaseService):
                     assert isinstance(chunk, bytes)
                     yield chunk
 
-            return StreamingResponse(body(), media_type="text/event-stream")
+            return StreamingResponse(body(), media_type=SSE_MEDIA_TYPE)
 
         self.service.post(f"/{job.name}")(endpoint)

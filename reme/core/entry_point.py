@@ -28,7 +28,7 @@ def unique_entry_point(
 def load_entry_point(entry: metadata.EntryPoint, *, invoke: bool = False) -> Any:
     """Load and optionally invoke an entry point without retaining registrations."""
     # Import lazily so config parser imports do not pull in the component graph.
-    from .components.component_registry import R
+    from .registry import R
 
     with R.preserve(allow_mutation=True):
         loaded = entry.load()

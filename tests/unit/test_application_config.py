@@ -8,13 +8,13 @@ import pytest
 from agentscope.message import Msg
 from pydantic import ValidationError
 
-from reme.application import Application
+from reme import Application
 from reme.components import ApplicationContext
 from reme.schema import ApplicationConfig, FileChunk
 from reme.steps.evolve.auto_memory import AutoMemoryStep
 from reme.steps.file_io.daily_write import DailyWriteStep
 from reme.steps.index._source_format import is_session_path, render_chunk_body
-from reme.utils.file_watch import build_watch_rules
+from reme.utils.files.file_watch import build_watch_rules
 
 
 def test_workspace_dir_expands_user_home(monkeypatch, tmp_path):
@@ -73,6 +73,16 @@ def test_application_rejects_absolute_session_dir_before_workspace_setup(tmp_pat
         Application(workspace_dir=str(workspace), session_dir=session_dir)
 
     assert not workspace.exists()
+
+
+@pytest.mark.parametrize(
+    "notebook_dir",
+    ["", ".", "../outside", "notes/../outside", "~/notebook", "/tmp/notes", "C:\\notes"],
+)
+def test_notebook_dir_requires_a_workspace_subdirectory(notebook_dir):
+    """Notebook configuration rejects paths that bypass the workspace subdirectory contract."""
+    with pytest.raises(ValidationError, match="notebook_dir"):
+        ApplicationConfig(notebook_dir=notebook_dir)
 
 
 def test_dialog_watch_rule_follows_custom_session_dir(tmp_path):

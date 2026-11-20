@@ -26,10 +26,10 @@ from reme.steps.notebook import _store
 
 
 @pytest_asyncio.fixture
-async def jobs(tmp_path):
+async def jobs(tmp_path, request):
     """Run real registered steps with no models, network or repository workspace."""
     config = resolve_app_config(config="proactive", log_config=False)
-    context = ApplicationContext(workspace_dir=str(tmp_path))
+    context = ApplicationContext(workspace_dir=str(tmp_path), **getattr(request, "param", {}))
     result = {name: BaseJob(name=name, app_context=context, **config["jobs"][name]) for name in ("todo", "idea")}
     context.jobs = result
     for job in result.values():
@@ -37,6 +37,12 @@ async def jobs(tmp_path):
     yield result
     for job in reversed(list(result.values())):
         await job.close()
+
+
+@pytest.fixture
+def notebook_path(tmp_path):
+    """Expected default location for the notebook files."""
+    return tmp_path / "notebook"
 
 
 async def call(jobs, name, **kwargs):
@@ -52,7 +58,7 @@ def read(path):
 
 
 @pytest.mark.asyncio
-async def test_todo_progress_dates_archive_and_reopen(jobs, tmp_path):
+async def test_todo_progress_dates_archive_and_reopen(jobs, notebook_path):
     """State transitions retain identity, deadlines and the complete progress history."""
     idea = await call(jobs, "idea", action="create", project="ReMe", text="通过对话管理待办")
     task = await call(jobs, "todo", action="create", source_idea=idea["id"], due_date="2026-11-20")
@@ -75,8 +81,8 @@ async def test_todo_progress_dates_archive_and_reopen(jobs, tmp_path):
     assert listing["items"][0]["progress_count"] == 2
     assert len(listing["items"][0]["progress"]) == 1
     closed = await call(jobs, "todo", action="update", id=identifier, status="done")
-    assert closed["closed_at"] and read(tmp_path / "todos.json") == []
-    assert read(tmp_path / "archive/todos.json") == [closed]
+    assert closed["closed_at"] and read(notebook_path / "todos.json") == []
+    assert read(notebook_path / "archive/todos.json") == [closed]
     assert (await call(jobs, "todo", action="list"))["total"] == 0
     assert (await call(jobs, "todo", action="list", scope="archive"))["total"] == 1
     assert await call(jobs, "todo", action="get", id=identifier) == closed
@@ -84,13 +90,13 @@ async def test_todo_progress_dates_archive_and_reopen(jobs, tmp_path):
     reopened = await call(jobs, "todo", action="update", id=identifier, status="open", due_date=None)
     assert "closed_at" not in reopened and "due_date" not in reopened
     assert reopened["progress"] == closed["progress"] and reopened["id"] == identifier
-    assert read(tmp_path / "archive/todos.json") == []
+    assert read(notebook_path / "archive/todos.json") == []
     cancelled = await call(jobs, "todo", action="update", id=identifier, status="cancelled")
     assert cancelled["closed_at"] and cancelled["status"] == "cancelled"
 
 
 @pytest.mark.asyncio
-async def test_existing_links_idea_closure_and_restore(jobs, tmp_path):
+async def test_existing_links_idea_closure_and_restore(jobs, notebook_path):
     """Links survive independent idea closure without changing existing task content."""
     idea = await call(jobs, "idea", action="create", project="ReMe", text="想法")
     task = await call(jobs, "todo", action="create", project="Other", text="已有任务")
@@ -98,8 +104,8 @@ async def test_existing_links_idea_closure_and_restore(jobs, tmp_path):
     assert linked["project"] == "Other" and linked["text"] == "已有任务" and linked["status"] == "open"
     await call(jobs, "idea", action="update", id=idea["id"], text="补充想法")
     closed = await call(jobs, "idea", action="archive", id=idea["id"])
-    assert read(tmp_path / "ideas.json") == []
-    assert read(tmp_path / "archive/ideas.json") == [closed]
+    assert read(notebook_path / "ideas.json") == []
+    assert read(notebook_path / "archive/ideas.json") == [closed]
     inherited = await call(jobs, "todo", action="create", source_idea=idea["id"])
     assert inherited["text"] == "补充想法"
     assert (await call(jobs, "todo", action="list", source_idea=idea["id"]))["total"] == 2
@@ -107,7 +113,7 @@ async def test_existing_links_idea_closure_and_restore(jobs, tmp_path):
     assert unchanged == closed
     restored = await call(jobs, "idea", action="restore", id=idea["id"])
     assert "closed_at" not in restored and restored["id"] == idea["id"]
-    assert read(tmp_path / "archive/ideas.json") == []
+    assert read(notebook_path / "archive/ideas.json") == []
     unlinked = await call(jobs, "todo", action="update", id=task["id"], source_idea=None)
     assert "source_idea" not in unlinked
     response = await jobs["todo"](action="update", id=task["id"], source_idea="missing")
@@ -133,10 +139,10 @@ async def test_filters_pagination_and_optional_fields(jobs):
 
 @pytest.mark.parametrize("name", ["todo", "idea"])
 @pytest.mark.asyncio
-async def test_project_defaults_filtering_and_existing_empty_records(jobs, tmp_path, name):
+async def test_project_defaults_filtering_and_existing_empty_records(jobs, notebook_path, name):
     """Both jobs keep one default project through creation, filtering and partial updates."""
     default = await call(jobs, name, action="create", text="随手记一笔", project=" \t ")
-    path = tmp_path / f"{name}s.json"
+    path = notebook_path / f"{name}s.json"
     assert default["project"] == "随笔" and read(path)[0]["project"] == "随笔"
     custom = await call(jobs, name, action="create", text="项目事项", project=" ReMe ")
     updated = await call(jobs, name, action="update", id=custom["id"], text="更新内容")
@@ -159,10 +165,10 @@ async def test_project_defaults_filtering_and_existing_empty_records(jobs, tmp_p
 
 @pytest.mark.parametrize("kind,model", [("todos", Todo), ("ideas", Idea)])
 @pytest.mark.asyncio
-async def test_archive_rollover_retains_history(jobs, tmp_path, kind, model):
+async def test_archive_rollover_retains_history(jobs, notebook_path, kind, model):
     """Both collections retain and resolve records beyond one full archive shard."""
-    directory = tmp_path / "archive"
-    directory.mkdir()
+    directory = notebook_path / "archive"
+    directory.mkdir(parents=True)
     now = datetime.now(timezone.utc)
     values = []
     for index in range(1000):
@@ -196,13 +202,13 @@ async def test_concurrent_creates_and_progress_preserve_every_record(jobs):
 
 @pytest.mark.parametrize("failed_file", ["todos.json", "archive/todos.json"])
 @pytest.mark.asyncio
-async def test_interrupted_archive_recovers_once(jobs, tmp_path, monkeypatch, failed_file):
+async def test_interrupted_archive_recovers_once(jobs, notebook_path, monkeypatch, failed_file):
     """Recovery completes either interrupted publication without duplicating progress."""
     task = await call(jobs, "todo", action="create", text="中断恢复")
     original = _store.write_file_safe
 
     async def fail(path, *args, **kwargs):
-        if path.relative_to(tmp_path).as_posix() == failed_file:
+        if path.relative_to(notebook_path).as_posix() == failed_file:
             raise OSError("injected interruption")
         await original(path, *args, **kwargs)
 
@@ -210,18 +216,18 @@ async def test_interrupted_archive_recovers_once(jobs, tmp_path, monkeypatch, fa
         patch.setattr(_store, "write_file_safe", fail)
         response = await jobs["todo"](action="update", id=task["id"], status="done", progress_text="已完成")
         assert not response.success
-    assert (tmp_path / ".todos.pending.json").exists()
+    assert (notebook_path / ".todos.pending.json").exists()
     # Fresh Step and Store instances must recover without any in-memory transaction state.
     recovered = (await TodoStep(app_context=jobs["todo"].app_context)(action="get", id=task["id"])).answer
     assert recovered["status"] == "done" and len(recovered["progress"]) == 1
-    assert read(tmp_path / "todos.json") == []
-    assert read(tmp_path / "archive/todos.json") == [recovered]
-    assert not (tmp_path / ".todos.pending.json").exists()
+    assert read(notebook_path / "todos.json") == []
+    assert read(notebook_path / "archive/todos.json") == [recovered]
+    assert not (notebook_path / ".todos.pending.json").exists()
     assert (await call(jobs, "todo", action="list", scope="all"))["total"] == 1
 
 
 @pytest.mark.asyncio
-async def test_pending_recovery_preserves_external_edits(jobs, tmp_path, monkeypatch):
+async def test_pending_recovery_preserves_external_edits(jobs, notebook_path, monkeypatch):
     """Conflicting manual edits block recovery before any target is overwritten."""
     task = await call(jobs, "todo", action="create", text="用户编辑优先")
     original = _store.write_file_safe
@@ -235,30 +241,30 @@ async def test_pending_recovery_preserves_external_edits(jobs, tmp_path, monkeyp
         patch.setattr(_store, "write_file_safe", fail)
         assert not (await jobs["todo"](action="update", id=task["id"], status="done")).success
     task["text"] = "用户在服务恢复前手动修订"
-    active = tmp_path / "todos.json"
+    active = notebook_path / "todos.json"
     active.write_text(_store.encode([task]), encoding="utf-8")
-    before = {path: path.read_bytes() for path in tmp_path.rglob("*.json")}
+    before = {path: path.read_bytes() for path in notebook_path.rglob("*.json")}
     response = await jobs["todo"](action="get", id=task["id"])
     assert not response.success and "changed outside ReMe" in response.answer
     assert all(path.read_bytes() == data for path, data in before.items())
 
 
 @pytest.mark.asyncio
-async def test_external_edits_between_read_and_commit_fail_without_overwrite(jobs, tmp_path, monkeypatch):
+async def test_external_edits_between_read_and_commit_fail_without_overwrite(jobs, notebook_path, monkeypatch):
     """Optimistic checks retain edits made after the job loaded its source files."""
     task = await call(jobs, "todo", action="create", text="原始目标")
     original = _store.RecordStore.put
 
     async def edit_before_put(store, record):
         task["text"] = "用户手动修改"
-        (tmp_path / "todos.json").write_text(_store.encode([task]), encoding="utf-8")
+        (notebook_path / "todos.json").write_text(_store.encode([task]), encoding="utf-8")
         await original(store, record)
 
     monkeypatch.setattr(_store.RecordStore, "put", edit_before_put)
     response = await jobs["todo"](action="update", id=task["id"], text="Agent 修改")
     assert not response.success and "changed outside ReMe" in response.answer
-    assert read(tmp_path / "todos.json")[0]["text"] == "用户手动修改"
-    assert not (tmp_path / ".todos.pending.json").exists()
+    assert read(notebook_path / "todos.json")[0]["text"] == "用户手动修改"
+    assert not (notebook_path / ".todos.pending.json").exists()
 
 
 @pytest.mark.parametrize(
@@ -272,9 +278,10 @@ async def test_external_edits_between_read_and_commit_fail_without_overwrite(job
     ],
 )
 @pytest.mark.asyncio
-async def test_corrupt_source_is_never_repaired_or_overwritten(jobs, tmp_path, payload):
+async def test_corrupt_source_is_never_repaired_or_overwritten(jobs, notebook_path, payload):
     """Malformed source content survives failed create calls byte for byte."""
-    path = tmp_path / "todos.json"
+    path = notebook_path / "todos.json"
+    path.parent.mkdir()
     original = payload if isinstance(payload, bytes) else payload.encode("utf-8")
     path.write_bytes(original)
     assert not (await jobs["todo"](action="create", text="新条目")).success
@@ -282,10 +289,11 @@ async def test_corrupt_source_is_never_repaired_or_overwritten(jobs, tmp_path, p
 
 
 @pytest.mark.asyncio
-async def test_oversized_source_is_not_truncated_or_overwritten(jobs, tmp_path, monkeypatch):
+async def test_oversized_source_is_not_truncated_or_overwritten(jobs, notebook_path, monkeypatch):
     """The bounded JSON reader rejects oversized sources before a write-back."""
     payload = _store.encode([Todo(text="保留完整源记录").model_dump(mode="json", exclude_none=True)])
-    path = tmp_path / "todos.json"
+    path = notebook_path / "todos.json"
+    path.parent.mkdir()
     path.write_text(payload, encoding="utf-8")
     monkeypatch.setattr(_store, "MAX_FILE_READ_BYTES", 32)
     response = await jobs["todo"](action="create", text="不应覆盖")
@@ -302,7 +310,7 @@ async def test_oversized_update_never_creates_an_unreadable_recovery_intent(jobs
     assert not list(tmp_path.rglob("*.json"))
 
 
-@pytest.mark.parametrize("allowed", [[], ["unrelated"], ["../escape"], ["~/.reme"], {"path": "todos.json"}])
+@pytest.mark.parametrize("allowed", [[], ["todos.json"], ["../escape"], ["~/.reme"], {"path": "notebook"}])
 @pytest.mark.asyncio
 async def test_invalid_and_restricted_scopes_fail_closed(jobs, tmp_path, allowed):
     """Invalid authorization cannot create collection or recovery files."""
@@ -310,17 +318,39 @@ async def test_invalid_and_restricted_scopes_fail_closed(jobs, tmp_path, allowed
     assert not response.success and not list(tmp_path.rglob("*.json"))
 
 
-@pytest.mark.parametrize("relative", ["todos.json", "archive", ".todos.pending.json"])
+@pytest.mark.parametrize(
+    "relative",
+    ["notebook", "notebook/todos.json", "notebook/archive", "notebook/.todos.pending.json"],
+)
 @pytest.mark.asyncio
 async def test_symlink_escapes_do_not_touch_external_files(jobs, tmp_path, tmp_path_factory, relative):
     """Active, archive and journal paths all enforce workspace containment."""
     outside = tmp_path_factory.mktemp("notebook-outside")
     external = outside / "source.json"
     external.write_text("[]", encoding="utf-8")
-    (tmp_path / relative).symlink_to(outside if relative == "archive" else external)
+    path = tmp_path / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.symlink_to(outside if path.name in {"notebook", "archive"} else external)
     response = await jobs["todo"](action="create", text="不应写入")
     assert not response.success and external.read_text(encoding="utf-8") == "[]"
     assert list(outside.iterdir()) == [external]
+
+
+@pytest.mark.parametrize("jobs", [{"notebook_dir": "planning/capture"}], indirect=True)
+@pytest.mark.asyncio
+async def test_custom_notebook_directory_contains_linked_records_and_archives(jobs, tmp_path):
+    """A custom directory covers both jobs, their archives and workspace-relative scopes."""
+    allowed = {"_allowed_paths": ["planning/capture"]}
+    idea = await call(jobs, "idea", action="create", text="想法", **allowed)
+    await call(jobs, "idea", action="archive", id=idea["id"], **allowed)
+    task = await call(jobs, "todo", action="create", source_idea=idea["id"], **allowed)
+    await call(jobs, "todo", action="update", id=task["id"], status="done", **allowed)
+
+    directory = tmp_path / "planning/capture"
+    assert read(directory / "todos.json") == read(directory / "ideas.json") == []
+    assert read(directory / "archive/todos.json")[0]["source_idea"] == idea["id"]
+    assert read(directory / "archive/ideas.json")[0]["id"] == idea["id"]
+    assert set(tmp_path.iterdir()) == {tmp_path / "planning"}
 
 
 @pytest.mark.parametrize(

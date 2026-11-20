@@ -13,7 +13,7 @@ import httpx
 import pytest
 
 from reme.components import ApplicationContext, LocalAgentRuntime, R, RuntimeContext
-from reme.utils.workspace_files import WorkspaceFiles
+from reme.utils.files.workspace_files import WorkspaceFiles
 from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.agent_inbox import AgentEventInbox
 from reme.components.job import BaseJob

@@ -5,6 +5,7 @@ from .._evolve import passthrough_response
 from ....components import R
 from ....schema import FileNode, ProactiveState
 from ..dream.utils import workspace_dir
+from .utils import store_state
 
 
 @R.register("proactive_finish_step")
@@ -67,9 +68,7 @@ class ProactiveFinishStep(BaseStep):
             await self.file_catalog.dump()
 
         state.checkpoint_paths = [n.path for n in nodes]
-        data = state.model_dump()
-        self.context["proactive"] = data
-        self.context.response.metadata["proactive"] = data
+        store_state(self.context, state)
         self.context.response.success = True
         answer = f"Proactive finished: checkpointed {len(nodes)} path(s)"
         if deferred:

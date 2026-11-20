@@ -11,7 +11,7 @@ import pytest
 import yaml
 
 from reme.components.runtime_context import RuntimeContext
-from reme.plugin_manifest import parse_plugin_manifest
+from reme.plugin.manifest import parse_plugin_manifest
 
 
 @pytest.fixture(name="judge")

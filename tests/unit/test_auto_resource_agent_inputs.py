@@ -12,7 +12,7 @@ import pytest
 import yaml
 from agentscope.message import DataBlock, Msg, TextBlock
 
-from reme.application import Application
+from reme import Application
 from reme.components import ApplicationContext, R
 from reme.components.agent_wrapper import AsAgentWrapper
 from reme.components.runtime_context import RuntimeContext

@@ -5,7 +5,7 @@ import unicodedata
 
 import numpy as np
 
-from ..base_component import BaseComponent
+from ..base import BaseComponent
 from ...enumeration import ComponentEnum
 from ...schema import EmbNode
 

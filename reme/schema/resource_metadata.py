@@ -5,6 +5,8 @@ from typing import Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
+RESOURCE_METADATA_FILENAME = "metadata.json"
+
 
 class ResourceFile(BaseModel):
     """A package-relative payload path, with optional connector-specific fields."""
@@ -29,10 +31,10 @@ class ResourceFile(BaseModel):
                 ".." in path.parts,
                 path.as_posix() != value,
                 value == ".",
-                path.name.casefold() == "metadata.json",
+                path.name.casefold() == RESOURCE_METADATA_FILENAME,
             ),
         ):
-            raise ValueError("path must be a package-relative file path other than metadata.json")
+            raise ValueError(f"path must be a package-relative file path other than {RESOURCE_METADATA_FILENAME}")
         return value
 
 

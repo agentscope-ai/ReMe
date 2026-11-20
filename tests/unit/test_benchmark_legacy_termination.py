@@ -121,7 +121,7 @@ def test_only_benchmark_config_selects_local_wrappers(benchmark, monkeypatch):
     name, wrapper_type, _ = benchmark
     entry = EntryPoint(name=name, value=f"reme_{name}", group="reme.plugins")
     monkeypatch.setattr(
-        "reme.plugin.find_entry_points",
+        "reme.plugin.manager.find_entry_points",
         lambda group, plugin: [entry] if (group, plugin) == (entry.group, entry.name) else [],
     )
     preset = Path(__file__).resolve().parents[2] / f"plugins/{name}/src/reme_{name}/benchmark.yaml"

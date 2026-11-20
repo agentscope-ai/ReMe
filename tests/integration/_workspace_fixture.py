@@ -615,7 +615,7 @@ def workspace_env(
     any apps it started.
     """
     if load_env_file:
-        from reme.utils import load_env
+        from reme.utils.env_utils import load_env
 
         load_env()
 

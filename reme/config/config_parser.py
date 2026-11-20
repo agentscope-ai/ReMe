@@ -11,7 +11,7 @@ from typing import Any
 
 import yaml
 
-from ..entry_point import (
+from ..core.entry_point import (
     CONFIG_ENTRY_POINT_GROUP,
     find_entry_points,
     load_entry_point,
@@ -27,6 +27,10 @@ _ENV_VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?}")
 _LEADING_ZERO_RE = re.compile(r"^-?0\d")
 
 
+class UndefinedEnvironmentVariableError(ValueError):
+    """A configuration placeholder has no environment value or fallback."""
+
+
 def _repl(m: re.Match) -> str:
     name: str = m.group(1)
     # group(2) is None when the placeholder has no `:-default` part
@@ -35,19 +39,24 @@ def _repl(m: re.Match) -> str:
     if v is None:
         if default is not None:
             return default
-        raise ValueError(f"Config references undefined env var: {name}")
+        raise UndefinedEnvironmentVariableError(f"Config references undefined env var: {name}")
     return v
 
 
-def expand_env_vars(value: Any) -> Any:
-    """Recursively expand `${VAR}` / `${VAR:-default}` placeholders in strings."""
+def expand_env_vars(value: Any, *, defer_undefined: bool = False) -> Any:
+    """Expand placeholders, optionally keeping undefined-variable errors as values for merging."""
     if isinstance(value, str):
-        expanded = _ENV_VAR_RE.sub(_repl, value)
+        try:
+            expanded = _ENV_VAR_RE.sub(_repl, value)
+        except UndefinedEnvironmentVariableError as error:
+            if defer_undefined:
+                return error
+            raise
         return _convert_value(expanded) if expanded != value else value
     if isinstance(value, dict):
-        return {k: expand_env_vars(v) for k, v in value.items()}
+        return {k: expand_env_vars(v, defer_undefined=defer_undefined) for k, v in value.items()}
     if isinstance(value, list):
-        return [expand_env_vars(v) for v in value]
+        return [expand_env_vars(v, defer_undefined=defer_undefined) for v in value]
     return value
 
 
@@ -123,7 +132,7 @@ def _convert_value(value_str: str) -> Any:
     # JSON handles lists, dicts, and explicitly-quoted strings
     try:
         return json.loads(s)
-    except (ValueError, json.JSONDecodeError):
+    except ValueError:
         pass
 
     # Fallback to original string
@@ -268,7 +277,7 @@ def resolve_app_config(*, log_config: bool = True, **kwargs) -> dict:
     Set ``log_config=False`` for user-facing client calls that should print only
     the requested job's output.
     """
-    from ..utils import get_logger
+    from ..utils.logger_utils import get_logger
 
     logger = get_logger(log_to_file=False)
     configs: list[dict] = []

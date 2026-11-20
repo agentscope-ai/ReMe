@@ -1,4 +1,4 @@
-"""Tests for the psutil-based service discovery helpers in ``service_utils``.
+"""Tests for the psutil-based service discovery helpers in ``reme.reme``.
 
 Covers the cross-platform replacements for the old ``lsof`` / ``pgrep``
 shell-outs:
@@ -21,7 +21,7 @@ import psutil
 import pytest
 
 from reme.constants import normalize_connect_host
-from reme.utils import service_utils as su
+from reme import reme as su
 
 # ----------------------------------------------------------------------
 # Fakes for mocking psutil.process_iter
@@ -268,10 +268,11 @@ async def test_find_reme_detects_wildcard_conflict_on_another_local_address(monk
 
 def test_running_app_config_preserves_plugins(monkeypatch):
     """Process replay exposes the full config while the compatibility helper returns service only."""
-    monkeypatch.setattr(su, "_reme_start_argv", lambda: [["config=example"]])
-    monkeypatch.setattr("reme.config.parse_args", lambda *_args: ("start", {"config": "example"}))
+    monkeypatch.setattr(su, "_iter_reme_starts", lambda: iter([(1, ["config=example"])]))
+    monkeypatch.setattr(su, "parse_args", lambda *_args: ("start", {"config": "example"}))
     monkeypatch.setattr(
-        "reme.config.resolve_app_config",
+        su,
+        "resolve_app_config",
         lambda **_kwargs: {
             "plugins": ["example"],
             "service": {"backend": "plugin-client", "port": 9911},
@@ -292,7 +293,7 @@ def test_discovery_ignores_container_init_and_replays_real_cli(monkeypatch):
         _FakeProc(2, cmdline=["/opt/venv/bin/python", "/opt/venv/bin/reme", "start", 'service={"port":8124}']),
     ]
     _patch_iter(monkeypatch, procs)
-    assert su._reme_start_argv() == [['service={"port":8124}']]
+    assert list(su._iter_reme_starts()) == [(2, ['service={"port":8124}'])]
     assert su.running_service_config()["port"] == 8124
     assert su._scan_reme_procs() == [(2, su.REME_DEFAULT_HOST, 8124)]
 
@@ -316,7 +317,7 @@ def test_discovery_resolves_mounted_config_port(tmp_path, monkeypatch):
 )
 def test_discovery_accepts_cli_launchers_and_action_prefixes(command, monkeypatch):
     _patch_iter(monkeypatch, [_FakeProc(7, cmdline=command)])
-    assert su._reme_start_argv() == [[]]
+    assert list(su._iter_reme_starts()) == [(7, [])]
     assert su._scan_reme_procs() == [(7, su.REME_DEFAULT_HOST, su.REME_DEFAULT_PORT)]
 
 
@@ -332,5 +333,5 @@ def test_discovery_accepts_cli_launchers_and_action_prefixes(command, monkeypatc
 )
 def test_discovery_filters_supervisors_and_unrelated_commands(command, monkeypatch):
     _patch_iter(monkeypatch, [_FakeProc(7, cmdline=command)])
-    assert not su._reme_start_argv()
+    assert not list(su._iter_reme_starts())
     assert not su._scan_reme_procs()

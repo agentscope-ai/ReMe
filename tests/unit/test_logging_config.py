@@ -10,7 +10,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from reme.application import Application
+from reme import Application
 from reme.config.config_parser import resolve_app_config
 from reme.utils import logger_utils
 
@@ -171,7 +171,7 @@ def test_resolve_app_config_does_not_create_file_logger(monkeypatch):
         calls.append(kwargs)
         return DummyLogger()
 
-    monkeypatch.setattr("reme.utils.get_logger", fake_get_logger)
+    monkeypatch.setattr("reme.utils.logger_utils.get_logger", fake_get_logger)
 
     resolve_app_config(config="demo")
 
@@ -186,8 +186,8 @@ def test_application_reinitializes_logger_from_final_config(monkeypatch, tmp_pat
         calls.append(kwargs)
         return DummyLogger()
 
-    monkeypatch.setattr("reme.application.get_logger", fake_get_logger)
-    monkeypatch.setattr("reme.components.base_component.get_logger", lambda **_kwargs: DummyLogger())
+    monkeypatch.setattr("reme.core.application.get_logger", fake_get_logger)
+    monkeypatch.setattr("reme.components.base.get_logger", lambda **_kwargs: DummyLogger())
     monkeypatch.setattr(Application, "_init_service", lambda self: setattr(self.context, "service", None))
     monkeypatch.setattr(Application, "_init_components", lambda self: None)
     monkeypatch.setattr(Application, "_init_jobs", lambda self: None)

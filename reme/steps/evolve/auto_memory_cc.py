@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from .auto_memory import AutoMemoryStep
-from ..index import normalize_posix_path
+from ...utils.files.paths import normalize_posix_path
 from ...components import R
 from ...components.agent_wrapper import CcFileSessionStore
 

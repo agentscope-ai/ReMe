@@ -17,7 +17,7 @@ from reme.config import resolve_app_config
 from reme.enumeration import ComponentEnum, LinkScopeEnum
 from reme.schema import FileChunk, FileFrontMatter, FileLink, FileNode
 from reme.steps.index.list_tags import ListTagsStep
-from reme.utils.jsonl_zst import read_jsonl_zst, write_jsonl_zst
+from reme.utils.files.jsonl_zst import read_jsonl_zst, write_jsonl_zst
 
 
 def _node(path: str, tags: object = None, *, key: str = "memory_tags") -> FileNode:

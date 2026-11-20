@@ -19,7 +19,7 @@ from reme.components.application_context import ApplicationContext
 from reme.components.codex_app_server import SdkCodexAppServer
 from reme.enumeration import ComponentEnum
 from reme.schema import SessionMessage, SessionSnapshot, SessionStatus
-from reme.utils import AsStateHandler
+from reme.components.agent_wrapper.as_state_io import AsStateHandler
 
 
 @pytest.mark.asyncio

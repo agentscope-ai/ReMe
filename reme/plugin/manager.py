@@ -12,11 +12,36 @@ from importlib import import_module
 from importlib.metadata import EntryPoint
 from typing import Any
 
-from .components.base_component import ComponentMixin
-from .components.component_registry import ComponentRegistry, create_application_registry
-from .config import deep_merge_config, expand_env_vars
-from .entry_point import PLUGIN_ENTRY_POINT_GROUP, find_entry_points, unique_entry_point
-from .plugin_manifest import PluginManifest, load_package_manifest
+from pydantic import StrictStr, TypeAdapter, ValidationError
+
+from .manifest import PluginManifest, load_package_manifest
+from ..components.base import ComponentMixin
+from ..core.registry import ComponentRegistry, R, create_application_registry
+from ..config import deep_merge_config, expand_env_vars
+from ..config.config_parser import UndefinedEnvironmentVariableError
+from ..core.entry_point import PLUGIN_ENTRY_POINT_GROUP, find_entry_points, unique_entry_point
+
+_PLUGIN_NAMES = TypeAdapter(list[StrictStr])
+
+
+def configured_plugin_names(config: Mapping[str, Any]) -> list[str]:
+    """Validate the plugin list before inspecting or importing any provider."""
+    try:
+        return _PLUGIN_NAMES.validate_python(config.get("plugins", []))
+    except ValidationError as error:
+        raise ValueError("Application config 'plugins' must be a list of strings") from error
+
+
+def _check_plugin_defaults(value: Any) -> None:
+    """Report missing environment variables still present after applying overrides."""
+    if isinstance(value, UndefinedEnvironmentVariableError):
+        raise value
+    if isinstance(value, Mapping):
+        for item in value.values():
+            _check_plugin_defaults(item)
+    elif isinstance(value, list):
+        for item in value:
+            _check_plugin_defaults(item)
 
 
 @dataclass(frozen=True)
@@ -71,8 +96,6 @@ def _plugin_from_manifest(name: str, manifest: PluginManifest) -> Plugin:
 
 def _load_plugin(name: str, entry: EntryPoint) -> Plugin:
     """Load declared contributions without retaining import-time registrations."""
-    from .components.component_registry import R
-
     if ":" in entry.value:
         raise ValueError(f"Plugin '{name}' requires a package-only entry point and plugin.yaml")
     with R.preserve(allow_mutation=True):
@@ -89,6 +112,8 @@ class PluginManager:
     @classmethod
     def discover(cls, specs: Iterable[str]) -> "PluginManager":
         """Load explicitly enabled plugins by entry-point name."""
+        if isinstance(specs, (str, bytes, Mapping)):
+            raise TypeError("Plugin names must be an iterable of strings")
         plugins: list[Plugin] = []
         seen: set[str] = set()
         for name in specs:
@@ -110,9 +135,14 @@ class PluginManager:
     def merge_config(self, application_config: Mapping[str, Any]) -> dict[str, Any]:
         """Place plugin application defaults below the user's resolved config."""
         merged: dict[str, Any] = {}
+        if not self.plugins:
+            return dict(application_config)
         for plugin in self.plugins:
-            merged = deep_merge_config(merged, expand_env_vars(plugin.config))
-        return deep_merge_config(merged, application_config)
+            defaults = expand_env_vars(dict(plugin.config), defer_undefined=True)
+            merged = deep_merge_config(merged, defaults)
+        merged = deep_merge_config(merged, application_config)
+        _check_plugin_defaults(merged)
+        return merged
 
     def register(self, registry: ComponentRegistry) -> None:
         """Register every backend into an application-local registry."""
@@ -120,10 +150,14 @@ class PluginManager:
             for backend in plugin.backends:
                 registry.add(backend.name, backend.implementation, owner=plugin.name)
 
+    def build_runtime(self, application_config: Mapping[str, Any]) -> PluginRuntime:
+        """Apply resolved plugins to an independent registry and config."""
+        registry = create_application_registry()
+        self.register(registry)
+        return PluginRuntime(config=self.merge_config(application_config), registry=registry)
+
 
 def resolve_plugin_runtime(application_config: Mapping[str, Any]) -> PluginRuntime:
     """Build one local registry, with user config overriding plugin application defaults."""
-    manager = PluginManager.discover(application_config.get("plugins") or ())
-    registry = create_application_registry()
-    manager.register(registry)
-    return PluginRuntime(config=manager.merge_config(application_config), registry=registry)
+    manager = PluginManager.discover(configured_plugin_names(application_config))
+    return manager.build_runtime(application_config)

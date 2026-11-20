@@ -18,7 +18,7 @@ from reme_home.preparation.code import tree_fingerprint
 from reme_home.preparation.transaction import OUTPUTS, TRANSACTION, recover_preparation
 from reme_home.workspace import _initialization_lock
 
-from reme.application import Application
+from reme import Application
 
 
 def command(root, *args):
@@ -110,7 +110,7 @@ async def home_application(tmp_path, monkeypatch, request):
         name: EntryPoint(name=name, value=value, group="reme.plugins")
         for name, value in [("home", "reme_home"), ("beam-judge", "judge_beam"), ("lme-judge", "judge_lme")]
     }
-    monkeypatch.setattr("reme.plugin.find_entry_points", lambda group, name: [entries[name]])
+    monkeypatch.setattr("reme.plugin.manager.find_entry_points", lambda group, name: [entries[name]])
     monkeypatch.setenv("LLM_API_KEY", "test")
     application = Application(
         workspace_dir=str(tmp_path / "workspace"),

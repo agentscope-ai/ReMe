@@ -1,37 +1,168 @@
 """ReMe memory management application entry point."""
 
 import asyncio
-from collections.abc import Sequence
-from dataclasses import dataclass
+import socket
 import sys
+from collections.abc import Iterator, Sequence
 
-from .application import Application
+import psutil
+
+from .core.application import ReMe
+from .constants import REME_DEFAULT_HOST, REME_DEFAULT_PORT, normalize_connect_host
 from .components.service.cli_service import prepare_start_config, should_precheck_start
-from .config import parse_action, parse_kwargs, resolve_app_config
+from .config import parse_action, parse_args, parse_kwargs, resolve_app_config
 from .enumeration import ComponentEnum
 from .plugin import resolve_plugin_runtime
-from .utils import cli_find_reme, load_env, precheck_start, running_app_config
+from .utils.env_utils import load_env
 
 _CLIENT_KWARGS = {"host", "port", "timeout", "transport", "command", "args", "show_metadata"}
 
 
-class ReMe(Application):
-    """ReMe memory management application."""
-
-
-@dataclass(frozen=True)
-class CliInvocation:
-    """A top-level CLI action with arguments in that action's own syntax."""
-
-    action: str
-    arguments: tuple[str, ...]
-
-
-def parse_cli_invocation(argv: Sequence[str]) -> CliInvocation:
+def _parse_cli_invocation(argv: Sequence[str]) -> tuple[str, tuple[str, ...]]:
     """Parse only the grammar shared by every CLI command family."""
     if not argv:
         raise ValueError("No arguments provided")
-    return CliInvocation(action=parse_action(argv[0]), arguments=tuple(argv[1:]))
+    return parse_action(argv[0]), tuple(argv[1:])
+
+
+async def find_reme(host: str, port: int) -> str:
+    """Probe host:port. Returns 'reme', 'occupied', or 'free'."""
+    from .components.client.http_client import HttpClient
+
+    try:
+        async with HttpClient(host=normalize_connect_host(host), port=port, timeout=2.0) as client:
+            async for _ in client(action="health_check"):
+                break
+        return "reme"
+    except Exception:
+        pass
+    family = socket.AF_INET6 if ":" in host else socket.AF_INET
+    with socket.socket(family, socket.SOCK_STREAM) as s:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            s.bind((host, port))
+            return "free"
+        except OSError:
+            return "occupied"
+
+
+def _pid_on_port(port: int) -> int | None:
+    """PID listening on TCP ``port``, or None. Cross-platform via psutil.
+
+    Iterates per-process rather than calling the system-wide
+    ``psutil.net_connections()`` — the latter needs root on macOS, while
+    per-process connection enumeration works without elevation for
+    processes the current user owns (which reme's own server always is).
+    """
+    for proc in psutil.process_iter(["pid"]):
+        try:
+            for conn in proc.net_connections(kind="tcp"):
+                if conn.status == psutil.CONN_LISTEN and conn.laddr and conn.laddr.port == port:
+                    return proc.info["pid"]
+        except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
+            continue
+    return None
+
+
+def _start_arguments(cmdline: list[str]) -> list[str] | None:
+    """Identify a ReMe CLI process, excluding supervisors containing child argv."""
+    if not cmdline:
+        return None
+
+    def command_name(value: str) -> str:
+        return value.replace("\\", "/").rsplit("/", 1)[-1].lower()
+
+    executable = command_name(cmdline[0])
+    if executable in {"reme", "reme.exe"}:
+        action_index = 1
+    elif executable.startswith(("python", "pypy")):
+        action_index = next(
+            (
+                index
+                for index in range(2, len(cmdline))
+                if command_name(cmdline[index - 1]) in {"reme", "reme.exe", "reme.py", "reme.reme"}
+            ),
+            len(cmdline),
+        )
+        if "-c" in cmdline[:action_index]:
+            return None
+    else:
+        return None
+    if action_index >= len(cmdline) or cmdline[action_index] not in {"start", "-start", "--start"}:
+        return None
+    return [argument for argument in cmdline[action_index + 1 :] if "=" in argument]
+
+
+def _iter_reme_starts() -> Iterator[tuple[int, list[str]]]:
+    """Yield the PID and original start options for running ReMe processes."""
+    for proc in psutil.process_iter(["pid", "cmdline"]):
+        try:
+            info = proc.info
+            cmdline = info["cmdline"] or []
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+        arguments = _start_arguments(cmdline)
+        if arguments is not None:
+            yield info["pid"], arguments
+
+
+def _scan_reme_procs() -> list[tuple[int, str, int]]:
+    """List running 'reme ... start' processes as (pid, host, port)."""
+    procs: list[tuple[int, str, int]] = []
+    for pid, arguments in _iter_reme_starts():
+        try:
+            overrides = parse_kwargs(*arguments)
+        except ValueError:
+            continue
+        try:
+            config = resolve_app_config(log_config=False, **overrides)
+        except (OSError, ValueError):
+            # A different process's relative config file may be unavailable.
+            config = overrides
+        service = config.get("service") or {}
+        host = service.get("host") or REME_DEFAULT_HOST
+        port_value = str(service.get("port", REME_DEFAULT_PORT))
+        port = int(port_value) if port_value.isdigit() else REME_DEFAULT_PORT
+        procs.append((pid, host, port))
+    return procs
+
+
+def running_app_config() -> dict | None:
+    """Resolve the full config of a running ReMe by replaying its start args.
+
+    Reads the live ``reme start ...`` process cmdline and re-runs the same
+    ``resolve_app_config`` the server used. Returning the full config preserves
+    enabled plugins as well as service connection settings for CLI clients.
+    Returns ``None`` when no running reme is found or its args can't be parsed.
+    """
+    for _, argv in _iter_reme_starts():
+        try:
+            _, kwargs = parse_args("start", *argv)
+            config = resolve_app_config(log_config=False, **kwargs)
+        except ValueError:
+            continue
+        if isinstance(config, dict):
+            return config
+    return None
+
+
+def running_service_config() -> dict | None:
+    """Return only the service section of the running ReMe configuration."""
+    config = running_app_config()
+    if config is None:
+        return None
+    service = config.get("service")
+    return service if isinstance(service, dict) else None
+
+
+async def locate_reme() -> tuple[str, int, int | None] | None:
+    """Find a running reme: try default port, then scanned processes."""
+    if await find_reme(REME_DEFAULT_HOST, REME_DEFAULT_PORT) == "reme":
+        return REME_DEFAULT_HOST, REME_DEFAULT_PORT, _pid_on_port(REME_DEFAULT_PORT)
+    for pid, host, port in _scan_reme_procs():
+        if await find_reme(host, port) == "reme":
+            return normalize_connect_host(host), port, pid
+    return None
 
 
 async def call_server(job_name: str, /, **kwargs):
@@ -82,11 +213,39 @@ async def call_server(job_name: str, /, **kwargs):
 
 def _run_plugin_command(argv: Sequence[str]) -> None:
     """Run local package management without initializing the application."""
-    from .plugin_cli import plugin_cli
+    from .plugin.cli import plugin_cli
 
     status = plugin_cli(argv)
     if status:
         raise SystemExit(status)
+
+
+def precheck_start(svc_config: dict | None) -> bool:
+    """Pre-flight check for `start`: False if reme is up, exits 1 on port conflict."""
+    host = (svc_config or {}).get("host") or REME_DEFAULT_HOST
+    port = (svc_config or {}).get("port") or REME_DEFAULT_PORT
+    port = int(port)
+    status = asyncio.run(find_reme(host, port))
+    if status == "reme":
+        print(f"reme already running at {normalize_connect_host(host)}:{port}")
+        return False
+    if status == "occupied":
+        print(
+            f"port {port} occupied. Start on another port: reme start service.port=<other_port>",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return True
+
+
+def cli_find_reme() -> None:
+    """Handle `reme find_reme`: print HOST/PORT/PID or a hint to start reme."""
+    found = asyncio.run(locate_reme())
+    if not found:
+        print("reme not started. Try: reme start", file=sys.stderr)
+        sys.exit(1)
+    host, port, pid = found
+    print(f"HOST={host} PORT={port} PID={pid or 'unknown'}")
 
 
 def _start_application(kwargs: dict, environment: dict) -> None:
@@ -100,17 +259,16 @@ def _start_application(kwargs: dict, environment: dict) -> None:
 
 def main() -> None:
     """Parse CLI arguments and launch the appropriate mode."""
-    invocation = parse_cli_invocation(sys.argv[1:])
-    action = invocation.action
+    action, arguments = _parse_cli_invocation(sys.argv[1:])
 
     if action == "plugins":
         # Package management is local-only and must not load application config,
         # environment files, or a running service.
-        _run_plugin_command(invocation.arguments)
+        _run_plugin_command(arguments)
         return
 
     environment = load_env()
-    kwargs = parse_kwargs(*invocation.arguments)
+    kwargs = parse_kwargs(*arguments)
     if action == "start":
         _start_application(kwargs, environment)
     elif action == "find_reme":

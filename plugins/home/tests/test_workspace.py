@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from reme_home.workspace import DIRECTORIES, HomeWorkspace, _initialization_lock
 
-from reme.application import Application
+from reme import Application
 from reme.components.application_context import ApplicationContext
 
 
@@ -22,7 +22,10 @@ async def test_application_start_initializes_enabled_home(tmp_path, monkeypatch)
     entry = EntryPoint(name="home", value="reme_home", group="reme.plugins")
     monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2] / "beam-judge/src"))
     judge = EntryPoint(name="beam-judge", value="judge_beam", group="reme.plugins")
-    monkeypatch.setattr("reme.plugin.find_entry_points", lambda group, name: [entry if name == "home" else judge])
+    monkeypatch.setattr(
+        "reme.plugin.manager.find_entry_points",
+        lambda group, name: [entry if name == "home" else judge],
+    )
     monkeypatch.setenv("LLM_API_KEY", "test")
     app = Application(
         workspace_dir=str(tmp_path),

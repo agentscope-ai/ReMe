@@ -4,6 +4,7 @@ import asyncio
 from contextlib import nullcontext
 import math
 
+from ....constants import CHAT_AGENT_NAME
 from .chat import BaseChatAgentStep
 from ....components import R
 from ....schema.agent_runtime import InboxWakeRequest
@@ -45,7 +46,7 @@ class InboxChatStep(BaseChatAgentStep):
                 self.context.response.answer = {"skipped": "not_idle"}
                 return self.context.response
             options = self.session_options()
-            current = await runtime.sessions.current("Remy") if active_fork else None
+            current = await runtime.sessions.current(CHAT_AGENT_NAME) if active_fork else None
             session_id = current.session_id if current else await self.ensure_session(options)
             status = await runtime.agent_wrapper.get_session_status(session_id)
             if status.status not in ({"idle", "not_loaded", "active"} if active_fork else {"idle", "not_loaded"}):
@@ -70,7 +71,7 @@ class InboxChatStep(BaseChatAgentStep):
                     fork_session=True,
                     ephemeral=True,
                     sandbox="read-only",
-                    injected_job_kwargs={"_agent_name": "Remy", "_inbox_turn": turn.id},
+                    injected_job_kwargs={"_agent_name": CHAT_AGENT_NAME, "_inbox_turn": turn.id},
                 )
                 if not turn.done:
                     raise RuntimeError(reply.get("error") or "Inbox fork ended without submitting a reminder decision")

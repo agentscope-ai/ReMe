@@ -3,7 +3,6 @@
 # pylint: disable=protected-access
 
 import asyncio
-import time
 
 import numpy as np
 import pytest
@@ -78,10 +77,16 @@ def _new_zvec_store(name, **kwargs):
     return store
 
 
-async def _settle_reindex(store, timeout=5.0):
-    """Wait until no async reindex is pending or in flight."""
-    deadline = time.monotonic() + timeout
-    while store._reindex_event.is_set() or store._reindex_busy:
-        if time.monotonic() > deadline:
-            raise AssertionError("async reindex did not settle in time")
-        await asyncio.sleep(0.005)
+def _watch_reindex_publication(store: FaissLocalFileStore, monkeypatch: pytest.MonkeyPatch) -> asyncio.Event:
+    """Signal after a new index is published with no follow-up rebuild queued."""
+    published = asyncio.Event()
+    rebuild = store._reindex_async
+
+    async def watch():
+        previous_index = store._faiss_index
+        await rebuild()
+        if store._faiss_index is not previous_index and not store._reindex_event.is_set():
+            published.set()
+
+    monkeypatch.setattr(store, "_reindex_async", watch)
+    return published

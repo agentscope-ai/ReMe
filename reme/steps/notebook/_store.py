@@ -7,7 +7,8 @@ from pathlib import Path
 
 import aiofiles
 
-from ..file_io import check_path_permission, get_path_lock, resolve_path, write_file_safe
+from ..file_io import check_path_permission, resolve_path, write_file_safe
+from ...utils.files.path_lock import get_path_lock
 from ...constants import MAX_FILE_READ_BYTES
 from ...schema import Idea, Todo
 
@@ -30,8 +31,9 @@ def fingerprint(content):
 class RecordStore:
     """One collection; callers hold the workspace notebook lock for each operation."""
 
-    def __init__(self, workspace: Path, kind: str, allowed_paths=None):
+    def __init__(self, workspace: Path, notebook_dir: str, kind: str, allowed_paths=None):
         self.workspace = workspace
+        self.notebook_dir = notebook_dir
         self.kind = kind
         self.model = Todo if kind == "todos" else Idea
         self.allowed_paths = allowed_paths
@@ -47,15 +49,16 @@ class RecordStore:
 
     def path(self, relative):
         """Apply the same containment and request scope as the file jobs."""
-        path, error = resolve_path(self.workspace, relative)
+        workspace_relative = f"{self.notebook_dir}/{relative}"
+        path, error = resolve_path(self.workspace, workspace_relative)
         if error or path is None:
             raise ValueError(error)
         if not check_path_permission(self.workspace, path, self.allowed_paths):
-            raise PermissionError(f"no permission to access {relative}")
+            raise PermissionError(f"no permission to access {workspace_relative}")
         return path
 
     def valid_file(self, relative):
-        """Recovery can publish only this collection's fixed, workspace-relative paths."""
+        """Recovery can publish only this collection's fixed, notebook-relative paths."""
         if relative in {f"{self.kind}.json", f"archive/{self.kind}.json"}:
             return True
         prefix = f"archive/{self.kind}_"
@@ -129,7 +132,7 @@ class RecordStore:
             directory = self.path("archive")
             paths.append(f"archive/{self.kind}.json")
             if directory.exists():
-                shards = [path.relative_to(self.workspace).as_posix() for path in directory.glob(f"{self.kind}_*.json")]
+                shards = [f"archive/{path.name}" for path in directory.glob(f"{self.kind}_*.json")]
                 paths.extend(
                     sorted(
                         (path for path in shards if self.valid_file(path)),

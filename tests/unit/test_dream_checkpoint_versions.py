@@ -10,7 +10,7 @@ import frontmatter
 import pytest
 from agentscope.model import ChatModelBase
 
-from reme.application import Application
+from reme import Application
 from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.application_context import ApplicationContext
 from reme.components.file_catalog import LocalFileCatalog

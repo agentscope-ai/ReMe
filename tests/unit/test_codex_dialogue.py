@@ -15,7 +15,7 @@ import pytest
 from reme.components import ApplicationContext, LocalAgentRuntime, R, RuntimeContext
 from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.agent_inbox import AgentEventInbox
-from reme.utils.workspace_files import WorkspaceFiles
+from reme.utils.files.workspace_files import WorkspaceFiles
 from reme.components.job import BaseJob, CronJob
 from reme.config import resolve_app_config
 from reme.enumeration import ComponentEnum
@@ -311,7 +311,7 @@ async def test_progress_replays_a_journal_larger_than_the_record_limit(tmp_path,
     async with runtime(tmp_path) as (context, _, _):
         index = dialogue_index(context, home)
         state = index.load(_NOW)
-        monkeypatch.setattr("reme.utils.workspace_files.DEFAULT_MAX_FILE_BYTES", 2048)
+        monkeypatch.setattr("reme.utils.files.workspace_files.DEFAULT_MAX_FILE_BYTES", 2048)
         for number in range(30):
             index.commit(
                 state,

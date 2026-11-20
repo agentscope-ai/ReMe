@@ -37,7 +37,7 @@ import os
 from typing import Any
 
 from .base_file_graph import BaseFileGraph
-from ..component_registry import R
+from ...core.registry import R
 from ...enumeration import LinkScopeEnum
 from ...schema import FileLink, FileNode
 from ...schema.file_node import FileFrontMatter

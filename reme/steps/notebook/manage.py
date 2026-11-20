@@ -4,7 +4,7 @@ from abc import abstractmethod
 from datetime import datetime, timezone
 
 from ..base_step import BaseStep
-from ..file_io import get_path_lock
+from ...utils.files.path_lock import get_path_lock
 from ...components import R
 from ...schema import Idea, Todo, TodoProgress
 from ...schema.notebook import IdeaRequest, TodoRequest
@@ -25,7 +25,7 @@ class _RecordStep(BaseStep):
         }
         request = self.request_model.model_validate(arguments)
         async with await get_path_lock(self.workspace_path.resolve() / ".notebook.lock"):
-            store = RecordStore(self.workspace_path, self.kind, self.context.get("_allowed_paths"))
+            store = self._record_store(self.kind)
             await store.load(archives=request.action != "list" or request.scope != "active")
             if request.action == "list":
                 answer = self.list_records(store, request)
@@ -37,6 +37,14 @@ class _RecordStep(BaseStep):
                 answer = record.model_dump(mode="json", exclude_none=True)
         self.context.response.answer = answer
         return self.context.response
+
+    def _record_store(self, kind: str) -> RecordStore:
+        return RecordStore(
+            self.workspace_path,
+            self.config_value("notebook_dir"),
+            kind,
+            self.context.get("_allowed_paths"),
+        )
 
     @staticmethod
     def list_records(store, request):
@@ -86,7 +94,7 @@ class TodoStep(_RecordStep):
         fields = {"project", "text", "status", "due_date", "source_idea"}
         changes = request.model_dump(include=fields, exclude_unset=True)
         if request.source_idea:
-            ideas = RecordStore(self.workspace_path, "ideas", self.context.get("_allowed_paths"))
+            ideas = self._record_store("ideas")
             await ideas.load()
             idea = ideas.get(request.source_idea)
             if request.action == "create":

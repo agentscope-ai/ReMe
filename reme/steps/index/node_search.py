@@ -33,11 +33,9 @@ link expansion.
 import asyncio
 from collections import defaultdict
 
+from ._ranking import RRF_K, candidate_count
 from ..base_step import BaseStep
 from ...components import R
-
-_RRF_K = 60
-_MAX_CANDIDATES = 200
 
 
 def _rrf_merge_nodes(
@@ -49,9 +47,9 @@ def _rrf_merge_nodes(
     scores: dict[str, float] = defaultdict(float)
     text_weight = 1.0 - vector_weight
     for rank, path in enumerate(vector_paths, start=1):
-        scores[path] += vector_weight / (_RRF_K + rank)
+        scores[path] += vector_weight / (RRF_K + rank)
     for rank, path in enumerate(keyword_paths, start=1):
-        scores[path] += text_weight / (_RRF_K + rank)
+        scores[path] += text_weight / (RRF_K + rank)
     return scores
 
 
@@ -77,7 +75,7 @@ class NodeSearchStep(BaseStep):
         digest_prefix = digest_dir.rstrip("/") + "/"
 
         # Over-fetch — digest filter drops a lot of raw hits.
-        candidates = min(_MAX_CANDIDATES, max(1, int(limit * candidate_multiplier)))
+        candidates = candidate_count(limit, candidate_multiplier)
 
         vector_chunks, keyword_chunks = await asyncio.gather(
             self.file_store.vector_search(query, candidates, {}),

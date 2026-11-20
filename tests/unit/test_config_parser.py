@@ -63,7 +63,7 @@ def test_builtin_and_external_config_name_collision_fails(monkeypatch, provider_
             return [entry for entry in self if entry.name == name]
 
     monkeypatch.setattr(
-        "reme.entry_point.metadata.entry_points",
+        "reme.core.entry_point.metadata.entry_points",
         lambda: FakeEntryPoints([FakeEntryPoint() for _ in range(provider_count)]),
     )
 
@@ -82,7 +82,7 @@ def test_resolve_app_config_can_suppress_config_log(monkeypatch):
             """Record one INFO message."""
             messages.append(message)
 
-    monkeypatch.setattr("reme.utils.get_logger", lambda **_kwargs: FakeLogger())
+    monkeypatch.setattr("reme.utils.logger_utils.get_logger", lambda **_kwargs: FakeLogger())
 
     resolve_app_config(log_config=False)
 
@@ -135,6 +135,8 @@ def test_default_config_registers_manual_and_scheduled_proactive_refresh():
     assert manual["enable_serve"] is False
     assert scheduled["backend"] == "cron"
     assert manual["steps"] == scheduled["steps"]
+    topics = next(step for step in manual["steps"] if step["backend"] == "proactive_topics_step")
+    assert topics["defer_interests_write"] is True
 
 
 @pytest.mark.parametrize(

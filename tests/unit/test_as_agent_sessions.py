@@ -16,7 +16,7 @@ from agentscope.model import ChatResponse, ChatUsage
 from reme.components.agent_wrapper import AsAgentWrapper
 from reme.components.application_context import ApplicationContext
 from reme.enumeration import ChunkEnum
-from reme.utils import AsStateHandler
+from reme.components.agent_wrapper.as_state_io import AsStateHandler
 
 
 class OfflineModel:

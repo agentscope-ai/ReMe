@@ -123,7 +123,7 @@ include-package-data = true
 "deploy.benchmark_docker" = ["Dockerfile.*", "README.md"]
 
 [tool.setuptools.dynamic]
-version = { attr = "reme.__version__" }
+version = { attr = "reme._version.__version__" }
 
 [build-system]
 requires = ["setuptools>=84.2.1", "wheel>=0.48.0"]

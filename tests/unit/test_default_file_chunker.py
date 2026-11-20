@@ -8,7 +8,7 @@ import pytest
 
 from reme.components.file_chunker import DefaultFileChunker
 from reme.schema import FileChunk, FileFrontMatter
-from reme.utils.wikilink_handler import WikilinkHandler
+from reme.utils.documents.wikilink_handler import WikilinkHandler
 
 # Add parent path for import
 

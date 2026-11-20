@@ -35,13 +35,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..enumeration import LinkScopeEnum
-from ..schema import FileLink
-
-
-def _normalize_workspace_path(path: str) -> str:
-    """Use POSIX separators for workspace paths on every platform."""
-    return path.replace("\\", "/")
+from ...enumeration import LinkScopeEnum
+from ...schema import FileLink
+from ..files.paths import canonical_index_path
 
 
 @dataclass(frozen=True)
@@ -104,7 +100,7 @@ class WikilinkHandler:
         """
         if not text:
             return []
-        source_path = _normalize_workspace_path(source_path)
+        source_path = canonical_index_path(source_path)
         out: list[FileLink] = []
         seen: set[tuple] = set()
         for wm in cls.iter_matches(text):
@@ -136,8 +132,8 @@ class WikilinkHandler:
         happens (the original text is returned), but the count is still
         populated — used by ``find_inbound``. Matching is literal.
         """
-        old = _normalize_workspace_path(old)
-        new = _normalize_workspace_path(new) if new is not None else None
+        old = canonical_index_path(old)
+        new = canonical_index_path(new) if new is not None else None
         count = 0
 
         def sub(match: re.Match) -> str:
@@ -199,7 +195,7 @@ class WikilinkHandler:
         """
         if not file_store.file_graph:
             return []
-        target = _normalize_workspace_path(target)
+        target = canonical_index_path(target)
         inlinks = await file_store.file_graph.get_inlinks(target, scope=LinkScopeEnum.ALL)
         return sorted({link.source_path for link in inlinks if link.source_path})
 
@@ -224,8 +220,8 @@ class WikilinkHandler:
 
         On bad inputs returns ``{"target": ..., "error": str}``.
         """
-        target = _normalize_workspace_path(target)
-        scope = _normalize_workspace_path(scope)
+        target = canonical_index_path(target)
+        scope = canonical_index_path(scope)
         if not target:
             return {"target": target, "error": "target is required"}
         if Path(target).is_absolute():
@@ -286,9 +282,9 @@ class WikilinkHandler:
         ``{"error": reason, "retarget_blocked_path": path}``; files already
         rewritten stay rewritten.
         """
-        src = _normalize_workspace_path(src)
-        dst = _normalize_workspace_path(dst)
-        scope = _normalize_workspace_path(scope)
+        src = canonical_index_path(src)
+        dst = canonical_index_path(dst)
+        scope = canonical_index_path(scope)
         err = cls.validate_src_dst(src, dst)
         if err is not None:
             return {"src": src, "dst": dst, "error": err}

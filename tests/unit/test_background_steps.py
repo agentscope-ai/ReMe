@@ -55,8 +55,8 @@ from reme.steps.index import (
     WatchChangesStep,
 )
 from reme.steps.index._change_batch import bucket_changes
-from reme.utils.file_utils import FileChangedDuringChunkingError
-from reme.utils.file_watch import WatchRule, build_watch_rules, collect_existing, match_file
+from reme.utils.files.file_version import FileChangedDuringChunkingError
+from reme.utils.files.file_watch import WatchRule, build_watch_rules, collect_existing, match_file
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="jieba")
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="pkg_resources")

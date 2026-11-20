@@ -29,7 +29,7 @@ from openai_codex.generated.v2_all import (
 )
 from pydantic import BaseModel
 
-from reme.application import Application
+from reme import Application
 from reme.components.application_context import ApplicationContext
 from reme.components.agent_wrapper.codex_agent_wrapper import CodexAgentWrapper
 from reme.components.codex_app_server import SdkCodexAppServer
@@ -38,7 +38,7 @@ from reme.components.service.scoped_mcp import ScopedMCP
 from reme.config import resolve_app_config
 from reme.enumeration import ChunkEnum, ComponentEnum
 from reme.schema import Response, TokenUsage
-from reme.utils import global_counter_get_all
+from reme.utils.counter import global_counter_get_all
 
 
 class _Job:

@@ -13,16 +13,17 @@ from contextlib import suppress
 import numpy as np
 
 from .base_file_store import BaseFileStore
-from ..component_registry import R
+from ...core.registry import R
 from ..embedding_store import BaseEmbeddingStore
 from ..file_graph import BaseFileGraph
 from ..keyword_index import BaseKeywordIndex
 from ..tag_index import BaseTagIndex
 from ...enumeration import LinkScopeEnum
 from ...schema import FileChunk, FileLink, FileNode
-from ...utils import batch_cosine_similarity, canonical_index_path
+from ...utils.similarity_utils import batch_cosine_similarity
+from ...utils.files.paths import canonical_index_path
 from ...utils.async_utils import complete_in_thread
-from ...utils.jsonl_zst import read_jsonl_zst, write_jsonl_zst
+from ...utils.files.jsonl_zst import read_jsonl_zst, write_jsonl_zst
 
 CachedEmbedding = tuple[str, np.ndarray]
 _EMBEDDING_F16_B64_FIELD = "_embedding_f16_b64"

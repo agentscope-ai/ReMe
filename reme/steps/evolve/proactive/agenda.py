@@ -23,16 +23,13 @@ from ...base_step import BaseStep
 from .._evolve import agent_reply_result_text, passthrough_response
 from ....components import R
 from ....schema import ProactiveState
-from ..dream.utils import daily_dir, workspace_dir
+from ..dream.utils import workspace_dir
 from .utils import (
-    current_now,
-    interests_path_for,
     load_personal_profile_block,
-    norm_path,
     parse_agenda_reply,
-    render_interests,
+    publish_interests,
     resolve_agent_wrapper,
-    write_interests_if_changed,
+    store_state,
 )
 
 FALLBACK_ORDER_REASON = "deterministic fallback: freshness/confidence order"
@@ -42,9 +39,8 @@ FALLBACK_ORDER_REASON = "deterministic fallback: freshness/confidence order"
 class ProactiveAgendaStep(BaseStep):
     """Generate today's proactive agenda and render the enriched interests.yaml.
 
-    Skips silently (leaving the topics step's push=false render in place) when
-    there are no push candidates. Otherwise writes the final v2 file with the
-    ``agenda`` and ``suppressed`` keys.
+    Publishes basic topics when there are no push candidates and Topics deferred
+    the write. Otherwise adds ``agenda`` and ``suppressed`` for the push candidates.
     """
 
     def __init__(
@@ -80,8 +76,15 @@ class ProactiveAgendaStep(BaseStep):
 
         candidates = [c for c in state.push_candidates if isinstance(c, dict) and c.get("id")]
         if not candidates:
+            if self.context.get("proactive_interests_pending"):
+                written = publish_interests(self, state)
+                self.context["proactive_interests_pending"] = False
+                store_state(self.context, state)
+                publication = f"written={written} to {state.interests_path}"
+            else:
+                publication = "interests.yaml left to topics render"
             self.context.response.success = True
-            self.context.response.answer = "Agenda: no push candidates; interests.yaml left to topics render"
+            self.context.response.answer = f"Agenda: no push candidates; {publication}"
             self.logger.info(f"[{self.name}] no push candidates; nothing to agenda")
             return self.context.response
 
@@ -148,25 +151,12 @@ class ProactiveAgendaStep(BaseStep):
         state.suppressed = suppressed
         state.push = bool(agenda)
 
-        day = state.date
-        daily = state.daily_dir or daily_dir(self)
-        rendered = render_interests(
-            day,
-            state.topics_out,
-            state.push,
-            current_now(self),
-            agenda=agenda,
-            suppressed=suppressed,
-        )
-        interests_path = interests_path_for(ws, daily, day)
-        written = write_interests_if_changed(ws, interests_path, rendered)
-        rel_path = norm_path(interests_path.relative_to(ws).as_posix())
-        state.interests_path = rel_path
-        state.interests_written = bool(state.interests_written or written)
-        self._store(state)
+        written = publish_interests(self, state, include_agenda=True)
+        self.context["proactive_interests_pending"] = False
+        store_state(self.context, state)
         answer = (
             f"Agenda: {len(agenda)} item(s), suppressed={len(suppressed)}, push={state.push}, "
-            f"written={written} to {rel_path}"
+            f"written={written} to {state.interests_path}"
         )
         self.context.response.success = True
         self.context.response.answer = answer
@@ -266,9 +256,3 @@ class ProactiveAgendaStep(BaseStep):
             self.profile_max_chars,
             self.profile_rel_path,
         )
-
-    def _store(self, state: ProactiveState) -> None:
-        assert self.context is not None
-        data = state.model_dump()
-        self.context["proactive"] = data
-        self.context.response.metadata["proactive"] = data

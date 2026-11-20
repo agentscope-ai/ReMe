@@ -8,7 +8,7 @@ from pathlib import Path
 from stat import S_ISREG
 from typing import Callable
 
-from ....utils.workspace_files import WorkspaceFiles
+from ....utils.files.workspace_files import WorkspaceFiles
 from ....constants import DEFAULT_MAX_FILE_BYTES
 
 _WINDOW = 4096

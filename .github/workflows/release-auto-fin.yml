@@ -81,19 +81,19 @@ jobs:
           "${RUNNER_TEMP}/reme-auto-fin-smoke/bin/python" - <<'PY'
           from importlib.metadata import distribution
 
-          from reme.plugin_manifest import load_package_manifest
+          from reme.plugin import PluginManager
 
           package = distribution("reme-auto-fin")
           plugins = {entry.name: entry for entry in package.entry_points if entry.group == "reme.plugins"}
           assert plugins["auto-fin"].value == "reme_auto_fin"
-          manifest = load_package_manifest("reme_auto_fin", plugin_name="auto-fin")
-          assert set(manifest.backends) == {
+          plugin, = PluginManager.discover(["auto-fin"]).plugins
+          assert {backend.name for backend in plugin.backends} == {
               "auto_fin_data_step",
               "auto_fin_topic_step",
               "auto_fin_research_step",
               "auto_fin_digest_step",
           }
-          assert set(manifest.application_defaults["jobs"]) == {
+          assert set(plugin.config["jobs"]) == {
               "auto_fin",
               "auto_fin_cron",
           }

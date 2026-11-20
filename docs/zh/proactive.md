@@ -33,6 +33,7 @@ proactive_refresh:
       max_chars_per_file: 60000
       max_total_chars: 300000
     - backend: proactive_topics_step
+      defer_interests_write: true
       known_threshold: 0.85
       known_threshold_calibrated_for: text-embedding-v4@1024
       min_push_confidence: 0.5
@@ -48,7 +49,11 @@ proactive_refresh_cron:
   steps: *proactive_refresh_steps
 ```
 
-`default.yaml` 也通过这个 YAML anchor 共享同一组 steps。读取 job 为：
+`default.yaml` 通过这个 YAML anchor 共享同一组 steps。默认流程在 Plan 和 Agenda 处理后发布
+`interests.yaml`，每轮最多写入一次。无推送候选时发布基础主题，Plan 或 Agenda 意外失败时保留上一次发布的文件。
+单独使用 Topics Step 时默认直接发布。
+
+读取 job 为：
 
 ```yaml
 proactive_read:

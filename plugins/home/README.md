@@ -10,7 +10,7 @@ its component, Step, input validation, Docker request adapters, and artifacts wi
 failure classification. Shared workspace and host judge components live at the
 package root.
 
-Install it into the same Python environment as ReMe:
+Install it into the same Python environment as ReMe 0.4.2.4 or newer:
 
 ```bash
 reme plugins install plugins/home
@@ -141,7 +141,7 @@ Python uses the same Job and normal Application lifecycle; see
 `spec` (a configuration dictionary):
 
 ```python
-from reme.application import Application
+from reme import Application
 
 app = Application(workspace_dir="/experiments/run-1", plugins=["home", "beam-judge"], service={"backend": "cli"})
 try:

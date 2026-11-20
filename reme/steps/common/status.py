@@ -9,7 +9,7 @@ import psutil
 
 from ..base_step import BaseStep
 from ...components import BaseComponent, R
-from ...components.base_component import Dependency
+from ...components.base import Dependency
 from ...enumeration import ComponentEnum
 
 _SKIPPED_COMPONENT_ATTRIBUTES = {"app_context", "logger"}

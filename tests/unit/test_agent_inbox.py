@@ -10,7 +10,7 @@ import pytest
 import pytest_asyncio
 from pydantic import ValidationError
 
-from reme.application import Application
+from reme import Application
 from reme.components import AgentEventInbox, LocalAgentInbox, create_application_registry
 from reme.components.application_context import ApplicationContext
 from reme.config import resolve_app_config

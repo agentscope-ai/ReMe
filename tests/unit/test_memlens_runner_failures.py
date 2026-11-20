@@ -381,7 +381,8 @@ async def test_judge_snapshot_uses_validated_plugin_and_environment_config(tmp_p
     from importlib.metadata import EntryPoint
 
     from reme import Application
-    from reme.plugin import PluginManager, _load_plugin
+    from reme.plugin import PluginManager
+    from reme.plugin.manager import _load_plugin
 
     plugin = _load_plugin(
         "memlens-judge",

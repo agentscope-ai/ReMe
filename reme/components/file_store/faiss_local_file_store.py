@@ -11,7 +11,7 @@ import numpy as np
 
 from .base_file_store import BaseFileStore
 from .local_file_store import LocalFileStore
-from ..component_registry import R
+from ...core.registry import R
 from ...schema import FileChunk, FileNode
 
 
@@ -96,7 +96,6 @@ class FaissLocalFileStore(LocalFileStore):
         # and repeated submissions coalesce into the boolean flag.
         self._reindex_event = asyncio.Event()  # set == "rebuild requested"
         self._reindex_worker_task: asyncio.Task | None = None
-        self._reindex_busy = False  # True while a build is in flight (single worker)
         self._index_writes = 0  # bumped on every index mutation; used to re-arm the flag
         self._closing = False  # set during _close() to stop spawning background reindexes
 
@@ -298,12 +297,8 @@ class FaissLocalFileStore(LocalFileStore):
         """
         while not self._closing:
             await self._reindex_event.wait()
-            # Mark busy before clearing the flag (no await in between) so an
-            # observer can never see "flag clear and not busy" mid-handoff.
-            self._reindex_busy = True
             self._reindex_event.clear()
             if self._closing:
-                self._reindex_busy = False
                 return
             try:
                 await self._reindex_async()
@@ -311,8 +306,6 @@ class FaissLocalFileStore(LocalFileStore):
                 raise
             except Exception as e:  # pragma: no cover - defensive
                 self.logger.exception(f"{self.name}: async reindex failed: {e}")
-            finally:
-                self._reindex_busy = False
 
     async def _reindex_async(self) -> None:
         """Build a new index from a snapshot without blocking searches, then swap it
@@ -384,7 +377,6 @@ class FaissLocalFileStore(LocalFileStore):
             task.cancel()
             with suppress(asyncio.CancelledError, Exception):
                 await task
-        self._reindex_busy = False
 
     # -- persistence ------------------------------------------------------
 

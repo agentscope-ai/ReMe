@@ -20,7 +20,7 @@ from ....schema.proactive_agent import CRON_EVENT_SOURCE, ProactiveRunResult
 from ....schema import TokenUsage, collect_reply
 from ....utils.async_utils import complete_in_thread
 from ....utils.counter import global_counter_add_many
-from ....utils.wikilink_handler import WikilinkHandler
+from ....utils.documents.wikilink_handler import WikilinkHandler
 
 
 @R.register("proactive_agent_step")
@@ -78,6 +78,8 @@ class ProactiveAgentStep(BaseAgentStep):
         }
         if (sandbox := self.kwargs.get("sandbox", "workspace-write")) is not None:
             options["sandbox"] = sandbox
+        if (effort := self.kwargs.get("effort")) is not None:
+            options["effort"] = effort
         return options
 
     def _query(self, events, paths, now, task_content, *, is_cron):

@@ -110,6 +110,7 @@ jobs:
         max_chars_per_file: 60000
         max_total_chars: 300000
       - backend: proactive_topics_step
+        defer_interests_write: true
         known_threshold: 0.85
         known_threshold_calibrated_for: text-embedding-v4@1024
         min_push_confidence: 0.5

@@ -12,7 +12,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from pydantic import ValidationError
 
-from reme.application import Application
+from reme import Application
 from reme.components import R
 from reme.utils import dashscope_speech as transport_module
 from reme.components.asr import BaseASR, DashScopeASR

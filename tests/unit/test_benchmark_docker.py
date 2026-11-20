@@ -594,7 +594,7 @@ async def test_build_log_captures_initialization_failure(tmp_path, monkeypatch, 
 @pytest.mark.parametrize("failure_phase", [None, "start", "checkpoint", "close", "start_and_close", "job"])
 async def test_build_log_captures_runtime_failures_and_preserves_primary_error(tmp_path, monkeypatch, failure_phase):
     import reme.reme as reme_module
-    from reme.utils import get_logger
+    from reme.utils.logger_utils import get_logger
 
     monkeypatch.setattr(sandbox_worker, "_prepare_runtime", lambda _request: (tmp_path, {}))
     startup_error = RuntimeError("startup exploded")
@@ -663,7 +663,7 @@ async def test_build_log_captures_runtime_failures_and_preserves_primary_error(t
 @pytest.mark.asyncio
 async def test_worker_clears_search_budget_between_queries(tmp_path, monkeypatch):
     import reme.reme as reme_module
-    from reme.utils import get_logger
+    from reme.utils.logger_utils import get_logger
 
     monkeypatch.setattr(sandbox_worker, "_prepare_runtime", lambda _request: (tmp_path, {}))
     seen_metadata: list[dict] = []

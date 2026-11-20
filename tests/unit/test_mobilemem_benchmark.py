@@ -20,7 +20,8 @@ from reme.components import R
 from reme.components.agent_wrapper.as_agent_wrapper import AsAgentWrapper
 from reme.components.component_registry import create_application_registry
 from reme.components.file_store import LocalFileStore
-from reme.plugin import PluginManager, _load_plugin
+from reme.plugin import PluginManager
+from reme.plugin.manager import _load_plugin
 from reme.schema import ApplicationConfig, Response
 from reme.steps.evolve.auto_memory import _sanitize_msg_for_save
 from reme.steps.file_io.read_image import ReadImageStep
@@ -145,7 +146,7 @@ async def test_candidate_and_judge_start_with_native_settings(tmp_path, monkeypa
     def installed(group, name):
         return [entry for entry in entries if entry.group == group and entry.name == name]
 
-    monkeypatch.setattr("reme.plugin.find_entry_points", installed)
+    monkeypatch.setattr("reme.plugin.manager.find_entry_points", installed)
     monkeypatch.setattr("reme.config.config_parser.find_entry_points", installed)
     monkeypatch.setenv("LLM_API_KEY", "offline")
     monkeypatch.setenv("LLM_BASE_URL", "https://provider.invalid/v1")

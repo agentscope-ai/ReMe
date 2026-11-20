@@ -1,9 +1,10 @@
 """Write a daily markdown note by dispatching the generic ``write`` step."""
 
+from ...constants import SESSION_DIALOG_SUBDIR
 from ._base import _FileIOStep
 from ._daily_index import parse_daily_date, refresh_day_index, validate_session_id
 from ._path import validate_filename_component
-from ..index import normalize_posix_path
+from ...utils.files.paths import normalize_posix_path
 from ...components import R
 from ...steps.evolve import now
 
@@ -18,7 +19,7 @@ class DailyWriteStep(_FileIOStep):
         return normalize_posix_path(str(self.config_value("session_dir")))
 
     def _session_link(self, session_id: str) -> str:
-        path = normalize_posix_path(f"{self._session_dir()}/dialog/{session_id}.jsonl")
+        path = normalize_posix_path(f"{self._session_dir()}/{SESSION_DIALOG_SUBDIR}/{session_id}.jsonl")
         return f"[[{path}]]"
 
     def _collect_required(self) -> tuple[str, str, str, str] | None:

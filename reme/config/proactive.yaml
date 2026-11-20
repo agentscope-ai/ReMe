@@ -240,6 +240,7 @@ jobs:
     track_execution: true
     steps:
       - backend: proactive_agent_step
+        effort: low  # Scheduled and event-driven runs.
         timeout_seconds: 1200
         max_local_search_calls: 10
         max_timeline_entries: 10

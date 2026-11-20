@@ -47,7 +47,7 @@ from reme.steps.file_io import (
     stat as crud_stat,
     write as crud_write,
 )
-from reme.utils.wikilink_handler import WikilinkHandler
+from reme.utils.documents.wikilink_handler import WikilinkHandler
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="jieba")
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="pkg_resources")

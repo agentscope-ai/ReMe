@@ -27,7 +27,7 @@ from reme_auto_fin.topic import AutoFinTopicStep
 from reme.components import ApplicationContext
 from reme.components.agent_wrapper.base_agent_wrapper import BaseAgentWrapper
 from reme.components.runtime_context import RuntimeContext
-from reme.utils.wikilink_handler import WikilinkHandler
+from reme.utils.documents.wikilink_handler import WikilinkHandler
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 PLUGIN_MANIFEST = yaml.safe_load(

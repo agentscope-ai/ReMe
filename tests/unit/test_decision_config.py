@@ -14,7 +14,7 @@ import tomllib
 import pytest
 import httpx
 
-from reme.application import Application
+from reme import Application
 from reme.components import R
 from reme.components.as_decision_model import AgentScopeAsDecisionModel
 from reme.components.as_decision_model import agentscope as provider_module

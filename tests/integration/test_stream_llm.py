@@ -17,7 +17,7 @@ from _workspace_fixture import workspace_env  # noqa: E402
 from reme.enumeration import ChunkEnum  # noqa: E402
 from reme.schema import StreamChunk  # noqa: E402
 from reme.steps.common.stream_llm_demo import StreamLLMDemoStep  # noqa: E402
-from reme.utils.common_utils import execute_stream_task  # noqa: E402
+from reme.utils.streaming import execute_stream_task  # noqa: E402
 
 # StreamLLMDemoStep always advertises the ``add`` job as a tool. That job only
 # ships in demo.yaml, so inject it into the default config the fixture loads.

@@ -1,5 +1,6 @@
 """One fixed Chat Agent with durable native session history."""
 
+from ....constants import CHAT_AGENT_NAME
 from .base import BaseAgentStep
 from ....components import R
 
@@ -18,13 +19,13 @@ class BaseChatAgentStep(BaseAgentStep):
                 workspace_dir=self.workspace_path,
                 memory_path=memory,
             ),
-            "injected_job_kwargs": {"_agent_name": "Remy"},
+            "injected_job_kwargs": {"_agent_name": CHAT_AGENT_NAME},
         }
 
     async def ensure_session(self, options, *, new=False):
         """Select the current Chat session or create a fresh one with the same bindings."""
         runtime = self.agent_runtime
-        return await runtime.sessions.ensure("Remy", runtime.agent_wrapper, options, runtime.now(), new=new)
+        return await runtime.sessions.ensure(CHAT_AGENT_NAME, runtime.agent_wrapper, options, runtime.now(), new=new)
 
     async def chat(self, query, *, on_chunk):
         """Continue Remy's selected native session."""
@@ -34,7 +35,7 @@ class BaseChatAgentStep(BaseAgentStep):
             return await self.stream_reply(
                 query,
                 session_id=session_id,
-                agent_name="Remy",
+                agent_name=CHAT_AGENT_NAME,
                 on_chunk=on_chunk,
                 **options,
             )
@@ -55,6 +56,6 @@ class ListChatSessionsStep(BaseAgentStep):
         arguments = self.parameters()
         if set(arguments) - {"offset", "limit"}:
             raise ValueError("list_chat_sessions accepts only offset and limit")
-        self.require_paths(self.agent_runtime.agents.path("Remy"))
+        self.require_paths(self.agent_runtime.agents.path(CHAT_AGENT_NAME))
         self.context.response.answer = await self.agent_runtime.list_chat_sessions(**arguments)
         return self.context.response

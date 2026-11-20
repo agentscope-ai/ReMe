@@ -28,7 +28,7 @@ already occurred and persists the information with long-term value.
 flowchart LR
     CLI["reme CLI<br/>reme/reme.py"] --> Client["Client<br/>http / mcp"]
     Client --> Service["Service<br/>HTTP / MCP"]
-    Service --> App["Application<br/>reme/application.py"]
+    Service --> App["Application<br/>reme/core/application.py"]
     App --> Jobs["Jobs<br/>base / stream / background / cron"]
     Jobs --> Steps["Steps<br/>reme/steps/**"]
     Steps --> Ctx["RuntimeContext<br/>data + Response + stream queue"]
@@ -42,7 +42,7 @@ Core layers:
 |-------------|----------------------------|---------------------------------------------------------------------------------------------------|
 | CLI         | `reme/reme.py`             | Parse commands; `start` launches the service; other actions call the service through a client.    |
 | Service     | `reme/components/service/` | Register Jobs as HTTP endpoints or MCP tools.                                                     |
-| Application | `reme/application.py`      | Assemble configured objects, start them in dependency order, close them, and invoke Jobs.         |
+| Application | `reme/core/application.py`      | Assemble configured objects, start them in dependency order, close them, and invoke Jobs.         |
 | Job         | `reme/components/job/`     | Orchestrate Steps and select normal, streaming, background, or scheduled execution.               |
 | Step        | `reme/steps/`              | Atomic business operations such as file I/O, retrieval, indexing, and self-evolution.             |
 | Component   | `reme/components/`         | Reusable infrastructure such as file_store, file_graph, keyword_index, and agent_wrapper.         |
@@ -54,16 +54,17 @@ Core layers:
 ```text
 reme/
   reme.py                    # CLI entry point
-  application.py             # Application assembly and lifecycle
-  plugin.py                  # installed plugin contract and entry-point loader
+  core/
+    application.py           # Application assembly and lifecycle
+    context.py               # application state and per-Job execution context
+    registry.py              # backend registry and application-local copies
+  plugin/                    # installed plugin contract and entry-point loader
   config/
     default.yaml             # default service / jobs / components
     cookbook.yaml            # Auto Fin + Daily Paper + DingTalk composition
     config_parser.py         # config=, dot notation, and env placeholder parsing
   components/
-    component_registry.py    # backend registry and application-local copies
-    base_component.py        # ComponentMixin / BaseComponent / bind dependency declarations
-    runtime_context.py       # context for one Job execution
+    base.py                  # ComponentMixin / BaseComponent / bind dependency declarations
     job/                     # BaseJob / StreamJob / BackgroundJob / CronJob
     service/                 # HTTP / MCP services
     client/                  # HTTP / MCP clients
@@ -773,7 +774,7 @@ A Step can be instantiated directly and passed a `RuntimeContext`:
 ```python
 import pytest
 
-from reme.components.runtime_context import RuntimeContext
+from reme.components import RuntimeContext
 from reme.steps.common.uppercase import UppercaseStep
 
 
@@ -973,7 +974,7 @@ Minimal shape of a new Job backend:
 
 ```python
 from .base_job import BaseJob
-from ..component_registry import R
+from ...core.registry import R
 
 
 @R.register("my_job_backend")

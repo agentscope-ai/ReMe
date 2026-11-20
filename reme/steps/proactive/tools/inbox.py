@@ -1,5 +1,6 @@
 """Tools available only to the active reminder fork."""
 
+from ....constants import CHAT_AGENT_NAME
 from ..agent.base import BaseAgentStep
 from ....components import R
 from ....schema.agent_runtime import SendChatMessageRequest
@@ -11,7 +12,7 @@ class _InboxTool(BaseAgentStep):
     def turn(self):
         """Validate scope and file permissions before accessing the active batch."""
         self.require_paths(self.workspace_path)
-        if self.context.get("_agent_name") != "Remy":
+        if self.context.get("_agent_name") != CHAT_AGENT_NAME:
             raise ValueError("inbox tools require the calling Chat Agent")
         return self.agent_runtime.notifications.current_turn(self.context.get("_inbox_turn"))
 

@@ -1,4 +1,4 @@
-"""Tests for wikilink helpers in ``reme.utils.wikilink_handler``.
+"""Tests for wikilink helpers in ``reme.utils.documents.wikilink_handler``.
 
 Two pure async helpers used by file_move / file_delete:
 
@@ -23,7 +23,7 @@ import pytest
 
 from reme.components.file_store import LocalFileStore
 from reme.schema import FileNode
-from reme.utils.wikilink_handler import WikilinkHandler
+from reme.utils.documents.wikilink_handler import WikilinkHandler
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="jieba")
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="pkg_resources")
