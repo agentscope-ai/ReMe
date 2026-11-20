@@ -9,8 +9,8 @@ ReMe 从面向 Agent 的 Memory Kit 起步。**ReMe5** 是即将发布的 `0.5` 
 你可以把一件需要持续跟进的事交给 Agent。收到新信息，或者到了约定时间，它就会运行一轮，记住你的要求，接着上次的进展往下做。
 遇到重要变化时，它会把消息带回对话，你也可以随时追问发生了什么。
 
-我们计划在 **2026 年底前**发布 ReMe5。运行时和桌面应用的早期原型已合入 `main`。目前我们正在用真实工作流测试原型，
-继续改进 Agent 记什么、什么时候提醒，以及任务能否稳定地跨多轮推进。
+我们计划在 **2026 年底前**发布 ReMe5。Proactive Runtime 和 ReMe Desktop 的早期原型已合入 `main`，Chat Agent 已经能与
+事件驱动和定时 Agent 协作。目前我们正在用真实工作流测试原型，继续改进 Agent 记什么、什么时候提醒，以及任务能否稳定地跨多轮推进。
 [原型 PR](https://github.com/agentscope-ai/ReMe/pull/743) ·
 [当前配置](https://github.com/agentscope-ai/ReMe/blob/main/reme/config/proactive.yaml) · [English](../en/reme5_preview.md)
 
@@ -24,9 +24,20 @@ ReMe 现有的记忆流程是这个能力的基础。Auto Memory 把对话提炼
 在 ReMe5 中，Agent 可以用同样的文件化记忆持续跟进任务，每次收到事件或按日程运行时都能接着已有进展处理。
 [文件即记忆](./memory_as_file.md) · [Auto Memory](./auto_memory.md) · [Auto Dream](./auto_dream.md)
 
-例如，你可以让 Remy 跟进多个工具里的同一个项目，并在遇到需要你决定的阻塞时提醒你。一次会话可能记录了测试失败和初步判断，
+例如，你可以让 Chat Agent 跟进多个工具里的同一个项目，并在遇到需要你决定的阻塞时提醒你。一次会话可能记录了测试失败和初步判断，
 之后另一段会话证实测试已经通过。Work Agent 可以把两次进展和来源都记下来，更新项目状态。如果还有需要你决定的事，它就会提醒你。
 你可以沿着链接核对原始记录，也可以随时调整之后的提醒条件。
+
+## ReMe5 要做什么
+
+你可以通过 **Chat Agent** 交办需要持续跟进的事，也可以随时调整关注范围和提醒条件。
+**Proactive Runtime** 在收到新事件或到达约定时间时执行任务，并把进展和证据保存在工作区。Chat Agent 可以根据这些记录回答追问，
+也会把需要关注的提醒带回对话。
+
+![ReMe5 方案总览，展示 Chat Agent 如何管理事件驱动、定时和自定义 Agent，以及运行它们的后端和计划接入的宿主](../figure/reme5-proactive-runtime-overview.svg)
+
+常见任务可以从事件驱动或定时预设开始。你也可以在同一个对话里创建自己的 Agent，为它指定事件源或 Cron 日程。
+这套运行时会在 ReMe 自己的桌面预览中提供，也计划接入已有的 Agent 工具。
 
 ## 运行时如何工作
 
@@ -55,47 +66,49 @@ ReMe 现有的记忆流程是这个能力的基础。Auto Memory 把对话提炼
 
 ### Auto Memory 成为 Work 的一部分
 
-事件驱动的 **Work** Agent 会承担 Auto Memory 从对话中提取长期有用信息的工作。我们计划让 Work 监听用户配置并接入的
-Agent Harness 的日志和会话记录，汇集多个来源的更新，持续跟进项目进展、决定、阻塞和下一步。后续会话仍可利用这些记录，
-有进展符合你的提醒要求时，Work 也可以主动汇报。现在的原型已经用新增 Codex 对话和截图测试这套流程。
+事件驱动的 **Work** Agent 会承担 Auto Memory 从对话中提取长期有用信息的工作。我们计划让 Work 监听你配置并接入的每个 Agent Harness
+的新增日志和会话记录，汇集多个来源的更新，持续跟进项目进展、决定、阻塞和下一步。后续会话仍可利用这些记录，有进展符合你的提醒要求时，
+Work 也可以主动汇报。现在的原型已经用新增 Codex 对话和截图测试这套流程。
 
 ### Auto Dream 拆成三个定时 Agent
 
-现在的 Auto Dream 会把每日记录沉淀为个人、流程经验和 Wiki 知识。我们计划把这三类整理工作交给各自独立的 Agent，分别指定使用哪些资料、
-什么时候执行。
-
-| 定时 Agent | 整理内容 | 示例 |
-| --- | --- | --- |
-| **Personal** | 稳定的偏好、长期目标和个人或项目背景 | 记住用户希望怎样审阅研究结果。 |
-| **Procedural** | 可复用的工作流程、排查方法和实践经验 | 将一次验证有效的排查过程整理成下次能用的指南。 |
-| **Wiki** | 值得长期查阅的主题知识及其来源 | 新实验或论文澄清某个问题后，更新相应的主题页。 |
+现在的 Auto Dream 会把每日记录沉淀为个人、流程经验和 Wiki 知识。我们计划把这三类整理工作交给三个独立的 Agent，
+每个 Agent 采用自己的 Cron 日程和资料整理规则。
 
 现有 `daily/` 和 `digest/` 中的笔记是过渡时的重要背景。迁移里程碑会说明如何继续使用已有工作区和来源链接，
 以及如何把现有的 Auto Memory 和 Auto Dream 配置迁移到新任务。
 [当前 Auto Dream 的输入输出](./auto_dream.md#输入和输出)
 
-### 预定义 Agent 和事件工作流
+### 预设 Agent 和工作流
 
-计划中的事件驱动 Agent 包括 **Work**、**Finance** 和 **Research**。Finance 可以跟进用户选定的话题、资产和相关资讯。
-Research 可以跟进新论文、项目结果或其他已配置的研究来源，记下新发现和它与当前工作的关系。原型已有事件驱动的 Finance 示例和定时的
-科技简报，可以用来测试哪些内容值得记下来，哪些需要及时告诉用户。
+ReMe5 计划提供一组预设，用于跟进持续进行的工作、定时整理长期记忆，以及管理日常待办和总结。
 
-我们也计划为常见事件提供可复用的处理方式。**Todo** 可以从明确的后续行动中提取待办，并链接回相关决定。**Daily Summary** 可以汇总
-当天有实质变化的事项，保留后续还需要跟进的内容。现有桌面原型里的 Todo 界面和后台任务总结可以作为这些工作流的基础。
+| 预设 | 触发方式 | 负责什么 |
+| --- | --- | --- |
+| **Work** | 事件驱动 | 包含 Auto Memory。跟进已接入 Agent Harness 的日志和会话，记录项目进展、决定和阻塞。 |
+| **Finance** | 事件驱动 | 跟进用户选定的话题或资产相关的新闻和行情。 |
+| **Research** | 事件驱动 | 跟进与当前研究问题有关的新论文和项目结果。 |
+| **Consolidate Personal Memory** | Cron 定时 | Auto Dream 的个人记忆预设。整理稳定偏好、长期目标和个人或项目背景。 |
+| **Consolidate Procedural Memory** | Cron 定时 | Auto Dream 的流程经验预设。整理可复用的工作流程、排查方法和实践经验。 |
+| **Consolidate Wiki Knowledge** | Cron 定时 | Auto Dream 的 Wiki 预设。维护值得长期查阅的主题知识，并保留来源链接。 |
+| **Todo** | 事件驱动 | 从有关事件中提取明确的待办，并链接回事件或相关决定。 |
+| **Daily Summary** | 事件驱动 | 有实质变化时更新当天的总结，并保留仍需跟进的事项。 |
+
+原型已有事件驱动的 Finance 示例和定时的科技简报。我们用这些示例测试哪些内容值得记下来，哪些需要及时告诉用户。
+现有桌面原型里的 Todo 界面和后台任务总结也可以作为这些工作流的基础。
 [原型 Agent 配置](https://github.com/agentscope-ai/ReMe/blob/main/reme/config/proactive.yaml) ·
 [桌面原型](https://github.com/agentscope-ai/ReMe/tree/main/reme_desktop)
 
-## 通过 Remy 创建和管理 Agent
+## 在对话中创建和管理 Agent
 
-你可以直接使用预定义 Agent，也可以让自己的 **Personal Agent**（ReMe Desktop 中的 Remy）创建新的任务。例如，你可以说
-「每周五总结这周的实验结果，附上报告链接」，也可以让 Remy 跟进已经接入的实验日志，完成或失败时告诉你。之后可以在同一个对话里
-追问任务上次什么时候运行，修改关注条件、调整日程，或者暂停任务。事件驱动任务需要接入能提供相应信息的来源。
+Chat Agent 通过 `manage-proactive-agent` skill 创建自定义 Agent，并管理预定义和自定义任务。你可以在对话中查看任务状态、追问进展，
+修改任务要求和运行设置，也可以暂停或恢复任务。
+[任务管理 skill](https://github.com/agentscope-ai/ReMe/blob/main/skills/manage-proactive-agent/SKILL.md)
 
-![Personal Runtime 如何让 Remy 管理后台任务，并把符合投递条件的提醒带回主对话](../figure/personal-runtime.svg)
+要创建定时任务，你可以说「每周五总结这周的实验结果，附上报告链接」。要创建事件驱动任务，你可以让 Chat Agent 跟进实验日志，
+完成或失败时告诉你。事件驱动任务需要接入能提供相应信息的来源。
 
-Personal Runtime 把聊天和后台任务连起来。后台 Agent 根据任务要求提出提醒，Remy 可以结合当前对话判断这条提醒是否还需要告诉你。
-你可以在同一个地方交办事情、查看进展和调整提醒频率。
-[Personal Runtime 指南](./proactive_runtime.md)
+后台 Agent 根据任务要求提出提醒。Chat Agent 结合当前对话决定是否投递提醒。[对话与任务管理指南](./proactive_runtime.md)
 
 ## 桌面预览、执行后端和宿主集成
 
@@ -117,7 +130,7 @@ Codex 和 Claude Code 可以同时出现在两种角色中。作为执行后端�
 
 | 里程碑 | 状态 | 内容 |
 | --- | --- | --- |
-| **运行时和桌面原型** | 已合入 `main` | Remy 对话、事件驱动和定时任务、在工作区保存任务状态、提醒投递。 |
+| **运行时和桌面原型** | 已合入 `main` | Chat Agent、事件驱动和定时任务、在工作区保存任务状态、提醒投递。 |
 | **真实工作流测试** | 进行中 | 测试 Work、Finance 和定时任务，检查能否记录实质变化、来源链接是否有效，以及重试或重复事件下的提醒表现。 |
 | **记忆工作流和预定义任务** | 计划纳入 ReMe5 | 将 Auto Memory 纳入 Work，实现三个定时 Auto Dream Agent，说明如何迁移现有工作区和配置，并开发首批 Research、Todo 和 Daily Summary 工作流。 |
 | **ReMe5 和桌面预览** | 目标是 2026 年底前 | 发布运行时和 macOS、Windows 概念验证，提供安装指南和已支持的后端、工作流说明。 |
