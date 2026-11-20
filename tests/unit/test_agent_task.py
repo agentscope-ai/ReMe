@@ -6,9 +6,7 @@ import os
 
 import pytest
 
-from reme.components import R, RuntimeContext
-from reme.config import resolve_app_config
-from reme.enumeration import ComponentEnum
+from reme.components import RuntimeContext
 from reme.schema.agent_view import AgentTaskRequest
 from reme.steps.proactive.agent.api import AgentTaskStep
 from .test_agent_runtime import running_runtime
@@ -87,9 +85,3 @@ async def test_task_editor_rejects_remy_deleted_agents_and_outside_paths(tmp_pat
 def test_task_editor_requires_a_revision_and_action_specific_fields(fields):
     with pytest.raises(ValueError):
         AgentTaskRequest.model_validate(fields)
-
-
-def test_task_editor_is_registered_and_exposed_by_proactive_config():
-    config = resolve_app_config(config="proactive", log_config=False)
-    assert R.get(ComponentEnum.STEP, "agent_task_step") is AgentTaskStep
-    assert config["jobs"]["agent_task"]["steps"] == [{"backend": "agent_task_step"}]

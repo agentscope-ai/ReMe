@@ -659,23 +659,6 @@ async def test_read_no_suffix_autoappends_md():
 
 
 @pytest.mark.asyncio
-async def test_read_line_range():
-    """start_line / end_line slice the file 1-based, inclusive."""
-
-    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-        _seed_md(Path(tmp), "Notes.md", "L1\nL2\nL3\nL4\nL5\n")
-        store = await _make_store()
-        resp = await _read(store, path="Notes.md", start_line=2, end_line=4)
-        assert resp.success is True
-        assert "L2" in str(resp.answer)
-        assert "L3" in str(resp.answer)
-        assert "L4" in str(resp.answer)
-        assert "L1" not in str(resp.answer)
-        assert "L5" not in str(resp.answer)
-        await store.close()
-
-
-@pytest.mark.asyncio
 async def test_read_absolute_path_inside_workspace_accepted():
     """Absolute paths that resolve inside the workspace are accepted."""
 

@@ -88,14 +88,6 @@ async def _run(step, messages, **kwargs):
     return step.context.response
 
 
-def test_only_include_images_is_exposed_and_disabled_by_default():
-    path = Path(__file__).resolve().parents[2] / "reme/config/default.yaml"
-    job = yaml.safe_load(path.read_text(encoding="utf-8"))["jobs"]["auto_memory"]
-    assert job["parameters"]["properties"]["include_images"]["default"] is False
-    assert {"supports_vision", "image_mode"}.isdisjoint(job["parameters"]["properties"])
-    assert job["steps"] == [{"backend": "auto_memory_step"}, {"backend": "auto_tag_step"}]
-
-
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "options,images",

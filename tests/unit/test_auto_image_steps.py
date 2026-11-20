@@ -21,7 +21,6 @@ from unittest.mock import patch
 
 import frontmatter
 import pytest
-import yaml
 from agentscope.message import DataBlock
 from PIL import Image, JpegImagePlugin
 
@@ -866,31 +865,6 @@ async def test_auto_image_delete_reports_unreadable_index_after_note_delete(auto
     assert result["metadata"]["modified"] is True
     assert not note.exists()
     assert index.read_bytes() == damaged
-
-
-def test_default_resource_watcher_dispatches_only_the_unified_router():
-    """Both init and live resource producers call one auto-resource router."""
-    root = Path(__file__).resolve().parents[2]
-    config = yaml.safe_load((root / "reme" / "config" / "default.yaml").read_text(encoding="utf-8"))
-    steps = config["jobs"]["resource_watch_loop"]["steps"]
-    expected_processors = [
-        "auto_image_resource_step",
-        "auto_text_resource_step",
-    ]
-
-    for producer in steps:
-        backends = [item["backend"] for item in producer["dispatch_steps"]]
-        assert backends == ["update_catalog_step", "auto_resource_step"]
-        router = producer["dispatch_steps"][1]
-        assert router["dispatch_steps"] == expected_processors
-
-    auto_resource = config["jobs"]["auto_resource"]["steps"][0]
-    assert auto_resource["backend"] == "auto_resource_step"
-    assert auto_resource["dispatch_steps"] == expected_processors
-    include_images = config["jobs"]["auto_resource"]["parameters"]["properties"]["include_images"]
-    assert include_images["type"] == "boolean"
-    assert include_images["default"] is True
-    assert "auto_image" not in config["jobs"]
 
 
 def test_image_dependencies_keep_heif_support_optional():

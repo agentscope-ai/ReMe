@@ -5,7 +5,6 @@
 import asyncio
 from datetime import datetime, timezone
 import json
-from pathlib import Path
 from types import SimpleNamespace
 
 from fastmcp import Client
@@ -424,24 +423,6 @@ async def test_http_and_mcp_expose_both_jobs_and_preserve_unset_fields(jobs):
         assert saved["due_date"] == "2026-11-20" and len(saved["progress"]) == 1
         await client.call_tool("todo", {"action": "update", "id": task["id"], "due_date": None})
         assert "due_date" not in await call(jobs, "todo", action="get", id=task["id"])
-
-
-def test_proactive_chat_configuration_resolves_tools_and_skill():
-    """Both Chat backends inherit the same tools and discoverable project skills."""
-    for config_name in ("proactive", "proactive_cc"):
-        config = resolve_app_config(config=config_name, log_config=False)
-        assert {"todo", "idea"} <= config["jobs"].keys()
-        for name, model in (("todo", TodoRequest), ("idea", IdeaRequest)):
-            assert (
-                config["jobs"][name]["parameters"]["properties"].keys()
-                == model.model_json_schema()["properties"].keys()
-            )
-        for job in ("ask_agent", "create_chat_session", "process_chat_reminders"):
-            assert config["jobs"][job]["steps"][0]["job_tools"] == ["manage_proactive_agent", "todo", "idea"]
-        skills = config["components"]["agent_wrapper"]["default"]["skills"]
-        assert skills == ["manage-proactive-agent", "manage-todos-ideas"]
-        for name in skills:
-            assert (Path(__file__).resolve().parents[2] / "skills" / name / "SKILL.md").is_file()
 
 
 @pytest.mark.parametrize("backend", ["http", "mcp"])

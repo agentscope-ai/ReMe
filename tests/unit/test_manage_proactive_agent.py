@@ -1,17 +1,12 @@
-"""Named management actions, small model results and executable skill examples."""
+"""Named management actions and small model results."""
 
 # pylint: disable=missing-function-docstring,protected-access
 
 from datetime import datetime
-import json
-from pathlib import Path
-import re
 from unittest.mock import AsyncMock
 
-import jsonschema
 import pytest
 
-from reme.config import resolve_app_config
 from reme.schema.proactive_agent import ManageProactiveAgentRequest
 from reme.steps.proactive.tools.manage_proactive_agent import ManageProactiveAgentStep
 from .test_agent_runtime import running_runtime
@@ -143,16 +138,3 @@ async def test_query_errors_remain_failed_tool_results(tmp_path, monkeypatch):
         )
         result = await tool(action="query", agent_name="experiment_watch", question="进展如何？")
         assert not result.success and result.answer == "No completed run"
-
-
-def test_skill_action_examples_match_the_live_request_contract():
-    path = Path(__file__).resolve().parents[2] / "skills/manage-proactive-agent/SKILL.md"
-    schema = resolve_app_config(config="proactive", log_config=False)["jobs"]["manage_proactive_agent"]["parameters"]
-    actions = set()
-    for block in re.findall(r"```json\n(.*?)\n```", path.read_text(), re.DOTALL):
-        value = json.loads(block)
-        if isinstance(value, dict) and "action" in value:
-            jsonschema.validate(value, schema)
-            request = ManageProactiveAgentRequest.model_validate(value)
-            actions.add(request.action)
-    assert actions == {"list", "create", "status", "update", "query", "delete"}

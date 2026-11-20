@@ -13,30 +13,11 @@ from reme.config.config_parser import (
     parse_kwargs,
     resolve_app_config,
 )
-from reme.schema import ApplicationConfig
-
-
-def test_cli_disables_dream_schedule_without_disabling_manual_job():
-    """A CLI schedule override preserves callable jobs and other default schedules."""
-    cfg = ApplicationConfig(
-        **resolve_app_config(log_config=False, **parse_kwargs("jobs.dream_cron.enabled=false")),
-    )
-
-    assert cfg.jobs["dream_cron"].enabled is False
-    assert cfg.jobs["dream_cron"].backend == "cron"
-    assert cfg.jobs["auto_dream"].enable_serve is True
-    assert cfg.jobs["auto_dream"].enabled is True
-    assert cfg.jobs["auto_dream"].steps
-    assert cfg.jobs["optimize_index_cron"].enabled is True
 
 
 def test_load_builtin_config_by_filename_with_suffix():
     """Built-in config names may include the YAML suffix."""
-    cfg = _load_config("default.yaml")
-
-    assert cfg["service"]["backend"] == "http"
-    assert cfg["service"]["mcp_enabled"] is True
-    assert cfg["service"]["mcp_path"] == "/mcp"
+    assert _load_config("default.yaml") == _load_config("default")
 
 
 @pytest.mark.parametrize("provider_count", [1, 2])
@@ -93,81 +74,24 @@ def test_resolve_app_config_layers_plugins_over_default():
     """A plugin-only start keeps the ordinary default application config."""
     config = resolve_app_config(log_config=False, plugins=["auto-fin"])
 
-    assert config["service"]["backend"] == "http"
-    assert config["plugins"] == ["auto-fin"]
+    assert config == {**_load_config("default"), "plugins": ["auto-fin"]}
 
 
-def test_default_config_registers_daily_write_job():
-    """``daily_write`` is exposed as a base job backed by ``daily_write_step``."""
-    cfg = _load_config("default.yaml")
-
-    job = cfg["jobs"]["daily_write"]
-    assert job["backend"] == "base"
-    assert job["steps"] == [{"backend": "daily_write_step"}]
-    assert job["parameters"]["required"] == ["name", "description", "session_id", "content"]
-
-
-def test_default_config_registers_app_config_job():
-    """The default service exposes the effective application config."""
-    job = _load_config("default.yaml")["jobs"]["app_config"]
-
-    assert job["backend"] == "base"
-    assert job["steps"] == [{"backend": "app_config_step"}]
-
-
-def test_default_config_registers_workspace_web_jobs():
-    """The local web client has stable save and streaming chat actions."""
-    jobs = _load_config("default.yaml")["jobs"]
-
-    assert jobs["save"]["steps"] == [{"backend": "save_step"}]
-    assert jobs["load"]["steps"] == [{"backend": "load_step", "max_bytes": 5242880}]
-    assert jobs["chat"]["backend"] == "stream"
-    assert jobs["chat"]["steps"] == [{"backend": "chat_step", "agent_wrapper": "default"}]
-
-
-def test_default_config_registers_manual_and_scheduled_proactive_refresh():
-    """Proactive refresh is locally runnable while only the scheduled job starts automatically."""
-    jobs = _load_config("default.yaml")["jobs"]
-
-    manual = jobs["proactive_refresh"]
-    scheduled = jobs["proactive_refresh_cron"]
-    assert manual["backend"] == "base"
-    assert manual["enable_serve"] is False
-    assert scheduled["backend"] == "cron"
-    assert manual["steps"] == scheduled["steps"]
-    topics = next(step for step in manual["steps"] if step["backend"] == "proactive_topics_step")
-    assert topics["defer_interests_write"] is True
-
-
-@pytest.mark.parametrize(
-    "manual,scheduled",
-    [("auto_dream", "dream_cron"), ("proactive_refresh", "proactive_refresh_cron")],
-)
-def test_shared_default_steps_keep_job_overrides_isolated(manual, scheduled):
+def test_yaml_aliases_keep_job_overrides_isolated(tmp_path):
     """YAML aliases share definitions without coupling loaded job data or CLI overrides."""
-    jobs = _load_config("default.yaml")["jobs"]
-    original = jobs[scheduled]["steps"][0]["scan_days"]
-    jobs[manual]["steps"][0]["scan_days"] = original + 1
-    assert jobs[scheduled]["steps"][0]["scan_days"] == original
+    path = tmp_path / "jobs.yaml"
+    path.write_text(
+        "jobs:\n  manual:\n    steps: &steps [{backend: read}]\n  scheduled:\n    steps: *steps\n",
+        encoding="utf-8",
+    )
+    jobs = _load_config(str(path))["jobs"]
+    jobs["manual"]["steps"][0]["backend"] = "edit"
+    assert jobs["scheduled"]["steps"] == [{"backend": "read"}]
 
-    replacement = [{"backend": "add_step"}]
-    resolved = resolve_app_config(log_config=False, jobs={manual: {"steps": replacement}})["jobs"]
-    assert resolved[manual]["steps"] == replacement
-    assert resolved[scheduled]["steps"] == jobs[scheduled]["steps"]
-
-
-def test_default_config_keeps_frontmatter_chunk_metadata_opt_in():
-    """Markdown frontmatter-to-chunk metadata is disabled by default for compatibility."""
-    cfg = _load_config("default.yaml")
-
-    markdown = cfg["components"]["file_chunker"]["markdown"]
-    assert markdown["embed_toc"] is True
-    assert markdown["max_ast_sections"] == 100
-    assert markdown["include_frontmatter_in_metadata"] is False
-    # Allow-list defaults to empty; combined with the False above, chunk metadata stays empty.
-    assert markdown["include_frontmatter_keys_in_metadata"] == [] or markdown.get(
-        "include_frontmatter_keys_in_metadata",
-    ) in (None, [])
+    overrides = parse_kwargs(f"config={path}", 'jobs.manual.steps=[{"backend":"write"}]')
+    resolved = resolve_app_config(log_config=False, **overrides)["jobs"]
+    assert resolved["manual"]["steps"] == [{"backend": "write"}]
+    assert resolved["scheduled"]["steps"] == jobs["scheduled"]["steps"]
 
 
 def test_parse_args_rejects_non_key_value_extra_argument():

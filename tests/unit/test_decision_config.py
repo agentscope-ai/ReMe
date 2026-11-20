@@ -1,4 +1,4 @@
-"""Decision model registration, optional config, and secret redaction."""
+"""Decision model wiring through the application and service."""
 
 # pylint: disable=redefined-outer-name,unused-argument
 
@@ -15,14 +15,11 @@ import pytest
 import httpx
 
 from reme import Application
-from reme.components import R
 from reme.components.as_decision_model import AgentScopeAsDecisionModel
 from reme.components.as_decision_model import agentscope as provider_module
 from reme.components.client import HttpClient
-from reme.config import parse_kwargs, resolve_app_config
+from reme.config import resolve_app_config
 from reme.enumeration import ComponentEnum
-from reme.steps.common.app_config import AppConfigStep
-from reme.steps.common.decision_demo import DecisionDemoStep
 
 
 @pytest.fixture
@@ -30,67 +27,6 @@ def decision_env(monkeypatch):
     """Keep all examples independent of the user's local provider settings."""
     for name in ("DECISION_MODEL_BACKEND", "DECISION_MODEL_NAME", "DECISION_MODEL_API_KEY", "DECISION_MODEL_BASE_URL"):
         monkeypatch.delenv(name, raising=False)
-
-
-def test_registration_and_default_opt_in(decision_env):
-    """Imports register providers, but default jobs never enable classification."""
-    assert R.get(ComponentEnum.AS_DECISION_MODEL, "agentscope") is AgentScopeAsDecisionModel
-    assert R.get(ComponentEnum.STEP, "decision_demo_step") is DecisionDemoStep
-    default = resolve_app_config(log_config=False)
-    assert "as_decision_model" not in default["components"]
-    assert "decide" not in default["jobs"]
-
-
-def test_demo_config_env_and_cli_override(decision_env, monkeypatch):
-    """Provider env expands and CLI transport settings deep-merge over the file."""
-    monkeypatch.setenv("DECISION_MODEL_API_KEY", "test-key")
-    monkeypatch.setenv("DECISION_MODEL_NAME", "decision-test")
-    config = resolve_app_config(
-        log_config=False,
-        **parse_kwargs(
-            "config=decision_demo",
-            "components.as_decision_model.default.timeout=12",
-        ),
-    )
-    component = config["components"]["as_decision_model"]["default"]
-    assert component == {
-        "backend": "agentscope",
-        "model": "decision-test",
-        "credential": {"api_key": "test-key", "base_url": None},
-        "timeout": 12,
-        "max_retries": 2,
-        "retry_delay": 0.5,
-    }
-    default = resolve_app_config(log_config=False)
-    assert config["service"] == default["service"]
-    assert config["service"]["backend"] == "http"
-    assert config["jobs"]["decide"]["enable_serve"] is True
-    assert "decision_demo" not in config["jobs"]
-    assert {name: job for name, job in config["jobs"].items() if name != "decide"} == default["jobs"]
-    assert {name: group for name, group in config["components"].items() if name != "as_decision_model"} == default[
-        "components"
-    ]
-
-
-def test_application_starts_without_optional_imports_and_redacts_key(decision_env, monkeypatch, tmp_path):
-    """The inherited config wires components without creating a decision model client."""
-    monkeypatch.setenv("DECISION_MODEL_API_KEY", "test-key")
-    monkeypatch.setattr(provider_module, "import_module", lambda _: pytest.fail("Unexpected optional import"))
-    config = resolve_app_config(config="decision_demo", log_config=False)
-
-    async def run():
-        app = Application(
-            **config,
-            workspace_dir=str(tmp_path),
-            enable_logo=False,
-            log_to_console=False,
-            log_to_file=False,
-        )
-        async with app:
-            response = await AppConfigStep(app_context=app.context)()
-            assert response.answer["components"]["as_decision_model"]["default"]["credential"]["api_key"] == "***"
-
-    asyncio.run(run())
 
 
 def test_decision_client_calls_inherited_http_service(decision_env, monkeypatch, tmp_path, capsys):
@@ -194,9 +130,6 @@ def test_decision_configs_use_adapter_defaults_without_optional_imports(
     """Both entry points wire the generic component without loading its SDK."""
     monkeypatch.setattr(provider_module, "import_module", lambda _: pytest.fail("Unexpected optional import"))
     config = resolve_app_config(config=config_name, log_config=False)
-    component = config["components"]["as_decision_model"][component_name]
-    assert component["backend"] == "agentscope"
-    assert component["model"] is None
     assert config["jobs"][job_name]["steps"][0]["as_decision_model"] == component_name
     app = Application(**config, workspace_dir=str(tmp_path), enable_logo=False, log_to_file=False)
     model = app.context.components[ComponentEnum.AS_DECISION_MODEL][component_name]

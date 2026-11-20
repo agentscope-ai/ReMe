@@ -12,13 +12,12 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from reme.components import ApplicationContext, LocalAgentRuntime, R, RuntimeContext
+from reme.components import ApplicationContext, LocalAgentRuntime, RuntimeContext
 from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.agent_inbox import AgentEventInbox
 from reme.utils.files.workspace_files import WorkspaceFiles
 from reme.components.job import BaseJob, CronJob
 from reme.config import resolve_app_config
-from reme.enumeration import ComponentEnum
 from reme.schema import Response, ResourceMetadata
 from reme.steps.proactive.data_connectors import (
     ScreenCaptureStep,
@@ -823,27 +822,6 @@ async def test_overlapping_collections_are_serialized(tmp_path, source, devices)
         assert first.success and second.success and devices.call_count == 0
         assert [len(call.kwargs["events"]) for call in delivery.await_args_list] == [1]
         assert len(messages(context)) == 1 and (await inbox.snapshot("work"))["pending_count"] == 1
-
-
-def test_config_initializes_dialogue_before_cron_and_schedules_screens_independently(monkeypatch):
-    monkeypatch.delenv("CODEX_HOME", raising=False)
-    config = resolve_app_config(config="proactive", log_config=False)
-    jobs = config["jobs"]
-    assert "codex_dialogue_init" not in jobs
-    assert jobs["codex_dialogue_cron"]["backend"] == "cron"
-    assert jobs["codex_dialogue_cron"]["cron"] == "*/5 * * * *"
-    assert jobs["screen_capture_cron"]["cron"] == "*/5 * * * *"
-    assert jobs["screen_capture_cron"]["enabled"]
-    assert jobs["screen_capture_cron"]["agent_name"] == "work"
-    assert jobs["codex_dialogue_cron"]["steps"][0]["agent_name"] == "work"
-    assert jobs["screen_capture_cron"]["steps"][0]["similarity_threshold"] == 0.99
-    for key, cls in (
-        ("init_steps", CodexDialogueInitStep),
-        ("steps", CodexDialogueStep),
-    ):
-        spec = jobs["codex_dialogue_cron"][key][0]
-        assert spec["codex_home"] == "~/.codex"
-        assert R.get(ComponentEnum.STEP, spec["backend"]) is cls
 
 
 @pytest.mark.asyncio

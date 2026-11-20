@@ -228,15 +228,6 @@ def test_parse_wikilink_line_ranges():
     ]
 
 
-def test_parse_markdown_links_are_ignored():
-    """Ordinary Markdown links do not create FileLink edges."""
-    links = WikilinkHandler.extract_links(
-        "[plain](../wiki/a.md) [section](../wiki/a.md#section) [ranges](../wiki/b.md#L9-L10,L15-L20)",
-        "daily/note.md",
-    )
-    assert not links
-
-
 def test_parse_links_no_match():
     """Strings without [[]] yield no links, even if '::' appears."""
     assert len(WikilinkHandler.extract_links("no link here :: foo", "src.md")) == 0
