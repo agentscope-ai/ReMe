@@ -23,7 +23,7 @@ from pathlib import Path
 
 import frontmatter
 
-from ._path import _check_path_permission, display_path, gate_md, resolve_path
+from ._path import check_path_permission, display_path, gate_md, resolve_path
 from ..base_step import BaseStep
 from ...components import R
 
@@ -57,7 +57,7 @@ class StatStep(BaseStep):
             target = original_target
         # Honor the request-scoped ``_allowed_paths`` constraint like ``read``;
         # stat also returns the frontmatter of Markdown files.
-        if not _check_path_permission(workspace_dir, target, self.context.get("_allowed_paths")):
+        if not check_path_permission(workspace_dir, target, self.context.get("_allowed_paths")):
             self.context.response.success = False
             self.context.response.answer = "Error: no permission to access this path"
             self.context.response.metadata.update({"path": path, "error": "no permission to access this path"})

@@ -12,7 +12,7 @@ import aiofiles
 import aiofiles.os
 
 from ._base import _FileIOStep
-from ._path import _check_path_permission, NON_IMAGE_WARNING, gate_image, resolve_path
+from ._path import NON_IMAGE_WARNING, check_path_permission, gate_image, resolve_path
 from ...components import R
 from ...constants import DEFAULT_MAX_IMAGE_BYTES
 
@@ -57,7 +57,7 @@ class ReadImageStep(_FileIOStep):
             return None
 
         target, is_image, mime = gate_image(target)
-        if not _check_path_permission(self.workspace_path, target, self.context.get("_allowed_paths")):
+        if not check_path_permission(self.workspace_path, target, self.context.get("_allowed_paths")):
             self._fail("no permission to access this file", path=str(target))
             return None
         if not is_image:
