@@ -1,6 +1,6 @@
 # Release checklist:
 # 1. Update project.version in plugins/daily_paper/pyproject.toml and merge it into the target branch.
-# 2. Publish the required reme-ai version before this plugin; the wheel installation resolves it from PyPI.
+# 2. Publish the required reme-ai version before this plugin. Installing the wheel resolves ReMe from PyPI.
 # 3. Configure PyPI Trusted Publishing for this repository/workflow and its pypi environment.
 # 4. Run "Release / Daily Paper plugin" from GitHub Actions from the target branch; the version is read from project.version.
 #
