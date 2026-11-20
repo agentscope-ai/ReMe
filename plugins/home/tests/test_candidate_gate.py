@@ -163,6 +163,73 @@ async def test_gate_exemption_is_bound_to_checkout(app, prepared, monkeypatch, e
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("rebuild_review")
+@pytest.mark.parametrize("intervening", ["debug_only", "debug", "unrecorded", "infra_error"])
+async def test_admission_base_requires_usable_budgeted_ancestor(app, prepared, monkeypatch, intervening):
+    repo = prepared / "code/repo"
+    base = git(repo, "rev-parse", "HEAD")
+    used = 0
+    if intervening != "debug_only":
+        # A candidate failure is still meaningful formal evidence, even at score zero.
+        commit_candidate(prepared)
+        with monkeypatch.context() as patch:
+            patch.setattr(FakeFactory, "fail_build", "1")
+            formal = await app.run_job("home_evaluate", case_ids=["1"])
+        assert formal.success and formal.answer["case_status_counts"]["candidate_failure"] == 1
+        assert formal.answer["mean_query_score"] == 0
+        base = formal.answer["commit_sha"]
+        used = 1
+
+    commit_candidate(prepared)
+    if intervening == "infra_error":
+        with monkeypatch.context() as patch:
+            patch.setattr(FakeFactory, "bad_export", True)
+            result = await app.run_job("home_evaluate")
+        assert not result.success and result.answer["case_status_counts"]["infra_error"] == 2
+        used += 1
+    elif intervening == "unrecorded":
+        assert (await app.run_job("home_evaluate", record_history=False)).success
+    else:
+        assert (await app.run_job("home_evaluate", debug=True)).success
+
+    assert validation_budget_status(prepared, 10)["used_validations"] == used
+    commit_candidate(prepared)
+
+    async def reject(wrapper, home, context, budget, **kwargs):
+        return {**context, "decision": "reject", "reason": "Stop after capturing the admission context"}
+
+    monkeypatch.setattr(candidate_gate, "review_candidate", reject)
+    response = await app.run_job("home_evaluate", max_evaluations=10)
+    assert response.answer["error_code"] == "CANDIDATE_GATE_REJECTED"
+    assert response.answer["candidate_gate"]["base_commit"] == base
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("rebuild_review")
+async def test_admission_base_uses_latest_evaluation_at_equal_ancestry_distance(app, prepared):
+    repo = prepared / "code/repo"
+    # The left lineage is longer, but both evaluated tips are direct parents of the merge.
+    commit_candidate(prepared)
+    commit_candidate(prepared)
+    assert (await app.run_job("home_evaluate")).success
+    assert (await app.run_job("home_switch_candidate_branch", branch_name="init")).success
+    assert (await app.run_job("home_create_candidate_branch", branch_name="right")).success
+    (repo / "plugins/beam/src/right.py").write_text("right = True\n", encoding="utf-8")
+    assert (await app.run_job("home_commit_candidate", message="Right change")).success
+    right = await app.run_job("home_evaluate")
+    assert right.success
+    assert (await app.run_job("home_create_candidate_branch", branch_name="unmerged")).success
+    commit_candidate(prepared)
+    assert (await app.run_job("home_evaluate")).success
+    assert (await app.run_job("home_switch_candidate_branch", branch_name="right")).success
+    assert (await app.run_job("home_merge_candidate_branch", branch_name="test-candidate")).success
+    assert (await app.run_job("home_commit_candidate", message="Combine branches")).success
+
+    _, context = candidate_gate.admission_context(prepared)
+    assert context["base_commit"] == right.answer["commit_sha"]
+
+
+@pytest.mark.asyncio
 async def test_nearest_ancestor_and_infrastructure_retry(app, prepared, sandbox, monkeypatch):
     assert (await app.run_job("home_evaluate")).success
     commit_candidate(prepared)

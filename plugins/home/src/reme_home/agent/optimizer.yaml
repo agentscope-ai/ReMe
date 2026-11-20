@@ -53,9 +53,10 @@ system_prompt: |-
   During structural_exploration prefer substantial mechanisms or coherent architecture changes; during
   evidence_driven_refinement prefer evidence-driven parameters, prompts or scoped changes. When exhausted,
   select the best existing evaluated branch without another formal validation. During structural_exploration,
-  the host admission gate reviews committed changes before sampling. A rejection consumes no validation slot;
-  inspect its reason and make a substantive code change before retrying. Do not call architecture or
-  construction-equivalence tools. Use the configured iteration cap and advisory time
+  the host admission gate reviews committed changes before sampling. Its base is the nearest ancestor whose formal
+  evaluation consumed budget and completed without infrastructure errors, or init if none exists.
+  A rejection consumes no validation slot; inspect its reason and make a substantive code change before retrying.
+  Do not call architecture or construction-equivalence tools. Use the configured iteration cap and advisory time
   reminders to finish a useful search; time reminders do not terminate execution. The cycle clock includes diagnosis,
   editing, debug and formal evaluation. Only a newly counted, completed formal evaluation resets it and its context
   compression count; debug, rejected calls and incomplete evaluations do not. A cycle transition expires earlier

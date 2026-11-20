@@ -12,7 +12,14 @@ from ..code.snapshot import tree
 from ..preparation.code import git
 from ..preparation.data.models import fingerprint
 from .artifacts import contained, file_sha256, read_json
-from .inputs import load_inputs, load_reuse_source, reuse_inputs, validate_replay_answers, validate_snapshot
+from .inputs import (
+    EvaluationSpec,
+    load_reuse_source,
+    reuse_inputs,
+    select_cases,
+    validate_replay_answers,
+    validate_snapshot,
+)
 
 AUTO_MEMORY_FILENAMES = {
     "auto_memory.py",
@@ -42,11 +49,15 @@ def construction_fingerprints(record, dataset, spec, environment):
     }
 
 
-def verify_candidate(home, commit, branch):
+def verify_candidate(home, commit, branch, *, checkout_branch=None):
     """Check the prepared checkout while the caller holds the workspace lock."""
     repo, record, current = validate_candidate(home)
-    actual_branch = "init" if current == record["code"]["initial_commit"] else current_branch(repo)
-    if (current, actual_branch) != (commit, branch):
+    if current == record["code"]["initial_commit"]:
+        actual_branch = "init" if checkout_branch is None else git(repo, "branch", "--show-current")
+    else:
+        actual_branch = current_branch(repo)
+    expected_branch = branch if checkout_branch is None else checkout_branch
+    if (current, actual_branch) != (commit, expected_branch):
         raise ValueError("Candidate changed during equivalence review; retry evaluation on the reviewed commit")
     return repo, record
 
@@ -142,10 +153,10 @@ def reuse_response(reuse):
     return response
 
 
-def _replay_selection(home, spec, cases, manifest):
+def _replay_selection(spec, cases, manifest):
     """Keep one historical question set intact, within the current sampling limits."""
     case_ids, query_ids = manifest["case_ids"], manifest["query_ids"]
-    if not case_ids or set(query_ids) != set(case_ids) or set(case_ids) - {case.case_id for case in cases}:
+    if not case_ids or set(query_ids) != set(case_ids):
         return None
     policy = spec.sampling_policy
     if len(case_ids) > policy.max_cases or (
@@ -156,7 +167,7 @@ def _replay_selection(home, spec, cases, manifest):
     selection_spec = type(spec).model_validate(
         {**spec.model_dump(), "sampling": False, "target_queries": None, **selection},
     )
-    _, _, selected = load_inputs(home, selection_spec)
+    selected = select_cases({case.case_id: case for case in cases}, selection_spec.case_ids, selection_spec.query_ids)
     return selected, selection
 
 
@@ -169,7 +180,7 @@ def prepare_source(home, spec, cases, fingerprints, context, *, paired=False):
         if manifest["commit_sha"] != context["base_commit"]:
             return None
         if paired:
-            replay = _replay_selection(home, spec, cases, manifest)
+            replay = _replay_selection(spec, cases, manifest)
             if replay is None:
                 return None
             cases, selection = replay
@@ -217,10 +228,8 @@ def case_reuse_inputs(home, spec, cases, fingerprints, sources):
     return resolved, archives
 
 
-def verify_case_reuse(home, run, manifest, commit):
+def verify_case_reuse(home, run, manifest, commit, cases):
     """Accept mixed evidence only when every reused case has host-reviewed provenance."""
-    from .inputs import EvaluationSpec
-
     sources = manifest["construction_sources"]
     selected = manifest.get("case_ids", [])
     reuse = manifest.get("automatic_construction_reuse", {})
@@ -258,7 +267,6 @@ def verify_case_reuse(home, run, manifest, commit):
         ):
             raise ValueError(f"Case {case_id} lacks matching construction-equivalence evidence")
     spec = EvaluationSpec.model_validate(manifest.get("options", {}))
-    _, _, cases = load_inputs(home, spec)
     cases = [case for case in cases if case.case_id in sources]
     _, archives = case_reuse_inputs(home, spec, cases, manifest["fingerprints"], sources)
     for case_id in selected:

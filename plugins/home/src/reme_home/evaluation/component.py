@@ -205,7 +205,7 @@ class HomeEvaluation(BaseComponent):
         _validate_directory(self.workspace_path.resolve(), self.workspace.state_path)
         with _initialization_lock(self.workspace.state_path / "workspace.lock"):
             record, dataset, cases = load_inputs(home, spec)
-            snapshot, commit, branch = snapshot_code(home, record)
+            snapshot, commit, branch, checkout_branch = snapshot_code(home, record)
             if admission_checkout is not None and (commit, branch) != (
                 admission_checkout.commit,
                 admission_checkout.branch,
@@ -256,47 +256,48 @@ class HomeEvaluation(BaseComponent):
             if spec.sampling and not spec.debug and previous is None and not defer_sampling
             else None
         )
-        with _initialization_lock(self.workspace.state_path / "workspace.lock"):
-            plan = recovery_plan
-            fingerprints = construction_fingerprints(record, dataset, spec, environment)
-            if previous_manifest is not None:
-                sources = previous_manifest.get("construction_sources", {})
-                if not sources and previous_manifest.get("execution_mode") in {"query_only_replay", "mixed_validation"}:
-                    raise ValueError("Recovery requires saved per-case construction sources")
-                sources, archives = case_reuse_inputs(home, spec, cases, fingerprints, sources)
-            elif spec.sampling and not spec.debug and not defer_sampling:
-                source, verified_archives, eligibility = replay_sampling_inputs(home, spec, cases, fingerprints)
-                plan = create_sampling_plan(
-                    cases,
-                    sampling_state,
-                    spec.sampling_policy,
-                    eligible_query_ids=eligibility,
-                    target_queries=spec.target_queries,
-                )
-                cases = selected_cases(cases, plan)
-                sources = {case.case_id: source for case in cases}
-                archives = {case.case_id: verified_archives[case.case_id] for case in cases}
-            else:
-                source, archives = reuse_inputs(home, spec, cases, fingerprints)
-                sources = {case.case_id: source for case in cases} if source else {}
-            return (
-                record,
-                dataset,
+        # The validation lock serializes formal runs while replay preflights archives.
+        plan = recovery_plan
+        fingerprints = construction_fingerprints(record, dataset, spec, environment)
+        if previous_manifest is not None:
+            sources = previous_manifest.get("construction_sources", {})
+            if not sources and previous_manifest.get("execution_mode") in {"query_only_replay", "mixed_validation"}:
+                raise ValueError("Recovery requires saved per-case construction sources")
+            sources, archives = case_reuse_inputs(home, spec, cases, fingerprints, sources)
+        elif spec.sampling and not spec.debug and not defer_sampling:
+            source, verified_archives, eligibility = replay_sampling_inputs(home, spec, cases, fingerprints)
+            plan = create_sampling_plan(
                 cases,
-                snapshot,
-                commit,
-                branch,
-                fingerprints,
-                sources,
-                archives,
-                plan,
-                previous_manifest,
+                sampling_state,
+                spec.sampling_policy,
+                eligible_query_ids=eligibility,
+                target_queries=spec.target_queries,
             )
+            cases = selected_cases(cases, plan)
+            sources = {case.case_id: source for case in cases}
+            archives = {case.case_id: verified_archives[case.case_id] for case in cases}
+        else:
+            source, archives = reuse_inputs(home, spec, cases, fingerprints)
+            sources = {case.case_id: source for case in cases} if source else {}
+        return (
+            record,
+            dataset,
+            cases,
+            snapshot,
+            commit,
+            branch,
+            checkout_branch,
+            fingerprints,
+            sources,
+            archives,
+            plan,
+            previous_manifest,
+        )
 
-    def _verify_candidate(self, commit, branch):
+    def _verify_candidate(self, commit, branch, checkout_branch=None):
         """Reject checkout changes between selection, review and execution."""
         with _initialization_lock(self.workspace.state_path / "workspace.lock"):
-            verify_candidate(self.workspace.home_path, commit, branch)
+            verify_candidate(self.workspace.home_path, commit, branch, checkout_branch=checkout_branch)
 
     def _sampling_started(self, run, manifest, plan, policy=None, *, record_history=True):
         """The factory invokes this only after a real sandbox successfully initializes."""
@@ -422,9 +423,20 @@ class HomeEvaluation(BaseComponent):
     async def _evaluate(self, spec, admission=None, admission_checkout=None):
         environment = {**os.environ, **self.app_context.app_config.environment}
         prepared = await blocking(self._prepare, spec, environment, admission_checkout)
-        record, dataset, cases, snapshot, commit, branch, fingerprints, sources, archives, sampling_plan, previous = (
-            prepared
-        )
+        (
+            record,
+            dataset,
+            cases,
+            snapshot,
+            commit,
+            branch,
+            checkout_branch,
+            fingerprints,
+            sources,
+            archives,
+            sampling_plan,
+            previous,
+        ) = prepared
         reuse = None
         deferred_sampling = spec.sampling and not spec.debug and sampling_plan is None and previous is None
         if previous is not None:
@@ -453,7 +465,7 @@ class HomeEvaluation(BaseComponent):
                     fingerprints,
                     reuse["case_sources"],
                 )
-        await blocking(self._verify_candidate, commit, branch)
+        await blocking(self._verify_candidate, commit, branch, checkout_branch)
         reuse_feedback = reuse_response(reuse) if reuse is not None else None
         # Each case can load a verified snapshot or build its own memory.
         jobs = {case.case_id: build_jobs(case) for case in cases if case.case_id not in sources}
@@ -539,6 +551,8 @@ class HomeEvaluation(BaseComponent):
                         export_diagnostics_to=folder / "full.tar.gz",
                     ),
                 )
+            if sources:
+                await blocking(self._verify_candidate, commit, branch, checkout_branch)
             factory = DockerReMeSandboxFactory(
                 SourceCandidate(
                     snapshot,

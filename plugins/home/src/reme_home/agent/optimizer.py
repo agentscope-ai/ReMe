@@ -257,6 +257,13 @@ def evaluation_options(raw):
     return EvaluationSpec.model_validate(raw).model_dump(exclude_unset=True)
 
 
+def _infrastructure_free(manifest, summary):
+    return manifest.get("success") is True and all(
+        isinstance(counts := summary.get(key), dict) and counts.get("infra_error") == 0
+        for key in ("case_status_counts", "query_status_counts")
+    )
+
+
 def verify_evaluation(home, path, commit, *, baseline=False):
     """Accept completed baseline observations; final evidence must be infrastructure-free."""
     run = Path(evaluation_paths(home, [str(path)])[0])
@@ -276,21 +283,13 @@ def verify_evaluation(home, path, commit, *, baseline=False):
         and summary.get("case_count")
         and summary.get("scoring_enabled") is True
     )
-    if not completed or (
-        not baseline
-        and (
-            manifest.get("success") is not True
-            or any(
-                summary.get(key, {}).get("infra_error") != 0 for key in ("case_status_counts", "query_status_counts")
-            )
-        )
-    ):
+    if not completed or (not baseline and not _infrastructure_free(manifest, summary)):
         raise ValueError("Evaluation must match the commit and complete without infrastructure failures")
     mode = manifest.get("execution_mode")
-    if manifest.get("construction_sources"):
+    reused = bool(manifest.get("construction_sources"))
+    if reused:
         if baseline:
             raise ValueError("Initial baseline cannot reuse construction")
-        verify_case_reuse(home, run, manifest, commit)
     elif mode != "full_validation":
         raise ValueError("Reused evidence requires host-selected per-case construction sources")
     _record, dataset, cases = load_inputs(home, EvaluationSpec())
@@ -321,6 +320,8 @@ def verify_evaluation(home, path, commit, *, baseline=False):
     for key, row in rows.items():
         if set(row.get("queries", {})) != set(queries[key]) and row.get("construction", {}).get("status") != "failure":
             raise ValueError(f"Evaluation summary has incomplete query coverage: {key}")
+    if reused:
+        verify_case_reuse(home, run, manifest, commit, cases)
     return {"evaluation_path": str(run), "manifest": manifest, "summary": summary}
 
 
@@ -337,11 +338,24 @@ def baseline_state(home, *, evaluation_path=None):
             if current["current_branch"] != "init" or current["commit_sha"] != initial:
                 raise ValueError("New initial baseline requires clean init at the initial commit")
             return verify_evaluation(home, evaluation_path, initial, baseline=True)
-        for manifest in sorted((home / "evaluations/init").glob("*/*/manifest.json"), reverse=True):
+        # Attempt IDs are allocated in order under the initial commit's directory.
+        attempts = (
+            path.parent
+            for path in (home / "evaluations/init").glob("*/*/manifest.json")
+            if path.parent.name.isascii() and path.parent.name.isdecimal()
+        )
+        fallback = None
+        for run in sorted(attempts, key=lambda path: int(path.name), reverse=True):
             try:
-                return verify_evaluation(home, manifest.parent, initial, baseline=True)
+                evidence = verify_evaluation(home, run, initial, baseline=True)
             except (ValueError, OSError, KeyError, TypeError):
                 continue
+            if _infrastructure_free(evidence["manifest"], evidence["summary"]):
+                return evidence
+            if fallback is None:
+                fallback = evidence
+        if fallback is not None:
+            return fallback
         if current["current_branch"] != "init" or current["commit_sha"] != initial:
             raise ValueError("A complete initial baseline is missing; check out clean init before home_optimize")
         return None

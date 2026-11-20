@@ -9,6 +9,8 @@ import math
 import random
 from typing import Iterable
 
+from deploy.benchmark_docker.models import validate_case_id, validate_query_artifact_id
+
 from .models import CaseSpec, DatasetManifest, QuerySpec, SessionSpec, canonical_json_bytes, fingerprint
 
 
@@ -26,6 +28,21 @@ def select_case_ids(available: list[str], requested: Iterable[str] | None) -> li
     return requested_ids
 
 
+def validate_artifact_ids(case: CaseSpec) -> None:
+    """Check normalized identifiers against the sandbox and Home artifact layout."""
+    try:
+        validate_case_id(case.case_id)
+    except ValueError as error:
+        raise ValueError(f"Invalid case_id {case.case_id!r}: {error}") from error
+    for query in case.queries:
+        try:
+            validate_query_artifact_id(query.query_id)
+            if query.query_id == "result.json":
+                raise ValueError("query ID conflicts with the case's query results file")
+        except ValueError as error:
+            raise ValueError(f"Invalid query_id {query.query_id!r} in case {case.case_id!r}: {error}") from error
+
+
 def write_normalized_dataset(
     directory: Path,
     dataset: str,
@@ -40,6 +57,7 @@ def write_normalized_dataset(
     case_fingerprints: list[str] = []
     query_count = 0
     for index, case in enumerate(cases):
+        validate_artifact_ids(case)
         if case.case_id in case_ids:
             raise ValueError(f"Duplicate normalized case ID: {case.case_id}")
         (cases_directory / f"{index:06d}.json").write_bytes(canonical_json_bytes(case) + b"\n")

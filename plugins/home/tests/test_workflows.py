@@ -811,6 +811,51 @@ async def test_baseline_infra_error_continues_optimization(
 
 
 @pytest.mark.asyncio
+async def test_baseline_state_prefers_latest_successful_numeric_attempt(app, prepared, monkeypatch):
+    run_build = FakeWorker.run_build
+    fail_build = True
+
+    async def build(self, jobs):
+        if fail_build and self.case_id == "1":
+            raise ConnectionError("Construction infrastructure unavailable")
+        return await run_build(self, jobs)
+
+    async def attempt(number, success):
+        response = await app.run_job("home_evaluate", fail_fast=False)
+        assert response.success is success, response.answer
+        assert response.answer["status"] == "completed"
+        path = response.answer["result_dir"]
+        assert Path(path).name == str(number)
+        return path
+
+    monkeypatch.setattr(FakeWorker, "run_build", build)
+    for number in range(1, 10):
+        diagnostic = await attempt(number, False)
+    assert optimizer_module.baseline_state(prepared)["evaluation_path"] == diagnostic
+
+    fail_build = False
+    app.context.components["agent_wrapper"]["judge"].reply.return_value = {
+        "result": '{"score": 0}',
+        "status": "completed",
+        "error": None,
+    }
+    successful = await attempt(10, True)
+    selected = optimizer_module.baseline_state(prepared)
+    assert selected["evaluation_path"] == successful
+    assert selected["summary"]["mean_query_score"] == 0
+
+
+@pytest.mark.asyncio
+async def test_candidate_memory_build_failure_remains_valid_baseline_evidence(app, prepared, monkeypatch):
+    monkeypatch.setattr(FakeFactory, "fail_build", "1")
+    path = await baseline(app)
+    evidence = optimizer_module.baseline_state(prepared)
+    assert evidence["evaluation_path"] == path
+    assert evidence["manifest"]["success"] is True
+    assert evidence["summary"]["case_status_counts"] == {"completed": 1, "candidate_failure": 1, "infra_error": 0}
+
+
+@pytest.mark.asyncio
 async def test_invalid_scope_schema_and_injected_trajectory(app, prepared, sandbox):
     path = await baseline(app)
     wrapper = set_model(app, "home_optimizer", ScriptedModel())

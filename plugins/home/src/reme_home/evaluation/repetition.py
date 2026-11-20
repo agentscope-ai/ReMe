@@ -70,7 +70,7 @@ def previous_candidate_result(home: Path, commit: str) -> Path | None:
     revision = f"{commit}^{{tree}}"
     current_tree = git(repository, "rev-parse", "--verify", "--end-of-options", revision)
     trees = {revision: current_tree}
-    recoverable = None
+    latest_by_directory = {}
     evaluations = contained(home, "evaluations", directory=True)
     for path in sorted(evaluations.glob("*/*/*/manifest.json")):
         run = contained(home, path.parent, directory=True)
@@ -87,5 +87,13 @@ def previous_candidate_result(home: Path, commit: str) -> Path | None:
             continue
         if previous_commit != commit or not retryable_result(run):
             raise UnchangedCandidateError(run)
-        recoverable = run
-    return recoverable
+        # IDs are monotonic within one branch/commit directory. A retry on a
+        # different branch has independent IDs, so compare those runs by start time.
+        attempt = int(run.name) if run.name.isascii() and run.name.isdecimal() else 0
+        started_at = str(manifest.get("started_at") or "")
+        recovery = (attempt, started_at, run)
+        if run.parent not in latest_by_directory or recovery > latest_by_directory[run.parent]:
+            latest_by_directory[run.parent] = recovery
+    if latest_by_directory:
+        return max(latest_by_directory.values(), key=lambda item: (item[1], item[0], item[2]))[2]
+    return None

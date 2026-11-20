@@ -191,6 +191,24 @@ async def test_beam_missing_rubric_is_rejected_during_preparation(app, inputs):
 
 
 @pytest.mark.asyncio
+async def test_beam_unsafe_query_id_fails_before_publication(app, inputs):
+    """Normalized query IDs must be usable as evaluation artifact paths."""
+    spec, _ = inputs
+    source = Path(spec["benchmark"]["source"]) / "chats/100K/2/probing_questions/probing_questions.json"
+    data = json.loads(source.read_text())
+    data["invalid/group"] = data.pop("fact")
+    source.write_text(json.dumps(data))
+    home = Path(app.config.workspace_dir) / "home"
+    before = snapshot(home)
+
+    response = await app.run_job("home_prepare", spec=spec)
+
+    assert not response.success
+    assert "Invalid query_id 'invalid/group:1' in case '2'" in str(response.answer)
+    assert snapshot(home) == before
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("app", ["lme-judge"], indirect=True)
 @pytest.mark.parametrize("answer", [" ", None, True, False, [], {}, float("nan"), float("inf"), -float("inf")])
 async def test_lme_invalid_answer_is_rejected_during_preparation(app, inputs, answer):
@@ -206,6 +224,37 @@ async def test_lme_invalid_answer_is_rejected_during_preparation(app, inputs, an
     assert not response.success
     assert "LongMemEval case q1 query q1 requires a non-empty reference answer" in str(response.answer)
     assert snapshot(home) == before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("app", ["lme-judge"], indirect=True)
+@pytest.mark.parametrize(
+    "invalid_id, field",
+    [("support/42", "case_id"), ("support 42", "case_id"), ("summary.json", "query_id"), ("result.json", "query_id")],
+)
+async def test_lme_invalid_id_fails_preparation_and_allows_retry(app, inputs, invalid_id, field):
+    """Preparation must roll back IDs that cannot be evaluated."""
+    spec, source = inputs
+    spec["benchmark"] = {"name": "longmemeval", "source": str(source), "all_cases": True}
+    items = json.loads(source.read_text())
+    items[0]["question_id"] = invalid_id
+    source.write_text(json.dumps(items))
+    home = Path(app.config.workspace_dir) / "home"
+    before = snapshot(home)
+
+    response = await app.run_job("home_prepare", spec=spec)
+
+    assert not response.success
+    assert f"Invalid {field} {invalid_id!r}" in str(response.answer)
+    assert snapshot(home) == before
+
+    items[0]["question_id"] = "support-42"
+    source.write_text(json.dumps(items))
+    response = await app.run_job("home_prepare", spec=spec)
+    assert response.success, response.answer
+    assert response.answer["dataset"]["case_ids"] == ["support-42"]
+    case = json.loads((home / "datasets/training-set/cases/000000.json").read_text())
+    assert case["queries"][0]["query_id"] == "support-42"
 
 
 @pytest.mark.asyncio

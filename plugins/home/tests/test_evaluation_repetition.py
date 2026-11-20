@@ -54,6 +54,23 @@ def test_tree_lookup_is_cached_without_skipping_attempts(tmp_path, monkeypatch):
     assert error.value.path == completed
 
 
+def test_recovery_order_uses_attempt_ids_within_branch_and_start_time_across_branches(tmp_path, monkeypatch):
+    (tmp_path / "code/repo").mkdir(parents=True)
+    monkeypatch.setattr(repetition, "git", lambda _repo, *args: args[-1])
+
+    def attempt(branch, number, started_at):
+        run = tmp_path / f"evaluations/{branch}/current/{number}"
+        write_json(run / "manifest.json", {"commit_sha": "current", "started_at": started_at})
+        return run
+
+    attempt("z", 9, "2026-11-20T00:00:00+00:00")
+    tenth = attempt("z", 10, "2026-11-20T00:00:00+00:00")
+    assert repetition.previous_candidate_result(tmp_path, "current") == tenth
+
+    other_branch = attempt("a", 1, "2026-11-20T01:00:00+00:00")
+    assert repetition.previous_candidate_result(tmp_path, "current") == other_branch
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("options", [{}, {"sampling": True}, {"record_history": False}, {"case_ids": ["1"]}])
 async def test_completed_tree_rejected_before_pool_allocation_or_history_changes(app, prepared, options):

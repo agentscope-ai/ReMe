@@ -13,6 +13,7 @@ from reme.utils.async_utils import complete_in_thread as blocking
 from ..code.repository import current_branch, validate_candidate, validate_repository
 from ..code.snapshot import export_blob, tree
 from ..evaluation.artifacts import contained, read_json
+from ..evaluation.history import read_state
 from ..evaluation.repetition import previous_candidate_result
 from ..preparation.code import git
 from ..preparation.spec import SpecModel
@@ -34,6 +35,35 @@ class AdmissionCheckout(NamedTuple):
     previous_result: Path | None
 
 
+def _admission_base(home: Path, repo: Path, commit: str, initial: str) -> str:
+    """Find the nearest ancestor with a budget charge and a usable formal result."""
+    state = read_state(home)
+    started = state["started_validations"]
+    evaluated: dict[str, int] = {}
+    # Sampling history records completed formal results without infrastructure errors.
+    for key in state["processed_validations"]:
+        if key.startswith("init/") or key not in started:
+            continue
+        manifest = read_json(contained(home, f"evaluations/{key}/manifest.json"))
+        sha = manifest["commit_sha"]
+        evaluated[sha] = max(evaluated.get(sha, 0), started[key])
+    if not evaluated:
+        return initial
+
+    revisions = git(repo, "rev-list", "--parents", commit).splitlines()
+    parents = {sha: lineage for sha, *lineage in (line.split() for line in revisions)}
+    visited = {commit}
+    frontier = set(parents[commit])
+    while frontier:
+        matches = frontier & evaluated.keys()
+        if matches:
+            # Start rounds order formal evaluations even when timestamps coincide.
+            return max(matches, key=evaluated.__getitem__)
+        visited.update(frontier)
+        frontier = {parent for sha in frontier for parent in parents[sha]} - visited
+    return initial
+
+
 def admission_context(home: Path) -> tuple[AdmissionCheckout, dict[str, str] | None]:
     """Capture the checkout and optional review context under the workspace lock."""
     repo, record, commit = validate_candidate(home)
@@ -43,15 +73,7 @@ def admission_context(home: Path) -> tuple[AdmissionCheckout, dict[str, str] | N
     checkout = AdmissionCheckout(commit, current_branch(repo), previous_candidate_result(home, commit))
     if checkout.previous_result is not None:
         return checkout, None
-    ancestors = set(git(repo, "rev-list", commit).splitlines())
-    candidates = []
-    for path in sorted((home / "evaluations").glob("*/*/*/manifest.json")):
-        manifest = read_json(contained(home, path))
-        previous = manifest.get("commit_sha")
-        if previous != commit and previous in ancestors:
-            distance = int(git(repo, "rev-list", "--count", f"{previous}..{commit}"))
-            candidates.append((distance, previous))
-    base = min(candidates)[1] if candidates else initial
+    base = _admission_base(home, repo, commit, initial)
     return checkout, {"base_commit": base, "candidate_commit": commit, "branch_name": checkout.branch}
 
 

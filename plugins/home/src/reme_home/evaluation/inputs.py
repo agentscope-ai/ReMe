@@ -13,6 +13,7 @@ from pydantic import Field, field_validator, model_validator
 from deploy.benchmark_docker import SourceSnapshot
 
 from ..preparation.code import export_git_tree, git, git_tree, runtime_roots, tree_fingerprint
+from ..preparation.data.basic import validate_artifact_ids
 from ..preparation.data.models import CaseSpec, DatasetManifest, fingerprint
 from .artifacts import contained, file_sha256, inspect_archive, read_json
 from ..preparation.spec import SpecModel
@@ -102,10 +103,10 @@ def load_inputs(home: Path, spec: EvaluationSpec):
     hashes = []
     for path in sorted((directory / "cases").glob("*.json")):
         case = CaseSpec.model_validate(read_json(path))
-        entity_id(case.case_id)
+        validate_artifact_ids(case)
         if case.case_id in cases or not case.queries:
             raise ValueError("Dataset contains duplicate case IDs or a case without queries")
-        ids = [entity_id(query.query_id) for query in case.queries]
+        ids = [query.query_id for query in case.queries]
         if len(ids) != len(set(ids)):
             raise ValueError(f"Duplicate query IDs in case {case.case_id}")
         hashes.append(fingerprint(case))
@@ -116,22 +117,27 @@ def load_inputs(home: Path, spec: EvaluationSpec):
         raise ValueError("Prepared dataset counts do not match its manifest")
     if spec.dataset_kind == "training-set" and manifest != DatasetManifest.model_validate(record["dataset"]):
         raise ValueError("Prepared training manifest has changed")
-    selected = spec.case_ids if spec.case_ids is not None else list(cases)
+    return record, manifest, select_cases(cases, spec.case_ids, spec.query_ids)
+
+
+def select_cases(cases: dict[str, CaseSpec], case_ids, query_ids):
+    """Select cases and queries in caller order from an already validated dataset."""
+    selected = case_ids if case_ids is not None else list(cases)
     if not selected or set(selected) - cases.keys():
         raise ValueError(f"Unknown or empty case selection: {sorted(set(selected) - cases.keys())}")
-    if spec.query_ids is not None and set(spec.query_ids) - set(selected):
+    if query_ids is not None and set(query_ids) - set(selected):
         raise ValueError("query_ids contains cases outside case_ids")
     result = []
     for case_id in selected:
         case = cases[case_id]
-        if spec.query_ids is not None and case_id in spec.query_ids:
+        if query_ids is not None and case_id in query_ids:
             queries = {query.query_id: query for query in case.queries}
-            ids = spec.query_ids[case_id]
+            ids = query_ids[case_id]
             if set(ids) - queries.keys():
                 raise ValueError(f"Unknown query selection for {case_id}")
             case = case.model_copy(update={"queries": [queries[key] for key in ids]})
         result.append(case)
-    return record, manifest, result
+    return result
 
 
 def snapshot_code(home: Path, record: dict):
@@ -143,7 +149,8 @@ def snapshot_code(home: Path, record: dict):
     if git(repository, "status", "--porcelain=v2", "--untracked-files=all", "--ignore-submodules=none"):
         raise ValueError("Commit candidate changes before evaluation")
     commit = git(repository, "rev-parse", "--verify", "HEAD^{commit}")
-    branch = "init" if commit == record["code"]["initial_commit"] else git(repository, "branch", "--show-current")
+    checkout_branch = git(repository, "branch", "--show-current")
+    branch = "init" if commit == record["code"]["initial_commit"] else checkout_branch
     entity_id(branch)
     entries = git_tree(repository, commit)
     roots = runtime_roots(record["code"]["plugins"])
@@ -171,7 +178,7 @@ def snapshot_code(home: Path, record: dict):
             if not (combined / project / "pyproject.toml").is_file():
                 raise ValueError(f"Candidate is missing install project {project}")
         snapshot = SourceSnapshot.from_directory(combined)
-    return snapshot, commit, branch
+    return snapshot, commit, branch, checkout_branch
 
 
 def load_reuse_source(home: Path, value: str, fingerprints: dict, *, sampling: bool = False):
