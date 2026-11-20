@@ -1,20 +1,20 @@
 ---
-title: ReMe 0.5 Preview — Proactive Runtime
+title: ReMe5 Preview — Proactive Runtime
 description: How ReMe is bringing file-native memory, event-driven agents, and scheduled work together in a local-first runtime.
 ---
 
-# ReMe 0.5 Preview — Proactive Runtime
+# ReMe5 Preview — Proactive Runtime
 
-ReMe started as a Memory Kit for agents. With 0.5, ReMe is growing into a **local-first Proactive Runtime**, with memory at
-its core. You can give an agent an ongoing responsibility, let new information or a schedule start its next run, and
-return later to ask what happened. The task can remember its instructions, build on previous work, and bring important
-changes back to your conversation.
+ReMe started as a Memory Kit for agents. With **ReMe5**, our upcoming `0.5` release, ReMe is growing into a **local-first
+Proactive Runtime** with memory at its core. You can give an agent an ongoing responsibility, let new information or a
+schedule start its next run, and return later to ask what happened. The task can remember its instructions, build on
+previous work, and bring important changes back to your conversation.
 
-We aim to release ReMe 0.5 **by the end of 2026**. An early runtime and desktop prototype is on `main`. We are exercising
+We aim to release ReMe5 **by the end of 2026**. An early runtime and desktop prototype is on `main`. We are exercising
 it in real workflows and refining what agents record, when they notify, and how reliably tasks continue across runs.
 [Prototype PR](https://github.com/agentscope-ai/ReMe/pull/743) ·
 [Current configuration](https://github.com/agentscope-ai/ReMe/blob/main/reme/config/proactive.yaml) ·
-[简体中文](../zh/reme_0_5_preview.md)
+[简体中文](../zh/reme5_preview.md)
 
 ## Why a Proactive Runtime
 
@@ -24,7 +24,7 @@ want to investigate next. Following up takes more than recalling a past conversa
 watch, which developments matter, what it already recorded, and when you want to hear about them.
 
 ReMe’s existing memory workflows provide the foundation. Auto Memory distills conversations into daily notes with
-source links. Auto Dream consolidates useful daily material into long-term knowledge. In 0.5, an agent can use that same
+source links. Auto Dream consolidates useful daily material into long-term knowledge. In ReMe5, an agent can use that same
 file-native memory while following a task from one event or scheduled run to the next.
 [Memory as File](./memory_as_file.md) · [Auto Memory](./auto_memory.md) · [Auto Dream](./auto_dream.md)
 
@@ -60,13 +60,13 @@ when it runs, and a user can open the files to check or correct the context that
 defined by configuration. Source links let users trace an agent’s conclusions back to the relevant conversation,
 document, or observation. [Execution and storage details](./proactive_runtime.md#how-a-task-keeps-running)
 
-## How memory evolves in 0.5
+## How memory evolves in ReMe5
 
-![ReMe 0.5 plan with configured harness events driving Work and schedules driving Personal, Procedural, and Wiki consolidation](../figure/reme-0-5-memory-workflows.svg)
+![ReMe5 plan with configured harness events driving Work and schedules driving Personal, Procedural, and Wiki consolidation](../figure/reme5-memory-workflows.svg)
 
 ### Auto Memory becomes part of Work
 
-In 0.5, the event-driven **Work** agent will take on Auto Memory’s role of extracting durable context from conversations.
+The event-driven **Work** agent will take on Auto Memory’s role of extracting durable context from conversations.
 The plan is to watch the logs and session records of the Agent Harnesses you configure and connect. Work will combine
 updates across those sources to track project progress, decisions, blockers, and next steps. It can retain what will
 matter in later sessions and surface a development when it matches your instructions. The current Work prototype uses
@@ -141,8 +141,8 @@ work in an existing Codex or Claude Code session and bring results back into tha
 | --- | --- | --- |
 | **Runtime and desktop prototype** | On `main` | Chat with Remy, event-driven and scheduled background agents, workspace-backed task state, and reminder delivery. |
 | **Real-workflow testing** | In progress | Exercise Work, Finance, and scheduled tasks. Check whether records capture real changes, source links hold up, and reminders remain useful across retries and repeated events. |
-| **Memory workflows and presets** | Planned for 0.5 | Bring Auto Memory into Work, build the three scheduled Auto Dream agents, and document how existing workspaces and configurations carry forward. Develop initial Research, Todo, and Daily Summary workflows. |
-| **ReMe 0.5 and desktop preview** | Targeting release by the end of 2026 | Publish the runtime and the macOS and Windows proof of concept. Document setup, available execution backends, and the supported preview workflows. |
+| **Memory workflows and presets** | Planned for ReMe5 | Bring Auto Memory into Work, build the three scheduled Auto Dream agents, and document how existing workspaces and configurations carry forward. Develop initial Research, Todo, and Daily Summary workflows. |
+| **ReMe5 and desktop preview** | Targeting release by the end of 2026 | Publish the runtime and the macOS and Windows proof of concept. Document setup, available execution backends, and the supported preview workflows. |
 | **Host integrations** | Planned in stages | Connect supported host event sources, then validate task follow-up and result delivery within each host. |
 
 ## Try the prototype and share feedback

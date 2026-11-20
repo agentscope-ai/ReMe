@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1260" height="505" viewBox="0 0 1260 505" role="img" aria-labelledby="title desc">
-  <title id="title">Memory workflows planned for ReMe 0.5</title>
+  <title id="title">Memory workflows planned for ReMe5</title>
   <desc id="desc">Configured harness logs and sessions trigger Work, which takes on Auto Memory and saves sourced project records and summaries. Daily records and other workspace evidence feed Personal, Procedural, and Wiki, the three scheduled Auto Dream agents. Their outputs are long-term memory files with source links.</desc>
   <defs>
     <style>
@@ -18,7 +18,7 @@
   </defs>
 
   <rect width="1260" height="505" rx="16" fill="#F8FAFA" />
-  <text x="36" y="57" class="title">Memory workflows planned for ReMe 0.5</text>
+  <text x="36" y="57" class="title">Memory workflows planned for ReMe5</text>
 
   <rect x="36" y="83" width="1188" height="180" rx="14" fill="#EBF5F4" />
   <text x="56" y="117" class="label teal">When a new event arrives</text>

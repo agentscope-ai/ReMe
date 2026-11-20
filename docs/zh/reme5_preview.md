@@ -1,18 +1,18 @@
 ---
-title: ReMe 0.5 前瞻 · Proactive Runtime
+title: ReMe5 前瞻 · Proactive Runtime
 description: ReMe 如何将文件化记忆、事件驱动的 Agent 和定时任务整合到一套本地优先的运行时中。
 ---
 
-# ReMe 0.5 前瞻 · Proactive Runtime
+# ReMe5 前瞻 · Proactive Runtime
 
-ReMe 从面向 Agent 的 Memory Kit 起步。到了 0.5，ReMe 将发展为一套**以记忆为核心、本地优先的 Proactive Runtime**。
+ReMe 从面向 Agent 的 Memory Kit 起步。**ReMe5** 是即将发布的 `0.5` 版，ReMe 将由此发展为一套**以记忆为核心、本地优先的 Proactive Runtime**。
 你可以把一件需要持续跟进的事交给 Agent。收到新信息，或者到了约定时间，它就会运行一轮，记住你的要求，接着上次的进展往下做。
 遇到重要变化时，它会把消息带回对话，你也可以随时追问发生了什么。
 
-我们计划在 **2026 年底前**发布 ReMe 0.5。运行时和桌面应用的早期原型已合入 `main`。目前我们正在用真实工作流测试原型，
+我们计划在 **2026 年底前**发布 ReMe5。运行时和桌面应用的早期原型已合入 `main`。目前我们正在用真实工作流测试原型，
 继续改进 Agent 记什么、什么时候提醒，以及任务能否稳定地跨多轮推进。
 [原型 PR](https://github.com/agentscope-ai/ReMe/pull/743) ·
-[当前配置](https://github.com/agentscope-ai/ReMe/blob/main/reme/config/proactive.yaml) · [English](../en/reme_0_5_preview.md)
+[当前配置](https://github.com/agentscope-ai/ReMe/blob/main/reme/config/proactive.yaml) · [English](../en/reme5_preview.md)
 
 ## 为什么需要 Proactive Runtime
 
@@ -21,7 +21,7 @@ ReMe 从面向 Agent 的 Memory Kit 起步。到了 0.5，ReMe 将发展为一�
 什么已经记过，以及什么时候该来告诉你。
 
 ReMe 现有的记忆流程是这个能力的基础。Auto Memory 把对话提炼为带有来源链接的每日记录，Auto Dream 将有长期价值的内容沉淀成知识。
-在 0.5 中，Agent 可以用同样的文件化记忆持续跟进任务，每次收到事件或按日程运行时都能接着已有进展处理。
+在 ReMe5 中，Agent 可以用同样的文件化记忆持续跟进任务，每次收到事件或按日程运行时都能接着已有进展处理。
 [文件即记忆](./memory_as_file.md) · [Auto Memory](./auto_memory.md) · [Auto Dream](./auto_dream.md)
 
 例如，你可以让 Remy 跟进多个工具里的同一个项目，并在遇到需要你决定的阻塞时提醒你。一次会话可能记录了测试失败和初步判断，
@@ -49,13 +49,13 @@ ReMe 现有的记忆流程是这个能力的基础。Auto Memory 把对话提炼
 配置决定哪些来源会接入，记录里的链接可以追溯到原始对话、文档或观察结果。
 [执行和存储细节](./proactive_runtime.md)
 
-## 0.5 的记忆工作流如何变化
+## ReMe5 的记忆工作流如何变化
 
-![ReMe 0.5 的记忆计划，已配置的 Harness 事件触发 Work，定时任务分别整理 Personal、Procedural 和 Wiki](../figure/reme-0-5-memory-workflows.svg)
+![ReMe5 的记忆计划，已配置的 Harness 事件触发 Work，定时任务分别整理 Personal、Procedural 和 Wiki](../figure/reme5-memory-workflows.svg)
 
 ### Auto Memory 成为 Work 的一部分
 
-在 0.5 中，事件驱动的 **Work** Agent 会承担 Auto Memory 从对话中提取长期有用信息的工作。我们计划让 Work 监听用户配置并接入的
+事件驱动的 **Work** Agent 会承担 Auto Memory 从对话中提取长期有用信息的工作。我们计划让 Work 监听用户配置并接入的
 Agent Harness 的日志和会话记录，汇集多个来源的更新，持续跟进项目进展、决定、阻塞和下一步。后续会话仍可利用这些记录，
 有进展符合你的提醒要求时，Work 也可以主动汇报。现在的原型已经用新增 Codex 对话和截图测试这套流程。
 
@@ -119,8 +119,8 @@ Codex 和 Claude Code 可以同时出现在两种角色中。作为执行后端�
 | --- | --- | --- |
 | **运行时和桌面原型** | 已合入 `main` | Remy 对话、事件驱动和定时任务、在工作区保存任务状态、提醒投递。 |
 | **真实工作流测试** | 进行中 | 测试 Work、Finance 和定时任务，检查能否记录实质变化、来源链接是否有效，以及重试或重复事件下的提醒表现。 |
-| **记忆工作流和预定义任务** | 计划纳入 0.5 | 将 Auto Memory 纳入 Work，实现三个定时 Auto Dream Agent，说明如何迁移现有工作区和配置，并开发首批 Research、Todo 和 Daily Summary 工作流。 |
-| **ReMe 0.5 和桌面预览** | 目标是 2026 年底前 | 发布运行时和 macOS、Windows 概念验证，提供安装指南和已支持的后端、工作流说明。 |
+| **记忆工作流和预定义任务** | 计划纳入 ReMe5 | 将 Auto Memory 纳入 Work，实现三个定时 Auto Dream Agent，说明如何迁移现有工作区和配置，并开发首批 Research、Todo 和 Daily Summary 工作流。 |
+| **ReMe5 和桌面预览** | 目标是 2026 年底前 | 发布运行时和 macOS、Windows 概念验证，提供安装指南和已支持的后端、工作流说明。 |
 | **宿主集成** | 分阶段推进 | 接入各宿主可提供的事件来源，验证任务跟进和结果投递。 |
 
 ## 试用原型和分享反馈
