@@ -8,7 +8,7 @@ from agentscope.tool import FunctionTool, ToolChunk, Toolkit
 
 from reme.components.agent_wrapper.as_agent_wrapper import AsAgentWrapper
 from reme.steps.base_step import BaseStep
-from reme.steps.file_io._path import _check_path_permission, resolve_path
+from reme.steps.file_io import check_path_permission, resolve_path
 
 
 def evidence_paths(workspace: Path, daily_dir: str, digest_dir: str, session_dir: str, sources: bool) -> list[str]:
@@ -36,7 +36,7 @@ def image_reader(step: BaseStep) -> FunctionTool:
     async def read_image(path: str) -> ToolChunk:
         """View an image using its session/images path cited in a memory note."""
         target, error = resolve_path(workspace, path)
-        if error or target is None or not _check_path_permission(workspace, target, [image_directory]):
+        if error or target is None or not check_path_permission(workspace, target, [image_directory]):
             return ToolChunk(
                 content=[TextBlock(text=error or "Image path must stay inside this scene's session image directory.")],
                 state=ToolResultState.ERROR,

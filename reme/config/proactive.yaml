@@ -1,291 +1,601 @@
-# Studio workspace with MCP and a full-access Codex chat agent using API-key authentication.
-# Set LLM_API_KEY / LLM_BASE_URL (and optionally CODEX_MODEL_NAME) for chat.
-# Custom LLM_BASE_URL endpoints must support the Responses API.
-# Start: reme start config=proactive
-# Open: http://127.0.0.1:2333
-# Temporary assets: resource/YYYY-MM-DD/...; keep permanent assets outside resource/.
-# The watcher reports changes; only resource_processed confirms consumption. TTL takes precedence.
-# Resource packages are discovered only through metadata.json; screen capture runs every 15 minutes.
-
+# LocalAgentRuntime with Chat and Proactive Agent steps.
+# Start with LLM_API_KEY, LLM_BASE_URL and optionally REME_MODEL_NAME.
+# reme start config=proactive
+# Desktop jobs and their runtime dependencies. Examples live in demo.yaml.
 language: zh
+reme_agent_dir: reme_agents
 
 service:
   backend: http
-  web_enabled: true
+  web_enabled: false
   mcp_enabled: true
-  timeout_graceful_shutdown: 5  # Cancel open subscriptions before application shutdown.
 
 jobs:
-  screen_capture_cron:
-    backend: cron
-    cron: "*/15 * * * *"  # Next quarter-hour in the application timezone; no startup capture.
-    steps:
-      - backend: screen_capture_step
-
-  resource_watch_loop:
-    backend: background
-    file_catalog: resource
-    steps:
-      - backend: watch_changes_step
-        dispatch_steps: [log_changes_step]
-
-  resource_changes:
+  todo:
     backend: base
     description: >-
-      List workspace-relative metadata.json paths of existing, unexpired resources added or modified since last processed;
-      read-only.
+      Manage one-sentence tasks: create/list/get/update. IDs and progress timestamps are generated automatically.
+      Update appends progress_text; done/cancelled archives the task, open/partial restores it.
+      source_idea links an existing idea; create inherits omitted project/text from that idea.
+      Follow the manage-todos-ideas skill for workflows and examples.
     parameters:
       type: object
-      properties:
-        limit: {type: integer, minimum: 1, default: 20, description: "Maximum number of changed resource paths to return"}
       additionalProperties: false
+      properties:
+        action: {type: string, enum: [create, list, get, update]}
+        id: &record_id {type: string, minLength: 1, description: "Existing record ID; never supplied on create."}
+        project: &record_project {type: string, description: "Project name. Defaults to 随笔 (Notes in English); blank also means 随笔. Omit on create to inherit the source Idea's project. Omit on update to retain. Exact filter for list; use 随笔 for Notes."}
+        text: &record_text {type: string, minLength: 1, description: "One-sentence content; create/update only."}
+        status: {type: string, enum: [open, partial, done, cancelled], description: "Task state; exact filter for list."}
+        due_date: {type: [string, "null"], format: date, description: "Optional deadline. Update with null to clear; omit to retain."}
+        source_idea: {type: [string, "null"], minLength: 1, description: "Idea ID to link or filter by; null removes the link on update."}
+        progress_text: {type: string, minLength: 1, description: "Append one progress note; create/update only."}
+        progress_time: {type: [string, "null"], format: date-time, description: "Optional explicit progress time with timezone; requires progress_text."}
+        scope: &record_scope {type: string, enum: [active, archive, all], description: "List only; defaults to active."}
+        query: &record_query {type: string, description: "List only; case-insensitive substring search."}
+        offset: &record_offset {type: integer, minimum: 0, description: "List only; defaults to 0."}
+        limit: &record_limit {type: integer, minimum: 1, maximum: 100, description: "List only; defaults to 20."}
+      required: [action]
     steps:
-      - backend: resource_changes_step
-        file_catalog: resource
+      - backend: todo_step
 
-  resource_processed:
+  idea:
     backend: base
-    description: "Mark immutable resource packages as successfully processed by metadata.json paths; returns a boolean."
+    description: >-
+      Capture and manage one-sentence ideas: create/list/get/update/archive/restore.
+      IDs are generated automatically; archive retains the idea and its Todo links.
+      Creating or completing a linked Todo does not close the idea.
+      Follow the manage-todos-ideas skill for workflows and examples.
     parameters:
       type: object
       additionalProperties: false
       properties:
-        paths:
-          type: array
-          description: "Workspace-relative metadata.json paths of successfully processed packages"
-          items: {type: string}
-      required: [paths]
+        action: {type: string, enum: [create, list, get, update, archive, restore]}
+        id: *record_id
+        project: *record_project
+        text: *record_text
+        scope: *record_scope
+        query: *record_query
+        offset: *record_offset
+        limit: *record_limit
+      required: [action]
     steps:
-      - backend: resource_processed_step
-        file_catalog: resource
+      - backend: idea_step
 
-  resource_cleanup_cron:
+  tts:
+    backend: base
+    description: "Synthesize text; returns Base64 audio, format and sample rate; requires DASHSCOPE_API_KEY."
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        text: {type: string, minLength: 1}
+      required: [text]
+    steps:
+      - backend: tts_step
+        tts: default
+
+  asr:
+    backend: base
+    description: "Transcribe Base64-encoded audio; requires DASHSCOPE_API_KEY."
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        audio: {type: string, minLength: 1, description: "Base64-encoded audio bytes"}
+        audio_format: {type: string, enum: [wav, mp3, pcm, opus], default: wav}
+        sample_rate: {type: integer, minimum: 1, description: "Audio sample rate in Hz"}
+      required: [audio]
+    steps:
+      - backend: asr_step
+        asr: default
+
+  process_chat_reminders:
+    backend: base
+    enable_serve: false
+    steps:
+      - backend: inbox_chat_step
+        job_tools: &chat_tools [manage_proactive_agent, todo, idea]
+        timeout_seconds: 120
+
+  screen_capture_cron:
     backend: cron
-    cron: "0 * * * *"  # Hourly in the application timezone; no startup cleanup.
-    file_catalog: resource
+    enabled: true
+    cron: "*/5 * * * *"
+    agent_name: work
     steps:
-      - backend: cleanup_catalog_step
+      - backend: screen_capture_step
+        similarity_threshold: 0.99
+      - backend: resource_event_step
 
-  pa_loop:
-    backend: background
+  codex_dialogue_cron:
+    backend: cron
+    cron: "*/5 * * * *"
+    # Establish the baseline on startup, without importing existing dialogue.
+    init_steps:
+      - backend: codex_dialogue_init_step
+        codex_home: &codex_home ${CODEX_HOME:-~/.codex}
     steps:
-      - backend: pa_loop_step
-        default_wakeup_minutes: &pa_wakeup_minutes 5
+      - backend: codex_dialogue_step
+        agent_name: work
+        codex_home: *codex_home
 
-  pa_proactive:
+  finance_news_cron:
+    backend: cron
+    cron: "*/5 * * * *"
+    steps:
+      - backend: finance_news_step
+        agent_name: finance
+
+  stock_quotes_cron:
+    backend: cron
+    cron: "*/5 * * * *"
+    # The collector checks each market's trading calendar and skips closed sessions.
+    steps:
+      - backend: stock_quotes_step
+        agent_name: finance
+
+  btc_quotes_cron:
+    backend: cron
+    cron: "*/5 * * * *"
+    # BTC trades continuously; stock trading calendars do not apply.
+    steps:
+      - backend: btc_quotes_step
+        agent_name: finance
+
+  manage_proactive_agent:
+    backend: base
+    description: >-
+      Manage scheduled and event-driven tasks: list/create/status/update/delete/query. All parameters are top-level.
+      Create requires agent_name and task_description; supply cron for scheduled tasks.
+      Other actions except list require agent_name; query also requires question and an existing queryable task session.
+      Update changes execution settings; edit task requirements in TASK.md at the returned task_path.
+      Follow the manage-proactive-agent skill for workflows and examples.
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        action: {type: string, enum: [list, create, status, update, delete, query]}
+        agent_name: &agent_name
+          type: string
+          minLength: 1
+          maxLength: 80
+          pattern: '^[\w-]+$'
+          description: "Stable Agent name; for new tasks prefer simple lowercase words joined by underscores. Remy is reserved for Chat."
+        task_description:
+          type: string
+          minLength: 1
+          maxLength: 100000
+          description: "Create only: task description written verbatim to TASK.md."
+        enabled: {type: boolean}
+        cron: {type: [string, "null"], description: "Cron expression in the application timezone."}
+        min_trigger_interval_seconds: {type: number, minimum: 0, description: "Event processing interval, not collection frequency."}
+        notify_window:
+          type: [object, "null"]
+          properties:
+            start: {type: string, pattern: '^(?:[01][0-9]|2[0-3]):[0-5][0-9]$'}
+            end: {type: string, pattern: '^(?:[01][0-9]|2[0-3]):[0-5][0-9]$'}
+          required: [start, end]
+          additionalProperties: false
+        question: {type: string, minLength: 1, maxLength: 100000, description: "Query only: question for the latest task session."}
+      required: [action]
+    steps:
+      - backend: manage_proactive_agent_step
+
+  append_agent_events:
+    backend: base
+    description: "Durably append observations to a named agent; source belongs to each event."
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        agent_name: *agent_name
+        events:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            properties:
+              id: {type: string}
+              event_ts: {type: string, format: date-time}
+              source: {type: string}
+              description: {type: string}
+              paths: {type: array, items: {type: string}}
+              metadata: {type: object}
+            required: [event_ts, source, description]
+            additionalProperties: false
+      required: [agent_name, events]
+    steps:
+      - backend: append_event_step
+
+  read_chat_reminders:
+    backend: base
+    enable_serve: false
+    description: >-
+      Read the selected reminders as agent_name, created_at, message and supporting paths, excluding the reminder Markdown.
+      Successful submit_chat_reminder decisions consume the batch automatically.
+    parameters:
+      type: object
+      additionalProperties: false
+      properties: {}
+    steps:
+      - backend: read_inbox_step
+
+  submit_chat_reminder:
+    backend: base
+    enable_serve: false
+    description: Send a concise assistant reminder to the source Chat conversation. Empty content means stay quiet.
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        content: {type: string, maxLength: 100000}
+      required: [content]
+    steps:
+      - backend: send_chat_msg_step
+
+  run_proactive_agent:
     backend: base
     enable_serve: false
     track_execution: true
-    default_wakeup_minutes: *pa_wakeup_minutes
     steps:
-      - backend: find_interest_step
-        agent_wrapper: default
-      - backend: push_interest_step
-        agent_wrapper: default
+      - backend: proactive_agent_step
+        timeout_seconds: 1200
+        max_local_search_calls: 10
+        max_timeline_entries: 10
+        sandbox: null  # Use the selected wrapper's sandbox setting.
 
-  send_reminder:
+  proactive_loop:
+    backend: background
+    steps:
+      - backend: agent_loop_step
+
+  list_agent_outbox:
     backend: base
-    enable_serve: false
-    description: "Send one contextual assistant reminder to the bound PA session and mark its interest files sent."
     parameters:
       type: object
       additionalProperties: false
       properties:
-        message: {type: string, minLength: 1, maxLength: 100000}
-        files:
-          type: array
-          minItems: 1
-          uniqueItems: true
-          description: "Interest filenames under daily_dir, including the .md extension"
-          items: {type: string}
-      required: [message, files]
+        agent_name: *agent_name
+        offset: &page_offset {type: integer, minimum: 0, default: 0}
+        limit: &page_limit {type: integer, minimum: 1, maximum: 100, default: 20}
+        state: {type: string, enum: [all, pending, processed], default: all}
+      required: [agent_name]
     steps:
-      - backend: send_reminder_step
-        agent_wrapper: default
+    - backend: agent_outbox_step
 
-  set_next_wakeup:
+  read_agent_reminder:
     backend: base
-    enable_serve: false
-    description: "Set only the next proactive wakeup delay in minutes; omission uses the configured default."
     parameters:
       type: object
       additionalProperties: false
       properties:
-        minutes: {type: number, exclusiveMinimum: 0}
-      required: [minutes]
+        agent_name: &view_agent_name {<<: *agent_name, default: Remy}
+        message_id: {type: string, minLength: 1, maxLength: 128}
+        mark_read: {type: boolean, default: false}
+      required: [message_id]
     steps:
-      - backend: set_next_wakeup_step
+    - backend: agent_reminder_step
 
-  pa_chat:
-    backend: stream
-    description: "Stream a message through the current Codex session with workspace personal memory."
-    parameters:
-      type: object
-      additionalProperties: false
-      properties:
-        query: {type: string, minLength: 1, description: "user message"}
-      required: [query]
-    steps:
-      - &pa_options
-        backend: pa_chat_step
-        agent_wrapper: default
-        job_tools: []
-
-  pa_events:
-    backend: stream
-    stream_queue_size: 1
-    description: "Subscribe to current PA session changes; replay a cursor or reset to a fresh snapshot."
-    parameters:
-      type: object
-      additionalProperties: false
-      properties:
-        cursor: {type: string, maxLength: 128, description: "Opaque cursor from the last applied PA event"}
-    steps:
-      - backend: pa_events_step
-        agent_wrapper: default
-
-  pa_session:
+  list_agent_inbox:
     backend: base
-    description: "Return the current agent session ID and activity status; does not create a session."
     parameters:
       type: object
+      additionalProperties: false
+      properties:
+        agent_name: *view_agent_name
+        offset: *page_offset
+        limit: *page_limit
+        state: {type: string, enum: [all, pending, processing, processed], default: all}
+    steps:
+    - backend: agent_inbox_step
+
+  list_agents:
+    backend: base
+    parameters:
+      type: object
+      additionalProperties: false
       properties: {}
+    steps:
+    - backend: agent_list_step
+
+  read_agent_session:
+    backend: base
+    parameters: &agent_request
+      type: object
       additionalProperties: false
+      properties:
+        agent_name: *view_agent_name
     steps:
-      - backend: pa_session_step
-        agent_wrapper: default
+    - backend: agent_session_step
 
-  pa_new_session:
+  agent_task:
     backend: base
-    description: "Prepare personal memory and select an empty Codex session; return its ID without generating a reply."
+    description: "Read or save a named task's TASK.md; saving requires the mtime returned by read."
     parameters:
       type: object
-      properties: {}
       additionalProperties: false
-    steps:
-      - <<: *pa_options
-        backend: pa_new_session_step
-
-  session_read:
-    backend: base
-    description: "Read session history, including proactive assistant messages."
-    parameters:
-      type: object
       properties:
-        session_id: {type: string, description: "agent session identifier"}
-      required: [session_id]
-    steps:
-      - backend: session_read_step
-        agent_wrapper: default
-
-  session_status:
-    backend: base
-    description: "Inspect session activity without waiting for generation."
-    parameters:
-      type: object
-      properties:
-        session_id: {type: string, description: "agent session identifier"}
-      required: [session_id]
-    steps:
-      - backend: session_status_step
-        agent_wrapper: default
-
-  session_append:
-    backend: base
-    description: "Append a proactive assistant message once the session is idle; retry with the same message_id."
-    parameters:
-      type: object
-      properties:
-        session_id: {type: string, description: "agent session identifier"}
-        message_id: {type: string, pattern: "^[A-Za-z0-9_-]{1,128}$", description: "stable retry/idempotency identifier"}
+        action: {type: string, enum: [read, save]}
+        agent_name: *agent_name
         content: {type: string, minLength: 1, maxLength: 100000}
-        wait_timeout: {type: number, exclusiveMinimum: 0, default: 30}
-      required: [session_id, message_id, content]
+        expected_mtime: {type: string, minLength: 1, maxLength: 80}
+      required: [action, agent_name]
     steps:
-      - backend: session_append_step
-        agent_wrapper: default
+    - backend: agent_task_step
 
-  app_config:
-    backend: base
-    description: "Return the effective application config with secrets redacted."
+  watch_agent_session:
+    backend: stream
+    parameters: *agent_request
     steps:
-      - backend: app_config_step
+    - backend: agent_events_step
+    stream_queue_size: 1
 
-  version:
-    backend: base
-    description: "Return the ReMe version."
+  ask_agent:
+    backend: stream
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        agent_name: *view_agent_name
+        query:
+          type: string
+          minLength: 1
+          maxLength: 100000
+      required:
+      - query
     steps:
-      - backend: version_step
+    - backend: agent_chat_step
+      job_tools: *chat_tools
 
-  status:
+  create_chat_session:
     backend: base
-    description: "Report component memory estimates and process RSS."
+    parameters:
+      type: object
+      additionalProperties: false
+      properties: {}
     steps:
-      - backend: status_step
+    - backend: agent_new_session_step
+      job_tools: *chat_tools
 
-  health_check:
+  list_workspace:
     backend: base
-    description: "Return a concise health-check snapshot of ReMe components."
-    steps:
-      - backend: health_check_step
-
-  reindex:
-    backend: base
-    description: "Rebuild the local BM25 index from already-ingested chunks."
+    description: List files under a workspace path.
     parameters:
       type: object
       properties:
-        scope: {type: string, enum: [all, bm25], default: all}
+        path:
+          type: string
+          description: workspace-relative dir; empty = root
+          default: ''
+        recursive:
+          type: boolean
+          description: recurse
+          default: false
+        sort_by:
+          type: string
+          enum:
+          - mtime
+          description: optional ordering; mtime returns most recently modified files first
+        extensions:
+          type: array
+          items:
+            type: string
+          description: optional extension allowlist applied before sorting and limiting
+        limit:
+          type: integer
+          description: max results
+          default: 100
     steps:
-      - backend: reindex_step
+    - backend: list_step
 
-  list:
+  load_file:
     backend: base
-    description: "List files under a workspace path."
+    description: Load a complete text file for the local editor without agent-output truncation.
     parameters:
       type: object
       properties:
-        path: {type: string, description: "workspace-relative directory; empty = root", default: ""}
-        recursive: {type: boolean, default: false}
-        sort_by: {type: string, enum: [mtime]}
-        extensions: {type: array, items: {type: string}}
-        limit: {type: integer, default: 100}
+        path:
+          type: string
+          description: workspace-relative path
+      required:
+      - path
     steps:
-      - backend: list_step
+    - backend: load_step
+      max_bytes: 5242880
 
-  load:
+  read_image:
     backend: base
-    description: "Load a complete text file for the local editor without agent-output truncation."
+    description: Read an image file as base64 (workspace-relative path).
     parameters:
       type: object
       properties:
-        path: {type: string, description: "workspace-relative path"}
-      required: [path]
+        path:
+          type: string
+          description: workspace-relative path; common image formats supported (png/jpg/jpeg/webp/gif/bmp/tiff/heic)
+      required:
+      - path
     steps:
-      - backend: load_step
-        max_bytes: 5242880
+    - backend: read_image_step
+      max_bytes: 5242880
 
-  save:
+  list_tags:
     backend: base
-    description: "Save text verbatim, optionally rejecting external changes since the file was opened."
+    description: List active tags with file counts. Returns {total_tags, total_pages, page, range, items}; range is the inclusive
+      1-based item range and each item is [tag, file_count]. A page past the end returns empty items and range [0, 0].
     parameters:
       type: object
       properties:
-        path: {type: string, description: "workspace-relative path"}
-        content: {type: string, description: "complete file content, including frontmatter"}
-        expected_mtime: {type: string, description: "optional ISO mtime returned by load/stat"}
-      required: [path, content]
+        page:
+          type: integer
+          minimum: 1
+          default: 1
+          description: 1-based page; values past the end return an empty page
+        order_by:
+          type: string
+          enum:
+          - tag
+          - file_count
+          default: tag
+          description: sort by tag or file count
+        order:
+          type: string
+          enum:
+          - asc
+          - desc
+          description: defaults to asc for tag, desc for file_count
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          default: 100
+          description: items per page
     steps:
-      - backend: save_step
+    - backend: list_tags_step
+
+  search_workspace:
+    backend: base
+    description: Hybrid workspace search (vector + BM25, RRF-fused).
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: search query
+        limit:
+          type: integer
+          description: max results
+          default: 5
+        min_score:
+          type: number
+          description: Minimum returned score; 0 disables filtering (recommended). Uses native vector or BM25 scores when only
+            one branch has hits, and rank-based RRF scores (at most 1/61, about 0.01639) when both have hits. The scale can
+            change per query; this is not a normalized relevance threshold.
+          default: 0.0
+        tags:
+          type: array
+          items:
+            type: string
+          description: optional tags filter; a file matches when it contains at least one valid tag
+          default: []
+        start_date:
+          type: string
+          description: optional inclusive start date filter (YYYY-MM-DD); results earlier than this date are excluded
+        end_date:
+          type: string
+          description: optional inclusive end date filter (YYYY-MM-DD); results later than this date are excluded
+      required:
+      - query
+    steps:
+    - backend: search_step
+      vector_weight: 0.7
+      candidate_multiplier: 5.0
+      expand_links: true
+      max_links_per_direction: 10
+
+  index_update_loop:
+    backend: background
+    watch_dirs:
+    - daily_dir
+    - digest_dir
+    watch_suffixes:
+    - md
+    steps:
+    - backend: init_changes_step
+      monitor_type: file_store
+      monitor_name: default
+      dispatch_steps:
+      - update_index_step
+    - backend: watch_changes_step
+      watch_mode: awatch
+      monitor_type: file_store
+      dispatch_steps:
+      - backend: update_index_step
+        persist: false
+
+  list_tag_files:
+    backend: base
+    description: Browse existing files matching any selected memory tag, within a workspace directory.
+    parameters:
+      type: object
+      properties:
+        tags:
+          type: array
+          items:
+            type: string
+          minItems: 1
+        path:
+          type: string
+          default: ''
+        page:
+          type: integer
+          minimum: 1
+          default: 1
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          default: 100
+      required:
+      - tags
+    steps:
+    - backend: list_tag_files_step
+
+  get_client_info:
+    backend: base
+    description: "Return workspace information and supported client capabilities."
+    steps:
+      - backend: client_info_step
 
 components:
-  pa:
+  asr:
+    default:
+      backend: dashscope
+      api_key: ${DASHSCOPE_API_KEY:-}
+      base_url: https://dashscope.aliyuncs.com/api/v1
+      model: qwen-audio-3.1-asr-flash
+      timeout: 60
+  tts:
+    default:
+      backend: dashscope
+      api_key: ${DASHSCOPE_API_KEY:-}
+      base_url: https://dashscope.aliyuncs.com/api/v1
+      model: qwen-audio-3.1-tts-plus
+      voice: longanhuan_v3.1
+      audio_format: mp3
+      sample_rate: 22050
+      timeout: 60
+  agent_inbox:
+    default:
+      backend: event
+  agent_runtime:
     default:
       backend: local
       agent_wrapper: default
-      max_events: 512
-      max_buffer_bytes: 4194304
-      heartbeat_seconds: 15
+      inbox: default
+      chat:
+        initial_memory: |
+          主人关注 AI 相关的大新闻，以及当前项目的进度、进展、难点和待讨论问题。
+      # Initial descriptions are written verbatim to TASK.md when creating tasks.
+      agents:
+        - agent_name: finance
+          enabled: true
+          min_trigger_interval_seconds: 10
+          max_batch_events: 20
+          task_description: |
+            帮我关注 AI 领域的大新闻，以及小米、阿里巴巴、腾讯、苹果、亚马逊、Meta 和 BTC/USDT 的行情。
+            出现重大 AI 新闻，或这些标的日内振幅超过 5% 时提醒我，结合财联社新闻简单说明发生了什么、可能的影响和来源。
+            其他信息正常记录，不用提醒。同一件事避免重复提醒，数据有延迟或不完整时请注明。
+        - agent_name: work
+          max_batch_events: 2
+          enabled: true
+          task_description: |
+            帮我梳理目前在做的项目，跟进各个项目的进展和难点，整理需要进一步讨论的问题。
+        - agent_name: tech_news
+          enabled: true
+          cron: "0 8 * * *"
+          task_description: |
+            每天早上8点帮我整理一份科技早报，汇总过去24小时的重要科技新闻，简要说明要点和影响，并附上来源链接。整理好后提醒我查看。
 
   codex_app_server:
     default:
@@ -297,7 +607,9 @@ components:
       supports_websockets: false
       experimental_api: true
       config_overrides:
-        # Preserve Qwen3.8 Max's actual input limit; put safety headroom in the compaction threshold.
+        # Disable automatic repository AGENTS.md loading for every Agent on this server.
+        - project_doc_max_bytes=0
+        # Keep the configured input budget; put safety headroom in the compaction threshold.
         # At 95% usable context, 600000 leaves 334435 tokens below Codex's hard cap.
         # Budget 128 KiB of new text at one token/byte, not Codex's byte/4 estimate of 32768.
         # Planning allowances: 131072 output + 131072 new text + 32768 estimation/compaction overhead.
@@ -312,26 +624,31 @@ components:
         - tool_output_token_limit=2500
         # Leave compact_prompt / experimental_compact_prompt_file unset to use the built-in prompt.
 
-        # Keep review and spawned agents on the configured Qwen endpoint.
+        - sandbox_workspace_write.network_access=false
+        - 'web_search="live"'
+        # Enable JavaScript tool orchestration and waiting.
+        - features.code_mode=true
+        - features.sleep_tool=true
+
+        # Keep review and inherited Agent defaults on the configured Qwen endpoint.
+        - 'model="${REME_MODEL_NAME:-qwen4-max}"'
         - 'model_reasoning_effort="xhigh"'
-        - 'review_model="${CODEX_MODEL_NAME:-qwen3.8-max}"'
-        - 'agents.default_subagent_model="${CODEX_MODEL_NAME:-qwen3.8-max}"'
-        - 'agents.default_subagent_reasoning_effort="xhigh"'
+        - 'review_model="${REME_MODEL_NAME:-qwen4-max}"'
 
         # Long-term memory generation and injection are separate from context compaction.
         - features.memories=true
         - memories.generate_memories=true
         - memories.use_memories=true
-        - 'memories.extract_model="${CODEX_MODEL_NAME:-qwen3.8-max}"'
-        - 'memories.consolidation_model="${CODEX_MODEL_NAME:-qwen3.8-max}"'
+        - 'memories.extract_model="${REME_MODEL_NAME:-qwen4-max}"'
+        - 'memories.consolidation_model="${REME_MODEL_NAME:-qwen4-max}"'
 
-      # These capabilities describe Qwen3.8 Max; update them when switching model families.
-      # Official limits: https://help.aliyun.com/en/model-studio/qwen3-8-max
+      # Local Codex capability settings for the configured Qwen model.
       model_catalog:
         models:
-          - slug: ${CODEX_MODEL_NAME:-qwen3.8-max}
-            display_name: Qwen3.8 Max
+          - slug: ${REME_MODEL_NAME:-qwen4-max}
+            display_name: Qwen4 Max
             description: Work and life assistant with text and image input
+            base_instructions: ""
             default_reasoning_level: xhigh
             supported_reasoning_levels:
               - effort: none
@@ -348,16 +665,19 @@ components:
             input_modalities: [text, image]
             # The provider returns reasoning content without a reasoning.summary request parameter.
             supports_reasoning_summary_parameter: false
+            supports_reasoning_summaries: false
+            supports_parallel_tool_calls: false
             support_verbosity: false
             shell_type: unified_exec
+            apply_patch_tool_type: freeform
             visibility: list
             supported_in_api: true
             priority: 0
-            experimental_supported_tools: []
+            experimental_supported_tools: [clock]
             truncation_policy:
               mode: bytes
               limit: 10000
-            # PA instructions come from PromptHandler.
+            # Agent context comes from PromptHandler.
             model_messages:
               instructions_template: ""
 
@@ -365,40 +685,44 @@ components:
     default:
       backend: codex
       app_server: default
-      model: ${CODEX_MODEL_NAME:-qwen3.8-max}
+      project_path: ..  # Resolve repository skills from the default <project>/.reme workspace.
+      cwd: .
+      skills: [manage-proactive-agent, manage-todos-ideas]
+      model: ${REME_MODEL_NAME:-qwen4-max}
       effort: xhigh
       approval_mode: deny_all  # SDK maps this to approval_policy=never; no approval requests.
-      sandbox: full-access
-
-  tokenizer:
-    default:
-      backend: regex
-
-  keyword_index:
-    default:
-      backend: bm25
-      tokenizer: default
+      sandbox: workspace-write
 
   file_graph:
     default:
       backend: local
-
-  file_catalog:
-    resource:
-      backend: local
-      watch_dirs: [resource_dir]
-      watch_suffixes: []
-      watch_filenames: [metadata.json]
-      ttl_days: 7
-
   file_chunker:
     markdown:
       backend: markdown
-      supported_extensions: [md]
-
+      supported_extensions:
+      - md
+      embed_toc: true
+      max_ast_sections: 100
+      include_frontmatter_in_metadata: false
+      include_frontmatter_keys_in_metadata: []
+  keyword_index:
+    default:
+      backend: bm25
+      tokenizer: default
+  tag_index:
+    default:
+      backend: local
+      tag_key: memory_tags
+      max_tags_per_file: 3
+      max_tag_length: 64
   file_store:
     default:
       backend: local
-      embedding_store: ""
+      store_name: local
+      embedding_store: ''
       keyword_index: default
       file_graph: default
+      tag_index: default
+  tokenizer:
+    default:
+      backend: regex

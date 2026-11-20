@@ -16,15 +16,8 @@ class _SessionStep(BaseStep):
         session_id = self.context.get("session_id")
         if not isinstance(session_id, str) or not session_id:
             raise ValueError("session_id is required")
-        kwargs = {}
-        if self.operation == "append_session":
-            kwargs = {
-                "content": self.context.get("content"),
-                "message_id": self.context.get("message_id"),
-                "timeout": float(self.context.get("wait_timeout", 30)),
-            }
         try:
-            result = await getattr(self.agent_wrapper, self.operation)(session_id, **kwargs)
+            result = await getattr(self.agent_wrapper, self.operation)(session_id)
         except NotImplementedError:
             self.context.response.metadata["code"] = "session_not_supported"
             raise
@@ -39,8 +32,8 @@ class SessionReadStep(_SessionStep):
     operation = "read_session"
 
 
-@R.register("session_append_step")
-class SessionAppendStep(_SessionStep):
-    """Append a proactive assistant message after the current turn finishes."""
+@R.register("session_status_step")
+class SessionStatusStep(_SessionStep):
+    """Inspect activity without waiting behind generation."""
 
-    operation = "append_session"
+    operation = "get_session_status"

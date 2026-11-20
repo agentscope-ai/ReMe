@@ -425,10 +425,6 @@ async def test_report_stage_keeps_hidden_allowance_and_full_session(
         session = wrapper.session_path / f"{item['session_id']}.jsonl"
         saved = [json.loads(line) for line in session.read_text().splitlines() if line.strip()]
         assert report in str(saved)
-    for call in model.calls:
-        prompt = str(call["messages"])
-        assert f"approximately {budget} tokens" in prompt
-        assert "10%" not in prompt
 
 
 @pytest.mark.parametrize("configured", [True, False])

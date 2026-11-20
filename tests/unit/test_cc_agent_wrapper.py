@@ -96,6 +96,18 @@ async def test_file_session_store_conforms_to_latest_sdk(tmp_path):
     await run_session_store_conformance(lambda: CcFileSessionStore(tmp_path / str(next(sequence))))
 
 
+@pytest.mark.asyncio
+async def test_file_session_store_keeps_dotted_subkeys_distinct(tmp_path):
+    """Subkey extensions are part of the native identity, not filename suffixes."""
+    store = CcFileSessionStore(tmp_path)
+    base = {"project_key": "project", "session_id": "session"}
+    for name in ("agent.one", "agent.two"):
+        await store.append({**base, "subpath": name}, [{"uuid": name}])
+    assert set(await store.list_subkeys(base)) == {"agent.one", "agent.two"}
+    assert await store.load({**base, "subpath": "agent.one"}) == [{"uuid": "agent.one"}]
+    assert await store.load({**base, "subpath": "agent.two"}) == [{"uuid": "agent.two"}]
+
+
 def test_ensure_claude_skill_dir_rejects_paths_as_skill_names(tmp_path):
     """Skill selectors cannot escape the project skills directory."""
     (tmp_path / "skills").mkdir()
@@ -139,29 +151,12 @@ def test_configured_project_path_sources_skills_outside_workspace(tmp_path):
     assert (workspace / "mem_session" / "claude_config" / "skills" / "serper-search").resolve() == skill
 
 
-def test_sdk_native_system_prompt_preset_is_preserved(tmp_path):
-    """System prompt dictionaries pass directly to the latest SDK."""
-    opts = _wrapper(tmp_path)._build_options(
-        "hello",
-        system_prompt={
-            "type": "preset",
-            "preset": "claude_code",
-            "append": "custom prompt",
-        },
-    )
-
-    assert opts.system_prompt == {
-        "type": "preset",
-        "preset": "claude_code",
-        "append": "custom prompt",
-    }
-
-
-def test_web_search_is_disallowed_by_default(tmp_path):
-    """Claude Code keeps its normal tools except for web search."""
+def test_claude_uses_native_tool_defaults(tmp_path):
+    """Claude Code chooses the default toolset without any ReMe tool filters."""
     opts = _wrapper(tmp_path)._build_options("hello")
-
-    assert opts.disallowed_tools == ["WebSearch"]
+    assert opts.tools is None
+    assert opts.allowed_tools == []
+    assert opts.disallowed_tools == []
 
 
 def test_api_credentials_use_only_wrapper_config(tmp_path, monkeypatch):
@@ -276,6 +271,38 @@ def test_build_options_preserves_explicit_session_store(tmp_path):
     assert opts.session_store is store
 
 
+@pytest.mark.parametrize(
+    "tools,expected",
+    [
+        (None, ["Read", "Glob", "Grep", "WebSearch", "WebFetch"]),
+        ([], []),
+        (["Read", "Bash", "Write", "WebSearch"], ["Read", "WebSearch"]),
+    ],
+)
+def test_shared_read_only_hint_maps_to_native_read_tools(tmp_path, tools, expected):
+    """Translate the shared mode without passing a string to the native sandbox schema."""
+    options = {} if tools is None else {"tools": tools}
+    opts = _wrapper(tmp_path)._build_options("query", sandbox="read-only", **options)
+    assert opts.sandbox is None and opts.tools == expected
+
+
+def test_native_claude_sandbox_settings_are_preserved(tmp_path):
+    """SDK-native command-sandbox configuration remains available verbatim."""
+    sandbox = {"enabled": True, "network": {"allowedDomains": ["example.com"]}}
+    assert _wrapper(tmp_path)._build_options("query", sandbox=sandbox).sandbox == sandbox
+
+
+def test_shared_workspace_write_uses_claude_command_sandbox(tmp_path):
+    """Automatic tasks pass valid Claude settings and cannot retry Bash outside the sandbox."""
+    opts = _wrapper(tmp_path)._build_options("query", sandbox="workspace-write")
+    assert opts.sandbox == {
+        "enabled": True,
+        "allowUnsandboxedCommands": False,
+        "failIfUnavailable": True,
+        "network": {"strictAllowlist": True, "allowedDomains": []},
+    }
+
+
 def test_job_tools_reject_non_mapping_mcp_config_instead_of_discarding_it(tmp_path, monkeypatch):
     """Adding ReMe tools never silently replaces an SDK MCP config path."""
     wrapper = _wrapper(tmp_path)
@@ -335,7 +362,7 @@ async def test_reply_preserves_falsy_structured_output(tmp_path, monkeypatch):
     async def query(**_kwargs):
         yield replace(message, structured_output={})
 
-    monkeypatch.setattr("claude_agent_sdk.query", query)
+    monkeypatch.setattr(CcAgentWrapper, "_stream_messages", staticmethod(query))
 
     result = await _wrapper(tmp_path).reply("hello", output_schema={})
 
@@ -377,19 +404,20 @@ async def test_agentscope_compact_session_forces_and_persists_compression(tmp_pa
 
     async def build_agent(inputs, **kwargs):
         observed["build"] = (inputs, kwargs)
+        FakeAgent.state = kwargs["state"]
         return FakeAgent(), inputs
 
     async def dump_state(state):
         observed["state"] = state
 
+    session_id = await wrapper.create_session()
     monkeypatch.setattr(wrapper, "_build_agent", build_agent)
-    monkeypatch.setattr(wrapper, "_dump_state", dump_state)
+    monkeypatch.setattr(wrapper._sessions, "save", dump_state)  # pylint: disable=protected-access
+    await wrapper.compact_session(session_id)
 
-    await wrapper.compact_session("session-1")
-
-    assert observed["build"] == (None, {"resume": "session-1"})
+    assert observed["build"] == (None, {"resume": session_id, "state": FakeAgent.state})
     assert observed["config"].trigger_ratio == 1e-9
-    assert observed["state"] is FakeAgent.state
+    assert observed["state"].state is FakeAgent.state
 
 
 def test_error_result_with_success_subtype_is_not_suppressed():
@@ -475,7 +503,7 @@ async def test_reply_stream_emits_one_reply_end_for_normal_sdk_lifecycle(tmp_pat
 
     wrapper = _wrapper(tmp_path)
     recorded_usages = []
-    monkeypatch.setattr("claude_agent_sdk.query", query)
+    monkeypatch.setattr(CcAgentWrapper, "_stream_messages", staticmethod(query))
     monkeypatch.setattr(wrapper, "_record_token_usage", recorded_usages.append)
     chunks = [chunk async for chunk in wrapper.reply_stream("hello")]
 
@@ -513,7 +541,7 @@ async def test_reply_stream_only_reports_rejected_rate_limit(tmp_path, monkeypat
             session_id="session-1",
         )
 
-    monkeypatch.setattr("claude_agent_sdk.query", query)
+    monkeypatch.setattr(CcAgentWrapper, "_stream_messages", staticmethod(query))
     chunks = [chunk async for chunk in _wrapper(tmp_path).reply_stream("hello")]
 
     errors = [chunk for chunk in chunks if chunk.chunk_type.value == "error"]
@@ -537,7 +565,7 @@ async def test_reply_stream_uses_error_result_as_terminal_error(tmp_path, monkey
         )
         raise RuntimeError("Claude Code returned an error result: tool failed")
 
-    monkeypatch.setattr("claude_agent_sdk.query", query)
+    monkeypatch.setattr(CcAgentWrapper, "_stream_messages", staticmethod(query))
     chunks = [chunk async for chunk in _wrapper(tmp_path).reply_stream("hello")]
 
     errors = [chunk for chunk in chunks if chunk.chunk_type.value == "error"]
@@ -561,7 +589,7 @@ async def test_reply_stream_does_not_hide_unrelated_error_after_error_result(tmp
         )
         raise RuntimeError("unrelated store failure")
 
-    monkeypatch.setattr("claude_agent_sdk.query", query)
+    monkeypatch.setattr(CcAgentWrapper, "_stream_messages", staticmethod(query))
 
     with pytest.raises(RuntimeError, match="unrelated store failure"):
         _ = [chunk async for chunk in _wrapper(tmp_path).reply_stream("hello")]
@@ -588,7 +616,7 @@ async def test_reply_stream_reports_session_mirror_errors(tmp_path, monkeypatch)
             session_id="session-1",
         )
 
-    monkeypatch.setattr("claude_agent_sdk.query", query)
+    monkeypatch.setattr(CcAgentWrapper, "_stream_messages", staticmethod(query))
     chunks = [chunk async for chunk in _wrapper(tmp_path).reply_stream("hello")]
 
     diagnostics = [chunk for chunk in chunks if chunk.metadata.get("event") == "session_mirror_error"]
@@ -616,6 +644,6 @@ async def test_reply_stream_supports_output_schema(tmp_path, monkeypatch, schema
             structured_output={},
         )
 
-    monkeypatch.setattr("claude_agent_sdk.query", query)
+    monkeypatch.setattr(CcAgentWrapper, "_stream_messages", staticmethod(query))
     chunks = [chunk async for chunk in _wrapper(tmp_path).reply_stream("hello", output_schema=schema)]
     assert chunks[-1].chunk["structured_output"] == {}

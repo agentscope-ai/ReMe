@@ -43,8 +43,9 @@ background shutdown), or `cancelled`. A failed response also records a failure e
 Terminal ERROR chunks also mark a run as failed; notifications with `will_retry=true` remain recoverable.
 Completed records clear the active step path; failures retain the innermost failed step path.
 
-Background Jobs record each body invocation, including supervisor restarts. Cron Jobs record each trigger; waiting
-for a schedule does not create an execution. A tracked Job that has not run returns an empty list. Watcher Jobs remain
+Background Jobs record each body invocation, including supervisor restarts. Cron Jobs record each nonempty `init_steps`
+execution and each scheduled trigger separately; waiting for a schedule does not create an execution. A tracked Job
+that has not run returns an empty list. Watcher Jobs remain
 `running` while waiting for changes; a path such as `["watch_changes_step", "update_index_step"]` shows an active handler
 and returns to `["watch_changes_step"]` afterward. Step paths describe invocation boundaries, not progress inside a Step.
 Executor-backed Jobs finish their records when the worker body exits, even if the outer Future was cancelled earlier.

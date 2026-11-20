@@ -230,6 +230,8 @@ search match       -> expand inbound and outbound links to provide context
 
 Parsed result:
 
+`FileLink` stores the source, target and an optional anchor.
+
 ```text
 FileLink
   source_path = current file

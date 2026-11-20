@@ -61,9 +61,14 @@ class BaseClient(BaseComponent):
 
     async def __call__(self, action: str, **kwargs) -> AsyncGenerator[str, None]:
         """Dispatch: action='list' returns the action catalog; otherwise delegate to _execute()."""
-        if action == "list":
+        async for chunk in self.call_job(action, kwargs):
+            yield chunk
+
+    async def call_job(self, job_name: str, payload: dict) -> AsyncGenerator[str, None]:
+        """Pass job arguments as a mapping so names such as ``action`` remain usable."""
+        if job_name == "list":
             actions = await self.list_actions()
             yield json.dumps(actions, indent=2, ensure_ascii=False)
             return
-        async for chunk in self._execute(action, kwargs):
+        async for chunk in self._execute(job_name, payload):
             yield chunk

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "reme": {
+      "command": "python3",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/mcp_bridge.py"]
+    }
+  }
+}

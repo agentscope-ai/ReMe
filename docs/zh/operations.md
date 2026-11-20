@@ -42,7 +42,7 @@ reme job_status status=running
 终止执行的 ERROR chunk 也会标记为失败；`will_retry=true` 的通知仍允许恢复。
 执行结束后清空当前 Step 路径，失败时保留最内层失败路径。
 
-后台 Job 每次运行及监护重启各记一条；Cron 每次触发记一条，等待调度不算执行。
+后台 Job 每次运行及监护重启各记一条；Cron 的非空 `init_steps` 初始化和每次定时触发分别记录，等待调度不算执行。
 开启记录但尚未执行的 Job 返回空列表。Watcher 等待事件时仍为 `running`；处理变更时可显示
 `["watch_changes_step", "update_index_step"]`，处理完成后恢复为 `["watch_changes_step"]`。
 Step 路径表示执行边界，不代表 Step 内部的处理进度。线程池 Job 的记录以执行体真正退出为准，

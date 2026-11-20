@@ -5,6 +5,8 @@ import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ...utils.file_sync import sync_directory, sync_file
+
 if TYPE_CHECKING:
     from claude_agent_sdk import SessionKey, SessionListSubkeysKey, SessionStoreEntry, SessionStoreListEntry
 
@@ -37,12 +39,16 @@ class CcFileSessionStore:
         values = [key["project_key"], key["session_id"]]
         if subpath := key.get("subpath"):
             values.append(subpath)
-        return self._path(*values).with_suffix(".jsonl")
+        target = self._path(*values)
+        path = target.with_name(target.name + ".jsonl")
+        if not path.resolve().is_relative_to(self.root.resolve()):
+            raise ValueError(f"Session store path escapes root: {path}")
+        return path
 
     @staticmethod
     def _read_entries(path: Path) -> list["SessionStoreEntry"]:
         entries = []
-        for line in path.read_text(encoding="utf-8").splitlines():
+        for line in path.read_text(encoding="utf-8").split("\n"):
             if line.strip():
                 entries.append(json.loads(line))
         return entries
@@ -70,6 +76,9 @@ class CcFileSessionStore:
         with path.open("a", encoding="utf-8") as file:
             for entry in new_entries:
                 file.write(json.dumps(entry, ensure_ascii=False, separators=(",", ":")) + "\n")
+            file.flush()
+            sync_file(file.fileno())
+        sync_directory(path.parent)
 
     async def load(self, key: "SessionKey") -> list["SessionStoreEntry"] | None:
         """Load all entries for a session or subkey."""

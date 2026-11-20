@@ -144,16 +144,16 @@ def test_plugin_backend_collision_fails_with_both_owners():
         registry.add("same", OtherStep, owner="second")
 
 
-def test_plugin_manager_loads_explicit_entry_point(monkeypatch):
-    descriptor = Plugin(name="example", backends=(Backend("example_step", _PluginStep),))
+def test_plugin_manager_rejects_object_entry_points_without_importing_them(monkeypatch):
+    loaded = []
     _set_entry_points(
         monkeypatch,
-        _FakeEntryPoint("example", "example:plugin", lambda: descriptor, "reme.plugins"),
+        _FakeEntryPoint("example", "example:plugin", lambda: loaded.append(True), "reme.plugins"),
     )
 
-    manager = PluginManager.discover(["example"])
-
-    assert manager.plugins == (descriptor,)
+    with pytest.raises(ValueError, match="package-only entry point and plugin.yaml"):
+        PluginManager.discover(["example"])
+    assert not loaded
 
 
 def test_plugin_manager_loads_package_manifest(monkeypatch, tmp_path):
@@ -259,18 +259,20 @@ def test_plugin_manager_rejects_multiple_entry_point_providers(monkeypatch):
 
 
 def test_plugin_entry_point_import_side_effect_does_not_leak(monkeypatch, tmp_path):
-    class UndeclaredClient(ComponentMixin):
-        component_type = ComponentEnum.CLIENT
-
-    descriptor = Plugin(name="example")
-
-    def load_plugin():
-        R.register(UndeclaredClient, "undeclared-client")
-        return descriptor
-
+    package = tmp_path / "side_effect_plugin"
+    package.mkdir()
+    (package / "__init__.py").write_text(
+        "from reme.components import ComponentMixin, R\n"
+        "@R.register('undeclared-client')\n"
+        "class UndeclaredClient(ComponentMixin):\n"
+        "    component_type = 'client'\n",
+        encoding="utf-8",
+    )
+    (package / "plugin.yaml").write_text("{}\n", encoding="utf-8")
+    monkeypatch.syspath_prepend(str(tmp_path))
     _set_entry_points(
         monkeypatch,
-        _FakeEntryPoint("example", "example:plugin", load_plugin, "reme.plugins"),
+        _FakeEntryPoint("example", "side_effect_plugin", lambda: None, "reme.plugins"),
     )
 
     app = Application(

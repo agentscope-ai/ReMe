@@ -21,6 +21,9 @@ from zoneinfo import ZoneInfo
 HOST = "claude-code"
 HOME_ENV = "CLAUDE_CONFIG_DIR"
 HOME_DEFAULT = "~/.claude"
+MCP_CONNECTION = json.loads((Path(__file__).resolve().parents[1] / ".mcp.json").read_text(encoding="utf-8"))[
+    "mcpServers"
+]["reme"]
 CAPTURE_WAIT_SECONDS = 10
 DEFAULTS = {
     "mcp_url": "http://127.0.0.1:2333/mcp",
@@ -47,7 +50,10 @@ def load_config() -> dict:
     """Read the same persistent settings used by the MCP bridge and lifecycle hooks."""
     path = data_dir() / "config.json"
     values = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    return validate_config(values)
+    config = validate_config(values)
+    if "url" in MCP_CONNECTION and validate_url(MCP_CONNECTION["url"]) != config["mcp_url"]:
+        raise ValueError("Regenerate and reinstall the HTTP plugin after changing mcp_url")
+    return config
 
 
 def validate_config(values: dict) -> dict:

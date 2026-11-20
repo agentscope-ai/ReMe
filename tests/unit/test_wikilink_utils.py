@@ -242,6 +242,58 @@ async def test_retarget_dry_run_does_not_write():
 
 
 @pytest.mark.asyncio
+async def test_retarget_write_guard_vetoes_files_absent_from_dry_run():
+    """The write guard is enforced in the real pass, not just the dry run.
+
+    A stale graph candidate whose content has no matching link at dry-run
+    time is omitted from ``by_file`` and never permission-checked by a
+    caller inspecting only that report. When the file gains a matching link
+    before the real pass (concurrent save, lagging graph backend), the
+    guard attached to ``retarget_links`` must still veto the rewrite before
+    anything is written.
+    """
+
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        root = Path(tmp)
+        note_body = "target\n"
+        # Register the edge (index knows about the reference), then edit the
+        # file on disk so the link is gone — an index lagging a direct edit.
+        outside_body = "See [[topics/Alice.md]]\n"
+        store = await _store_with({"topics/Alice.md": note_body, "outside/note.md": outside_body})
+        stale_body = "No current reference.\n"
+        outside_abs = root / "outside/note.md"
+        outside_abs.write_text(stale_body, encoding="utf-8")
+
+        def guard_outside(rel: str) -> str | None:
+            return None if rel == "topics/Alice.md" else f"no permission to retarget links in {rel}"
+
+        dry = await WikilinkHandler.retarget_links(
+            store,
+            src="topics/Alice.md",
+            dst="people/Alice.md",
+            dry_run=True,
+            write_guard=guard_outside,
+        )
+        assert "error" not in dry
+        assert dry["files_touched"] == 0  # stale candidate: no matching link yet
+
+        # An editor saves a matching link between the two passes.
+        saved_body = "See [[topics/Alice.md]]\n"
+        outside_abs.write_text(saved_body, encoding="utf-8")
+
+        real = await WikilinkHandler.retarget_links(
+            store,
+            src="topics/Alice.md",
+            dst="people/Alice.md",
+            write_guard=guard_outside,
+        )
+        assert real["error"] == "no permission to retarget links in outside/note.md"
+        assert real["retarget_blocked_path"] == "outside/note.md"
+        assert outside_abs.read_text(encoding="utf-8") == saved_body  # untouched
+        await store.close()
+
+
+@pytest.mark.asyncio
 async def test_retarget_scope_limits_sweep():
     """Files outside `scope` are not visited even if they contain matches."""
 

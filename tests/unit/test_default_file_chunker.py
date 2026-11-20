@@ -201,7 +201,7 @@ def test_parse_links_ignores_legacy_relation_wrappers():
         ("b", None),
         ("c", "section"),
     ]
-    assert all(link.predicate is None for link in links)
+    assert all(set(link.model_dump()) == {"source_path", "target_path", "target_anchor"} for link in links)
 
 
 def test_parse_links_multiple_on_one_line():

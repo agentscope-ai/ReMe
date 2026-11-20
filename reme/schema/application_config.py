@@ -7,6 +7,7 @@ from pathlib import PurePosixPath, PureWindowsPath
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ..enumeration import component_type_name
+from .event import Event
 
 
 class ComponentConfig(BaseModel):
@@ -23,6 +24,10 @@ class JobConfig(ComponentConfig):
     description: str = Field(default="", description="Human-readable description")
     parameters: dict = Field(default_factory=dict, description="Job-level parameters")
     steps: list[ComponentConfig] = Field(default_factory=list, description="Ordered step configs")
+    init_steps: list[ComponentConfig] = Field(
+        default_factory=list,
+        description="Cron-only steps run before entering the schedule; must be idempotent for supervisor retries",
+    )
     enable_serve: bool = Field(default=True, description="Whether to expose this job through the service layer")
     enabled: bool = Field(default=True, description="Whether to start, serve, and allow execution of this job")
     track_execution: bool | None = Field(
@@ -49,6 +54,7 @@ class ApplicationConfig(BaseModel):
     # dialog_dir was removed; standard transcripts are always derived as ``{session_dir}/dialog``.
     mem_session_dir: str = Field(default="mem_session", description="Subdirectory for persisted agent sessions")
     resource_dir: str = Field(default="resource", description="Subdirectory for external assets")
+    reme_agent_dir: str = Field(default="reme_agents", description="Subdirectory for application-owned agents")
     daily_dir: str = Field(default="daily", description="Subdirectory for daily memory")
     digest_dir: str = Field(default="digest", description="Subdirectory for digest memory")
     enable_logo: bool = Field(default=True, description="Show ASCII logo on startup")
@@ -91,3 +97,9 @@ class ApplicationConfig(BaseModel):
         if PurePosixPath(path.replace("\\", "/")).is_absolute() or PureWindowsPath(path).anchor:
             raise ValueError("session_dir must be a workspace-relative path")
         return value
+
+    @field_validator("reme_agent_dir")
+    @classmethod
+    def validate_agent_directory(cls, value: str) -> str:
+        """Keep Agent-owned files under one normalized workspace subdirectory."""
+        return Event.validate_paths([value])[0]

@@ -232,7 +232,7 @@ class HttpService(BaseService):
         """Register a job as POST /{job.name} returning a JSON Response."""
 
         async def endpoint(request: Request) -> Response:
-            return await job(**request.model_dump(exclude_none=True))
+            return await job(**request.model_dump(exclude_unset=True))
 
         self.service.post(
             f"/{job.name}",
@@ -246,7 +246,7 @@ class HttpService(BaseService):
         async def endpoint(request: Request) -> StreamingResponse:
             stream_queue: asyncio.Queue = asyncio.Queue(maxsize=job.stream_queue_size)
             task = asyncio.create_task(
-                job(stream_queue=stream_queue, **request.model_dump(exclude_none=True)),
+                job(stream_queue=stream_queue, **request.model_dump(exclude_unset=True)),
             )
 
             async def body() -> AsyncGenerator[bytes, None]:

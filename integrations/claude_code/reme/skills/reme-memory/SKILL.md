@@ -29,9 +29,12 @@ mean the plugin is disabled, the MCP connection failed, or the server's job allo
 Check the plugin and `/mcp` status before concluding the service is stopped. The default service is
 started with `reme start workspace_dir=/absolute/path/to/workspace service.backend=http`.
 
-The host's `reme/config.json` supplies `mcp_url` and hook settings to both the MCP bridge and
-automatic hooks. Users can edit this file directly. Reconnect MCP after changing its address;
-hook changes apply on the next invocation. Content-free logs live in the host's `reme/` directory.
+The host's `reme/config.json` supplies `mcp_url` and hook settings. Users can edit this file directly.
+HTTP is the default: after an address edit, rerun `integrations/configure_mcp.py claude-code`,
+reinstall the plugin from the generated source, and restart Claude Code. This updates
+the native MCP address from the same settings as Hooks. In optional stdio mode the bridge reads
+the address on connection, so reconnect MCP after editing it. Hook changes apply on the next invocation.
+Content-free logs live in the host's `reme/` directory.
 Hooks batch five completed turns by default;
 short batches flush at session boundaries, subject to a bounded shutdown budget. Failed batches
 remain for a later attempt. Do not manually submit the same conversation just because a background

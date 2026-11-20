@@ -1,6 +1,5 @@
 """Encoding-aware file IO, output truncation, and per-path write locks."""
 
-import asyncio
 import os
 from pathlib import Path
 from secrets import token_hex
@@ -15,30 +14,11 @@ from ...schema import FileChunk
 from ...utils import get_logger
 from ...utils.async_utils import complete_in_thread
 
+# Preserve the file-job import path while runtime writers use the same registry.
+# pylint: disable-next=unused-import
+from ...utils.path_lock import get_path_lock  # noqa: F401
+
 logger = get_logger(log_to_file=False)
-
-# ---------------------------------------------------------------------------
-# In-process per-path write lock.
-# ---------------------------------------------------------------------------
-_PATH_LOCKS_MAX = 1024
-_PATH_LOCKS: dict[str, asyncio.Lock] = {}
-_PATH_LOCKS_REGISTRY = asyncio.Lock()
-
-
-async def get_path_lock(target: Path) -> asyncio.Lock:
-    """Return the asyncio.Lock for ``target``; created lazily on first request."""
-    key = str(target)
-    async with _PATH_LOCKS_REGISTRY:
-        lock = _PATH_LOCKS.get(key)
-        if lock is None:
-            if len(_PATH_LOCKS) >= _PATH_LOCKS_MAX:
-                to_remove = [k for k, v in _PATH_LOCKS.items() if not v.locked()]
-                for k in to_remove[: len(_PATH_LOCKS) // 2]:
-                    del _PATH_LOCKS[k]
-            lock = asyncio.Lock()
-            _PATH_LOCKS[key] = lock
-    return lock
-
 
 # ---------------------------------------------------------------------------
 # Encoding detection

@@ -122,13 +122,14 @@ class PromptHandler:
 
     @staticmethod
     def _apply_flag_filter(prompt: str, flags: dict[str, bool]) -> str:
-        """Keep unflagged lines; keep flagged lines only when a matching flag is set."""
+        """Preserve unflagged lines and render lines whose flag is set."""
         lines = []
         for line in prompt.split("\n"):
-            active_flags = _FLAG_PATTERN.findall(line)
-            cleaned = _FLAG_PATTERN.sub("", line).lstrip()
-            if not active_flags or any(flags.get(f, False) for f in active_flags):
-                lines.append(cleaned)
+            flag = _FLAG_PATTERN.match(line)
+            if flag is None:
+                lines.append(line)
+            elif flags.get(flag[1], False):
+                lines.append(line[flag.end() :].lstrip())
         return "\n".join(lines)
 
     def __repr__(self) -> str:

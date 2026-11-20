@@ -11,10 +11,10 @@ from reme.steps.file_io import refresh_day_index
 from .base import (
     PAPER_COUNT,
     DailyPaperStep,
+    analysis_summary_metadata,
+    markdown_output,
     normalize_chinese_title,
     reserve_unique_note_path,
-    strip_frontmatter,
-    structured_output,
     utc_now_iso,
     write_markdown,
 )
@@ -63,7 +63,37 @@ class DailyPaperDigestStep(DailyPaperStep):
 
         return _WIKILINK_RE.sub(replace, body)
 
+    def _failure(self, reason: str):
+        """Keep recovery information visible to callers that only display answer."""
+
+        def concise(value):
+            return " ".join(str(value).split())[:300]
+
+        lines = [f"Daily Paper failed: {concise(reason)}"]
+        analyses = self._state("analyses") or []
+        lines.append("Completed notes:")
+        lines.extend(f"- {item.note_path}" for item in analyses)
+        if not analyses:
+            lines.append("- None")
+        failures = self._state("failures") or []
+        if failures:
+            lines.append("Failed papers:")
+            lines.extend(f"- {item['arxiv_id']}: {concise(item['error'])}" for item in failures)
+        if digest_path := self._state("digest_path"):
+            lines.append(f"Brief already written: {digest_path}")
+        self.context.response.success = False
+        self.context.response.answer = "\n".join(lines)
+        return self.context.response
+
     async def execute(self):
+        """Render plugin failures before BaseJob replaces their recovery details."""
+        assert self.context is not None
+        try:
+            return await self._generate_digest()
+        except Exception as exc:  # Cancellation continues to propagate.
+            return self._failure(f"{type(exc).__name__}: {exc}")
+
+    async def _generate_digest(self):
         """Generate and persist the final brief from analyzed papers."""
         assert self.context is not None
         if self._skip():
@@ -72,13 +102,19 @@ class DailyPaperDigestStep(DailyPaperStep):
         if self.agent_wrapper is None:
             raise RuntimeError("An agent_wrapper is required for the daily brief")
         analyses: list[AnalyzedPaper] = self._state("analyses") or []
-        if len(analyses) != PAPER_COUNT:
+        failures = self._state("failures") or []
+        partial = bool(failures)
+        failed_arxiv_ids = [item["arxiv_id"] for item in failures]
+        if not analyses and failures:
+            self.context.response.metadata["partial"] = False
+            return self._failure("Every selected paper failed; no brief generated")
+        if not analyses or len(analyses) + len(failures) != PAPER_COUNT:
             raise RuntimeError(
                 "Detailed paper notes are missing before digest generation",
             )
         self.logger.info(f"[{self.name}] start notes={len(analyses)}")
 
-        documents = [{"title": item.title, "desc": item.desc, "body": item.body} for item in analyses]
+        documents = [item.model_dump(include={"title", "desc", "body"}) for item in analyses]
         wikilinks = [f"[[{item.note_path}]]" for item in analyses]
         run_day = dt.date.fromisoformat(self._run_day())
         daily_dir = str(self.config_value("daily_dir")).strip("/")
@@ -88,6 +124,7 @@ class DailyPaperDigestStep(DailyPaperStep):
                 "digest_user",
                 documents=json.dumps(documents, ensure_ascii=False, indent=2),
                 daily_dir=daily_dir,
+                paper_count=len(analyses),
             ),
             output_schema=DailyPaperMarkdownOutput,
             job_tools=list(self.kwargs.get("job_tools") or []),
@@ -99,10 +136,8 @@ class DailyPaperDigestStep(DailyPaperStep):
             },
         )
         self.logger.info(f"[{self.name}] agent done notes={len(analyses)}")
-        output = structured_output(result, DailyPaperMarkdownOutput)
-        body = strip_frontmatter(output.body)
-        if not output.desc.strip() or not body:
-            raise ValueError("Agent returned an empty daily paper brief")
+        output = markdown_output(result)
+        body = output.body
 
         day = run_day.isoformat()
         title = normalize_chinese_title(output.title, f"每日论文简报-{day}")
@@ -121,16 +156,20 @@ class DailyPaperDigestStep(DailyPaperStep):
             body = self._validate_historical_wikilinks(body, run_day, digest_path)
             body += "\n\n## 详细论文\n\n" + "\n".join(f"- {link}" for link in wikilinks)
             selected_ids = [item.arxiv_id for item in analyses]
+            if partial:
+                body += "\n\n## 未完成的论文\n\n" + "\n".join(f"- {arxiv_id}" for arxiv_id in failed_arxiv_ids)
             await write_markdown(
                 digest_path,
                 body,
                 {
                     "name": title,
                     "title": title,
-                    "description": output.desc.strip(),
+                    "description": output.desc,
                     "kind": "daily-paper-brief",
                     "date": day,
                     "arxiv_ids": selected_ids,
+                    "partial": partial,
+                    "failed_arxiv_ids": failed_arxiv_ids,
                     "selection_reasoning": [item.reasoning for item in analyses],
                     "source_notes": wikilinks,
                     "generated_at": utc_now_iso(),
@@ -156,16 +195,17 @@ class DailyPaperDigestStep(DailyPaperStep):
         self.logger.info(f"[{self.name}] refresh index done date={day}")
 
         self.context.response.success = True
-        self.context.response.answer = f"Generated daily paper brief: {digest_rel}"
+        qualifier = f"partial ({len(analyses)}/{PAPER_COUNT} papers) " if partial else ""
+        self.context.response.answer = f"Generated {qualifier}daily paper brief: {digest_rel}"
         self.context.response.metadata.update(
             {
+                **analysis_summary_metadata(analyses, failures),
                 "date": day,
+                "partial": partial,
                 "week": self._state("week"),
                 "month": self._state("month"),
                 "selection_reasoning": [item.reasoning for item in analyses],
                 "selected_arxiv_ids": selected_ids,
-                "note_paths": [item.note_path for item in analyses],
-                "pdf_paths": [item.pdf_path for item in analyses],
                 "digest_path": digest_rel,
                 "source_counts": self._state("source_counts"),
                 "excluded_yesterday_count": len(

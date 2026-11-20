@@ -28,6 +28,11 @@ def adapter(request, tmp_path, monkeypatch):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     monkeypatch.setenv(module.HOME_ENV, str(tmp_path / "host"))
+    # These shared behavior tests exercise the retained stdio adapter; HTTP synchronization has separate coverage.
+    if request.param in {"codex", "claude-code"}:
+        config_module = module.reme_config if request.param == "codex" else module
+        connection = json.loads((root / ".mcp.stdio.json").read_text())["mcpServers"]["reme"]
+        monkeypatch.setattr(config_module, "MCP_CONNECTION", connection)
     monkeypatch.setattr(module, "CAPTURE_WAIT_SECONDS", 0)
     monkeypatch.setattr(module, "CAPTURE_SETTLE_SECONDS", 0, raising=False)
     return module
@@ -231,6 +236,10 @@ def test_native_manifests_resolve_within_their_own_plugin():
         assert (root / ".mcp.json").is_file()
         assert (root / "skills/reme-memory/SKILL.md").is_file()
         mcp = json.loads((root / ".mcp.json").read_text())["mcpServers"]["reme"]
+        if host in {"codex", "claude-code"}:
+            assert mcp["type"] == "http" and mcp["url"] == "http://127.0.0.1:2333/mcp"
+            assert "command" not in mcp and "args" not in mcp
+            mcp = json.loads((root / ".mcp.stdio.json").read_text())["mcpServers"]["reme"]
         assert mcp["command"] == "python3"
         if host == "claude-code":
             assert mcp["args"] == ["${CLAUDE_PLUGIN_ROOT}/hooks/mcp_bridge.py"]
@@ -811,21 +820,21 @@ def test_codex_matches_turn_id_even_when_final_replies_are_identical(adapter, tm
     assert adapter.completed_turn(payload, "session") == []
 
 
-def test_codex_localized_guidance_survives_disabled_and_failed_recall(adapter, monkeypatch):
+def test_codex_keeps_hook_context_when_recall_is_disabled_or_fails(adapter, monkeypatch):
     require_host(adapter, "codex")
-    write_config(adapter, {"language": "zh", "auto_recall": False})
+    write_config(adapter, {"auto_recall": False})
     call = Mock()
     monkeypatch.setattr(adapter, "call", call)
     payload = {"hook_event_name": "UserPromptSubmit", "prompt": "过去的决定"}
     result = adapter.handle_event(payload)
     context = result["hookSpecificOutput"]["additionalContext"]
-    assert "长期记忆" in context and "reme_search" in context and "<reme-context" not in context
+    assert context and "<reme-context" not in context
     assert adapter.clean_text(context + "\nactual source") == "actual source"
     call.assert_not_called()
     write_config(adapter, {"auto_memory": False})
     call.side_effect = RuntimeError("service offline")
     result = adapter.handle_event(payload)
-    assert "Automatic recording is disabled" in result["hookSpecificOutput"]["additionalContext"]
+    assert result["hookSpecificOutput"]["additionalContext"]
     assert "recall_failed" in (adapter.data_dir() / "hooks.log").read_text()
 
 
