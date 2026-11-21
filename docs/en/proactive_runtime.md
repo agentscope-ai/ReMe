@@ -53,6 +53,16 @@ The default `proactive` configuration sets `project_doc_max_bytes=0` on the shar
 repository `AGENTS.md` loading for all Agents. Event and scheduled task execution sessions do not automatically inject
 skill instructions; the main Chat Agent retains skills. Global instructions under `CODEX_HOME` load independently of this setting.
 
+### Use the v2 single-file workflow
+
+The default `proactive` configuration uses the v1 workflow described above. Start ReMe with `reme start config=proactive_v2` to use v2 for both event and scheduled tasks.
+
+Each run receives the latest `TASK.md` text and the paths of up to 10 recent records for its task. The agent reviews the event or performs the scheduled task, reads those recent records, then searches `daily_dir` by keyword or regex and reads up to 10 more relevant records it has yet to read. It records new information and can link up to 10 points in a timeline when useful.
+
+Each run writes one `daily/YYYY-MM-DD/{agent_name}_HHMMSS.md` file. `has_content` describes whether the body has content. When `remind` is true, `reminder_priority` gives `P0`, `P1` or `P2` and `reminder_message` contains the complete reminder text. When `remind` is false, both fields are `null`. Scheduled tasks default to a P0 report even when the record body is empty, subject to the task's reporting requirements.
+
+Outbox stores delivery state in `reminder_state` on the same file, preserves the Markdown body, and continues processing existing v1 reminders.
+
 ## Personal Runtime
 
 Personal Runtime connects the main Chat Agent, background tasks, and reminder handling. Users manage tasks through Chat and can change their requirements, inspect progress, pause execution, or end a task.

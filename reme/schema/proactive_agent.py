@@ -14,7 +14,7 @@ from pydantic import (
 )
 
 from ..constants import CHAT_AGENT_NAME
-from .agent_runtime import AgentName, AgentNotification
+from .agent_runtime import AgentName, AgentNotification, InboxPriority
 from .agent_message import ClientModel
 
 CRON_EVENT_SOURCE = "cron"
@@ -110,6 +110,27 @@ class ProactiveAgent(ProactiveAgentConfig):
 
     created_at: AwareDatetime
     deleted_at: AwareDatetime | None = None
+
+
+class ProactiveRecordDecision(BaseModel):
+    """The agent-authored frontmatter of a v2 daily record."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    has_content: StrictBool
+    remind: StrictBool
+    reminder_priority: InboxPriority | None
+    reminder_message: str | None = Field(max_length=100000)
+
+    @model_validator(mode="after")
+    def validate_reminder(self):
+        """Require both a priority and a message exactly when submitting a reminder."""
+        if self.remind:
+            if self.reminder_priority is None or not (self.reminder_message or "").strip():
+                raise ValueError("a submitted reminder requires a priority and a nonblank message")
+        elif self.reminder_priority is not None or self.reminder_message is not None:
+            raise ValueError("an unsubmitted reminder requires null priority and message")
+        return self
 
 
 class ProactiveRunResult(BaseModel):

@@ -337,7 +337,7 @@ event_input: |
   - Description: {description}
   [has_files] Files:
   [has_files] {paths}
-  [no_files] No attachments.
+  [no_files] Files: None
 
 event_input_zh: |
   ### 事件 {number}
@@ -346,4 +346,4 @@ event_input_zh: |
   - 描述：{description}
   [has_files] 文件：
   [has_files] {paths}
-  [no_files] 无附件。
+  [no_files] 文件：无

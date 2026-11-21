@@ -84,7 +84,7 @@ class ProactiveAgentStep(BaseAgentStep):
             options["effort"] = effort
         return options
 
-    def _query(self, events, paths, now, task_content, *, is_cron):
+    def _query(self, events, paths, now, task_content, *, is_cron, **prompt_values):
         """Build the task type's Markdown query with its task snapshot and round inputs."""
         files = self.agent_runtime.files
         inputs = []
@@ -114,6 +114,7 @@ class ProactiveAgentStep(BaseAgentStep):
             now=now.isoformat(),
             max_local_search_calls=self.max_local_search_calls,
             max_timeline_entries=self.max_timeline_entries,
+            **prompt_values,
             **{
                 key: value.relative_to(files.workspace).as_posix() for key, value in paths.items() if key != "task_path"
             },
@@ -293,6 +294,9 @@ class ProactiveAgentStep(BaseAgentStep):
         """Keep user edits authoritative until the outbox has added its metadata."""
         self._round_files.check_written(path)
 
+    def _make_artifacts(self, paths):
+        return RoundArtifacts(self.agent_runtime.files, paths)
+
     async def _execute(self, agent, events):
         """Run the complete workflow in one turn, then validate its saved decisions."""
         is_cron = events[0]["source"] == CRON_EVENT_SOURCE
@@ -311,8 +315,8 @@ class ProactiveAgentStep(BaseAgentStep):
         runtime = self.agent_runtime
         now = runtime.now()
         paths = await asyncio.to_thread(self._paths, agent, now)
-        artifacts = self._round_files = RoundArtifacts(runtime.files, paths)
-        summary_before = await artifacts.prepare()
+        artifacts = self._round_files = self._make_artifacts(paths)
+        before = await artifacts.prepare()
         task_content = await asyncio.to_thread(runtime.files.read, paths["task_path"])
         if not task_content.strip():
             raise ValueError("TASK.md must not be blank")
@@ -405,7 +409,7 @@ class ProactiveAgentStep(BaseAgentStep):
                 stats["model_status"] = "timeout" if isinstance(exc, TimeoutError) else "failed"
             try:
                 async with artifacts.locked():
-                    result = await asyncio.to_thread(self._read_artifacts, paths, summary_before, is_cron=is_cron)
+                    result = await asyncio.to_thread(self._read_artifacts, paths, before, is_cron=is_cron)
             except Exception as validation_error:
                 if model_error is not None:
                     raise model_error from validation_error

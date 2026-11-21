@@ -8,16 +8,16 @@ from ....utils.async_utils import complete_in_thread
 from ....utils.files.path_lock import get_path_lock
 
 
-class RoundArtifacts:
-    """Back up the summary and track the new round files for cleanup."""
+class RoundOutputs:
+    """Track new round files so failed commits can remove only their own writes."""
 
-    def __init__(self, files, paths):
+    def __init__(self, files, outputs):
         self.files = files
-        self.outputs = (paths["record_path"], paths["reminder_path"])
-        self.summary = paths["today_summary_path"]
+        self.outputs = outputs
         self.written = None
-        self.backup = None
-        self.keep_backup = False
+
+    def _locked_paths(self):
+        return self.outputs
 
     def _version(self, path):
         try:
@@ -32,12 +32,12 @@ class RoundArtifacts:
     async def locked(self):
         """Share the workspace file jobs' write locks."""
         async with AsyncExitStack() as stack:
-            for path in sorted((*self.outputs, self.summary)):
+            for path in sorted(self._locked_paths()):
                 await stack.enter_async_context(await get_path_lock(path))
             yield
 
     async def prepare(self):
-        """Back up the existing summary and return its original content."""
+        """Prepare the round under the same locks used for validation."""
         async with self.locked():
             return await complete_in_thread(self._prepare)
 
@@ -45,24 +45,6 @@ class RoundArtifacts:
         for path in self.outputs:
             if self._version(path) is not None:
                 raise FileExistsError(path)
-        if self._version(self.summary) is None:
-            return None
-        content = self.files.read(self.summary)
-        path = self.summary.with_suffix(".md.bak")
-        if path.exists() or path.is_symlink():
-            path = path.with_suffix(f".{uuid4().hex}.bak")
-        self.files.write(
-            path,
-            content,
-            create_only=True,
-            on_write=lambda version: self._remember_backup(path, version),
-        )
-        if self.backup is None:
-            raise FileExistsError(f"Could not back up {self.summary}")
-        return content
-
-    def _remember_backup(self, path, version):
-        self.backup = path, version[1]
 
     def _matches(self, path, version):
         try:
@@ -92,7 +74,7 @@ class RoundArtifacts:
         self.written[path] = version[1]
 
     async def rollback(self):
-        """Restore the summary backup and remove uncommitted round files."""
+        """Remove uncommitted round files whose versions still match."""
         # A forced process exit can leave the outputs and backup for manual recovery.
         if self.written is None:
             return
@@ -100,12 +82,52 @@ class RoundArtifacts:
             await complete_in_thread(self._rollback)
 
     def _rollback(self):
+        for path, version in self.written.items():
+            if self._matches(path, version):
+                self.files.remove(path)
+
+    def close(self):
+        """Release any resources used during the round."""
+
+
+class RoundArtifacts(RoundOutputs):
+    """Back up and restore the shared summary used by v1."""
+
+    def __init__(self, files, paths):
+        super().__init__(files, (paths["record_path"], paths["reminder_path"]))
+        self.summary = paths["today_summary_path"]
+        self.backup = None
+        self.keep_backup = False
+
+    def _locked_paths(self):
+        return (*self.outputs, self.summary)
+
+    def _prepare(self):
+        super()._prepare()
+        if self._version(self.summary) is None:
+            return None
+        content = self.files.read(self.summary)
+        path = self.summary.with_suffix(".md.bak")
+        if path.exists() or path.is_symlink():
+            path = path.with_suffix(f".{uuid4().hex}.bak")
+        self.files.write(
+            path,
+            content,
+            create_only=True,
+            on_write=lambda version: self._remember_backup(path, version),
+        )
+        if self.backup is None:
+            raise FileExistsError(f"Could not back up {self.summary}")
+        return content
+
+    def _remember_backup(self, path, version):
+        self.backup = path, version[1]
+
+    def _rollback(self):
         try:
             self._rollback_summary()
         finally:
-            for path, version in self.written.items():
-                if self._matches(path, version):
-                    self.files.remove(path)
+            super()._rollback()
 
     def _rollback_summary(self):
         # The model owns the summary during execution, so restore the complete pre-run file.

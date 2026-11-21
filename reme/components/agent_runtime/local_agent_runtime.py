@@ -78,13 +78,11 @@ class LocalAgentRuntime(BaseAgentRuntime):
         self.agent_wrapper = self.bind(agent_wrapper, BaseAgentWrapper, optional=False)
         self.inbox = self.bind(inbox, BaseAgentInbox, optional=False)
         self.files = WorkspaceFiles(self.workspace_path)
-        directory = (
-            self.app_context.app_config.reme_agent_dir if self.app_context else ApplicationConfig().reme_agent_dir
-        )
-        self.agents = AgentRegistry(self.files, directory)
+        config = self.app_context.app_config if self.app_context else ApplicationConfig()
+        self.agents = AgentRegistry(self.files, config.reme_agent_dir)
         self.sessions = AgentSessions(self.agents)
         self.live_turns = LiveTurns()
-        self.outbox = AgentOutbox(self)
+        self.outbox = AgentOutbox(self, config.daily_dir or "daily")
         self.notifications = ChatNotifications(
             self,
             NotificationConfig.model_validate(notifications if notifications is not None else {}),
