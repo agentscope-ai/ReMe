@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 from pathlib import Path
 
 from ...base_step import BaseStep
@@ -42,6 +43,41 @@ def _changed_digest_paths(
 ) -> list[str]:
     """Return files created or changed during one integration attempt."""
     return sorted(path for path, metadata in after.items() if before.get(path) != metadata)
+
+
+def _snapshot_digest_tree(workspace: Path, digest_dir: str) -> dict[str, tuple[int, int]]:
+    """Fingerprint every regular file under the digest folder, including files outside the buckets.
+
+    Only used to report what is left on disk after a failed unit, never to modify files.
+    The digest root must resolve inside the workspace, and symlinks are not followed, so
+    nothing outside the workspace is listed.
+    """
+    snapshot: dict[str, tuple[int, int]] = {}
+    try:
+        root_workspace = workspace.resolve()
+        root = (workspace / digest_dir).resolve()
+        root.relative_to(root_workspace)
+    except (OSError, ValueError):
+        return snapshot
+    if not root.is_dir():
+        return snapshot
+    # os.walk does not descend into symlinked folders by default; symlinked files are skipped below.
+    for folder, _dirs, files in os.walk(root):
+        for name in files:
+            path = Path(folder) / name
+            try:
+                if path.is_symlink() or not path.is_file():
+                    continue
+                stat = path.stat()
+            except OSError:
+                continue
+            snapshot[path.relative_to(root_workspace).as_posix()] = (stat.st_mtime_ns, stat.st_size)
+    return snapshot
+
+
+def _differing_paths(before: dict[str, tuple[int, int]], after: dict[str, tuple[int, int]]) -> list[str]:
+    """Return files added, changed or removed between two snapshots."""
+    return sorted(path for path in set(before) | set(after) if before.get(path) != after.get(path))
 
 
 def _record_modified_paths(state, paths: list[str]) -> None:
@@ -85,9 +121,14 @@ class DreamIntegrateStep(BaseStep):
         # Compare the whole run so retries and later units updating a newly
         # created file still emit one "added" change for the final file.
         before = _snapshot_digest(workspace, digest_dir)
+        tree_before = _snapshot_digest_tree(workspace, digest_dir)
         for i, unit in enumerate(state.units, start=1):
             await self._integrate_one(state, unit, i, workspace, digest_dir)
         after = _snapshot_digest(workspace, digest_dir)
+        # Report only what still differs from the start of the run, so the summary
+        # matches what the user will find on disk.
+        still_changed = set(_differing_paths(tree_before, _snapshot_digest_tree(workspace, digest_dir)))
+        state.failed_unit_changed_paths = [p for p in state.failed_unit_changed_paths if p in still_changed]
         self.context["changes"] = [
             {"change": "modified" if path in before else "added", "path": path}
             for path in _changed_digest_paths(before, after)
@@ -97,6 +138,11 @@ class DreamIntegrateStep(BaseStep):
             f"Integrated {len(state.integrate_results)} unit(s); skipped {len(state.skipped_units)} unit(s); "
             f"failed {len(state.failed_units)} unit(s)"
         )
+        if state.failed_unit_changed_paths:
+            answer += (
+                f"; {len(state.failed_unit_changed_paths)} digest file(s) changed while failed units ran "
+                "were left in place for review"
+            )
         return self._finish(state, not state.failed_units, answer)
 
     def _integration_lock(self) -> asyncio.Lock:
@@ -113,6 +159,27 @@ class DreamIntegrateStep(BaseStep):
         return lock
 
     async def _integrate_one(self, state, unit: dict, index: int, workspace: Path, digest_dir: str) -> None:
+        """Integrate one unit; if it fails, report every digest file that changed while it ran."""
+        tree_before = _snapshot_digest_tree(workspace, digest_dir)
+        failures = len(state.failed_units)
+        await self._integrate_attempts(state, unit, index, workspace, digest_dir)
+        if len(state.failed_units) == failures:
+            return
+        changed = _differing_paths(tree_before, _snapshot_digest_tree(workspace, digest_dir))
+        # The job cannot tell whether the agent or the user wrote these files, so they
+        # are never reverted or removed; they are listed for the user to review.
+        state.failed_units[-1]["changed_paths"] = changed
+        _record_modified_paths(state, changed)
+        for path in changed:
+            if path not in state.failed_unit_changed_paths:
+                state.failed_unit_changed_paths.append(path)
+        if changed:
+            self.logger.warning(
+                f"[{self.name}] unit {index}/{len(state.units)} failed; digest files changed while it ran "
+                f"were left in place: {', '.join(changed)}",
+            )
+
+    async def _integrate_attempts(self, state, unit: dict, index: int, workspace: Path, digest_dir: str) -> None:
         try:
             bucket = DreamBucketEnum(str(unit.get("bucket") or "")).value
         except ValueError:
