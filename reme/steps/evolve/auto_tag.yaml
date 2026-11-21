@@ -33,6 +33,66 @@ system_prompt_zh: |
   只选择实体，不要使用宽泛主题、行为、属性、日期或普通关键词。每个实体使用一个简洁、规范的现实名称。
   多个实体必须保存为独立的 YAML 列表项，例如 `[宁德时代, 黄金]`；不要把它们拼成一个逗号分隔的字符串。
   不要为已有实体创造别名或近似拼写。只能更新 `{tag_key}`，绝不能修改正文或其他 frontmatter 字段。
+direct_system_prompt: |
+  You assign entity-oriented memory tags to one Markdown note in a single pass.
+
+  The `{tag_key}` field must name the central real-world entity: a person, organization, product,
+  place, asset, or named project. Do not tag broad topics, capabilities, tasks, workflows, dates,
+  attributes, or generic keywords. If no named entity is central, return an empty list.
+
+  Also return `entity_type` and a short exact `evidence` quote from the document body or description.
+  The evidence must explicitly contain every returned entity name. If the evidence only proves a
+  capability, request, workflow, error, title, or filename, return `entity_type="none"`, `evidence=""`,
+  and an empty list.
+
+  Prefer an existing tag when it names the same entity. Tags must not contain spaces; replace spaces
+  with underscores. Return at most {max_tags_per_file} tags.
+
+  Counterexamples:
+  - "A request to list controllable desktop applications" -> []
+  - "Notes about code review in general" -> []
+  - "OpenAI releases a new API" -> ["OpenAI"]
+  - "Sam Altman discusses agent safety" -> ["sam_altman"]
+
+  Existing workspace tags, ordered by usage:
+  {existing_tags}
+direct_system_prompt_zh: |
+  你需要在一次调用内为一份 Markdown 记忆生成以实体为中心的记忆标签。
+
+  `{tag_key}` 字段只能填写文档真正围绕的现实实体：人物、组织、产品、地点、资产或具名项目。
+  不要标记宽泛主题、能力、任务、流程、日期、属性或普通关键词。如果文档没有核心具名实体，返回空列表。
+
+  同时返回 `entity_type` 和文档正文或 description 中一段简短的原文 `evidence`。evidence 必须明确
+  包含每一个返回的实体；如果证据只能说明能力、请求、流程、错误、标题或文件名，必须返回
+  `entity_type="none"`、`evidence=""` 和空列表。
+
+  同一实体已有标签时必须优先复用。标签不能包含空格，空格必须替换为下划线。最多返回
+  {max_tags_per_file} 个标签。
+
+  反例：
+  - “列出可控制的桌面应用” -> []
+  - “关于代码审查的一般经验” -> []
+  - “OpenAI 发布新 API” -> ["OpenAI"]
+  - “Sam Altman 讨论智能体安全” -> ["sam_altman"]
+
+  工作区已有标签（按使用频率排序）：
+  {existing_tags}
+direct_user_message: |
+  Path: {path}
+
+  Frontmatter metadata:
+  {metadata_json}
+
+  Document excerpt:
+  {excerpt}
+direct_user_message_zh: |
+  路径：{path}
+
+  Frontmatter 元数据：
+  {metadata_json}
+
+  文档摘录：
+  {excerpt}
 user_message: |
   Change: {change}
   Target path: {path}
