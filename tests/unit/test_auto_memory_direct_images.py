@@ -254,6 +254,7 @@ async def test_effective_image_limit_is_checked_without_modifying_configs(setup,
         assert isinstance(wrapper.reply.call_args.args[0], Msg)
         assert {k: v for k, v in wrapper.reply.call_args.kwargs.items() if k != "system_prompt"} == {
             "job_tools": ["daily_write"],
+            "injected_job_kwargs": {"_trusted_session_id": _SESSION},
             **extra,
         }
     assert (component, extra) == snapshots
@@ -306,7 +307,10 @@ async def test_full_history_hook_image_only_turn_and_update_boundaries(setup, mo
     assert options["job_tools"] == (step.update_tools if existing else step.create_tools)
     if existing:
         assert note_path in inputs.content[0].text
-        assert options["injected_job_kwargs"] == {"_allowed_paths": [note_path]}
+        assert options["injected_job_kwargs"] == {
+            "_allowed_paths": [note_path],
+            "_trusted_session_id": _SESSION,
+        }
     assert [message.model_dump() for message in (first, second)] == originals
 
 
@@ -462,7 +466,10 @@ async def test_image_links_survive_native_full_rewrite_and_keep_context(setup, m
     written_bodies = []
 
     async def full_rewrite(inputs, **kwargs):
-        assert kwargs["injected_job_kwargs"] == {"_allowed_paths": [note_path]}
+        assert kwargs["injected_job_kwargs"] == {
+            "_allowed_paths": [note_path],
+            "_trusted_session_id": _SESSION,
+        }
         if isinstance(inputs, Msg):
             blocks = inputs.content
             assert [block.type for block in blocks] == ["text", "data", "text", "data", "text"]

@@ -54,6 +54,19 @@ async def test_failed_commit_preserves_original_and_cleans_temporary_file(tmp_pa
 
 
 @pytest.mark.asyncio
+async def test_exclusive_write_preserves_existing_target(tmp_path):
+    """Atomic exclusive creation never replaces a path claimed by another writer."""
+    target = tmp_path / "memory.md"
+    target.write_text("first writer", encoding="utf-8")
+
+    with pytest.raises(FileExistsError):
+        await write_file_safe(target, "second writer", exclusive=True)
+
+    assert target.read_text(encoding="utf-8") == "first writer"
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["memory.md"]
+
+
+@pytest.mark.asyncio
 async def test_new_encoded_file_and_binary_payload(tmp_path):
     """Atomic writes preserve the existing encoding and binary contracts."""
     target = tmp_path / "nested" / "memory.csv"

@@ -33,6 +33,7 @@ class WriteStep(_FileIOStep):
         content = self.context.get("content")
         content = "" if content is None else str(content)
         metadata_raw = self.context.get("metadata")
+        exclusive = bool(self.context.get("_exclusive"))
 
         target, err = resolve_path(self.workspace_path, raw)
         if err:
@@ -84,7 +85,10 @@ class WriteStep(_FileIOStep):
             # CSV stays GBK). New files are written as UTF-8.
             encoding = await detect_file_encoding(target) if existed else "utf-8"
             try:
-                await write_file_safe(target, body, encoding=encoding)
+                await write_file_safe(target, body, encoding=encoding, exclusive=exclusive)
+            except FileExistsError:
+                self._fail("target already exists", path=str(target), conflict=True)
+                return None
             except Exception as e:  # pylint: disable=broad-except
                 self._fail(f"write failed: {e}", path=str(target))
                 return None

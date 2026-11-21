@@ -21,6 +21,7 @@ to the plugin layer.
 
 # pylint: disable=protected-access
 
+import asyncio
 from contextlib import chdir as temp_chdir
 import tempfile
 import warnings
@@ -345,6 +346,124 @@ async def test_daily_write_reports_unreadable_index_without_losing_note(tmp_path
         assert response.metadata["index"]["changed"] is False
         assert (tmp_path / "daily/2026-05-18/project-plan.md").is_file()
         assert index.read_bytes() == damaged
+
+
+@pytest.mark.asyncio
+async def test_daily_write_preserves_notes_when_different_sessions_choose_same_name():
+    """A name collision gets a unique path and keeps each note's provenance."""
+
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = await _make_store_with_dailies([])
+        first = await _make_daily_write_step(store, tmp)
+        second = await _make_daily_write_step(store, tmp)
+
+        await first(
+            name="project-plan",
+            description="First session",
+            session_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            content="facts from session A",
+            date="2026-05-18",
+        )
+        await second(
+            name="project-plan",
+            description="Second session",
+            session_id="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            content="facts from session B",
+            date="2026-05-18",
+        )
+        await second(
+            name="project-plan",
+            description="Second session refined",
+            session_id="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            content="updated facts from session B",
+            date="2026-05-18",
+        )
+
+        first_path = Path(tmp) / "daily/2026-05-18/project-plan.md"
+        second_path = Path(tmp) / "daily/2026-05-18/project-plan-2.md"
+        first_note = frontmatter.loads(first_path.read_text(encoding="utf-8"))
+        second_note = frontmatter.loads(second_path.read_text(encoding="utf-8"))
+        assert first_note.content.strip() == "facts from session A"
+        assert first_note.metadata["session_id"] == "a" * 32
+        assert second_note.content.strip() == "updated facts from session B"
+        assert second_note.metadata["description"] == "Second session refined"
+        assert second_note.metadata["session_id"] == "b" * 32
+        assert _metadata(second)["path"] == "daily/2026-05-18/project-plan-2.md"
+        index = (Path(tmp) / "daily/2026-05-18.md").read_text(encoding="utf-8")
+        assert "[[daily/2026-05-18/project-plan.md]]" in index
+        assert "[[daily/2026-05-18/project-plan-2.md]]" in index
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_daily_write_concurrent_collisions_claim_distinct_paths():
+    """Concurrent sessions cannot claim the same daily-note path."""
+
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = await _make_store_with_dailies([])
+        steps = [await _make_daily_write_step(store, tmp) for _ in range(2)]
+        sessions = ("a" * 32, "b" * 32)
+
+        await asyncio.gather(
+            *(
+                step(
+                    name="shared-topic",
+                    description=f"Session {session[0]}",
+                    session_id=session,
+                    content=f"facts from {session[0]}",
+                    date="2026-05-18",
+                )
+                for step, session in zip(steps, sessions)
+            ),
+        )
+
+        note_dir = Path(tmp) / "daily/2026-05-18"
+        notes = [frontmatter.loads(path.read_text(encoding="utf-8")) for path in sorted(note_dir.glob("*.md"))]
+        assert len(notes) == 2
+        assert {note.metadata["session_id"] for note in notes} == set(sessions)
+        assert {note.content.strip() for note in notes} == {"facts from a", "facts from b"}
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_daily_write_same_session_reuses_its_note_path():
+    """A session can refine its own note without creating another file."""
+
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = await _make_store_with_dailies([])
+        step = await _make_daily_write_step(store, tmp)
+        kwargs = {"name": "project-plan", "session_id": "a" * 32, "date": "2026-05-18"}
+
+        await step(**kwargs, description="First", content="initial")
+        await step(**kwargs, description="Updated", content="refined")
+
+        note_dir = Path(tmp) / "daily/2026-05-18"
+        assert sorted(path.name for path in note_dir.glob("*.md")) == ["project-plan.md"]
+        note = frontmatter.loads((note_dir / "project-plan.md").read_text(encoding="utf-8"))
+        assert note.content.strip() == "refined"
+        assert note.metadata["description"] == "Updated"
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_daily_write_rejects_model_session_id_mismatch(tmp_path):
+    """Auto-memory's trusted session binding overrides model tool arguments."""
+    store = await _make_store_with_dailies([])
+    step = await _make_daily_write_step(store, str(tmp_path))
+
+    await step(
+        name="project-plan",
+        description="Plan",
+        session_id="b" * 32,
+        _trusted_session_id="a" * 32,
+        content="untrusted attribution",
+        date="2026-05-18",
+    )
+
+    assert step.context.response.success is False
+    assert "does not match the trusted session" in step.context.response.answer
+    assert not (tmp_path / "daily/2026-05-18/project-plan.md").exists()
+    await store.close()
 
 
 @pytest.mark.asyncio

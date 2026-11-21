@@ -147,8 +147,19 @@ async def detect_file_encoding(file_path, sniff_bytes: int = 8192) -> str:
     return enc
 
 
-async def write_file_safe(file_path: Path, content: str | bytes, encoding: str = "utf-8") -> None:
-    """Publish complete bytes atomically while retaining normal file permissions."""
+async def write_file_safe(
+    file_path: Path,
+    content: str | bytes,
+    encoding: str = "utf-8",
+    *,
+    exclusive: bool = False,
+) -> None:
+    """Publish complete bytes atomically while retaining normal file permissions.
+
+    When ``exclusive`` is true, fail if the target already exists instead of
+    replacing it. This is useful for names that must be claimed without a
+    check-then-write race.
+    """
     file_path.parent.mkdir(parents=True, exist_ok=True)
     if isinstance(content, str):
         try:
@@ -182,7 +193,12 @@ async def write_file_safe(file_path: Path, content: str | bytes, encoding: str =
                 handle.write(payload)
             if mode is not None:
                 os.chmod(temporary, mode)
-            os.replace(temporary, file_path)
+            if exclusive:
+                # Atomically publish without replacing a destination another
+                # writer may have created after our initial scan.
+                os.link(temporary, file_path)
+            else:
+                os.replace(temporary, file_path)
         finally:
             Path(temporary).unlink(missing_ok=True)
 
