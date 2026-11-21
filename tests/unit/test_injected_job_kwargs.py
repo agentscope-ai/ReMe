@@ -118,6 +118,23 @@ async def test_as_tool_injects_kwargs_and_rejects_conflicts():
 
 
 @pytest.mark.asyncio
+async def test_as_tool_hides_and_enforces_trusted_session_binding():
+    job = _Job()
+    tool = AsAgentWrapper._make_tool(job, injected_job_kwargs={"_trusted_session_id": "session-a"})
+
+    await tool.call(path="daily/a.md", content="memory", date="2025-06-01")
+    assert job.calls[0]["_trusted_session_id"] == "session-a"
+    with pytest.raises(ValueError, match="_trusted_session_id"):
+        await tool.call(
+            path="daily/a.md",
+            content="memory",
+            date="2025-06-01",
+            _trusted_session_id="session-b",
+        )
+    assert len(job.calls) == 1
+
+
+@pytest.mark.asyncio
 async def test_as_tool_without_injection_keeps_original_schema():
     job = _Job()
     tool = AsAgentWrapper._make_tool(job)
@@ -193,7 +210,7 @@ async def test_auto_memory_create_uses_model_supplied_date_and_daily_write(tmp_p
 
     assert step.context.response.success is True
     assert wrapper.calls[0]["job_tools"] == ["daily_write"]
-    assert "injected_job_kwargs" not in wrapper.calls[0]
+    assert wrapper.calls[0]["injected_job_kwargs"] == {"_trusted_session_id": "sess-1"}
 
 
 @pytest.mark.asyncio
@@ -226,4 +243,7 @@ async def test_auto_memory_update_scopes_tools_to_exact_note_path(tmp_path, monk
 
     assert step.context.response.success is True
     assert wrapper.calls[0]["job_tools"] == ["read", "edit", "frontmatter_update", "write"]
-    assert wrapper.calls[0]["injected_job_kwargs"] == {"_allowed_paths": [note_path]}
+    assert wrapper.calls[0]["injected_job_kwargs"] == {
+        "_allowed_paths": [note_path],
+        "_trusted_session_id": session_id,
+    }

@@ -19,6 +19,7 @@ from agentscope.message import DataBlock, Msg, TextBlock, UserMsg
 from ._evolve import agent_reply_result_text, format_history, now
 from ..base_step import BaseStep
 from ..file_io import extract_daily_date, parse_daily_date, refresh_day_index, write_file_safe
+from ...constants import TRUSTED_SESSION_ID_KWARG
 from ...utils.files.path_lock import get_path_lock
 from ..file_io import validate_filename_component, validate_session_id
 from ..file_io import IMAGE_MIME_BY_EXT, check_path_permission, resolve_path
@@ -670,8 +671,11 @@ class AutoMemoryStep(BaseStep):
         # model supplies the date from the prompt.
         if reply_kwargs is None:
             reply_kwargs = self._reply_extra_kwargs(day)
+        injected_job_kwargs = dict(reply_kwargs.get("injected_job_kwargs") or {})
+        injected_job_kwargs[TRUSTED_SESSION_ID_KWARG] = session_id
         if not created:
-            reply_kwargs["injected_job_kwargs"] = {"_allowed_paths": [note_path]}
+            injected_job_kwargs["_allowed_paths"] = [note_path]
+        reply_kwargs["injected_job_kwargs"] = injected_job_kwargs
         result = await self.agent_wrapper.reply(
             user_message,
             system_prompt=self.prompt_format("system_prompt"),
