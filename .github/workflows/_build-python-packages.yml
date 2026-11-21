@@ -102,7 +102,7 @@ jobs:
           )
           verify_home_wheel current "${REME_WHEEL}"
           # Keep this version in sync with plugins/home/pyproject.toml.
-          verify_home_wheel minimum 'reme-ai==0.4.2.3'
+          verify_home_wheel minimum 'reme-ai==0.4.2.4'
 
       - name: Build and verify benchmark plugin distributions
         run: |
