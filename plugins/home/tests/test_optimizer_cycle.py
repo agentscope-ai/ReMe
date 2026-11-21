@@ -15,6 +15,7 @@ from agentscope.state import AgentState
 from reme_home.agent import optimizer
 from reme_home.agent.bounded import BoundedReActAgent
 from reme_home.evaluation.artifacts import write_json
+from reme_home.evaluation.history import rebuild_sampling_state
 from test_bounded_agent import RecordingModel
 
 
@@ -187,18 +188,17 @@ async def test_cycle_counts_only_completed_context_replacements(monkeypatch):
 
 
 def write_history(home, started):
-    write_json(
-        home / "sampling/state.json",
-        {
-            "schema_version": 2,
-            "round": len(started),
-            "successful_round": 0,
-            "started_validations": {key: index for index, key in enumerate(started, 1)},
-            "processed_validations": [],
-            "cases": {},
-            "queries": {},
-        },
-    )
+    # Started plans are durable evidence; state.json is only a rebuildable cache.
+    for index, key in enumerate(started, 1):
+        write_json(
+            home / "sampling/plans" / f"{key}.json",
+            {
+                "round": index,
+                "validation_key": key,
+                "sandbox_started_at": "2026-10-31T00:00:00Z",
+            },
+        )
+    rebuild_sampling_state(home)
 
 
 @pytest.mark.asyncio
