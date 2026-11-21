@@ -18,6 +18,7 @@ ReMe keeps memory in an independent service and a user-owned workspace. Multiple
 | OpenClaw | [`@agentscope-ai/reme-openclaw-plugin`](./integrations/openclaw.md) |
 | Claude Code | [Start ReMe, then install the plugin](./integrations/claude-code.md) |
 | Qoder | [Start ReMe, then install the plugin](./integrations/qoder.md) |
+| ZCode | [Start ReMe, then install the plugin](./integrations/zcode.md) |
 | Hermes Agent | Memory provider adapter |
 | Codex | [Start ReMe, then install the plugin](./integrations/codex.md) |
 | Other coding agents | `reme_memory` Skill or MCP |
@@ -99,6 +100,17 @@ components as one user-scoped plugin; no manual `settings.json` hooks are requir
 Qoder transcripts use the same user/assistant JSONL shape as Claude Code. The bundled adapter
 captures completed turns, queues failed writes for retry, and submits them through the configured
 HTTP Job API. Keep the ReMe service running while using the plugin.
+
+## ZCode
+
+Start the ReMe HTTP service, then add the local marketplace for the
+[ReMe plugin in ZCode](./integrations/zcode.md). The plugin bundles lifecycle hooks, an MCP bridge,
+and the `reme-memory` skill as one installable package.
+
+ZCode exposes only seven Hook events, and its `async` Hook field currently runs in the foreground.
+The adapter caches each user prompt at `UserPromptSubmit`, pairs it with the final response at
+`Stop`, and starts a detached delivery process. `SessionStart` retries residual batches. Failed
+writes remain in the endpoint-scoped local queue.
 
 ## Hermes Agent
 
