@@ -3,24 +3,28 @@
 import asyncio
 from contextlib import AsyncExitStack, asynccontextmanager
 from contextvars import ContextVar
-from datetime import date
+from itertools import chain
 
-import frontmatter
 import yaml
 
+from .outbox_v1 import ReminderFiles
+from .outbox_v2 import DailyReminderFiles
 from ....constants import CHAT_AGENT_NAME, PROACTIVE_MESSAGE_ID_PREFIX
 from ....schema.agent_runtime import AgentReminder, ReminderRef
 from ....schema.event import Event
 from ....utils.async_utils import complete_in_thread, finish_cleanup
 from ....utils.files.path_lock import get_path_lock
+from ....utils.proactive_record import is_date_directory
 
 
 class AgentOutbox:
     """Rebuild messages from reminder files and publication eligibility from input receipts."""
 
-    def __init__(self, runtime):
+    def __init__(self, runtime, daily_dir):
         self.runtime = runtime
         self.files = runtime.files
+        self._legacy = ReminderFiles(runtime)
+        self._daily = DailyReminderFiles(self.files, self.files.path(daily_dir))
         self.lock = asyncio.Lock()
         self.sync_lock = asyncio.Lock()
         self.records: dict[ReminderRef, AgentReminder] = {}
@@ -33,17 +37,16 @@ class AgentOutbox:
     def _scan(self):
         records, owners, cache, issues = {}, {}, {}, {}
         for agent in self.runtime.agents.load(include_deleted=True).values():
-            directory = self.runtime.agents.directory_for(agent) / "reminder"
-            for path in sorted(directory.glob("*/*.md")):
+            for path in chain(self._legacy.paths(agent), self._daily.paths(agent)):
                 try:
-                    if date.fromisoformat(path.parent.name).isoformat() != path.parent.name:
+                    if not is_date_directory(path.parent):
                         raise ValueError("reminder directories must use YYYY-MM-DD names")
                     self.files.checked(path)
                     stat = path.stat()
                     signature = (stat.st_ino, stat.st_size, stat.st_mtime_ns)
                     previous = self.cache.get(path)
                     item = previous[1] if previous and previous[0] == signature else self._read(path)
-                except (OSError, TypeError, ValueError, yaml.YAMLError) as exc:
+                except (OSError, RuntimeError, TypeError, ValueError, yaml.YAMLError) as exc:
                     issues[path.relative_to(self.files.workspace).as_posix()] = str(exc)
                     continue
                 cache[path] = (signature, item)
@@ -53,22 +56,26 @@ class AgentOutbox:
                     owners[ref] = agent.agent_name
         return records, owners, cache, issues
 
+    def _storage(self, path):
+        return self._daily if self._daily.contains(path) else self._legacy
+
     def _read(self, path):
-        document = frontmatter.loads(self.files.read(path))
-        # Model drafts become canonical only after the runtime assigns an ID.
-        if "id" not in document:
-            return None
-        metadata = dict(document.metadata)
-        priority = metadata.pop("action", None)
-        return AgentReminder(priority=priority, message=document.content, **metadata)
+        return self._storage(path).read(path)
 
     def _write(self, path, item, *, on_write=None):
-        metadata = item.model_dump(mode="json", exclude={"message", "priority"})
         self.files.write(
             path,
-            frontmatter.dumps(frontmatter.Post(item.message, action=item.priority, **metadata)) + "\n",
+            self._storage(path).serialize(path, item),
             **({"on_write": lambda version: on_write(path, version)} if on_write is not None else {}),
         )
+
+    def supporting_paths(self, item):
+        """Give Chat the files that provide additional context for a reminder."""
+        canonical = item["reminder_path"]
+        paths = dict.fromkeys(item["paths"])
+        if not self._daily.contains(self.files.path(canonical)):
+            paths.pop(canonical, None)
+        return list(paths)
 
     @staticmethod
     def _committed_references(records, receipts, issues):
@@ -141,13 +148,12 @@ class AgentOutbox:
 
     async def save(self, agent, run_id, result, now, *, on_write=None, before_write=None):
         """Save validated model output before its event consumption receipt is committed."""
-        directory = self.runtime.agents.directory_for(agent) / "reminder"
         refs = []
         for index, notification in enumerate(result.notifications):
             path = self.files.path(notification.paths[0])
-            if path.parent.parent != directory or path.suffix != ".md":
-                raise ValueError("the first notification path must be the Agent's dated reminder Markdown")
-            if date.fromisoformat(path.parent.name).isoformat() != path.parent.name:
+            if not self._storage(path).owns(path, agent):
+                raise ValueError("the first notification path must be the Agent's dated reminder or daily Markdown")
+            if not is_date_directory(path.parent):
                 raise ValueError("reminder directories must use YYYY-MM-DD names")
             item = AgentReminder(**notification.model_dump(), id=f"{run_id}-{index}", created_at=now)
             async with await get_path_lock(path):

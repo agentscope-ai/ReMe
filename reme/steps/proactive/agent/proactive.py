@@ -4,10 +4,11 @@ import asyncio
 from datetime import timedelta
 import json
 import math
-import re
+from posixpath import join, normpath
 import shlex
 from time import monotonic
 from typing import get_args
+from urllib.parse import unquote, urlsplit
 
 import frontmatter
 
@@ -20,7 +21,7 @@ from ....schema.proactive_agent import CRON_EVENT_SOURCE, ProactiveRunResult
 from ....schema import TokenUsage, collect_reply
 from ....utils.async_utils import complete_in_thread
 from ....utils.counter import global_counter_add_many
-from ....utils.documents.wikilink_handler import WikilinkHandler
+from ....utils.documents.markdown_parser import markdown_link_targets
 
 
 @R.register("proactive_agent_step")
@@ -45,11 +46,12 @@ class ProactiveAgentStep(BaseAgentStep):
     def _paths(self, agent, now):
         runtime = self.agent_runtime
         daily = runtime.files.path(self.config_value("daily_dir"))
-        reminder_dir = runtime.agents.directory_for(agent) / "reminder"
-        day = now.strftime("%Y-%m-%d")
-        summary = runtime.files.checked(daily / day / f"{agent.agent_name}.md")
-        yesterday = (now.date() - timedelta(days=1)).isoformat()
-        yesterday_summary = runtime.files.checked(daily / yesterday / f"{agent.agent_name}.md")
+        agent_dir = runtime.agents.directory_for(agent)
+        summary_dir = agent_dir / "summary"
+        reminder_dir = agent_dir / "reminder"
+        today = now.date()
+        yesterday = today - timedelta(days=1)
+        day = today.isoformat()
         stem = f"{now:%H%M%S}"
         collision = 0
         while True:
@@ -62,8 +64,8 @@ class ProactiveAgentStep(BaseAgentStep):
         return {
             "daily_dir": daily,
             "task_path": runtime.agents.task_path(agent),
-            "today_summary_path": summary,
-            "yesterday_summary_path": yesterday_summary,
+            "today_summary_path": runtime.files.checked(summary_dir / f"{today}.md"),
+            "yesterday_summary_path": runtime.files.checked(summary_dir / f"{yesterday}.md"),
             "record_path": detail,
             "reminder_path": reminder,
         }
@@ -82,7 +84,7 @@ class ProactiveAgentStep(BaseAgentStep):
             options["effort"] = effort
         return options
 
-    def _query(self, events, paths, now, task_content, *, is_cron):
+    def _query(self, events, paths, now, task_content, *, is_cron, **prompt_values):
         """Build the task type's Markdown query with its task snapshot and round inputs."""
         files = self.agent_runtime.files
         inputs = []
@@ -102,6 +104,7 @@ class ProactiveAgentStep(BaseAgentStep):
                     no_files=not attachments,
                 ),
             )
+        # Cron keeps its planned time in the inbox. The prompt uses the actual run time.
         return self.prompt_format(
             "cron_query" if is_cron else "proactive_query",
             workspace_dir=self.workspace_path,
@@ -109,9 +112,9 @@ class ProactiveAgentStep(BaseAgentStep):
             task_content=task_content,
             input_content="\n\n".join(inputs),
             now=now.isoformat(),
-            scheduled_at=events[0]["event_ts"] if is_cron else None,
             max_local_search_calls=self.max_local_search_calls,
             max_timeline_entries=self.max_timeline_entries,
+            **prompt_values,
             **{
                 key: value.relative_to(files.workspace).as_posix() for key, value in paths.items() if key != "task_path"
             },
@@ -175,30 +178,29 @@ class ProactiveAgentStep(BaseAgentStep):
             raise ValueError(f"{path}: document body must not be blank")
         return document
 
-    @staticmethod
-    def _workspace_links(content):
-        """Extract workspace wikilinks outside code examples."""
-        content = re.sub(
-            r"^ {0,3}(`{3,}|~{3,})[^\n]*\n.*?(?:^ {0,3}\1[ \t]*$|\Z)|(`+).*?\2",
-            "",
-            content,
-            flags=re.MULTILINE | re.DOTALL,
-        )
-        return {match.target for match in WikilinkHandler.iter_matches(content)}
-
     def _warn_local_links(self, path, content, before=""):
-        """Resolve local links from the workspace and warn without rejecting valid artifacts."""
+        """Check new Markdown links relative to their source without blocking submission."""
         files = self.agent_runtime.files
-        for target in sorted(self._workspace_links(content) - self._workspace_links(before)):
+        directory = path.parent.relative_to(files.workspace).as_posix()
+        try:
+            targets = markdown_link_targets(content) - markdown_link_targets(before)
+        except (ValueError, RuntimeError) as exc:
+            self.logger.warning(f"Could not parse Markdown links source={path}: {exc}")
+            return
+        for target in sorted(targets):
             try:
-                if files.path(target).exists():
+                url = urlsplit(target)
+                if url.scheme or url.netloc or not url.path:
+                    continue
+                relative_path = normpath(join(directory, unquote(url.path)))
+                if files.path(relative_path).exists():
                     continue
                 reason = "target does not exist"
             except (OSError, ValueError, RuntimeError) as exc:
                 reason = str(exc)
             self.logger.warning(f"Proactive local link source={path} target={target!r}: {reason}")
 
-    def _read_artifacts(self, paths, summary_before, *, is_cron, warn_links=True):
+    def _read_artifacts(self, paths, summary_before, *, is_cron):
         """Validate the final branch and derive notifications only from saved documents."""
         files = self.agent_runtime.files
         record = self._read_document(paths["record_path"], record=True)
@@ -229,10 +231,9 @@ class ProactiveAgentStep(BaseAgentStep):
                 },
             )
         result = ProactiveRunResult(notifications=notifications)
-        if warn_links:
-            self._warn_local_links(paths["record_path"], record.content)
-            self._warn_local_links(paths["reminder_path"], reminder.content)
-            self._warn_local_links(paths["today_summary_path"], summary, summary_before or "")
+        self._warn_local_links(paths["record_path"], record.content)
+        self._warn_local_links(paths["reminder_path"], reminder.content)
+        self._warn_local_links(paths["today_summary_path"], summary, summary_before or "")
         return result
 
     async def execute(self):
@@ -260,7 +261,7 @@ class ProactiveAgentStep(BaseAgentStep):
                 try:
                     await complete_in_thread(self._round_files.close)
                 except OSError as exc:
-                    self.logger.warning(f"Could not remove round drafts: {exc}")
+                    self.logger.warning(f"Could not remove round backup: {exc}")
             if stats := self.context.response.metadata.get("reme.agent_run"):
                 stats.update(result=outcome, elapsed_seconds=monotonic() - started)
                 prefix = ("agent_runs", stats["agent_type"])
@@ -287,13 +288,14 @@ class ProactiveAgentStep(BaseAgentStep):
 
     def _record_write(self, path, version):
         """Track the outbox's own canonicalization without claiming external edits."""
-        for key in self._round_files.published:
-            if self._round_files.paths[key] == path:
-                self._round_files.published[key] = version
+        self._round_files.record_write(path, version)
 
     def _check_write(self, path):
         """Keep user edits authoritative until the outbox has added its metadata."""
-        self._round_files.check_published(path)
+        self._round_files.check_written(path)
+
+    def _make_artifacts(self, paths):
+        return RoundArtifacts(self.agent_runtime.files, paths)
 
     async def _execute(self, agent, events):
         """Run the complete workflow in one turn, then validate its saved decisions."""
@@ -313,9 +315,8 @@ class ProactiveAgentStep(BaseAgentStep):
         runtime = self.agent_runtime
         now = runtime.now()
         paths = await asyncio.to_thread(self._paths, agent, now)
-        self._round_files = await asyncio.to_thread(RoundArtifacts, runtime.files, paths)
-        await complete_in_thread(self._round_files.prepare)
-        summary_before = self._round_files.before["today_summary_path"][0]
+        artifacts = self._round_files = self._make_artifacts(paths)
+        before = await artifacts.prepare()
         task_content = await asyncio.to_thread(runtime.files.read, paths["task_path"])
         if not task_content.strip():
             raise ValueError("TASK.md must not be blank")
@@ -323,7 +324,7 @@ class ProactiveAgentStep(BaseAgentStep):
         query = await asyncio.to_thread(
             self._query,
             events,
-            self._round_files.drafts,
+            paths,
             now,
             task_content,
             is_cron=is_cron,
@@ -393,35 +394,28 @@ class ProactiveAgentStep(BaseAgentStep):
                     label += f" session={session_id}"
                     self.logger.info(f"{label} result=started path={paths['record_path']}")
                     with runtime.live_turns.observe(agent.agent_name, session_id, query) as publish:
-                        reply = await collect_reply(
-                            runtime.agent_wrapper.reply_stream(
-                                query,
-                                resume=session_id,
-                                **options,
-                            ),
-                            on_chunk=observe,
-                        )
+                        try:
+                            reply = await collect_reply(
+                                runtime.agent_wrapper.reply_stream(query, resume=session_id, **options),
+                                on_chunk=observe,
+                            )
+                        finally:
+                            async with artifacts.locked():
+                                await complete_in_thread(artifacts.capture_outputs)
                     if reply["status"] != "completed":
                         raise RuntimeError(reply.get("error") or f"Proactive agent {reply['status']}")
             except Exception as exc:
                 model_error = exc
                 stats["model_status"] = "timeout" if isinstance(exc, TimeoutError) else "failed"
             try:
-                await asyncio.to_thread(
-                    self._read_artifacts,
-                    self._round_files.drafts,
-                    summary_before,
-                    is_cron=is_cron,
-                    warn_links=False,
-                )
+                async with artifacts.locked():
+                    result = await asyncio.to_thread(self._read_artifacts, paths, before, is_cron=is_cron)
             except Exception as validation_error:
                 if model_error is not None:
                     raise model_error from validation_error
                 raise
             if model_error is not None:
                 self.logger.warning(f"{label} result=accepted_artifacts model_error={type(model_error).__name__}")
-            await self._round_files.publish()
-            result = await asyncio.to_thread(self._read_artifacts, paths, summary_before, is_cron=is_cron)
             self.logger.info(
                 f"{label} result=validated notifications={len(result.notifications)} "
                 f"elapsed={monotonic() - started:.2f}s path={paths['record_path']}",
@@ -430,7 +424,9 @@ class ProactiveAgentStep(BaseAgentStep):
             outcome = "interrupted" if isinstance(exc, asyncio.CancelledError) else "failed"
             if outcome == "interrupted":
                 stats["model_status"] = outcome
-            self.logger.error(f"{label} result={outcome} elapsed={monotonic() - started:.2f}s error={exc}")
+            self.logger.error(
+                f"{label} result={outcome} elapsed={monotonic() - started:.2f}s error={type(exc).__name__}: {exc}",
+            )
             raise
         finally:
             if session_id is not None:

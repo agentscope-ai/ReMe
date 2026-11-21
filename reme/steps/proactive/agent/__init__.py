@@ -16,6 +16,7 @@ from .chat import BaseChatAgentStep, ListChatSessionsStep
 from .inbox import InboxChatStep
 from .loop import AgentLoopStep
 from .proactive import ProactiveAgentStep
+from .proactive_v2 import ProactiveAgentStepV2
 
 __all__ = [
     "AgentChatStep",
@@ -33,4 +34,5 @@ __all__ = [
     "AgentLoopStep",
     "ListChatSessionsStep",
     "ProactiveAgentStep",
+    "ProactiveAgentStepV2",
 ]

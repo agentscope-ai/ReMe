@@ -31,7 +31,7 @@ class ReadInboxStep(_InboxTool):
                     "agent_name": item["from_agent_name"],
                     "created_at": item["created_at"],
                     "message": item["message"],
-                    "paths": list(dict.fromkeys(path for path in item["paths"] if path != item["reminder_path"])),
+                    "paths": self.agent_runtime.outbox.supporting_paths(item),
                 }
                 for item in batch["items"]
             ],

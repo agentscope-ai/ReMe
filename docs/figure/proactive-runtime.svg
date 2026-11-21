@@ -218,13 +218,13 @@
       <text x="418" y="883" font-size="15" class="muted">Read task &amp; preferences</text>
       <text x="418" y="916" class="file"><tspan x="418">reme_agents/work/</tspan><tspan x="418" dy="20">TASK.md</tspan></text>
     </g>
-    <g data-box="732,778,316,246" data-path="daily/{today}/work.md" data-read-path="daily/{yesterday}/work.md">
+    <g data-box="732,778,316,246" data-path="reme_agents/work/summary/{today}.md" data-read-path="reme_agents/work/summary/{yesterday}.md">
       <rect x="732" y="778" width="316" height="246" rx="14" fill="#FFFFFF" stroke="#DDE7E7" />
       <rect x="752" y="796" width="160" height="24" rx="6" fill="#E8F2F1" />
       <text x="832" y="813" font-size="10.5" font-weight="650" letter-spacing=".3" class="teal" text-anchor="middle">READ · MERGE TODAY</text>
       <text x="752" y="856" font-size="22" font-weight="650">Daily summaries</text>
       <text x="752" y="883" font-size="15" class="muted">Read both; skip missing files</text>
-      <text x="752" y="916" class="file"><tspan x="752">daily/{today}/</tspan><tspan x="752" dy="20">work.md</tspan><tspan x="752" dy="28">daily/{yesterday}/</tspan><tspan x="752" dy="20">work.md</tspan></text>
+      <text x="752" y="916" class="file"><tspan x="752">reme_agents/work/summary/</tspan><tspan x="752" dy="20">{today}.md</tspan><tspan x="752" dy="20">{yesterday}.md</tspan></text>
     </g>
     <g data-box="1066,778,316,246" data-path="daily/{date}/work_HHMMSS.md">
       <rect x="1066" y="778" width="316" height="246" rx="14" fill="#FFFFFF" stroke="#E7E0D5" />

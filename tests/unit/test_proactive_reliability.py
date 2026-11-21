@@ -246,8 +246,11 @@ async def test_proactive_timeout_releases_claim_and_preserves_inputs(tmp_path, p
             wrapper.create_session = delayed_session
         else:
             wrapper.reply_stream = never_finish
+        step = ProactiveAgentStep(app_context=context, timeout_seconds=0.01)
+        step.logger = Mock()
         with pytest.raises(TimeoutError):
-            await ProactiveAgentStep(app_context=context, timeout_seconds=0.01)(agent_name="monitor")
+            await step(agent_name="monitor")
+        assert any("error=TimeoutError:" in call.args[0] for call in step.logger.error.call_args_list)
         snapshot = await runtime.inbox.snapshot("monitor")
         assert snapshot["pending_count"] == 1 and snapshot["in_flight_count"] == 0
         assert not runtime.workers

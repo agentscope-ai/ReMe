@@ -14,7 +14,7 @@ The [full illustrated guide is available in Chinese](../zh/proactive_runtime.md)
 Five parts support the workflow:
 
 - **Event inbox:** stores inputs in workspace files. Each agent processes one batch at a time; successful runs acknowledge their inputs, while failed runs leave them available for retry.
-- **Scheduled triggers:** add a timer event to the task inbox when a configured schedule is due. The task prompt supplies the planned trigger time, actual execution time, and application timezone.
+- **Scheduled triggers:** add a timer event to the task inbox when a configured schedule is due. The task prompt supplies the current time and application timezone.
 - **Workspace files:** keep task requirements in `TASK.md`, progress and evidence in daily records, and previous reminders in reminder files. Each run reads the latest requirements and progress before continuing.
 - **Permissions:** the framework and Harness control file access, tools, and network access. Chat, event tasks, and scheduled tasks can search the web and open pages.
 - **Outbox:** publishes reminder references after the reminder has been saved and input completion has been committed. Failed delivery can be retried independently of task execution. A full Chat Inbox defers publication while already queued reminders continue to be consumed.
@@ -25,9 +25,9 @@ Event tasks use `proactive_query` to analyze incoming material, record new infor
 
 Failed task runs retry with increasing delays, starting at `retry_seconds` (5 seconds by default) and normally capped at 5 minutes. A successful run resets the delay. Per-run diagnostics are in response metadata `reme.agent_run`; process-local counters under `agent_runs` group runs, tokens, tool calls and elapsed time by `agent_type`. Model status and run result are separate, so valid artifacts accepted after a model error still count as a completed run.
 
-The model writes records, reminders and summaries to private round drafts. After validation, publication uses the file jobs' per-path locks and checks the original content and file versions. Concurrent user edits are preserved and reported as conflicts. Links between drafts are rewritten to their final destinations.
+The model writes round records to `daily/{date}/{agent_name}_HHMMSS.md` and summaries to `reme_agents/{agent_name}/summary/{date}.md` by default. History searches target the task's timestamped round records under `daily/`. Before the round starts, ReMe backs up any existing summary beside it as a `.bak` file. ReMe captures the new record and reminder versions before committing.
 
-Complete, valid drafts can be committed even if the model times out or reports failure afterward. Failed rounds restore only files they published whose versions still match. After uncertain receipt I/O, recovery checks the durable consumption log: uncommitted outputs are restored, while committed results are retained. Explicit cancellation stops the round and cleans up drafts. This recovery does not cover forced process termination.
+Complete, valid outputs can commit after a model timeout or error. The model owns the summary during execution. Before the input receipt is durable, failure restores the summary from this round's backup, or removes a newly created summary, then removes the new record and reminder if their versions still match. ReMe removes the backup after a successful commit or restoration and retains it if restoration fails. A forced process exit can leave the files and backup for manual recovery.
 
 Event tasks compare incoming material with existing summaries and related records, distinguishing facts from inference. A newly met reminder condition also counts as new information. Both task types require a nonblank `TASK.md`; missing daily summaries are optional.
 
@@ -41,9 +41,9 @@ Every record with `action: write` requires a nonempty, updated daily summary. Fo
 
 Scheduled tasks report every run at P0 by default. Explicit delivery conditions and priorities in `TASK.md` override those defaults. The scheduled prompt requires an execution record with `action: write` each run. Both task types use the same reminder file format. Set `action` to `P0`, `P1` or `P2` to submit the body for delivery. Set `action: skip` and give a brief reason to skip delivery. Briefings and summaries describe the actual results and include necessary sources and result links.
 
-Event tasks follow `TASK.md` and first exclude content that does not need a reminder, then select the first matching level in P0/P1/P2 order. They do not guess what the user knows from other conversations. Their reminders use one natural, concise sentence. After final validation of the reminder priority and updated summary, Outbox adds related paths, the reminder ID, creation time and acknowledgement fields before committing input completion. A generated reminder has not necessarily been delivered.
+Event tasks follow `TASK.md` and select the first matching level in P0/P1/P2 order for each item that needs a reminder. One reminder covers those items and uses the highest selected level. They do not guess what the user knows from other conversations. After final validation of the reminder priority and updated summary, Outbox adds related paths, the reminder ID, creation time and acknowledgement fields before committing input completion. A generated reminder has not necessarily been delivered.
 
-Before adding reminder metadata, Outbox checks the round's published file version under the file jobs' shared path lock. A concurrent user save preserves the user's file and leaves the input available for retry.
+Before adding reminder metadata, Outbox checks the round's written file version under the file jobs' shared path lock. A concurrent user save preserves the user's file and leaves the input available for retry.
 
 Remy's inbox is derived from committed reminder files and their acknowledgement fields. It selects one eligible batch by priority and creation time within the configured item and byte limits. Reminders outside the selected batch remain available for later evaluation. Disabled tasks, deleted tasks and notification windows affect eligibility.
 
@@ -52,6 +52,16 @@ Sending and silent decisions revalidate the reminder's message, priority and rel
 The default `proactive` configuration sets `project_doc_max_bytes=0` on the shared Codex app-server, disabling automatic
 repository `AGENTS.md` loading for all Agents. Event and scheduled task execution sessions do not automatically inject
 skill instructions; the main Chat Agent retains skills. Global instructions under `CODEX_HOME` load independently of this setting.
+
+### Use the v2 single-file workflow
+
+The default `proactive` configuration uses the v1 workflow described above. Start ReMe with `reme start config=proactive_v2` to use v2 for both event and scheduled tasks.
+
+Each run receives the latest `TASK.md` text and the paths of up to 10 recent records for its task. The agent reviews the event or performs the scheduled task, reads those recent records, then searches `daily_dir` by keyword or regex and reads up to 10 more relevant records it has yet to read. It records new information and can link up to 10 points in a timeline when useful.
+
+Each run writes one `daily/YYYY-MM-DD/{agent_name}_HHMMSS.md` file. `has_content` describes whether the body has content. When `remind` is true, `reminder_priority` gives `P0`, `P1` or `P2` and `reminder_message` contains the complete reminder text. When `remind` is false, both fields are `null`. Scheduled tasks default to a P0 report even when the record body is empty, subject to the task's reporting requirements.
+
+Outbox stores delivery state in `reminder_state` on the same file, preserves the Markdown body, and continues processing existing v1 reminders.
 
 ## Personal Runtime
 
@@ -82,7 +92,7 @@ The configured cooldown applies when the next batch contains observations. A sch
 
 Each task owns a directory under `reme_agent_dir`. Deleting a task stops its execution and preserves its files. Temporary query sessions are recorded as independent branches.
 
-Remy's Inbox reads committed reminder Markdown and its acknowledgement fields. It holds the active batch in memory and applies the configured count and byte limits. Task input inboxes use durable claim, acknowledgement and retry. Link workspace files with `[[path/to/file.md|Label]]` in task artifacts.
+Remy's Inbox reads committed reminder Markdown and its acknowledgement fields. It holds the active batch in memory and applies the configured count and byte limits. Task input inboxes use durable claim, acknowledgement and retry.
 
 ## Desktop protocol
 

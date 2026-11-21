@@ -16,7 +16,6 @@ the single source of truth for ``[[...]]`` syntax.
 """
 
 import re
-import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -32,6 +31,7 @@ from ...schema import (
     FileFrontMatter,
     FileNode,
 )
+from ...utils.documents.markdown_parser import MARKDOWN_PARSE_LOCK
 from ...utils.documents.wikilink_handler import WikilinkHandler
 
 # -- AST node + helpers ---------------------------------------------------
@@ -39,9 +39,6 @@ from ...utils.documents.wikilink_handler import WikilinkHandler
 _ATX_HEADING_RE = re.compile(r"^ {0,3}#{1,6}(?:[ \t]+|$)")
 _SETEXT_HEADING_RE = re.compile(r"^ {0,3}(?:=+|-+)[ \t]*$")
 _FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
-
-# MarkdownRenderer changes mistletoe's process-wide token registry.
-_RENDERER_LOCK = threading.Lock()
 
 
 @dataclass
@@ -144,7 +141,7 @@ class MarkdownFileChunker(DefaultFileChunker):
                 from mistletoe.markdown_renderer import MarkdownRenderer
                 from mistletoe.block_token import Document
 
-                with _RENDERER_LOCK, MarkdownRenderer() as renderer:
+                with MARKDOWN_PARSE_LOCK, MarkdownRenderer() as renderer:
                     tree = self._build_tree(Document(content), renderer, line_offset=line_offset)
                     chunks = self._chunk_node(tree, (), rel_path, renderer)
             if self.include_frontmatter_in_metadata:

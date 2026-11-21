@@ -198,11 +198,11 @@
       <text x="920" y="904" class="file"><tspan x="920">Reminder files + receipts</tspan><tspan x="920" dy="22">Derived receiver view</tspan><tspan x="920" dy="22">One in-memory batch</tspan></text>
       <text x="920" y="988" font-size="13" class="muted">Reminder content stays in task files</text>
     </g>
-    <g data-role="task-files" data-box="1318,816,398,208" data-path="reme_agents/{agent_name}/TASK.md" data-daily-path="daily/{date}/{agent_name}.md">
+    <g data-role="task-files" data-box="1318,816,398,208" data-path="reme_agents/{agent_name}/TASK.md" data-daily-path="daily/{date}/{agent_name}_HHMMSS.md">
       <rect x="1318" y="816" width="398" height="208" rx="14" fill="#FFFFFF" stroke="#DDE7E7" />
       <text x="1338" y="860" font-size="22" font-weight="650">Task files</text>
-      <text x="1338" y="896" class="file"><tspan x="1338">reme_agents/{agent_name}/</tspan><tspan x="1338" dy="20">config.json · TASK.md</tspan><tspan x="1338" dy="20">reminder/{date}/HHMMSS.md</tspan></text>
-      <text x="1338" y="960" class="file"><tspan x="1338">daily/{date}/</tspan><tspan x="1338" dy="20">{agent_name}.md</tspan><tspan x="1338" dy="20">{agent_name}_HHMMSS.md</tspan></text>
+      <text x="1338" y="896" class="file"><tspan x="1338">reme_agents/{agent_name}/</tspan><tspan x="1338" dy="20">config.json · TASK.md</tspan><tspan x="1338" dy="20">reminder/{date}/HHMMSS.md</tspan><tspan x="1338" dy="20">summary/{date}.md</tspan></text>
+      <text x="1338" y="996" class="file">daily/{date}/{agent_name}_HHMMSS.md</text>
     </g>
   </g>
   <text x="64" y="1050" font-size="12" class="muted">Paths are relative to the workspace root (default: .reme/). Directory settings may be overridden.</text>

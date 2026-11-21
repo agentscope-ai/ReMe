@@ -1,0 +1,13 @@
+# reme start config=proactive_v2
+extends: proactive
+
+jobs:
+  run_proactive_agent:
+    steps:
+      - backend: proactive_agent_step_v2
+        timeout_seconds: 1200
+        max_recent_records: 10
+        max_search_records: 10
+        max_local_search_calls: 10
+        max_timeline_entries: 10
+        sandbox: null
