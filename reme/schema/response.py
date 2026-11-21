@@ -4,6 +4,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+JOB_ERROR_METADATA_KEY = "reme.job_error"
+
 
 class Response(BaseModel):
     """Standard response envelope; extra fields allowed for endpoint-specific output.

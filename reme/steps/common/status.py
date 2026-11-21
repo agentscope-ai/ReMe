@@ -8,8 +8,8 @@ import numpy as np
 import psutil
 
 from ..base_step import BaseStep
-from ...components import BaseComponent, R
-from ...components.base_component import Dependency
+from ...components.base import BaseComponent, Dependency
+from ...core.registry import R
 from ...enumeration import ComponentEnum
 
 _SKIPPED_COMPONENT_ATTRIBUTES = {"app_context", "logger"}

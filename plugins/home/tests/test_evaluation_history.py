@@ -659,7 +659,7 @@ async def test_registration_failure_invalidates_only_caches(
 
 @pytest.mark.asyncio
 async def test_process_exit_after_completion_recovers_before_next_evaluation(app, prepared):
-    from reme.application import Application
+    from reme import Application
 
     config = app.config.model_dump(mode="json")
     await app.close()
@@ -671,13 +671,13 @@ import os
 import sys
 from unittest.mock import AsyncMock
 sys.path[:] = json.loads(sys.argv[1])
-from reme.application import Application
+from reme import Application
 from reme_home.evaluation import component
 from test_evaluation import FakeFactory
 import reme.plugin
 entries = {name: EntryPoint(name=name, value=value, group="reme.plugins") for name, value in
            [("home", "reme_home"), ("beam-judge", "judge_beam")]}
-reme.plugin.find_entry_points = lambda group, name: [entries[name]]
+reme.plugin.manager.find_entry_points = lambda group, name: [entries[name]]
 component.DockerReMeSandboxFactory = FakeFactory
 async def run():
     app = Application(**json.loads(sys.argv[2]))

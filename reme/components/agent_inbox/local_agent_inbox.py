@@ -27,19 +27,19 @@ from uuid import uuid4
 
 from pydantic import BaseModel
 
+from ...constants import WINDOWS_RESERVED_DEVICE_NAMES
 from .base_agent_inbox import BaseAgentInbox
-from ..component_registry import R
+from ...core.registry import R
 from ...schema.agent_inbox import InboxItem, InboxReceipt
 from ...schema.event import Event
 from ...utils.async_utils import complete_in_thread, finish_cleanup
-from ...utils.file_sync import sync_directory, sync_file
+from ...utils.files.file_sync import sync_directory, sync_file
 
 _NAME = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")
-_RESERVED = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
 
 
 def _name(value: str) -> str:
-    if not isinstance(value, str) or not _NAME.fullmatch(value) or value.upper() in _RESERVED:
+    if not isinstance(value, str) or not _NAME.fullmatch(value) or value.upper() in WINDOWS_RESERVED_DEVICE_NAMES:
         raise ValueError("inbox names must be portable names containing letters, numbers, '_' or '-'")
     return value
 

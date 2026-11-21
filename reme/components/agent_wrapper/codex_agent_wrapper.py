@@ -12,12 +12,13 @@ import os
 from pathlib import Path
 from typing import Any, Literal, TYPE_CHECKING
 
+from ...constants import PROACTIVE_MESSAGE_ID_PREFIX
 from .base_agent_wrapper import BaseAgentWrapper
 from . import codex_session_history
 from .session_append import check_guard, check_identity, validate_append
 from ..codex_app_server._session_history import item_chunks
 from ..codex_app_server import BaseCodexAppServer, SdkCodexAppServer
-from ..component_registry import R
+from ...core.registry import R
 from ...enumeration import ChunkEnum
 from ...schema import AgentReply, SessionMessage, SessionSnapshot, SessionStatus, StreamChunk, TokenUsage
 from ...schema.stream_chunk import stream_status
@@ -383,7 +384,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
         pending,
     ) -> SessionMessage:
         """Keep an accepted or uncertain native dispatch distinct from a persisted message."""
-        identifier = f"reme-proactive-{message_id}"
+        identifier = f"{PROACTIVE_MESSAGE_ID_PREFIX}{message_id}"
         snapshot = await self.read_session(session_id)
         accepted = next((message for message in snapshot.messages if message.id == identifier), None)
         receipt = accepted or pending.get(identifier)

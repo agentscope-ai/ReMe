@@ -48,7 +48,7 @@ application_defaults:
 ## Implement a Step
 
 ```python
-from reme.components.component_registry import R
+from reme.core.registry import R
 from reme.steps.base_step import BaseStep
 
 
@@ -67,6 +67,8 @@ Step instances belong to one Job invocation. Put shared in-memory state under a 
 ```text
 plugin defaults < selected/default config < CLI overrides
 ```
+
+Only effective plugin defaults require their environment variables to be set or to have a fallback. Set `plugins` to a list of strings, such as `plugins: [my_plugin]`.
 
 Plugins must not rewrite user configuration. Their backends enter an Application-local registry only when the plugin appears in that Application's `plugins` list.
 

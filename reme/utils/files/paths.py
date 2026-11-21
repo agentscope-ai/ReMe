@@ -1,4 +1,6 @@
-"""Workspace-relative path identity shared by every index consumer."""
+"""Shared workspace path spelling and lexical normalization."""
+
+import posixpath
 
 
 def canonical_index_path(path: str) -> str:
@@ -15,3 +17,9 @@ def canonical_index_path(path: str) -> str:
     with the caller that owns the containment rule.
     """
     return path.replace("\\", "/")
+
+
+def normalize_posix_path(path: str) -> str:
+    """Return a normalized, workspace-relative POSIX path string."""
+    normalized = posixpath.normpath(canonical_index_path((path or "").strip()).strip("/"))
+    return "" if normalized == "." else normalized

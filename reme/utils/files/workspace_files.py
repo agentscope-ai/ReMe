@@ -6,7 +6,7 @@ from pathlib import Path, PureWindowsPath
 from stat import S_ISREG
 from uuid import uuid4
 
-from ..constants import DEFAULT_MAX_FILE_BYTES
+from ...constants import DEFAULT_MAX_FILE_BYTES
 from .file_sync import sync_directory, sync_file
 
 

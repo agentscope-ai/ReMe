@@ -9,7 +9,7 @@ import tempfile
 
 import pytest
 
-from reme.components.base_component import BaseComponent, ComponentMixin, Dependency
+from reme.components.base import BaseComponent, ComponentMixin, Dependency
 from reme.enumeration import ComponentEnum
 
 # -- Test subclasses ----------------------------------------------------------
@@ -125,7 +125,7 @@ def test_dependencies_lists_unresolved():
 
 def test_dependency_bindings_survive_resolution():
     async def run():
-        from reme.components.application_context import ApplicationContext
+        from reme.core.context import ApplicationContext
 
         target = DepTarget(name="real_index")
         ctx = ApplicationContext()
@@ -322,7 +322,7 @@ def test_owned_components_started_and_closed():
 
 def test_resolve_from_context():
     async def run():
-        from reme.components.application_context import ApplicationContext
+        from reme.core.context import ApplicationContext
 
         target = DepTarget(name="real_index")
         ctx = ApplicationContext()
@@ -339,7 +339,7 @@ def test_resolve_from_context():
 
 def test_resolve_from_context_optional_missing():
     async def run():
-        from reme.components.application_context import ApplicationContext
+        from reme.core.context import ApplicationContext
 
         ctx = ApplicationContext()
         ctx.components = {}
@@ -354,7 +354,7 @@ def test_resolve_from_context_optional_missing():
 
 def test_resolve_from_context_required_missing_raises():
     async def run():
-        from reme.components.application_context import ApplicationContext
+        from reme.core.context import ApplicationContext
 
         ctx = ApplicationContext()
         ctx.components = {}

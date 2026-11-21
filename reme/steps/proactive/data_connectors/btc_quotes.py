@@ -7,7 +7,7 @@ from pathlib import Path
 import httpx
 
 from ._finance import FinanceCollectorStep
-from ....components import R
+from ....core.registry import R
 from ....schema.finance import CryptoQuote
 
 _URL = "https://data-api.binance.vision/api/v3/ticker/24hr"

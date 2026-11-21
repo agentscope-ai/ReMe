@@ -1,7 +1,7 @@
 """Query in-memory execution and step status."""
 
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 
 
 @R.register("job_status_step")

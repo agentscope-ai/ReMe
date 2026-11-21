@@ -13,12 +13,13 @@ from pathlib import Path
 from typing import Any, Literal, TYPE_CHECKING
 from uuid import uuid4
 
+from ...constants import PROACTIVE_MESSAGE_ID_PREFIX, REME_IPV4_LOOPBACK_HOST
 from .base_agent_wrapper import BaseAgentWrapper
 from .cc_sessions import AppendRecord, CcSessions, SessionData, input_frame, native_id
 from . import cc_session_history
 from .session_append import check_guard, check_identity, validate_append
 from ..anthropic_relay import BaseAnthropicRelay
-from ..component_registry import R
+from ...core.registry import R
 from ...enumeration import ChunkEnum
 from ...schema import AgentReply, SessionMessage, SessionSnapshot, SessionStatus, StreamChunk, TokenUsage
 from ...utils.async_utils import finish_cleanup
@@ -324,7 +325,7 @@ class CcAgentWrapper(BaseAgentWrapper):
         expected_turn_id,
         expected_revision,
     ):
-        identifier = f"reme-proactive-{message_id}"
+        identifier = f"{PROACTIVE_MESSAGE_ID_PREFIX}{message_id}"
         pending = runtime.appends.get(identifier, content, role)
         if pending is not None:
             return pending, None
@@ -545,7 +546,7 @@ class CcAgentWrapper(BaseAgentWrapper):
             base_url = self.anthropic_relay.endpoint
             environment = {**os.environ, **opts.env}
             bypass = environment.get("no_proxy") or environment.get("NO_PROXY", "")
-            opts.env["no_proxy"] = opts.env["NO_PROXY"] = f"{bypass},127.0.0.1".lstrip(",")
+            opts.env["no_proxy"] = opts.env["NO_PROXY"] = f"{bypass},{REME_IPV4_LOOPBACK_HOST}".lstrip(",")
         extra_env_dict = {
             "ANTHROPIC_AUTH_TOKEN": api_key if isinstance(api_key, str) else "",
             "ANTHROPIC_BASE_URL": base_url if isinstance(base_url, str) else "",

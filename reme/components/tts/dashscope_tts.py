@@ -7,8 +7,9 @@ from collections.abc import AsyncIterator
 
 from pydantic import BaseModel, Field
 
+from ...constants import SSE_MEDIA_TYPE
 from .base_tts import BaseTTS
-from ..component_registry import R
+from ...core.registry import R
 from ...schema.speech import AudioFormat, TTSResult
 from ...utils.dashscope_speech import DashScopeSpeechClient
 
@@ -73,7 +74,7 @@ class DashScopeTTS(BaseTTS):
             json={"model": self.model, "input": inputs},
         ) as response:
             await self.transport.check_response(response)
-            if not response.headers.get("content-type", "").startswith("text/event-stream"):
+            if not response.headers.get("content-type", "").startswith(SSE_MEDIA_TYPE):
                 await response.aread()
                 self.transport.check_error(response.json())
                 raise RuntimeError("DashScope TTS did not return an audio event stream")

@@ -19,10 +19,9 @@ import yaml
 from agentscope.model import ChatModelBase
 
 from reme.components.agent_wrapper.base_agent_wrapper import BaseAgentWrapper
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext, RuntimeContext
 from reme.components.file_catalog import BaseFileCatalog
 from reme.components.file_store import BaseFileStore
-from reme.components.runtime_context import RuntimeContext
 from reme.schema import FileNode, ProactiveTopic
 from reme.steps.evolve.dream.extract import DreamExtractStep
 from reme.steps.evolve.dream.utils import pack_paths

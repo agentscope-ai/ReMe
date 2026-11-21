@@ -7,7 +7,7 @@ from collections.abc import AsyncGenerator
 
 import httpx
 
-from ..base_component import BaseComponent
+from ..base import BaseComponent
 from ...constants import (
     REME_DEFAULT_HOST,
     REME_DEFAULT_PORT,

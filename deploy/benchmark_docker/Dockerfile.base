@@ -15,7 +15,8 @@ RUN apt-get update \
 WORKDIR /tmp/reme-dependencies
 COPY pyproject.toml README.md ./
 RUN mkdir reme \
-    && printf '__version__ = "0.0.0"\n' > reme/__init__.py \
+    && touch reme/__init__.py \
+    && printf '__version__ = "0.0.0"\n' > reme/_version.py \
     && python -m pip install '.[core]' \
     && python -m pip uninstall -y reme-ai \
     && python -c 'import agentscope; assert agentscope.__version__ == "2.0.11"' \

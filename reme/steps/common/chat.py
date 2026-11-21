@@ -1,7 +1,7 @@
 """Workspace-aware streaming chat step for the ReMe web interface."""
 
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 from ...schema import collect_reply
 
 

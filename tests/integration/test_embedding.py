@@ -19,7 +19,7 @@ from _workspace_fixture import workspace_env  # noqa: E402
 
 from reme.enumeration import ComponentEnum  # noqa: E402
 from reme.schema import EmbNode  # noqa: E402
-from reme.utils import cosine_similarity  # noqa: E402
+from reme.utils.similarity_utils import cosine_similarity  # noqa: E402
 
 
 def test_embedding_health_check():

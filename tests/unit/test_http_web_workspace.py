@@ -9,9 +9,10 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from reme.components.service import web_static
 from reme.components.service.http_service import HttpService
 from reme.components.job import BaseJob, StreamJob
-from reme.utils import REME_WEB_STATIC_DIR, resolve_web_static_dir
+from reme.components.service.web_static import REME_WEB_STATIC_DIR, resolve_web_static_dir
 
 
 class _FakeApplication:
@@ -271,5 +272,19 @@ def test_static_dir_uses_optional_studio_package(monkeypatch, tmp_path: Path) ->
     studio = ModuleType("reme_studio")
     studio.static_dir = lambda: static_dir  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "reme_studio", studio)
+
+    assert resolve_web_static_dir() == static_dir.resolve()
+
+
+def test_static_dir_uses_repository_build_from_another_directory(monkeypatch, tmp_path: Path) -> None:
+    """Resolve the source-tree build even when the caller starts outside the repository."""
+    repository = tmp_path / "checkout"
+    static_dir = repository / "reme_studio" / "dist-static"
+    static_dir.mkdir(parents=True)
+    (static_dir / "index.html").write_text("<main>Studio</main>", encoding="utf-8")
+    monkeypatch.setattr(web_static, "__file__", str(repository / "reme" / "components" / "service" / "web_static.py"))
+    monkeypatch.setattr(web_static, "_packaged_studio_dir", lambda: None)
+    monkeypatch.delenv(REME_WEB_STATIC_DIR, raising=False)
+    monkeypatch.chdir(tmp_path)
 
     assert resolve_web_static_dir() == static_dir.resolve()

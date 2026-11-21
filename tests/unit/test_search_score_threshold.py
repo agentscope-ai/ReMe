@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from reme.components.file_store import BaseFileStore
-from reme.components.runtime_context import RuntimeContext
+from reme.core.context import RuntimeContext
 from reme.schema import FileChunk
 from reme.steps.index import SearchStep
 

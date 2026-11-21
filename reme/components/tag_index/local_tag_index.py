@@ -4,9 +4,9 @@ import asyncio
 from pathlib import PurePosixPath
 
 from .base_tag_index import BaseTagIndex, TagListItem, TagListResult, TagOrder, TagOrderBy
-from ..component_registry import R
+from ...core.registry import R
 from ...schema import FileFrontMatter, FileNode
-from ...utils import canonical_index_path
+from ...utils.files.paths import canonical_index_path
 
 
 @R.register("local")

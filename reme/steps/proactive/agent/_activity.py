@@ -1,7 +1,7 @@
 """Turn-scoped execution facts for presentation, independent of transcript text."""
 
-from ..schema.agent_activity import AgentActivity
-from ..schema.stream_chunk import StreamChunk
+from ....schema.agent_activity import AgentActivity
+from ....schema.stream_chunk import StreamChunk
 
 
 class ActivityTracker:

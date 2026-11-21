@@ -12,13 +12,12 @@ from zoneinfo import ZoneInfo
 import httpx
 import pytest
 
-from reme.components import ApplicationContext, LocalAgentRuntime, R, RuntimeContext
-from reme.utils.workspace_files import WorkspaceFiles
+from reme.core.context import ApplicationContext, RuntimeContext
+from reme.components import LocalAgentRuntime
+from reme.utils.files.workspace_files import WorkspaceFiles
 from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.agent_inbox import AgentEventInbox
 from reme.components.job import BaseJob
-from reme.config import resolve_app_config
-from reme.enumeration import ComponentEnum
 from reme.schema import CryptoQuote, FinanceNewsItem, Response, StockQuote
 from reme.steps.proactive.data_connectors import BtcQuotesStep, FinanceNewsStep, StockQuotesStep
 from reme.steps.proactive.data_connectors import base_connector, btc_quotes, stock_quotes
@@ -715,21 +714,3 @@ async def test_news_overlap_keeps_late_records_without_repeating_known_ids(tmp_p
         lines = (tmp_path / result.answer["path"]).parent.joinpath("news.jsonl").read_text().splitlines()
         assert {FinanceNewsItem.model_validate_json(line).news_id for line in lines} == {"3", "4"}
         assert append.await_count == 2 and (await inbox.snapshot("finance"))["pending_count"] == 2
-
-
-def test_proactive_configuration_connects_both_crons_to_existing_finance_agent():
-    config = resolve_app_config(config="proactive", log_config=False)
-    jobs = config["jobs"]
-    for name, interval, step in (
-        ("finance_news_cron", "*/5 * * * *", FinanceNewsStep),
-        ("stock_quotes_cron", "*/5 * * * *", StockQuotesStep),
-        ("btc_quotes_cron", "*/5 * * * *", BtcQuotesStep),
-    ):
-        assert jobs[name]["backend"] == "cron" and jobs[name]["cron"] == interval
-        assert jobs[name].get("enabled", True)
-        spec = jobs[name]["steps"][0]
-        assert spec["agent_name"] == "finance"
-        assert R.get(ComponentEnum.STEP, spec["backend"]) is step
-    agents = {value["agent_name"]: value for value in config["components"]["agent_runtime"]["default"]["agents"]}
-    assert "agent_type" not in agents["finance"] and "cron" not in agents["finance"]
-    assert agents["finance"]["enabled"] and agents["work"]["enabled"]

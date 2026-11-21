@@ -5,7 +5,7 @@ import json
 
 from ...base_step import BaseStep
 from .._evolve import agent_reply_result_text, passthrough_response
-from ....components import R
+from ....core.registry import R
 from ....schema import ProactiveState
 from ..dream.utils import daily_dir, pack_paths, today, workspace_dir
 from .utils import (

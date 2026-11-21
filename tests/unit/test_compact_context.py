@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError
 
-from reme.components import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.components.as_decision_model import BaseAsDecisionModel
 from reme.components.job import BaseJob
 from reme.enumeration import ComponentEnum

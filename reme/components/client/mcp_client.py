@@ -3,8 +3,9 @@
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any
 
+from ...constants import DEFAULT_MCP_PATH, DEFAULT_MCP_SSE_PATH
 from .base_client import BaseClient
-from ..component_registry import R
+from ...core.registry import R
 
 if TYPE_CHECKING:
     from fastmcp.client.client import CallToolResult
@@ -71,7 +72,7 @@ class MCPClient(BaseClient):
             args = self.kwargs.get("args", [])
             return cls(command=command, args=args)
 
-        path = "/sse" if self.transport == "sse" else "/mcp"
+        path = DEFAULT_MCP_SSE_PATH if self.transport == "sse" else DEFAULT_MCP_PATH
         url = self._build_service_url(self.host, self.port, path)
         return cls(url=url)
 

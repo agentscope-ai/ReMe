@@ -4,8 +4,8 @@ import datetime
 from zoneinfo import ZoneInfo
 
 from .background_job import BackgroundJob
-from ..component_registry import R
-from ..runtime_context import RuntimeContext
+from ...core.registry import R
+from ...core.context import RuntimeContext
 from ...schema import ComponentConfig, Response
 
 

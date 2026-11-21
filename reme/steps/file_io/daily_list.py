@@ -21,7 +21,7 @@ from pathlib import Path
 from ._daily_index import parse_daily_date, scan_notes
 from ._path import resolve_path
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 from ...steps.evolve import now
 
 

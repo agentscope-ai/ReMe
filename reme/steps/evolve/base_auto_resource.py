@@ -15,7 +15,7 @@ import frontmatter
 from agentscope.message import DataBlock, TextBlock, UserMsg
 from watchfiles import Change
 
-from ...components.runtime_context import RuntimeContext
+from ...core.context import RuntimeContext
 from ..base_step import BaseStep
 from ..file_io import refresh_day_index, resolve_path, validate_filename_component
 from ._evolve import agent_reply_result_text, now

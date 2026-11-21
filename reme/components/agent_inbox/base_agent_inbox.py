@@ -7,7 +7,7 @@ from collections.abc import Callable
 
 from pydantic import BaseModel
 
-from ..base_component import BaseComponent
+from ..base import BaseComponent
 from ...enumeration import ComponentEnum
 from ...schema.agent_inbox import InboxReceipt
 

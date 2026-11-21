@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from reme import ReMe
+from reme import Application
 from reme.components.agent_wrapper import AsAgentWrapper
 from reme.components.as_llm import BaseAsLLM, DashScopeAsLLM
 from reme.enumeration import ComponentEnum
@@ -62,7 +62,7 @@ def _file_graph_config(workspace_dir: str) -> dict:
 
 def test_qwenpaw_style_config_preserves_optional_defaults(tmp_path):
     """New application fields remain optional for existing embedded configs."""
-    app = ReMe(**_qwenpaw_style_config(str(tmp_path)))
+    app = Application(**_qwenpaw_style_config(str(tmp_path)))
 
     assert app.config.environment == {}
     assert app.context.service is not None
@@ -75,7 +75,7 @@ def test_qwenpaw_style_config_preserves_optional_defaults(tmp_path):
 
 def test_qwenpaw_style_config_keeps_in_process_application_api(tmp_path):
     """Model injection, lifecycle, and direct job execution remain compatible."""
-    app = ReMe(**_qwenpaw_style_config(str(tmp_path)))
+    app = Application(**_qwenpaw_style_config(str(tmp_path)))
     injected_model = object()
 
     async def exercise_api() -> None:
@@ -119,7 +119,7 @@ def test_cancelled_embedded_close_waits_for_worker_before_store(tmp_path, monkey
     }
 
     async def exercise_api():
-        app = ReMe(**config)
+        app = Application(**config)
         job = app.context.jobs["index"]
         store = app.context.components[ComponentEnum.FILE_STORE]["default"]
         running = asyncio.Event()
@@ -179,7 +179,7 @@ def test_cancelled_embedded_close_waits_for_worker_before_store(tmp_path, monkey
             assert all(not c.is_started for group in app.context.components.values() for c in group.values())
             if not finish_by_timeout:
                 config["jobs"] = {}
-                async with ReMe(**config) as restored:
+                async with Application(**config) as restored:
                     restored_store = restored.context.components[ComponentEnum.FILE_STORE]["default"]
                     assert [node.path for node in await restored_store.get_nodes()] == ["memory.md"]
         finally:
@@ -198,7 +198,7 @@ def test_cancelled_embedded_close_waits_for_worker_before_store(tmp_path, monkey
 @pytest.mark.parametrize("injected", [False, True], ids=["uninitialized", "injected"])
 def test_update_component_validates_all_fields_before_mutation(tmp_path, injected):
     """Rejected updates preserve model state without constructing a provider."""
-    app = ReMe(**_qwenpaw_style_config(str(tmp_path)))
+    app = Application(**_qwenpaw_style_config(str(tmp_path)))
     component = app.context.components[ComponentEnum.AS_LLM]["default"]
     original_model = object() if injected else None
     if injected:
@@ -225,7 +225,7 @@ def test_update_component_validates_all_fields_before_mutation(tmp_path, injecte
 
 def test_replace_component_rebinds_dependents_and_reuses_runtime_model(tmp_path):
     """A live backend replacement switches the wrapper and every bind target."""
-    app = ReMe(**_qwenpaw_style_config(str(tmp_path)))
+    app = Application(**_qwenpaw_style_config(str(tmp_path)))
     old_model = object()
     verified_model = object()
 
@@ -261,7 +261,7 @@ def test_replace_component_rebinds_dependents_and_reuses_runtime_model(tmp_path)
 
 def test_replace_component_before_start_preserves_dependency_order(tmp_path):
     """Unresolved bind placeholders continue to resolve during normal startup."""
-    app = ReMe(**_qwenpaw_style_config(str(tmp_path)))
+    app = Application(**_qwenpaw_style_config(str(tmp_path)))
     verified_model = object()
 
     async def exercise_api() -> None:
@@ -289,7 +289,7 @@ def test_replace_component_before_start_preserves_dependency_order(tmp_path):
 def test_replace_component_flushes_persistent_state_before_start(tmp_path):
     """A replacement loads runtime state that the old generation had not dumped."""
     config = _file_graph_config(str(tmp_path))
-    app = ReMe(**config)
+    app = Application(**config)
 
     async def exercise_api() -> None:
         await app.start()
@@ -305,7 +305,7 @@ def test_replace_component_flushes_persistent_state_before_start(tmp_path):
         assert [node.path for node in await replacement.get_nodes()] == ["memory.md"]
         await app.close()
 
-        restored_app = ReMe(**config)
+        restored_app = Application(**config)
         await restored_app.start()
         restored_graph = restored_app.context.components[ComponentEnum.FILE_GRAPH]["default"]
         assert [node.path for node in await restored_graph.get_nodes()] == ["memory.md"]
@@ -326,7 +326,7 @@ def test_replace_component_accepts_unhashable_plugin_component(tmp_path):
         def __eq__(self, other) -> bool:
             return self is other
 
-    app = ReMe(**_qwenpaw_style_config(str(tmp_path)))
+    app = Application(**_qwenpaw_style_config(str(tmp_path)))
     app.context.registry.add("unhashable", UnhashableAsLLM, owner="test")
 
     async def exercise_api() -> None:
@@ -359,7 +359,7 @@ def test_replace_component_dump_failure_keeps_old_generation(tmp_path):
         async def _start(self) -> None:
             type(self).start_calls += 1
 
-    app = ReMe(**_qwenpaw_style_config(str(tmp_path)))
+    app = Application(**_qwenpaw_style_config(str(tmp_path)))
     app.context.registry.add("observed", ObservedAsLLM, owner="test")
 
     async def failing_dump() -> None:
@@ -389,7 +389,7 @@ def test_replace_component_dump_failure_keeps_old_generation(tmp_path):
 
 def test_replace_component_waits_for_application_start(tmp_path):
     """Replacement cannot race the dependency graph while startup is in progress."""
-    app = ReMe(**_qwenpaw_style_config(str(tmp_path)))
+    app = Application(**_qwenpaw_style_config(str(tmp_path)))
     old_component = app.context.components[ComponentEnum.AS_LLM]["default"]
     start_entered = asyncio.Event()
     allow_start = asyncio.Event()
@@ -440,7 +440,7 @@ def test_replace_component_start_failure_keeps_old_generation(tmp_path):
         async def _start(self) -> None:
             raise RuntimeError("replacement failed")
 
-    app = ReMe(**_qwenpaw_style_config(str(tmp_path)))
+    app = Application(**_qwenpaw_style_config(str(tmp_path)))
     app.context.registry.add("broken", BrokenAsLLM, owner="test")
 
     async def exercise_api() -> None:
@@ -472,7 +472,7 @@ def test_replace_component_start_failure_keeps_old_generation(tmp_path):
 @pytest.mark.parametrize("operation", ["update", "replace"])
 def test_model_injection_does_not_initialize_provider(tmp_path, operation):
     """Attribute validation must not construct a provider before model injection."""
-    app = ReMe(**_qwenpaw_style_config(str(tmp_path)))
+    app = Application(**_qwenpaw_style_config(str(tmp_path)))
     model = object()
     credential_cls = Mock(side_effect=AssertionError("provider must not be constructed"))
 

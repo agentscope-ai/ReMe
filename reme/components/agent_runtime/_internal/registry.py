@@ -4,7 +4,8 @@ from datetime import datetime
 from pathlib import Path
 import re
 
-from ....utils.workspace_files import WorkspaceFiles
+from ....constants import CHAT_AGENT_NAME
+from ....utils.files.workspace_files import WorkspaceFiles
 from ....schema.agent_runtime import validate_agent_name
 from ....schema.proactive_agent import CreateProactiveAgentConfig, ProactiveAgent, ProactiveAgentConfig
 
@@ -25,15 +26,15 @@ class AgentRegistry:
     def path(self, agent_name: str):
         """Resolve chat or a retained task identity, including deleted tasks."""
         validate_agent_name(agent_name)
-        if agent_name == "Remy":
-            return self.files.checked(self.directory / "Remy")
+        if agent_name == CHAT_AGENT_NAME:
+            return self.files.checked(self.directory / CHAT_AGENT_NAME)
         return self.directory_for(self.get(agent_name, include_deleted=True))
 
     def load(self, *, include_deleted=False) -> dict[str, ProactiveAgent]:
         """Validate every config, including directory identity and global uniqueness."""
         agents = []
         for path in sorted(self.directory.glob("*/config.json")):
-            if path.parent == self.directory / "Remy":
+            if path.parent == self.directory / CHAT_AGENT_NAME:
                 continue
             agent = ProactiveAgent.model_validate_json(self.files.read(path))
             if path.parent != self.directory_for(agent):
@@ -66,7 +67,7 @@ class AgentRegistry:
 
     def chat_memory_path(self) -> Path:
         """Locate Remy's personal memory."""
-        return self.files.checked(self.path("Remy") / "MEMORY.md")
+        return self.files.checked(self.path(CHAT_AGENT_NAME) / "MEMORY.md")
 
     def task_path(self, agent: ProactiveAgent) -> Path:
         """Locate the task's editable description."""

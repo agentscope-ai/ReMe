@@ -7,7 +7,7 @@ from typing import Any
 from agentscope.credential import CredentialBase
 from agentscope.embedding import EmbeddingModelBase
 
-from ..base_component import BaseComponent
+from ..base import BaseComponent
 from ...enumeration import ComponentEnum
 
 

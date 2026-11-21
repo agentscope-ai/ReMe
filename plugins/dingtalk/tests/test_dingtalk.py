@@ -17,9 +17,8 @@ import yaml
 from reme_dingtalk import DingTalkMarkdownSendStep
 from reme_dingtalk import send as dingtalk_send
 from reme_dingtalk.wait import DingTalkWaitStep, _session_key
-from reme.components import ApplicationContext
+from reme.core.context import ApplicationContext, RuntimeContext
 from reme.components.agent_wrapper.base_agent_wrapper import BaseAgentWrapper
-from reme.components.runtime_context import RuntimeContext
 
 PLUGIN_MANIFEST = yaml.safe_load(
     (Path(__file__).parents[1] / "src" / "reme_dingtalk" / "plugin.yaml").read_text(encoding="utf-8"),

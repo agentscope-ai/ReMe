@@ -12,8 +12,9 @@ import sys
 import tomllib
 from typing import Sequence
 
-from .entry_point import PLUGIN_ENTRY_POINT_GROUP
-from .plugin_manifest import PLUGIN_MANIFEST, PluginManifest, load_package_manifest, parse_plugin_manifest
+from .manager import PluginManager, _plugin_from_manifest, configured_plugin_names
+from .manifest import PLUGIN_MANIFEST, PluginManifest, load_package_manifest, parse_plugin_manifest
+from ..core.entry_point import PLUGIN_ENTRY_POINT_GROUP
 
 
 @dataclass(frozen=True)
@@ -73,12 +74,9 @@ def _print_table(headers: Sequence[str], rows: Sequence[Sequence[str]]) -> None:
 def _enabled_plugins(config: str | None) -> set[str] | None:
     if config is None:
         return None
-    from .config.config_parser import resolve_app_config
+    from ..config.config_parser import resolve_app_config
 
-    value = resolve_app_config(config=config, log_config=False).get("plugins") or []
-    if not isinstance(value, list) or not all(isinstance(name, str) for name in value):
-        raise TypeError("Application config 'plugins' must be a list of strings")
-    return set(value)
+    return set(configured_plugin_names(resolve_app_config(config=config, log_config=False)))
 
 
 def _list_plugins(args: argparse.Namespace) -> int:
@@ -130,7 +128,7 @@ def _installed_manifest(plugin: InstalledPlugin) -> PluginManifest:
     # Editable installs may not expose package data through ``locate_file``.
     # Importlib resources then has to import the package, whose ``__init__``
     # may contain registration side effects.
-    from .components.component_registry import R
+    from ..core.registry import R
 
     with R.preserve(allow_mutation=True):
         return load_package_manifest(plugin.target, plugin_name=plugin.name)
@@ -216,20 +214,16 @@ def _uninstall_plugin(args: argparse.Namespace) -> int:
     return result
 
 
-def _validate_plugins(manager) -> None:
+def _validate_plugins(manager: PluginManager) -> None:
     """Validate imports, registry ownership, and merged application schema."""
-    from .components.component_registry import create_application_registry
-    from .config.config_parser import resolve_app_config
-    from .schema.application_config import ApplicationConfig
+    from ..config.config_parser import resolve_app_config
+    from ..schema.application_config import ApplicationConfig
 
-    registry = create_application_registry()
-    manager.register(registry)
-    ApplicationConfig(**manager.merge_config(resolve_app_config(log_config=False)))
+    runtime = manager.build_runtime(resolve_app_config(log_config=False))
+    ApplicationConfig.model_validate(runtime.config)
 
 
 def _validate_installed(name: str) -> list[str]:
-    from .plugin import PluginManager
-
     manager = PluginManager.discover([name])
     _validate_plugins(manager)
     return [name]
@@ -263,8 +257,7 @@ def _local_source_roots(project_file: Path, project: dict) -> list[Path]:
 
 
 def _validate_local(path: Path) -> list[str]:
-    from .components.component_registry import R
-    from .plugin import PluginManager, _plugin_from_manifest
+    from ..core.registry import R
 
     project_file = path if path.name == "pyproject.toml" else path / "pyproject.toml"
     if not project_file.is_file():

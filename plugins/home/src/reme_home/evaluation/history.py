@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Mapping
 import math
 
-from reme.components.base_component import BaseComponent
+from reme.components.base import BaseComponent
 
 from ..preparation.data.models import utc_now
 from ..preparation.spec import SpecModel

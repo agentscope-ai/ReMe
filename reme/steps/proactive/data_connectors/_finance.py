@@ -9,8 +9,9 @@ from pathlib import Path
 import httpx
 
 from .base_connector import BaseConnectorStep
-from ...file_io import check_path_permission, get_path_lock
-from ....utils.workspace_files import WorkspaceFiles
+from ...file_io import check_path_permission
+from ....utils.files.path_lock import get_path_lock
+from ....utils.files.workspace_files import WorkspaceFiles
 from ....schema import Event, ResourceMetadata
 from ....schema.agent_runtime import validate_agent_name
 from ....utils.async_utils import complete_in_thread

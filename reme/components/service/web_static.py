@@ -19,7 +19,7 @@ def _packaged_studio_dir() -> Path | None:
 
 def resolve_web_static_dir(configured_dir: str | None = None) -> Path | None:
     """Return the first directory containing a built workspace ``index.html``."""
-    package_dir = Path(__file__).resolve().parent.parent
+    package_dir = Path(__file__).resolve().parents[2]
     repository_dir = package_dir.parent
     cwd = Path.cwd()
     explicit_candidates = [

@@ -1,7 +1,7 @@
 """Paginated listing of active file tags."""
 
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 
 
 @R.register("list_tags_step")

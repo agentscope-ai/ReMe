@@ -13,6 +13,7 @@ from pydantic import (
     model_validator,
 )
 
+from ..constants import CHAT_AGENT_NAME
 from .agent_runtime import AgentName, AgentNotification
 from .agent_message import ClientModel
 
@@ -83,8 +84,8 @@ class ProactiveAgentConfig(TaskSettings):
     @classmethod
     def safe_name(cls, value: str) -> str:
         """Task names identify workspace files; Remy owns the main conversation."""
-        if value.casefold() == "remy":
-            raise ValueError("Remy is a reserved agent name")
+        if value.casefold() == CHAT_AGENT_NAME.casefold():
+            raise ValueError(f"{CHAT_AGENT_NAME} is a reserved agent name")
         return value
 
 

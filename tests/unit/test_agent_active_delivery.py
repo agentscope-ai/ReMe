@@ -9,7 +9,7 @@ import pytest
 
 from reme.schema import SessionSnapshot, SessionStatus
 from reme.schema.proactive_agent import ProactiveRunResult
-from reme.components import RuntimeContext
+from reme.core.context import RuntimeContext
 from reme.steps.proactive.agent import AgentChatStep, InboxChatStep
 from reme.steps.proactive.tools.inbox import ReadInboxStep, SendChatMessageStep
 from reme.steps.proactive.tools.manage_proactive_agent import ManageProactiveAgentStep

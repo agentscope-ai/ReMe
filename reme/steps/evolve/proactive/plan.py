@@ -21,7 +21,7 @@ import json
 
 from ...base_step import BaseStep
 from .._evolve import agent_reply_result_text, passthrough_response
-from ....components import R
+from ....core.registry import R
 from ....schema import ProactiveState
 from ..dream.utils import workspace_dir
 from .utils import load_personal_profile_block, parse_plan_reply, resolve_agent_wrapper

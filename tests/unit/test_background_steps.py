@@ -27,13 +27,13 @@ import numpy as np
 import pytest
 from watchfiles import Change
 
-from reme.components import R
+from reme.core.registry import R
 from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.file_chunker import DefaultFileChunker, JsonFileChunker
 from reme.components.file_catalog import LocalFileCatalog
 from reme.components.file_store import LocalFileStore
 from reme.components.job.background_job import BackgroundJob
-from reme.components.runtime_context import RuntimeContext
+from reme.core.context import RuntimeContext
 from reme.enumeration import ComponentEnum
 from reme.schema import FileChunk, FileNode
 from reme.steps.evolve.auto_memory import AutoMemoryStep
@@ -55,8 +55,8 @@ from reme.steps.index import (
     WatchChangesStep,
 )
 from reme.steps.index._change_batch import bucket_changes
-from reme.utils.file_utils import FileChangedDuringChunkingError
-from reme.utils.file_watch import WatchRule, build_watch_rules, collect_existing, match_file
+from reme.utils.files.file_version import FileChangedDuringChunkingError
+from reme.utils.files.file_watch import WatchRule, build_watch_rules, collect_existing, match_file
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="jieba")
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="pkg_resources")

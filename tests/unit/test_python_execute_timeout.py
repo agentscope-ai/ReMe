@@ -7,7 +7,7 @@ from agentscope.tool import ExecResult
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.components.job.base_job import BaseJob
 from reme.components.service.http_service import HttpService
 from reme.steps.common.python_execute import PythonExecuteStep

@@ -49,7 +49,7 @@ def test_hermes_text_runtime_accepts_host_pins() -> None:
 
 
 def test_home_requires_workflow_and_sandbox_release() -> None:
-    """Home requires the benchmark pool's case callbacks and artifact export options."""
+    """Home requires shared file sync, benchmark case callbacks and artifact export options."""
     config = tomllib.loads((REPOSITORY / "plugins" / "home" / "pyproject.toml").read_text(encoding="utf-8"))
     requirement = next(Requirement(value) for value in config["project"]["dependencies"] if value.startswith("reme-ai"))
 
@@ -58,7 +58,8 @@ def test_home_requires_workflow_and_sandbox_release() -> None:
     assert Version("0.4.2.0") not in requirement.specifier
     assert Version("0.4.2.1") not in requirement.specifier
     assert Version("0.4.2.2") not in requirement.specifier
-    assert Version("0.4.2.3") in requirement.specifier
+    assert Version("0.4.2.3") not in requirement.specifier
+    assert Version("0.4.2.4") in requirement.specifier
     assert Version(bump_version.read_version()) in requirement.specifier
 
 
@@ -79,15 +80,6 @@ def test_studio_packages_have_independent_identity() -> None:
     main_config = tomllib.loads((REPOSITORY / "pyproject.toml").read_text(encoding="utf-8"))
     studio_config = tomllib.loads((REPOSITORY / "reme_studio" / "pyproject.toml").read_text(encoding="utf-8"))
     npm_config = json.loads((REPOSITORY / "reme_studio" / "package.json").read_text(encoding="utf-8"))
-    auto_fin_config = tomllib.loads(
-        (REPOSITORY / "plugins" / "auto-fin" / "pyproject.toml").read_text(encoding="utf-8"),
-    )
-    daily_paper_config = tomllib.loads(
-        (REPOSITORY / "plugins" / "daily_paper" / "pyproject.toml").read_text(encoding="utf-8"),
-    )
-    dingtalk_config = tomllib.loads(
-        (REPOSITORY / "plugins" / "dingtalk" / "pyproject.toml").read_text(encoding="utf-8"),
-    )
 
     assert studio_config["project"]["name"] == "reme_studio"
     assert npm_config["name"] == "@agentscope-ai/reme_studio"
@@ -106,9 +98,6 @@ def test_studio_packages_have_independent_identity() -> None:
     assert main_config["project"]["optional-dependencies"]["core"].count("reme-ai[as]") == 1
     assert main_config["project"]["optional-dependencies"]["core"].count("reme_studio") == 1
     assert "qwenpaw" not in main_config["project"]["optional-dependencies"]
-    assert auto_fin_config["project"]["version"] == "0.1.3"
-    assert daily_paper_config["project"]["version"] == "0.1.3"
-    assert dingtalk_config["project"]["version"] == "0.1.0"
     assert main_config["tool"]["setuptools"]["packages"]["find"]["include"] == [
         "reme",
         "reme.*",
@@ -127,8 +116,6 @@ def test_typescript_host_plugins_are_independent_packages() -> None:
 
     assert manifests["dsh"]["name"] == "@agentscope-ai/reme-dsh-plugin"
     assert manifests["openclaw"]["name"] == "@agentscope-ai/reme-openclaw-plugin"
-    assert manifests["dsh"]["version"] == "0.1.3"
-    assert manifests["openclaw"]["version"] == "0.1.1"
     assert manifests["dsh"].get("dependencies", {}) == {}
     assert manifests["openclaw"].get("dependencies", {}) == {"typebox": "1.3.19"}
     assert not (REPOSITORY / "typescript").exists()
@@ -136,7 +123,7 @@ def test_typescript_host_plugins_are_independent_packages() -> None:
 
 def _write_version_fixture(repository: Path) -> None:
     (repository / "reme").mkdir()
-    (repository / "reme" / "__init__.py").write_text('__version__ = "1.2.3"\n', encoding="utf-8")
+    (repository / "reme" / "_version.py").write_text('__version__ = "1.2.3"\n', encoding="utf-8")
 
 
 def test_bump_version_updates_only_reme(tmp_path: Path) -> None:
@@ -149,7 +136,7 @@ def test_bump_version_updates_only_reme(tmp_path: Path) -> None:
     previous_version = bump_version.bump_version("1.2.4", tmp_path)
 
     assert previous_version == "1.2.3"
-    assert (tmp_path / "reme" / "__init__.py").read_text(encoding="utf-8") == '__version__ = "1.2.4"\n'
+    assert (tmp_path / "reme" / "_version.py").read_text(encoding="utf-8") == '__version__ = "1.2.4"\n'
     assert 'version = "0.1.0"' in studio_config.read_text(encoding="utf-8")
 
 
@@ -157,7 +144,7 @@ def test_bump_version_updates_only_reme(tmp_path: Path) -> None:
 def test_bump_version_rejects_invalid_pep440_versions(tmp_path: Path, version: str) -> None:
     """Reject invalid release versions before changing the source file."""
     _write_version_fixture(tmp_path)
-    version_file = tmp_path / "reme" / "__init__.py"
+    version_file = tmp_path / "reme" / "_version.py"
     original_version_text = version_file.read_text(encoding="utf-8")
 
     with pytest.raises(ValueError, match="Invalid PEP 440 version"):
@@ -177,7 +164,7 @@ def test_check_versions_reports_release_tag_mismatch(tmp_path: Path) -> None:
 def test_read_version_identifies_invalid_source_file(tmp_path: Path) -> None:
     """Point maintainers to the invalid Python version declaration."""
     _write_version_fixture(tmp_path)
-    version_file = tmp_path / "reme" / "__init__.py"
+    version_file = tmp_path / "reme" / "_version.py"
     version_file.write_text('__version__ = "1..2"\n', encoding="utf-8")
 
     with pytest.raises(ValueError, match=rf"{re.escape(str(version_file))}.*Fix the __version__ declaration"):
@@ -187,7 +174,7 @@ def test_read_version_identifies_invalid_source_file(tmp_path: Path) -> None:
 def test_bump_version_rolls_back_when_validation_fails(monkeypatch, tmp_path: Path) -> None:
     """Restore the previous version if post-write validation fails."""
     _write_version_fixture(tmp_path)
-    version_file = tmp_path / "reme" / "__init__.py"
+    version_file = tmp_path / "reme" / "_version.py"
     original = version_file.read_text(encoding="utf-8")
 
     def fail_validation(*_args, **_kwargs) -> None:

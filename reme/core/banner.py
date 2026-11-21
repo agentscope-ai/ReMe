@@ -12,6 +12,8 @@ from rich.table import Table
 from rich.text import Text
 
 from ..constants import (
+    DEFAULT_MCP_PATH,
+    DEFAULT_MCP_SSE_PATH,
     REME_DEFAULT_HOST,
     REME_DEFAULT_PORT,
     normalize_connect_host,
@@ -91,7 +93,7 @@ def print_logo(app_config: "ApplicationConfig", runtime_service: "BaseService | 
             info_table.add_row("🔗", "URL:", Text(_service_url(host, port)))
             mcp_enabled = getattr(runtime_service, "mcp_enabled", extra.get("mcp_enabled", True))
             if mcp_enabled:
-                mcp_path = getattr(runtime_service, "mcp_path", extra.get("mcp_path", "/mcp"))
+                mcp_path = getattr(runtime_service, "mcp_path", extra.get("mcp_path", DEFAULT_MCP_PATH))
                 info_table.add_row("🚌", "MCP:", Text(_service_url(host, port, mcp_path)))
             info_table.add_row("📚", "FastAPI:", Text(get_version("fastapi"), style="dim"))
             if mcp_enabled:
@@ -102,7 +104,8 @@ def print_logo(app_config: "ApplicationConfig", runtime_service: "BaseService | 
             if transport != "stdio":
                 host = getattr(runtime_service, "host", extra.get("host", REME_DEFAULT_HOST))
                 port = getattr(runtime_service, "port", extra.get("port", REME_DEFAULT_PORT))
-                info_table.add_row("🔗", "URL:", Text(_service_url(host, port, "/sse" if transport == "sse" else "")))
+                path = DEFAULT_MCP_SSE_PATH if transport == "sse" else ""
+                info_table.add_row("🔗", "URL:", Text(_service_url(host, port, path)))
             info_table.add_row("📚", "FastMCP:", Text(get_version("fastmcp"), style="dim"))
 
     info_table.add_row("🚀", "ReMe:", Text(get_version("reme-ai"), style="dim"))

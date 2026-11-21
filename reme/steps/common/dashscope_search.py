@@ -6,7 +6,7 @@ from contextlib import aclosing
 from http import HTTPStatus
 
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 
 
 @R.register("dashscope_search_step")

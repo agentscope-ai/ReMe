@@ -20,7 +20,7 @@ class FileChunk(EmbNode):
 
     def set_hash_id(self):
         """Replace ``id`` with a deterministic hash of (path, range, text)."""
-        from ..utils import hash_text
+        from ..utils.hashing import hash_text
 
         self.id = hash_text(" ".join([self.path, str(self.start_line), str(self.end_line), self.text]))
         return self

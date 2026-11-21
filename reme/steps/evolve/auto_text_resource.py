@@ -4,7 +4,7 @@ from pathlib import Path
 
 import aiofiles
 
-from ...components import R
+from ...core.registry import R
 from .base_auto_resource import BaseAutoResourceStep
 
 

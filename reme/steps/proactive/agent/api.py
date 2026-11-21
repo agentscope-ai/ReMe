@@ -2,10 +2,11 @@
 
 from contextlib import aclosing
 
+from ....constants import CHAT_AGENT_NAME
 from .base import BaseAgentStep
 from .chat import BaseChatAgentStep
-from ...file_io import get_path_lock
-from ....components import R
+from ....utils.files.path_lock import get_path_lock
+from ....core.registry import R
 from ....enumeration import ChunkEnum
 from ....schema import StreamChunk
 from ....utils.agent_transcript import TranscriptProjector
@@ -110,7 +111,7 @@ class AgentChatStep(_AgentViewStep, BaseChatAgentStep):
             if projector.error:
                 self.context.stream_error = projector.error
             # Main Chat content has one authority: the session subscription.
-            if request.agent_name == "Remy" and chunk.chunk_type not in {
+            if request.agent_name == CHAT_AGENT_NAME and chunk.chunk_type not in {
                 ChunkEnum.REPLY_START,
                 ChunkEnum.REPLY_END,
                 ChunkEnum.ERROR,
@@ -120,7 +121,7 @@ class AgentChatStep(_AgentViewStep, BaseChatAgentStep):
                 StreamChunk(chunk_type=ChunkEnum.DATA, chunk=projector.message().model_dump(mode="json")),
             )
 
-        if request.agent_name == "Remy":
+        if request.agent_name == CHAT_AGENT_NAME:
             return await self.chat(request.query, on_chunk=publish)
         reply = await self.query_reply(request.agent_name, request.query, on_chunk=publish)
         self.context.response.success = reply["status"] == "completed" and self.context.stream_error is None
@@ -138,7 +139,7 @@ class AgentNewSessionStep(_AgentViewStep, BaseChatAgentStep):
             raise ValueError("create_chat_session accepts no arguments")
         self.require_paths(self.workspace_path)
         await self.new_session()
-        self.context.response.answer = await self.agent_runtime.read_agent("Remy")
+        self.context.response.answer = await self.agent_runtime.read_agent(CHAT_AGENT_NAME)
         return self.context.response
 
 

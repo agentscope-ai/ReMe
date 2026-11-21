@@ -6,7 +6,7 @@ from typing import Any
 
 from ...utils.local_backend import ProcessTimeout
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 from .file_sandbox import file_sandbox_for_step
 
 DEFAULT_TIMEOUT = 60.0

@@ -2,11 +2,23 @@
 
 from dataclasses import dataclass, field
 from pathlib import Path
-import posixpath
 from typing import TYPE_CHECKING
 
+from watchfiles import Change
+
+from .paths import normalize_posix_path
+
 if TYPE_CHECKING:
-    from ..schema import ApplicationConfig
+    from ...schema import ApplicationConfig
+
+
+def normalize_change(raw: object) -> Change | None:
+    """Accept a watchfiles change or its name from a batch payload."""
+    if isinstance(raw, Change):
+        return raw
+    if isinstance(raw, str):
+        return Change.__members__.get(raw)
+    return None
 
 
 @dataclass
@@ -38,9 +50,7 @@ def build_watch_rules(
             if hasattr(app_config, config_field) and dir_value in (None, ""):
                 dir_value = getattr(type(app_config)(), config_field)
             if separator:
-                dir_value = posixpath.normpath(f"{dir_value}/{child_path}".strip().replace("\\", "/").strip("/"))
-                if dir_value == ".":
-                    dir_value = ""
+                dir_value = normalize_posix_path(f"{dir_value}/{child_path}")
             dir_name = Path(dir_value)
             rule_path = dir_name if dir_name.is_absolute() else workspace_path / dir_name
         rules.append(WatchRule(path=rule_path, suffixes=list(watch_suffixes), filenames=list(watch_filenames or [])))

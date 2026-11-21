@@ -9,6 +9,8 @@ from datetime import timedelta
 from hashlib import sha256
 from uuid import uuid4
 
+from ....schema.response import JOB_ERROR_METADATA_KEY
+from ....constants import CHAT_AGENT_NAME, PROACTIVE_MESSAGE_ID_PREFIX
 from ....schema.agent_runtime import NotificationConfig
 from ....schema.agent_session import SessionMessage
 from ....utils.async_utils import finish_cleanup
@@ -185,7 +187,7 @@ class ChatNotifications:
             recovered = {}
             for identifier in selected:
                 item = self.runtime.outbox.records[pending[identifier]]
-                for message_id in [*item.chat_message_ids, f"reme-proactive-{turn.message_id}"]:
+                for message_id in [*item.chat_message_ids, f"{PROACTIVE_MESSAGE_ID_PREFIX}{turn.message_id}"]:
                     if message_id in messages:
                         recovered[identifier] = messages[message_id]
                         break
@@ -230,7 +232,7 @@ class ChatNotifications:
             turn.content = content
             if not turn.done:
                 async with nullcontext() if turn.active_delivery else self.runtime.chat_lock:
-                    current = await self.runtime.sessions.current("Remy")
+                    current = await self.runtime.sessions.current(CHAT_AGENT_NAME)
                     if self.runtime.closed or current is None or current.session_id != turn.session_id:
                         raise RuntimeError("Chat session changed; retry the reminders in the current conversation")
                     if self.chat_revision != turn.chat_revision:
@@ -242,7 +244,7 @@ class ChatNotifications:
                             for item in turn.items:
                                 await self.runtime.outbox.update(
                                     self.pending[item["id"]],
-                                    chat_message_ids=[f"reme-proactive-{turn.message_id}"],
+                                    chat_message_ids=[f"{PROACTIVE_MESSAGE_ID_PREFIX}{turn.message_id}"],
                                 )
                         if content and turn.message is None:
                             turn.message = await self.runtime.agent_wrapper.append_session(
@@ -254,7 +256,7 @@ class ChatNotifications:
                                 expected_revision=(None if turn.active_delivery else turn.session_revision),
                                 delivery=("immediate" if turn.priority == "P0" else "idle"),
                             )
-                        current = await self.runtime.sessions.current("Remy")
+                        current = await self.runtime.sessions.current(CHAT_AGENT_NAME)
                         if (
                             current is None
                             or current.session_id != turn.session_id
@@ -345,7 +347,7 @@ class ChatNotifications:
         try:
             response = await run_job("process_chat_reminders", priority=priority, msg_ids=identifiers)
             if not response.success:
-                failure = response.metadata.get("reme.job_error", {})
+                failure = response.metadata.get(JOB_ERROR_METADATA_KEY, {})
                 permanent = failure.get("type") in {"TypeError", "ImportError", "ModuleNotFoundError"}
                 raise RuntimeError(str(response.answer))
             if isinstance(response.answer, dict) and response.answer.get("skipped"):

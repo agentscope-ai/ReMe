@@ -87,7 +87,7 @@ def main() -> int:
     if len(arguments) >= 2 and arguments[0] == "reme" and arguments[1] in start_actions:
         arguments = arguments[1:]
     if arguments[0] in start_actions:
-        from reme.utils import load_env
+        from reme.utils.env_utils import load_env
 
         load_env()
         arguments = start_command(arguments[1:], dict(os.environ))

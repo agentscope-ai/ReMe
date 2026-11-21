@@ -1,6 +1,6 @@
 """Tests for ``ReadStep`` with ``with_neighbors=True`` opt-in injection.
 
-The opt-in re-uses ``reme.utils.link_expansion.{expand_links,
+The opt-in re-uses ``reme.utils.documents.link_expansion.{expand_links,
 render_expansion_lines}`` (already covered by ``test_link_expansion.py``),
 so these tests focus on the *integration* layer:
 
@@ -23,7 +23,7 @@ import pytest
 from reme.components.file_store import LocalFileStore
 from reme.schema import FileFrontMatter, FileNode
 from reme.steps.file_io import read as crud_read
-from reme.utils.wikilink_handler import WikilinkHandler
+from reme.utils.documents.wikilink_handler import WikilinkHandler
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="jieba")
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="pkg_resources")

@@ -5,9 +5,9 @@ from pathlib import Path
 from typing import Literal
 
 from .base_file_chunker import BaseFileChunker
-from ..component_registry import R
+from ...core.registry import R
 from ...schema import FileChunk, FileNode
-from ...utils.wikilink_handler import WikilinkHandler
+from ...utils.documents.wikilink_handler import WikilinkHandler
 
 InvalidEncodingPolicy = Literal["replace", "strict"]
 

@@ -14,7 +14,7 @@ from uuid import UUID, uuid4
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict
 
-from reme.components.base_component import BaseComponent
+from reme.components.base import BaseComponent
 
 DIRECTORIES = (
     "code/repo",

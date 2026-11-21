@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import re
 
+from ...constants import PROACTIVE_MESSAGE_ID_PREFIX
 from ...schema import SessionMessage, SessionSnapshot
 
 _PREFIX = "reme-proactive:"
@@ -83,7 +84,7 @@ def read_appends(path: str | None, home: Path) -> list[SessionMessage]:
             continue
         _, origin, delivery, turn_id, message_id = identifier.split(":", 4)
         message = SessionMessage(
-            id=f"reme-proactive-{message_id}",
+            id=f"{PROACTIVE_MESSAGE_ID_PREFIX}{message_id}",
             role=payload["role"],
             content="".join(
                 part["text"] for part in payload["content"] if part.get("type") in {"input_text", "output_text"}

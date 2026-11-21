@@ -5,7 +5,7 @@ import time
 
 import pytest
 
-from reme.components import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.components.file_chunker import DefaultFileChunker
 from reme.steps.file_io import edit as edit_module
 from reme.steps.file_io import read as read_module

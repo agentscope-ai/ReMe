@@ -11,7 +11,7 @@ import threading
 import pytest
 
 from reme.steps.file_io._file_io import write_file_safe
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.steps.file_io.save import SaveStep
 
 
@@ -159,7 +159,7 @@ import os
 from pathlib import Path
 import stat
 import sys
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.steps.file_io.save import SaveStep
 
 workspace = Path(sys.argv[1])

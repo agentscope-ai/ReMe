@@ -1,8 +1,8 @@
 """Streaming job for real-time output delivery."""
 
 from .base_job import BaseJob, _describe_exception
-from ..component_registry import R
-from ..runtime_context import RuntimeContext
+from ...core.registry import R
+from ...core.context import RuntimeContext
 from ...enumeration import ChunkEnum
 
 

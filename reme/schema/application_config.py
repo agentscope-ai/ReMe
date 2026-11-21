@@ -57,6 +57,7 @@ class ApplicationConfig(BaseModel):
     reme_agent_dir: str = Field(default="reme_agents", description="Subdirectory for application-owned agents")
     daily_dir: str = Field(default="daily", description="Subdirectory for daily memory")
     digest_dir: str = Field(default="digest", description="Subdirectory for digest memory")
+    notebook_dir: str = Field(default="notebook", description="Workspace-relative subdirectory for Todo and Idea files")
     enable_logo: bool = Field(default=True, description="Show ASCII logo on startup")
     timezone: str | None = Field(default="Asia/Shanghai", description="IANA timezone; None uses local time")
     language: str = Field(default="", description="Default language for LLM interactions")
@@ -98,8 +99,8 @@ class ApplicationConfig(BaseModel):
             raise ValueError("session_dir must be a workspace-relative path")
         return value
 
-    @field_validator("reme_agent_dir")
+    @field_validator("reme_agent_dir", "notebook_dir")
     @classmethod
-    def validate_agent_directory(cls, value: str) -> str:
-        """Keep Agent-owned files under one normalized workspace subdirectory."""
+    def validate_workspace_subdirectory(cls, value: str) -> str:
+        """Require a normalized workspace-relative subdirectory."""
         return Event.validate_paths([value])[0]

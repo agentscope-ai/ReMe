@@ -25,8 +25,10 @@ from typing import Callable, Final
 
 from agentscope.message import Msg
 
+from ...constants import SESSION_DIALOG_SUBDIR
 from ...schema import FileChunk
-from ...utils.link_expansion import render_expansion_lines
+from ...utils.documents.link_expansion import render_expansion_lines
+from ...utils.files.paths import normalize_posix_path
 
 #: English message written to ``response.answer`` when tool_context dedup
 #: removed every result that was already returned in previous responses.
@@ -39,19 +41,13 @@ ALL_RETURNED_MESSAGE: Final[str] = (
 NO_RESULTS_MESSAGE: Final[str] = "No relevant information was found for the given query."
 
 
-def normalize_posix_path(path: str) -> str:
-    """Return a normalized, workspace-relative POSIX path string."""
-    normalized = posixpath.normpath((path or "").strip().replace("\\", "/").strip("/"))
-    return "" if normalized == "." else normalized
-
-
 def is_session_path(path: str, session_dir: str) -> bool:
     """True if the path points at a raw transcript under ``{session_dir}/dialog``."""
     path = normalize_posix_path(path)
     if not path.endswith(".jsonl"):
         return False
     session_root = normalize_posix_path(session_dir)
-    session_dialog_dir = posixpath.join(session_root, "dialog")
+    session_dialog_dir = posixpath.join(session_root, SESSION_DIALOG_SUBDIR)
     return path == session_dialog_dir or path.startswith(f"{session_dialog_dir}/")
 
 

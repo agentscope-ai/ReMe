@@ -5,7 +5,7 @@ import os
 from typing import Any
 
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 from ...utils.local_backend import LocalProcessBackend, ProcessTimeout
 
 DEFAULT_TIMEOUT = 60.0 * 60 * 24

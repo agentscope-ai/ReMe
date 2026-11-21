@@ -11,12 +11,11 @@ import aiofiles.os
 
 from ...constants import DEFAULT_MAX_BYTES, MAX_FILE_READ_BYTES, TRUNCATION_NOTICE_MARKER
 from ...schema import FileChunk
-from ...utils import get_logger
+from ...utils.logger_utils import get_logger
 from ...utils.async_utils import complete_in_thread
 
 # Preserve the file-job import path while runtime writers use the same registry.
 # pylint: disable-next=unused-import
-from ...utils.path_lock import get_path_lock  # noqa: F401
 
 logger = get_logger(log_to_file=False)
 

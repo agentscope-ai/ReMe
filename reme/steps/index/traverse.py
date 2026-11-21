@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 from ...schema import FileNode, TraverseGraph, TraverseGraphEdge, TraverseGraphNode
 
 _DIRECTION_ALIASES = {
