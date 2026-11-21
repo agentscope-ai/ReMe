@@ -78,7 +78,9 @@ jobs:
           verify_home_wheel() (
             local smoke_env="${RUNNER_TEMP}/reme-home-package-smoke-$1"
             python -m venv "${smoke_env}"
-            "${smoke_env}/bin/python" -m pip install "$2" "${HOME_WHEEL}" pytest pytest-asyncio
+            # The minimum release may be built here before it is published to PyPI.
+            "${smoke_env}/bin/python" -m pip install --find-links "$(dirname "${REME_WHEEL}")" \
+              "$2" "${HOME_WHEEL}" pytest pytest-asyncio
             "${smoke_env}/bin/python" -m pip check
             cd "${RUNNER_TEMP}"
             "${smoke_env}/bin/python" -I - <<'PY'
