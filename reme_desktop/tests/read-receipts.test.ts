@@ -31,7 +31,7 @@ const reminder: AgentMessage = {
   error: null,
 };
 
-test("explicit chat reading retries durable acknowledgements; historical suppression never sends them", async (t) => {
+test("explicit chat reading persists locally while historical presentation leaves messages unread", async (t) => {
   const directory = await mkdtemp(
     path.join(tmpdir(), "reme-read-receipt-test-"),
   );
@@ -42,20 +42,12 @@ test("explicit chat reading retries durable acknowledgements; historical suppres
     ),
   );
   const storage = new Storage(directory);
-  let receive: ((chunk: StreamChunk) => void) | undefined;
-  let offline = true;
-  const calls: unknown[] = [];
-  t.mock.method(
-    ReMeClient.prototype,
-    "call",
-    async (job: string, body: unknown) => {
-      if (job === "get_client_info") return clientInfo;
-      assert.equal(job, "read_agent_reminder");
-      calls.push(body);
-      if (offline) throw new Error("temporary offline");
-      return { id: reminder.id, items: [] };
-    },
-  );
+  const calls: string[] = [];
+  t.mock.method(ReMeClient.prototype, "call", async (job: string) => {
+    calls.push(job);
+    assert.equal(job, "get_client_info");
+    return clientInfo;
+  });
   t.mock.method(
     ReMeClient.prototype,
     "stream",
@@ -65,7 +57,6 @@ test("explicit chat reading retries durable acknowledgements; historical suppres
       signal: AbortSignal,
       listener: (chunk: StreamChunk) => void,
     ) => {
-      receive = listener;
       listener({
         chunk_type: "data",
         chunk: snapshot([reminder]),
@@ -83,19 +74,14 @@ test("explicit chat reading retries durable acknowledgements; historical suppres
   });
   controller.start();
   await new Promise((resolve) => setImmediate(resolve));
-  assert.ok(receive);
   assert.equal(controller.state.connection, "connected");
   assert.equal(controller.state.unread, 1);
   assert.deepEqual(controller.state.readMessageIds, []);
   // A historical snapshot is suppressed locally without claiming the user read it.
-  assert.equal(calls.length, 0);
-  await controller.markAllRead();
-  assert.equal(calls.length, 1);
-  assert.deepEqual(calls[0], {
-    agent_name: "Remy",
-    message_id: reminder.id,
-    mark_read: true,
-  });
+  controller.markAllRead();
+  assert.equal(controller.state.unread, 0);
+  assert.deepEqual(controller.state.readMessageIds, [reminder.id]);
+  assert.deepEqual(calls, ["get_client_info"]);
   await storage.flush();
   const presentations = JSON.parse(
     await readFile(path.join(directory, "presentation.json"), "utf8"),
@@ -103,29 +89,29 @@ test("explicit chat reading retries durable acknowledgements; historical suppres
   const receipt = Object.values(presentations).flatMap((value) =>
     Object.values(value.receipts),
   )[0];
-  assert.equal(receipt.userRead, true);
-  assert.equal(receipt.readSynced, false);
-  receive({
-    chunk_type: "data",
-    chunk: snapshot([], "next-session"),
-  });
-  offline = false;
-  (controller as unknown as { readRetryAt: number }).readRetryAt = 0;
-  await controller.markAllRead();
-  assert.equal(calls.length, 2);
-  await controller.markAllRead();
-  assert.equal(calls.length, 2);
-  await storage.flush();
-  const final = JSON.parse(
-    await readFile(path.join(directory, "presentation.json"), "utf8"),
-  ) as Record<string, Presentation>;
-  const acknowledged = Object.values(final).flatMap((value) =>
-    Object.values(value.receipts),
-  )[0];
-  assert.equal(acknowledged.readSynced, true);
+  assert.deepEqual(receipt, { presented: true, userRead: true });
   const restored = new Storage(directory);
   await restored.load();
   assert.deepEqual(restored.presentations, storage.presentations);
+});
+
+test("storage loads user reading from receipts with a legacy sync flag", async (t) => {
+  const directory = await mkdtemp(path.join(tmpdir(), "reme-old-receipt-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  await writeFile(
+    path.join(directory, "presentation.json"),
+    JSON.stringify({
+      scope: {
+        initialized: true,
+        receipts: {
+          old: { presented: true, userRead: true, readSynced: false },
+        },
+      },
+    }),
+  );
+  const storage = new Storage(directory);
+  await storage.load();
+  assert.equal(storage.presentation("scope").receipts.old.userRead, true);
 });
 
 test("storage rejects the obsolete presentation receipt format", async (t) => {

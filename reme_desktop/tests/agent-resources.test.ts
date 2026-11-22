@@ -76,9 +76,10 @@ test("desktop resource requests use the new scoped contracts and reject retired 
     { type: "inbox", agentName: "任务", state: "processing", offset: 20 },
     signal,
   );
+  const record = `daily/${"archive/".repeat(16)}2026-11-22/finance_090000.md`;
   await requestWorkspace(
     client,
-    { type: "reminder", agentName: "finance", id: "message-1", markRead: true },
+    { type: "reminder", agentName: "finance", id: record },
     signal,
   );
   assert.deepEqual(calls, [
@@ -94,8 +95,7 @@ test("desktop resource requests use the new scoped contracts and reject retired 
       "read_agent_reminder",
       {
         agent_name: "finance",
-        message_id: "message-1",
-        mark_read: true,
+        message_id: record,
       },
     ],
   ]);
@@ -103,7 +103,7 @@ test("desktop resource requests use the new scoped contracts and reject retired 
     { type: "proactiveInbox" },
     { type: "outbox", agentName: "Remy", offset: -1 },
     { type: "inbox", agentName: "finance", limit: 101 },
-    { type: "reminder", agentName: "Remy", id: "", markRead: true },
+    { type: "reminder", agentName: "Remy", id: "" },
   ]) {
     await assert.rejects(
       requestWorkspace(

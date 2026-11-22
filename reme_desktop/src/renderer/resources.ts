@@ -69,7 +69,7 @@ export function plainText(content: string): string {
 export function useResourcePage<T>(
   request: WorkspaceRequest,
   active: boolean,
-  revision: number,
+  revision?: number,
 ) {
   const key = JSON.stringify(request);
   const [page, setPage] = useState<ResourcePage<T> | null>(null);

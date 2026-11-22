@@ -85,7 +85,7 @@ async def test_run_result_is_distinct_from_model_status(tmp_path, monkeypatch, f
         paths = step._paths(await runtime.definition("monitor"), now)
         install_round(runtime, wrapper, monkeypatch, paths, failed=failure == "model")
         if failure == "commit":
-            monkeypatch.setattr(runtime.outbox, "verify", AsyncMock(side_effect=OSError("Commit failed")))
+            monkeypatch.setattr(runtime.inbox, "ack", AsyncMock(side_effect=OSError("Commit failed")))
             with pytest.raises(OSError, match="Commit failed"):
                 await step(agent_name="monitor")
         else:

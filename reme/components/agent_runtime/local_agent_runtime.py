@@ -395,7 +395,7 @@ class LocalAgentRuntime(BaseAgentRuntime):
                 if session_id is not None:
                     await finish_cleanup(self.agent_wrapper.release_session(session_id))
 
-    async def run(self, agent_name, execute, *, on_failure=None, check_version=None):
+    async def run(self, agent_name, execute, *, record=None):
         """Commit successful execution before handing asynchronous delivery to the outbox."""
         async with (
             self._agent_task(agent_name),
@@ -435,23 +435,19 @@ class LocalAgentRuntime(BaseAgentRuntime):
                 self.activities[agent_name] = self.activities[agent_name].model_copy(update={"session_id": session_id})
 
                 async def commit():
-                    refs = []
-                    if reminder is not None:
-                        refs.append(await self.outbox.verify(agent_name, reminder, check_version=check_version))
-                    await self.inbox.ack(
-                        agent_name,
-                        batch["token"],
-                        metadata={"reminder_paths": refs, "session_id": session_id},
-                        retain=bool(refs),
-                    )
-                    execution.retry_items = None
-                    return refs
+                    async with self.outbox.handoff(agent_name, reminder, record) as ref:
+                        await self.inbox.ack(
+                            agent_name,
+                            batch["token"],
+                            metadata={"reminder_paths": [ref] if ref is not None else [], "session_id": session_id},
+                            retain=ref is not None,
+                        )
+                        execution.retry_items = None
 
-                refs = await finish_cleanup(commit())
-                await self.outbox.deliver(agent_name, refs)
+                await finish_cleanup(commit())
                 self.logger.info(
                     f"Proactive agent={agent_name} session={session_id} result=committed "
-                    f"processed={len(batch['items'])} notifications={len(refs)}",
+                    f"processed={len(batch['items'])} notifications={int(reminder is not None)}",
                 )
                 self.activities[agent_name] = self.activities[agent_name].model_copy(update={"phase": "completed"})
                 self.changed.set()
@@ -463,13 +459,13 @@ class LocalAgentRuntime(BaseAgentRuntime):
             except BaseException as exc:
                 phase = "interrupted" if isinstance(exc, asyncio.CancelledError) else "failed"
                 self.activities[agent_name] = self.activities[agent_name].model_copy(update={"phase": phase})
-                if on_failure is not None:
+                if record is not None:
 
-                    async def restore_uncommitted():
+                    async def rollback_uncommitted():
                         if not await self.inbox.committed(agent_name, [item["id"] for item in batch["items"]]):
-                            await on_failure()
+                            await record.rollback()
 
-                    await finish_cleanup(restore_uncommitted())
+                    await finish_cleanup(rollback_uncommitted())
                 raise
             finally:
                 try:

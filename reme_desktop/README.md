@@ -77,7 +77,7 @@ The client uses the following jobs from the same checkout:
 | `watch_agent_session`                                                                          | Observe current messages and state; Remy also carries the Agent roster                |
 | `list_agent_inbox`                                                                             | Page task input events or Remy's derived reminder inbox                               |
 | `list_agent_outbox`                                                                            | Page a task Agent's committed reminders                                               |
-| `read_agent_reminder`                                                                          | Read canonical reminders and acknowledge user reading independently of processing     |
+| `read_agent_reminder`                                                                          | Read the source reminder records                                                      |
 | `list_workspace`, `load_file`, `read_image`, `list_tags`, `list_tag_files`, `search_workspace` | Read-only Knowledge browsing                                                          |
 | `asr` / `tts`                                                                                  | Voice input and playback                                                              |
 | `get_client_info`                                                                              | Discover backend capabilities and workspace settings                                  |
@@ -110,10 +110,9 @@ Only the main Chat Agent supports starting an empty conversation. See
 
 The sidebar separates Remy, Proactive and Cron. Task groups collapse independently. Task workspaces show the latest execution turn and their query replies; memory, reminders, inboxes, event records and outboxes have dedicated views. Workspace links open the original file in Knowledge, including images; web links open the browser.
 
-Inbox processing (`read_at`) and user reading (`user_read_at`) are independent. Reading a mailbox never claims events or consumes mail. Event history is bounded by the configured event-stream retention.
+The mailbox uses `delivered_at` for arrival time and `read_at` for Remy's processing status. Event history is bounded by the configured event-stream retention.
 
-Local presentation receipts use `userRead` and `readSynced` in `desktop/presentation.json` under the application
-data directory; bubble presentation never marks a message as read.
+The Desktop stores explicit Chat reads as `userRead` in `desktop/presentation.json` under the application data directory. Showing a bubble only records its presentation.
 
 ## Validate and package
 

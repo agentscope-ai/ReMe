@@ -333,7 +333,7 @@ async def test_publication_isolates_reminders_removed_during_delivery(tmp_path, 
         await runtime.create({"agent_name": "other", "task_description": "Other"})
         await runtime.append("other", {"event_ts": runtime.now(), "source": "test", "description": "Next"})
         with monkeypatch.context() as patch:
-            patch.setattr(runtime.outbox, "deliver", AsyncMock())
+            patch.setattr(runtime.outbox, "_deliver_locked", AsyncMock())
             first, second = [completed_result(runtime, name) for name in ("monitor", "other")]
             await runtime.run("monitor", AsyncMock(return_value=first))
             await runtime.run("other", AsyncMock(return_value=second))

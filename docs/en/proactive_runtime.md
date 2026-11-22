@@ -28,9 +28,11 @@ The task can specify its own delivery conditions and priority. The agent checks 
 
 ### Commit and delivery
 
-ReMe validates the record and confirms the input receipt before delivery. A valid record can commit after a model error or timeout. If execution fails before the receipt is durable, ReMe removes the new record only if its version still matches the model's output. Once the receipt is durable, Outbox can retry interrupted delivery independently.
+ReMe holds the workspace file-job lock while checking the record version, committing the input receipt, and marking initial delivery. A valid record can commit after a model error or timeout. If execution fails before the receipt is durable, ReMe removes the new record only if its version still matches the model's output. Once the receipt is durable, Outbox can retry interrupted delivery independently.
 
 The workspace-relative record path is the reminder ID. Outbox writes `delivered_at` into the record. Remy adds `read_at` when it processes the reminder and `chat_message_ids` when it links a Chat message. Remy selects reminders by priority and delivery time within the configured limits. The notification window controls automatic Chat processing. Users can browse committed reminders at any time. A Chat decision rechecks the current reminder under the file write lock so an edit can invalidate a stale decision.
+
+After upgrading from a build that stored standalone reminders under `reme_agents/{agent_name}/reminder/`, those files remain available in the workspace. Automatic delivery and reminder views use the new daily records. Finish pending reminders on the older build if they still need to be delivered.
 
 Earlier native sessions remain available as history. Task questions use a temporary read-only fork of the latest task session, including while a run is in progress. The built-in Codex configuration sets `project_doc_max_bytes=0` and disables automatic skill injection for task runs. Global instructions under `CODEX_HOME` load independently.
 

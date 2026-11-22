@@ -88,7 +88,6 @@ export interface StreamChunk {
 
 export interface Receipt {
   userRead: boolean;
-  readSynced: boolean;
   presented: boolean;
   suppressed?: boolean;
   snoozeUntil?: number;
@@ -146,7 +145,6 @@ export interface DesktopState {
   status: SessionStatus | null;
   messages: DisplayMessage[];
   reminders: DisplayMessage[];
-  mailboxRevision: number;
   pending: PendingTurn | null;
   surface: CompanionSurface | null;
   unread: number;
@@ -323,7 +321,7 @@ export type WorkspaceRequest =
       offset?: number;
       limit?: number;
     }
-  | { type: "reminder"; agentName: string; id: string; markRead?: boolean }
+  | { type: "reminder"; agentName: string; id: string }
   | {
       type: "inbox";
       agentName: string;
@@ -355,10 +353,8 @@ export interface AgentMail {
   priority: "P0" | "P1" | "P2";
   message: string;
   paths: string[];
-  created_at: string;
   delivered_at: string | null;
   read_at: string | null;
-  user_read_at: string | null;
 }
 
 export interface InputEvent {

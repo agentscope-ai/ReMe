@@ -75,12 +75,7 @@ class ChatNotifications:
     @property
     def read_refs(self):
         """Keep the same bounded reference horizon as the inbox component."""
-        records = self.runtime.outbox.records
-        refs = sorted(
-            (ref for ref, item in records.items() if item.read_at is not None),
-            key=lambda ref: (records[ref].read_at, ref),
-        )[-self.runtime.inbox.max_read_items :]
-        return set(refs)
+        return set(self.runtime.outbox.processed_refs())
 
     def activity(self):
         """Restart idle timing after every foreground or internally requested Chat turn."""

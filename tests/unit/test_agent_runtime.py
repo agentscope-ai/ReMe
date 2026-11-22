@@ -762,7 +762,7 @@ async def test_unhanded_off_results_protect_read_history_and_survive_restart(tmp
         runtime.inbox.append_timeout_seconds = 0.02
         await create_agent(runtime)
         with monkeypatch.context() as patch:
-            patch.setattr(runtime.outbox, "deliver", AsyncMock())
+            patch.setattr(runtime.outbox, "_deliver_locked", AsyncMock())
             await runtime.run("monitor", AsyncMock(return_value=completed_result(runtime)))
             second = {"id": "event-2", "event_ts": runtime.now(), "source": "lab", "description": "Next"}
             await runtime.append("monitor", second)

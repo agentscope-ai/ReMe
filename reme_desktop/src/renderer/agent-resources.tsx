@@ -17,7 +17,6 @@ import {
   useResourcePage,
 } from "./resources.ts";
 import ResourcePane, { ResourceMessage } from "./resource-pane.tsx";
-import { watchReadReceipt } from "./read-receipt.ts";
 
 export default function AgentResources({
   state,
@@ -43,11 +42,7 @@ export default function AgentResources({
       };
   const { page, error, loading, refresh } = useResourcePage<
     AgentMail | InputEvent
-  >(
-    request,
-    state.activePage === "remy" && state.connection === "connected",
-    state.mailboxRevision,
-  );
+  >(request, state.activePage === "remy" && state.connection === "connected");
   useEffect(() => {
     if (
       state.focusTarget?.kind === "mail" &&
@@ -100,34 +95,6 @@ export default function AgentResources({
     listed && "event" in listed
       ? (listed.reminder ?? listed)
       : (listed ?? (focusedMail?.id === selected ? focusedMail : undefined));
-  const mail = item && !("event" in item) ? item : undefined;
-  useEffect(() => {
-    if (
-      !mail ||
-      mail.user_read_at ||
-      !state.chatVisible ||
-      !state.chatFocused ||
-      state.activePage !== "remy"
-    )
-      return;
-    const receipt = watchReadReceipt(async () => {
-      await requestResource({
-        type: "reminder",
-        agentName,
-        id: mail.id,
-        markRead: true,
-      });
-      return true;
-    }, setReadError);
-    return receipt.close;
-  }, [
-    mail?.id,
-    mail?.user_read_at,
-    agentName,
-    state.chatVisible,
-    state.chatFocused,
-    state.activePage,
-  ]);
   const stateLabel = (value: string) =>
     t(
       value === "pending"
@@ -229,9 +196,8 @@ export default function AgentResources({
             id: mail.id,
             title: mail.from_agent_name,
             preview: plainText(mail.message),
-            time: mail.created_at,
+            time: mail.delivered_at,
             badge: `${mail.priority} · ${stateLabel(status)}`,
-            unread: !mail.user_read_at,
             state: status,
             target: { kind: "mail" as const, agentName, id: mail.id },
           };
@@ -288,7 +254,7 @@ export default function AgentResources({
                 role: "assistant",
                 source: "proactive",
                 content: item.message,
-                createdAt: item.created_at,
+                createdAt: item.delivered_at,
                 completed: true,
                 streaming: false,
                 status: null,
@@ -302,26 +268,8 @@ export default function AgentResources({
                   {t("fromAgent")} {item.from_agent_name}
                 </span>
                 <span>
-                  {t(item.delivered_at ? "mailDelivered" : "mailWaiting")}
-                </span>
-                <span>
                   {stateLabel(item.read_at ? "processed" : "pending")}
                 </span>
-                <span>
-                  {t(item.user_read_at ? "inboxUserRead" : "inboxUserUnread")}
-                </span>
-              </div>
-              <div className="resource-links">
-                {item.paths.slice(1).map((path) => (
-                  <button
-                    key={path}
-                    className="resource-path"
-                    onClick={() => open(path)}
-                  >
-                    {path}
-                    <ArrowUpRight size={14} />
-                  </button>
-                ))}
               </div>
             </ResourceMessage>
           ))}

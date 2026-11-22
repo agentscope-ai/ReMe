@@ -96,8 +96,6 @@ export class DesktopController {
   private endpoint: string;
   private settingsWrites: Promise<void> = Promise.resolve();
   private closed = false;
-  private readSync: Promise<void> | null = null;
-  private readRetryAt = 0;
   private flushedAt = 0;
   private connectionIssue: unknown = null;
   private pendingIssue: unknown = null;
@@ -141,7 +139,6 @@ export class DesktopController {
       status: null,
       messages: [],
       reminders: [],
-      mailboxRevision: 0,
       pending: null,
       surface: null,
       unread: 0,
@@ -189,7 +186,6 @@ export class DesktopController {
     this.restart();
     this.clock = setInterval(() => {
       this.tick();
-      this.syncReadReceipts();
       if (Date.now() - this.flushedAt < 1000) return;
       this.flushedAt = Date.now();
       void this.storage.flush().catch((error) => {
@@ -211,7 +207,6 @@ export class DesktopController {
     this.lifecycle?.abort();
     this.stream?.abort();
     this.generation++;
-    this.readRetryAt = 0;
     this.endpoint = this.storage.settings.endpoint;
     this.ready = false;
     this.model.clear();
@@ -453,7 +448,6 @@ export class DesktopController {
         presentation.receipts[message.id] = {
           presented: baseline,
           userRead: false,
-          readSynced: false,
         };
         this.storage.changed();
       }
@@ -1106,7 +1100,6 @@ export class DesktopController {
       const receipt = this.notificationPresentation(message)?.receipts[id];
       if (!receipt || receipt.userRead) continue;
       receipt.userRead = true;
-      receipt.readSynced = false;
       changed = true;
       delete receipt.snoozeUntil;
       if (this.bubbles.active?.id !== id) this.bubbles.dismiss(id);
@@ -1115,53 +1108,8 @@ export class DesktopController {
     }
     if (!changed) return;
     this.storage.changed();
-    this.syncReadReceipts();
     this.tick();
     this.emit();
-  }
-
-  private syncReadReceipts(): void {
-    if (
-      !this.ready ||
-      !this.lifecycle ||
-      !this.scope ||
-      this.readSync ||
-      Date.now() < this.readRetryAt
-    )
-      return;
-    const generation = this.generation;
-    const signal = this.lifecycle.signal;
-    const client = this.client();
-    const receipts = Object.entries(this.storage.presentations)
-      .filter(([key]) => key.startsWith(`${this.scope}:`))
-      .flatMap(([, presentation]) => Object.entries(presentation.receipts))
-      .filter(([, receipt]) => receipt.userRead && !receipt.readSynced);
-    if (!receipts.length) return;
-    this.readSync = (async () => {
-      for (const [id, receipt] of receipts) {
-        try {
-          await client.call(
-            "read_agent_reminder",
-            {
-              agent_name: "Remy",
-              message_id: id,
-              mark_read: true,
-            },
-            AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
-          );
-          if (generation !== this.generation || signal.aborted) return;
-          receipt.readSynced = true;
-          this.state.mailboxRevision++;
-          this.storage.changed();
-        } catch {
-          if (!signal.aborted) this.readRetryAt = Date.now() + 10_000;
-          return;
-        }
-      }
-    })().finally(() => {
-      this.readSync = null;
-      if (generation === this.generation && !signal.aborted) this.emit();
-    });
   }
 
   selectPage(page: DesktopPage): void {
@@ -1173,27 +1121,11 @@ export class DesktopController {
 
   async workspace(request: WorkspaceRequest) {
     if (!this.lifecycle || this.closed) throw new UiError("closed");
-    const generation = this.generation;
-    const response = await requestWorkspace(
-      this.client(),
-      request,
-      this.lifecycle.signal,
-    );
-    if (
-      request.type === "reminder" &&
-      request.markRead &&
-      generation === this.generation
-    ) {
-      this.state.mailboxRevision++;
-      this.emit();
-    }
-    return response;
+    return requestWorkspace(this.client(), request, this.lifecycle.signal);
   }
 
-  async markAllRead(): Promise<void> {
+  markAllRead(): void {
     this.readMessages(this.notificationMessages());
-    this.syncReadReceipts();
-    await this.readSync;
   }
 
   openDocument(path: string): void {
@@ -1238,7 +1170,7 @@ export class DesktopController {
       source: "proactive",
       content: mail.message,
       completed: true,
-      created_at: mail.created_at,
+      created_at: mail.delivered_at,
       session_id: this.model.sessionId ?? "",
       turn_id: null,
       origin_session_id: null,
@@ -1650,7 +1582,6 @@ export class DesktopController {
     this.generation++;
     await this.speech.close();
     await this.settingsWrites;
-    await this.readSync;
     await this.running;
     await this.childWatching;
     await Promise.allSettled(

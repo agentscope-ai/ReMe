@@ -78,8 +78,6 @@ export const messages = {
   resourceProcessed: ["已处理", "Processed"],
   processedAt: ["处理时间", "Processed"],
   fromAgent: ["来自", "From"],
-  mailDelivered: ["已投递", "Delivered"],
-  mailWaiting: ["待投递", "Awaiting delivery"],
   agentMessagePlaceholder: ["和 {name} 说点什么", "Message {name}"],
   automaticTurn: ["自动触发", "Automatic turn"],
   agents: ["Agents", "Agents"],

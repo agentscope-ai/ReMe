@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     import asyncio
 
     from ...utils.files.workspace_files import WorkspaceFiles
+    from ...utils.proactive_record import RoundRecord
     from ._internal.notifications import ChatNotifications
     from ._internal.outbox import AgentOutbox
     from ._internal.registry import AgentRegistry
@@ -126,10 +127,9 @@ class BaseAgentRuntime(BaseComponent):
         agent_name: str,
         execute: Callable,
         *,
-        on_failure: Callable | None = None,
-        check_version: Callable | None = None,
+        record: RoundRecord | None = None,
     ) -> dict:
-        """Execute and commit one serial input batch; restore failed outputs when requested."""
+        """Execute one serial input batch and commit its optional round record."""
 
     @abstractmethod
     async def tick(self, run_job: Callable) -> None:

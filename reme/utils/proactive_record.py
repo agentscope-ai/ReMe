@@ -1,9 +1,15 @@
-"""Daily record paths and Markdown parsing for proactive tasks."""
+"""Daily record paths, Markdown parsing, and version tracking for proactive tasks."""
 
 from datetime import date
+from pathlib import Path
 import re
+from stat import S_ISREG
 
 import yaml
+
+from .async_utils import complete_in_thread
+from .files.path_lock import get_path_lock
+from .files.workspace_files import WorkspaceFiles
 
 _ROUND_SUFFIX = re.compile(r"[0-9]{6}(?:_[0-9]+)?\.md")
 _FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n(.*?)^---[ \t]*(?=\r?$)", re.MULTILINE | re.DOTALL)
@@ -40,3 +46,54 @@ def split_record(text):
         if isinstance(metadata, dict):
             return metadata, text[match.end() :]
     return {}, text
+
+
+class RoundRecord:
+    """Track the record's version until the input receipt is durable."""
+
+    def __init__(self, files: WorkspaceFiles):
+        self.files = files
+        self.path: Path | None = None
+        self.written = None
+
+    def _version(self, path):
+        try:
+            stat = self.files.checked(path).stat(follow_symlinks=False)
+        except FileNotFoundError:
+            return None
+        if not S_ISREG(stat.st_mode):
+            raise ValueError(f"Round record must be a regular file: {path}")
+        return stat.st_ino, stat.st_mtime_ns, stat.st_size
+
+    async def prepare(self, path: Path):
+        """Ensure the model starts with an unused record path."""
+        async with await get_path_lock(path):
+            if await complete_in_thread(self._version, path) is not None:
+                raise FileExistsError(path)
+            self.path = path
+
+    def capture(self):
+        """Record the version written by the model before validation."""
+        try:
+            self.written = self._version(self.path)
+        except (OSError, ValueError):
+            # Validation reports invalid or unreadable destinations.
+            self.written = None
+
+    def check_version(self, path: Path):
+        """Reject edits made before commit, including a file created after a skip."""
+        if path != self.path or self._version(path) != self.written:
+            raise RuntimeError(f"Agent output changed outside this round: {path}")
+
+    async def rollback(self):
+        """Remove only the uncommitted version written by this round."""
+        if self.written is not None:
+            async with await get_path_lock(self.path):
+                await complete_in_thread(self._rollback)
+
+    def _rollback(self):
+        try:
+            self.check_version(self.path)
+        except (OSError, ValueError, RuntimeError):
+            return
+        self.files.remove(self.path)

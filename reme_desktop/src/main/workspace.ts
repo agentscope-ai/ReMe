@@ -19,7 +19,7 @@ function relativePath(value: unknown): string {
   return value;
 }
 
-/** Expose workspace browsing, read receipts and the two notebook jobs. */
+/** Expose workspace browsing, reminder details and the two notebook jobs. */
 export async function requestWorkspace(
   client: ReMeClient,
   request: WorkspaceRequest,
@@ -91,16 +91,14 @@ export async function requestWorkspace(
         !request.agentName ||
         typeof request.id !== "string" ||
         !request.id ||
-        request.id.length > 128 ||
-        (request.markRead !== undefined &&
-          typeof request.markRead !== "boolean")
+        request.id.length > 8192 ||
+        request.id.includes("\0")
       )
         throw new UiError("invalidWorkspaceRequest");
       job = "read_agent_reminder";
       body = {
         agent_name: request.agentName,
         message_id: request.id,
-        mark_read: request.markRead ?? false,
       };
       break;
     case "list":

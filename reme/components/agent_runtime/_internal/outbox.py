@@ -1,7 +1,7 @@
 """Canonical Markdown reminders keyed by workspace-relative filename."""
 
 import asyncio
-from contextlib import AsyncExitStack, asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager, nullcontext
 
 import yaml
 
@@ -79,7 +79,11 @@ class AgentOutbox:
                 retained, released = [], []
                 for receipt in group:
                     refs = [ref for ref in receipt.metadata.get("reminder_paths", []) if self.storage.owns(ref, agent)]
-                    await self.deliver(agent, [ref for ref in refs if ref not in self.records])
+                    for ref in refs:
+                        if ref not in self.records:
+                            path = self.files.workspace / ref
+                            async with await get_path_lock(path):
+                                await self._deliver_locked(agent, ref, path)
                     handed_off = all(ref in self.records for ref in refs)
                     (released if handed_off else retained).extend(receipt.item_ids)
                 await self.runtime.inbox.retain(agent, retained)
@@ -107,40 +111,43 @@ class AgentOutbox:
             "metadata": {},
         }
 
-    async def verify(self, agent_name, reminder, *, check_version=None):
-        """Verify the pending reminder against its source before committing the input receipt."""
-        (ref,) = reminder.paths
-        if not self.storage.owns(ref, agent_name):
-            raise ValueError("a reminder must reference the task's dated daily record")
-        path = self.files.path(ref)
-        async with await get_path_lock(path):
-            if check_version is not None:
-                await asyncio.to_thread(check_version, path)
-            draft = await asyncio.to_thread(self.storage.read, path, draft=True)
-            if draft.delivered_at is not None:
-                raise ValueError(f"cannot overwrite a delivered reminder: {path}")
-            if (draft.priority, draft.message) != (reminder.priority, reminder.message):
-                raise ValueError(f"reminder decision changed: {path}")
-        return ref
+    @asynccontextmanager
+    async def handoff(self, agent_name, reminder, record):
+        """Hold the record's write lock from validation through the receipt and initial delivery."""
+        ref = None
+        path = record.path if record is not None else None
+        if reminder is not None:
+            (ref,) = reminder.paths
+            if not self.storage.owns(ref, agent_name):
+                raise ValueError("a reminder must reference the task's dated daily record")
+            path = self.files.path(ref)
+        async with await get_path_lock(path) if path is not None else nullcontext():
+            if record is not None:
+                await asyncio.to_thread(record.check_version, path)
+            if ref is not None:
+                draft = await asyncio.to_thread(self.storage.read, path, draft=True)
+                if draft.delivered_at is not None:
+                    raise ValueError(f"cannot overwrite a delivered reminder: {path}")
+                if (draft.priority, draft.message) != (reminder.priority, reminder.message):
+                    raise ValueError(f"reminder decision changed: {path}")
+            yield ref
+            if ref is not None:
+                await self._deliver_locked(agent_name, ref, path)
 
-    async def deliver(self, agent, refs):
-        """Complete a committed handoff regardless of the Chat notification window."""
-        for ref in refs:
-            try:
-                path = self.files.path(ref)
-                async with await get_path_lock(path):
-                    item = await asyncio.to_thread(self.storage.read, path, draft=True)
-                    if item.delivered_at is None:
-                        item = item.model_copy(update={"delivered_at": self.runtime.now()})
-                        await complete_in_thread(self._write, path, item)
-                    async with self.lock:
-                        self.records[ref] = item
-                        self.owners[ref] = agent
-                        self.cache.pop(path, None)
-                        self.issues.pop(ref, None)
-            except _FILE_ERRORS as exc:
-                async with self.lock:
-                    self._report(ref, str(exc))
+    async def _deliver_locked(self, agent, ref, path):
+        try:
+            item = await asyncio.to_thread(self.storage.read, path, draft=True)
+            if item.delivered_at is None:
+                item = item.model_copy(update={"delivered_at": self.runtime.now()})
+                await complete_in_thread(self._write, path, item)
+            async with self.lock:
+                self.records[ref] = item
+                self.owners[ref] = agent
+                self.cache.pop(path, None)
+                self.issues.pop(ref, None)
+        except _FILE_ERRORS as exc:
+            async with self.lock:
+                self._report(ref, str(exc))
 
     async def update(self, ref, **changes):
         """Update Chat receipts under the workspace's file lock."""
@@ -183,6 +190,13 @@ class AgentOutbox:
             if ref in self.records:
                 self.records[ref] = updated
 
+    def processed_refs(self):
+        """Keep the same bounded read history for Chat acknowledgements and the inbox view."""
+        return sorted(
+            (ref for ref, item in self.records.items() if item.read_at is not None),
+            key=lambda ref: (self.records[ref].read_at, ref),
+        )[-self.runtime.inbox.max_read_items :]
+
     async def inbox(self, *, state="all", offset=0, limit=20):
         """Project the receiver view directly from daily records."""
         if state not in {"all", "pending", "processing", "processed"}:
@@ -193,13 +207,9 @@ class AgentOutbox:
         turn = self.runtime.notifications.active_turn
         claimed = set(turn.msg_ids) if turn else set()
         async with self.lock:
-            processed = sorted(
-                (ref for ref, item in self.records.items() if item.read_at is not None),
-                key=lambda ref: (self.records[ref].read_at, ref),
-            )[-self.runtime.inbox.max_read_items :]
             pending = [ref for ref, item in self.records.items() if item.read_at is None]
             items = []
-            for ref in [*processed, *pending]:
+            for ref in [*self.processed_refs(), *pending]:
                 item = self.records[ref]
                 status = "processed" if item.read_at is not None else "processing" if ref in claimed else "pending"
                 if state in {"all", status}:

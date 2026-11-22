@@ -43,13 +43,7 @@ export function desktopMenu(
       id: "read-all",
       label: t("markAllRead"),
       enabled: state.connection === "connected",
-      click: () =>
-        void controller.markAllRead().catch((error: unknown) => {
-          dialog.showErrorBox(
-            t("operationFailed"),
-            errorText(error, state.settings.language),
-          );
-        }),
+      click: () => controller.markAllRead(),
     },
     { type: "separator" },
     {

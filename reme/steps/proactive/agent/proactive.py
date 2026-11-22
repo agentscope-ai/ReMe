@@ -2,6 +2,7 @@
 
 import asyncio
 from datetime import datetime
+from functools import partial
 import json
 import math
 from pathlib import Path
@@ -10,7 +11,6 @@ import shlex
 from time import monotonic
 from urllib.parse import unquote, urlsplit
 
-from ._artifacts import RoundRecord
 from .base import BaseAgentStep
 from ....core.registry import R
 from ....enumeration import ChunkEnum
@@ -20,7 +20,8 @@ from ....schema.proactive_agent import CRON_EVENT_SOURCE, ProactiveRecordDecisio
 from ....utils.async_utils import complete_in_thread
 from ....utils.counter import global_counter_add_many
 from ....utils.documents.markdown_parser import markdown_link_targets
-from ....utils.proactive_record import split_record
+from ....utils.files.path_lock import get_path_lock
+from ....utils.proactive_record import RoundRecord, split_record
 
 _NO_KEY_INFORMATION = "NO_KEY_INFORMATION"
 
@@ -42,7 +43,6 @@ class ProactiveAgentStep(BaseAgentStep):
                 raise ValueError(f"{name} must be a positive integer")
         self.max_local_search_calls = max_local_search_calls
         self.recent_history_hours = recent_history_hours
-        self._record = None
 
     def _paths(self, agent, now: datetime) -> dict[str, Path]:
         runtime = self.agent_runtime
@@ -190,15 +190,14 @@ class ProactiveAgentStep(BaseAgentStep):
         if set(arguments) != {"agent_name"}:
             raise ValueError("proactive_agent_step requires only agent_name")
         self.require_paths(self.workspace_path)
-        self._record = None
+        record = RoundRecord(self.agent_runtime.files)
         self.context.response.metadata.pop("reme.agent_run", None)
         started, outcome = monotonic(), "failed"
         try:
             self.context.response.answer = await self.agent_runtime.run(
                 arguments["agent_name"],
-                self._execute,
-                on_failure=self._rollback_record,
-                check_version=self._check_record,
+                partial(self._execute, record=record),
+                record=record,
             )
             outcome = "completed"
         except asyncio.CancelledError:
@@ -224,14 +223,7 @@ class ProactiveAgentStep(BaseAgentStep):
                 )
         return self.context.response
 
-    async def _rollback_record(self):
-        if self._record is not None:
-            await self._record.rollback()
-
-    def _check_record(self, path):
-        self._record.check_version(path)
-
-    async def _execute(self, agent, events):
+    async def _execute(self, agent, events, *, record):
         """Run the complete workflow in one turn, then validate its saved decisions."""
         is_cron = events[0]["source"] == CRON_EVENT_SOURCE
         agent_type = "cron" if is_cron else "proactive"
@@ -249,8 +241,7 @@ class ProactiveAgentStep(BaseAgentStep):
         runtime = self.agent_runtime
         now = runtime.now()
         paths = await asyncio.to_thread(self._paths, agent, now)
-        record = self._record = RoundRecord(runtime.files, paths["record_path"])
-        await record.prepare()
+        await record.prepare(paths["record_path"])
         task_content = await asyncio.to_thread(runtime.files.read, paths["task_path"])
         if not task_content.strip():
             raise ValueError("TASK.md must not be blank")
@@ -335,7 +326,7 @@ class ProactiveAgentStep(BaseAgentStep):
                                 on_chunk=observe,
                             )
                         finally:
-                            async with record.locked():
+                            async with await get_path_lock(record.path):
                                 await complete_in_thread(record.capture)
                     if reply["status"] != "completed":
                         raise RuntimeError(reply.get("error") or f"Proactive agent {reply['status']}")
@@ -344,7 +335,7 @@ class ProactiveAgentStep(BaseAgentStep):
                 model_error = exc
                 stats["model_status"] = "timeout" if isinstance(exc, TimeoutError) else "failed"
             try:
-                async with record.locked():
+                async with await get_path_lock(record.path):
                     reminder = await asyncio.to_thread(self._read_record, record.path, reply_text, is_cron=is_cron)
             except Exception as validation_error:
                 if model_error is not None:
