@@ -51,7 +51,9 @@ users retain control of the durable files.
 
 <!-- Keep at most 5 updates expanded; move older entries into the collapsed section below. -->
 
-- [2026.11] - **`NEW`** **[ReMe5 Preview — Proactive Runtime](docs/en/reme5_preview.md)**. ReMe puts file-native memory at
+- [2026.11] - **`NEW`** **[HoMe](plugins/home/README.md) released**: an evaluation-driven framework that automatically
+  optimizes ReMe's code, prompts, and configuration, raising LongMemEval and BEAM scores while reducing query-time tokens.
+- [2026.11] - **[ReMe5 Preview — Proactive Runtime](docs/en/reme5_preview.md)**. ReMe puts file-native memory at
   the core of its event-driven and scheduled agents. Give ReMe a task to follow, and it will record new developments
   and let you know when your attention is needed. We aim to release ReMe5 **by the end of 2026**. Read the preview
   for the design, development plan, and milestones.
@@ -74,11 +76,11 @@ users retain control of the durable files.
     </a>
   </p>
 
-- [2026.09] - **[ReMe Memory Tags](https://reme.agentscope.io/en/blog_20260920) published**: an introduction
-  to file-native entity tags, rebuildable tag indexes, and tag-filtered memory search.
-
 <details>
 <summary>More updates</summary>
+
+- [2026.09] - **[ReMe Memory Tags](https://reme.agentscope.io/en/blog_20260920) published**: an introduction
+  to file-native entity tags, rebuildable tag indexes, and tag-filtered memory search.
 
 - [2026.09] - **[Hermes Agent memory provider](https://reme.agentscope.io/en/integrations/hermes) available**: choose HTTP or embedded
   mode for automatic recall before model calls and asynchronous `auto_memory` after completed turns. The integration
@@ -377,13 +379,24 @@ ReMe evaluates multi-session and long-context text and multimodal memory with ag
 published reference runs in this repository; model, prompt, dataset, and judging details are documented with each
 benchmark.
 
+### Long-Horizon Memory
+
+| Benchmark                                                                   | Setting      |              Sample size | Agentic score; avg. query tokens | Focus                                                              |
+| --------------------------------------------------------------------------- | ------------ | -----------------------: | ------------: | ------------------------------------------------------------------ |
+| **[LongMemEval cleaned-s](https://reme.agentscope.io/en/benchmarks/longmemeval)** | **Overall**  |        **500 questions** |     **89.4% / 44.3K** | Cross-session retrieval, knowledge updates, and temporal reasoning |
+| [BEAM](https://reme.agentscope.io/en/benchmarks/beam)                             | 100K context | 20 cases / 400 questions |         66.1% / 65.0K | Ten types of long-context memory tasks                             |
+| [BEAM](https://reme.agentscope.io/en/benchmarks/beam)                             | 1M context   | 35 cases / 700 questions |         65.0% / 101.8K | Ultra-long conversation settings                                   |
+| [LongMemEval cleaned-s](https://reme.agentscope.io/en/benchmarks/longmemeval) | Optimized by HoMe | 250 test questions | 91.6% / 17.9K | HoMe-optimized memory system |
+| [BEAM](https://reme.agentscope.io/en/benchmarks/beam) | 1M context, optimized by HoMe on Beam100K | 35 cases / 700 questions | 70.4% / 60.4K | HoMe-optimized memory system |
+
+### Multimodal Memory
+
 | Benchmark                                                                   | Setting      |              Sample size | Agentic score | Focus                                                              |
 | --------------------------------------------------------------------------- | ------------ | -----------------------: | ------------: | ------------------------------------------------------------------ |
-| **[LongMemEval cleaned-s](https://reme.agentscope.io/en/benchmarks/longmemeval)** | **Overall**  |        **500 questions** |     **89.4%** | Cross-session retrieval, knowledge updates, and temporal reasoning |
-| [BEAM](https://reme.agentscope.io/en/benchmarks/beam)                             | 100K context | 20 cases / 400 questions |         66.1% | Ten types of long-context memory tasks                             |
-| [BEAM](https://reme.agentscope.io/en/benchmarks/beam)                             | 1M context   | 35 cases / 700 questions |         65.0% | Ultra-long conversation settings                                   |
 | [MemLens-256K](benchmark/memlens/docs/en/evaluation.md) | ReMe Image · Qwen3.8-Max | 189 / 195 questions | 72.49% | Multimodal long-history question answering |
 | [MobileMem-Omni](benchmark/mobilemem/docs/en/evaluation.md) | ReMe Image · Qwen3.8-Max | 20 users / 1,333 questions | 60.69% | Personal visual memory and reasoning |
+
+### Proactive Memory
 
 ReMe also achieved a **0.580 PROC score across five user personas** in the repository's
 [π-Bench evaluation](https://reme.agentscope.io/en/benchmarks/pibench), 2.4% above NanoBot under the same test-model configuration. PROC
