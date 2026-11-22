@@ -5,7 +5,7 @@ from collections import deque
 from hashlib import sha256
 import json
 
-from ....schema.agent_runtime import AgentSession, validate_agent_name
+from ....schema.proactive_runtime import AgentSession, validate_agent_name
 from ....utils.async_utils import complete_in_thread, finish_cleanup
 
 

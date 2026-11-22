@@ -9,10 +9,10 @@ from unittest.mock import Mock
 import pytest
 
 from reme.enumeration import ChunkEnum
-from reme.schema import Response, StreamChunk
+from reme.schema import Event, Response, StreamChunk
 from reme.steps.proactive.agent import ProactiveAgentStep
 from reme.utils.counter import global_counter_get
-from .test_agent_runtime import create_agent, running_runtime
+from .test_proactive_runtime import create_agent, running_runtime
 from .test_proactive_run import create_round_task, install_round, queue_cron_trigger
 
 
@@ -26,9 +26,9 @@ async def test_statistics_separate_agent_types_and_count_snapshots_once(tmp_path
                 await queue_cron_trigger(runtime, mode, monkeypatch)
             else:
                 await runtime.create(config)
-                await runtime.append(
+                await runtime.append_events(
                     mode,
-                    {"id": mode, "event_ts": runtime.now(), "source": "experiment", "description": "Done"},
+                    [Event(id=mode, event_ts=runtime.now(), source="experiment", description="Done")],
                 )
             now = runtime.now()
             monkeypatch.setattr(runtime, "now", lambda current=now: current)

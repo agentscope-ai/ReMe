@@ -6,7 +6,7 @@ import re
 
 from ....constants import CHAT_AGENT_NAME
 from ....utils.files.workspace_files import WorkspaceFiles
-from ....schema.agent_runtime import validate_agent_name
+from ....schema.proactive_runtime import validate_agent_name
 from ....schema.proactive_agent import CreateProactiveAgentConfig, ProactiveAgent, ProactiveAgentConfig
 
 
@@ -108,11 +108,9 @@ class AgentRegistry:
         agent = self.get(agent_name)
         if patch.get("agent_name", agent.agent_name) != agent.agent_name:
             raise ValueError("agent_name is immutable")
-        if patch.get("cron") is not None:
-            patch = {"min_trigger_interval_seconds": 0, **patch}
         values = agent.model_dump(include=set(ProactiveAgentConfig.model_fields))
         config = ProactiveAgentConfig.model_validate({**values, **patch})
-        if config.enabled or "cron" in patch:
+        if config.cron != agent.cron or (config.enabled and not agent.enabled):
             self._validate_cron(config, now)
         agent = agent.model_copy(update={key: getattr(config, key) for key in ProactiveAgentConfig.model_fields})
         self.save(agent)

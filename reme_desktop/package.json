@@ -2,7 +2,7 @@
   "name": "@agentscope-ai/reme_desktop",
   "version": "0.1.0",
   "private": true,
-  "description": "ReMe desktop companion and AgentRuntime workspace client",
+  "description": "ReMe desktop companion and Proactive Runtime client",
   "author": "ReMe contributors",
   "type": "module",
   "main": "out/main/index.js",

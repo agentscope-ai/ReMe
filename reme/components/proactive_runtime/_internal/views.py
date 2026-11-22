@@ -1,6 +1,7 @@
 """Reconstructible UI views over runtime ownership and native session history."""
 
 import asyncio
+from pathlib import PurePosixPath
 from time import monotonic
 
 from ....constants import CHAT_AGENT_NAME
@@ -37,14 +38,14 @@ class AgentViews:
                 },
                 "chat",
             )
-            directory = runtime.agents.path(CHAT_AGENT_NAME)
+            directory = runtime.agents.path(CHAT_AGENT_NAME).relative_to(runtime.workspace_path).as_posix()
             document = {"memory_path": runtime.agents.chat_memory_path().relative_to(runtime.workspace_path).as_posix()}
             running = runtime.chat_lock.locked() or inbox.worker is not None
         else:
-            agent = await runtime.definition(agent_name)
             facts = await runtime.status(agent_name)
-            config, agent_type = facts["config"], agent.agent_type
-            directory = runtime.agents.directory_for(agent)
+            config = facts["config"]
+            agent_type = "cron" if config.get("cron") is not None else "proactive"
+            directory = PurePosixPath(facts["task_path"]).parent.as_posix()
             document = {"task_path": facts["task_path"]}
             running = facts["running"]
         session = await runtime.sessions.current(agent_name)
@@ -77,7 +78,7 @@ class AgentViews:
             notify_window=config.get("notify_window"),
             status=status,
             session_id=session.session_id if session else None,
-            directory=directory.relative_to(runtime.workspace_path).as_posix(),
+            directory=directory,
             pending_events=facts.get("pending_events", 0),
             in_flight_events=facts.get("in_flight_events", 0),
             last_started_at=facts.get("last_started_at"),

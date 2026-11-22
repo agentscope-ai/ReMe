@@ -76,7 +76,8 @@ export async function requestWorkspace(
         limit > 100
       )
         throw new UiError("invalidWorkspaceRequest");
-      job = request.type === "inbox" ? "list_agent_inbox" : "list_agent_outbox";
+      job =
+        request.type === "inbox" ? "list_agent_inbox" : "list_task_reminders";
       body = {
         agent_name: request.agentName,
         state: request.state ?? "all",

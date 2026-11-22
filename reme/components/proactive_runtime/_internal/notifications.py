@@ -11,7 +11,7 @@ from uuid import uuid4
 
 from ....schema.response import JOB_ERROR_METADATA_KEY
 from ....constants import CHAT_AGENT_NAME, PROACTIVE_MESSAGE_ID_PREFIX
-from ....schema.agent_runtime import NotificationConfig
+from ....schema.proactive_runtime import NotificationConfig
 from ....schema.agent_session import SessionMessage
 from ....utils.async_utils import finish_cleanup
 

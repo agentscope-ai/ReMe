@@ -11,9 +11,9 @@ from unittest.mock import AsyncMock
 import frontmatter
 import pytest
 
-from reme.schema import Response, SessionMessage
+from reme.schema import Event, Response, SessionMessage
 from reme.steps.file_io import SaveStep, get_path_lock
-from .test_agent_runtime import completed_result, running_runtime
+from .test_proactive_runtime import completed_result, running_runtime
 from .test_inbox_fork import prepare
 
 
@@ -60,13 +60,9 @@ async def test_ineligible_reminders_release_capacity_and_resume_without_losing_u
                     "task_description": "Report",
                 },
             )
-            await runtime.append(
+            await runtime.append_events(
                 name,
-                {
-                    "event_ts": runtime.now(),
-                    "source": "test",
-                    "description": "Finished",
-                },
+                [Event(event_ts=runtime.now(), source="test", description="Finished")],
             )
             result, session = completed_result(runtime, name, priority=priority)
             await runtime.run(name, AsyncMock(return_value=(result, session)))
@@ -211,7 +207,7 @@ async def test_reenabled_task_waits_for_capacity_without_blocking_an_urgent_remi
     async with running_runtime(tmp_path) as (runtime, _, _):
         for name, priority in (("first", "P2"), ("second", "P0")):
             await runtime.create({"agent_name": name, "task_description": "Report"})
-            await runtime.append(name, {"event_ts": runtime.now(), "source": "test", "description": "Finished"})
+            await runtime.append_events(name, [Event(event_ts=runtime.now(), source="test", description="Finished")])
             result, session = completed_result(runtime, name, priority=priority)
             await runtime.run(name, AsyncMock(return_value=(result, session)))
             if name == "first":

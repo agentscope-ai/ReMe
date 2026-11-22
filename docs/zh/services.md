@@ -65,13 +65,13 @@ curl -N http://127.0.0.1:2333/chat \
 `create_chat_session` 创建并选中新会话。`demo` 继承这两个 Job，并提供 `list_chat_sessions`、
 `session_read` 和 `session_status` 用于查看历史与原生会话。MCP 不暴露 Stream Job。
 
-## Agent 运行时
+## 主动智能运行时 {#proactive-runtime}
 
-[Proactive Agent](./proactive_runtime.md) 介绍持续任务、工作区文件和提醒的整体流程；本节说明对应的服务配置和接口。
+[主动智能运行时](./proactive_runtime.md) 介绍持续任务、工作区文件和提醒的整体流程；本节说明对应的服务配置和接口。
 
-`agent_runtime` 组件协调原生会话、任务事件收件箱、提醒投递和调度，通过 `components.agent_runtime.default` 配置。
+`proactive_runtime` 组件协调任务收件箱、调度和提醒投递，通过 `AgentWrapper` 把模型执行、工具和原生会话交给 Codex 等执行后端。组件通过 `components.proactive_runtime.default` 配置。
 工作区相对目录 `reme_agent_dir` 默认为 `reme_agents`。每个任务目录包含 `config.json`、`TASK.md`、
-`sessions.jsonl`、`inbox/` 和按日期保存的提醒文件。`Remy/` 保存 `MEMORY.md` 和自己的 `sessions.jsonl`。
+`sessions.jsonl` 和 `inbox/`。`Remy/` 保存 `MEMORY.md` 和自己的 `sessions.jsonl`。任务结果和提醒保存在共享的 `daily_dir`。
 服务启动时从这些文件恢复运行状态。
 会话登记保留追加中断前的完整记录；读取时忽略不完整尾行，下次追加时清理尾行，完整记录损坏时明确报错。
 先保存校验通过的提醒，再提交事件消费回执，Outbox 独立重试投递；未提交就中断的轮次允许重新执行。
@@ -80,7 +80,7 @@ curl -N http://127.0.0.1:2333/chat \
 下图概览 Chat、临时 Reminder fork、共享 Inbox 与后台任务如何通过工作区协作；生活任务为接入示例。
 
 <p align="center">
-  <img src="../figure/personal-runtime.svg" alt="Personal Runtime：Chat 与临时 Reminder fork、收件箱、后台任务及共享工作区" width="100%">
+  <img src="../figure/chat-reminders.svg" alt="Proactive Runtime：Chat 与临时 Reminder fork、收件箱、后台任务及共享工作区" width="100%">
 </p>
 
 在一个终端配置 `LLM_API_KEY`、`LLM_BASE_URL` 和可选的 `REME_MODEL_NAME`，启动服务：
@@ -91,7 +91,7 @@ reme start config=proactive
 
 如需使用 Claude Code，配置 `CC_LLM_API_KEY` 和 Anthropic 兼容的 `CC_LLM_BASE_URL`，再运行
 `reme start config=proactive_cc`。两种预设共用 `.reme` 工作区及 `REME_MODEL_NAME` 指定的模型。
-两个预设的 Chat、Proactive 和 Cron 统一使用 `xhigh` 和 `workspace-write`。Claude Code 通过 Bash 沙箱和
+两个预设的 Chat 使用 Wrapper 默认的 `xhigh`，后台任务轮次指定 `low`，两者都使用 `workspace-write`。Claude Code 通过 Bash 沙箱和
 内置文件工具的工作区写入限制实现这一策略。Shell 默认禁用网络访问。Codex 开启实时 `web_search`，
 Claude Code 使用默认工具，包括受支持的原生 `WebSearch` 和 `WebFetch`。这些网页工具独立于 Shell 运行，
 实际可用性取决于模型供应商。
@@ -106,49 +106,61 @@ Claude Code 使用默认工具，包括受支持的原生 `WebSearch` 和 `WebFe
 reme manage_proactive_agent action=list
 reme manage_proactive_agent action=create agent_name=experiment_watch \
   'task_description=分析实验日志，失败或结束时提醒我。'
-reme list_agent_inbox
+reme list_agent_inbox agent_name=experiment_watch
+reme list_agent_inbox agent_name=Remy
+reme list_task_reminders agent_name=experiment_watch
+reme task_document action=read agent_name=experiment_watch
 ```
 
 `manage_proactive_agent` 支持 `list/create/status/update/delete/query`，参数直接放在顶层，以 `agent_name` 指定任务。
 名称建议使用常见的小写英文单词，多个单词以下划线连接。`Remy` 是保留名。创建时传入
-`task_description`，定时任务另传 `cron`。更新只传需要修改的运行配置。询问进展时传入
+`task_description`，可选的 `cron` 为同一个任务增加定时触发。更新只传需要修改的运行配置。询问进展时传入
 `question`，通过已有任务会话的临时只读分支回答。
 六个 action 的完整请求与返回示例见 `skills/manage-proactive-agent/SKILL.md`。
 
 创建时将 `task_description` 原样写入尚不存在的 `TASK.md`。创建、状态查询和更新返回 Agent 视图，
 其中 `task_path` 是工作区相对路径。列表用 `{items,total}` 包装 Agent 视图。
-修改任务要求前先读取文件，保留有效背景，保存后核对结果。调整约定时间时同时更新 `cron` 和任务说明。
+使用 `task_document action=read/save` 读取或保存任务说明。保存时把读取返回的 `mtime` 传为 `expected_mtime`。
+使用 `manage_proactive_agent action=update` 调整 `cron`。任务说明中明确写出的时间也应一并调整。
 修改对后续轮次生效。删除停止框架内的调度和执行，保留历史文件。外部采集器需单独停止。恢复同名任务时沿用原任务说明和历史，按新要求核对任务说明。
 `reme_agent_dir` 指定工作区相对的 Agent 目录，默认是 `reme_agents`。
 
-通过 `components.agent_runtime.default.chat.initial_memory` 配置 Chat 的初始个人记忆。Runtime 启动时创建缺失的
+通过 `components.proactive_runtime.default.chat.initial_memory` 配置 Chat 的初始个人记忆。Runtime 启动时创建缺失的
 Remy `MEMORY.md`，重启和切换会话保留已有个人记忆。Chat 的 `job_tools` 在 Step 配置中选择。
 
 固定对话 Agent 使用 `agent_name=Remy`、`agent_type=chat`。名称是稳定身份，接口、返回值、工作区目录和 Desktop
 统一使用该名称，文件位于 `{reme_agent_dir}/Remy/`。任务名称忽略大小写不能重名。
 
-通过 proactive 预置配置的 `components.agent_runtime.default.agents` 声明初始任务，使用创建接口的同一组字段，
+通过 proactive 预置配置的 `components.proactive_runtime.default.agents` 声明初始任务，使用创建接口的同一组字段，
 包括 `task_description`。启动只创建缺失的身份，保留已有的任务说明、配置和删除状态。
-默认启用两个事件任务。`finance` 分析采集的新闻和行情，`work` 根据新观察资料跟踪主人正在做的项目，
+默认配置中，`finance` 分析采集的新闻和行情，`work` 根据新观察资料跟踪主人正在做的项目，
 整理各项目的进度、进展、难点和待讨论问题。`codex_dialogue_cron` 只采集 Codex 新增用户消息和最终回答，
 `screen_capture_cron` 独立采集全部显示器；两者默认每五分钟执行，统一投递给 `work`。
 对话 Job 启动时先执行 `init_steps` 建立读取基线，不导入已有对话，初始化成功后才开始定时采集。
 同时默认启用定时任务 `tech_news`，每天按应用时区 08:00 整理过去 24 小时的重要科技新闻并在完成后提醒。
 
-单个 Proactive Runtime 消费事件、基于工作区文件重建上下文，再将保存的提醒经 Outbox 投递到 Chat Inbox。
+Proactive Runtime 为各个任务消费事件、基于工作区文件重建上下文，再将保存的提醒经 Outbox 投递到 Chat Inbox。
 下图以工作场景中的潜在问题和待办提醒为例；Claude Code 轨迹可通过事件 API 接入，提醒消息仅作示意。
 
 <p align="center">
   <img src="../figure/proactive-runtime.svg" alt="工作 Proactive Runtime：Codex 与 Claude Code 轨迹、截图、带时间的事件、提醒和工作区文件路径" width="100%">
 </p>
 
-任务配置仅以 `cron` 决定事件或定时触发，客户端视图中的 `agent_type` 由后端推导，不接受写入。Remy 由 Runtime 初始化。
+每个后台任务通过 `append_task_events(agent_name, events)` 接收观察。每条事件包含 `event_ts`、`source`、`description`，
+可附工作区相对 `paths`、`id` 和 `metadata`。`events` 必须是非空数组。先保存事件引用的文件再投递，重试时使用相同的
+事件 ID 和内容。成功应答返回已接收的事件 ID，执行进度通过任务状态查询。
 
-`proactive` 通过 `append_agent_events(agent_name, events)` 接收观察，每条包含 `event_ts`、`source`、`description`，
-可附工作区相对 `paths`、`id` 和 `metadata`。`cron` 要求 cron 表达式，到点执行完整任务，不接收外部观察。
-两类使用应用时区，每个 Agent 串行执行；事件任务可用 `max_batch_events` 限制每轮领取量（默认 20），进程内失败重试保持原批次，新输入留待后续轮次。`source=cron` 保留给框架。事件任务可设置 `min_trigger_interval_seconds`，从上一轮成功完成时开始计时，冷却期间的输入保留在队列中。内置 finance 任务冷却 10 秒，每轮最多领取 20 个事件。
+```bash
+reme append_task_events agent_name=experiment_watch \
+  'events=[{"id":"experiment-log-1","event_ts":"2026-11-22T10:30:00+08:00","source":"experiment_log","description":"实验日志新增一个里程碑。"}]'
+```
 
-使用 `config=proactive` 时，Chat、proactive、cron 和临时分支共用 Codex App Server 的原生工具配置，包括 `web_search`。
+可选的 `cron` 表达式按应用时区将定时触发追加到同一任务收件箱。`source=cron` 由框架生成，`cron=null` 停止产生新的定时事件。
+服务端根据是否配置日程生成展示字段 `agent_type`。每个任务串行执行，连续观察每轮最多领取 `max_batch_events` 条（默认 20），
+每条定时事件单独执行。进程内失败重试保持原批次。`min_trigger_interval_seconds` 从上一轮成功完成时计时，队首是观察时应用冷却。
+队首是定时事件时可以直接执行。
+
+使用 `config=proactive` 时，Chat、后台任务和临时分支共用 Codex App Server 的原生工具配置，包括 `web_search`。
 临时 `query` 分支使用后端的只读模式。`notify_window={start,end}` 限制 Chat 自动评估和发消息的时段。任务结果提交后立即入箱，窗口外仍可主动查看。删除任务会停止执行并保留源文件和历史。重启后从下一次未来时间恢复 cron，已入队事件继续处理，不补跑停机期间未入队的触发；
 Chat 空闲计时和失败重试计时在内存中重新开始。
 任务把进展和提醒决定写入同一个 `daily/YYYY-MM-DD/{agent_name}_HHMMSS.md`，同秒重名追加数字后缀。
@@ -156,7 +168,7 @@ Chat 空闲计时和失败重试计时在内存中重新开始。
 投递和处理时间。提醒 ID 使用记录的工作区相对路径。
 
 `components.agent_inbox.default` 使用 `event` 后端（`AgentEventInbox`），继承通用的本地 Inbox 实现；
-`components.agent_runtime.default.inbox` 引用该组件。每个任务的待处理输入保存在
+`components.proactive_runtime.default.inbox` 引用该组件。每个任务的待处理输入保存在
 `inbox/inbox_unread.jsonl`，已处理批次保存在 `inbox/inbox_read.jsonl`，批次字段为 `items`、`consume_ts`、`metadata`。
 领取可以指定消息 ID，执行成功后提交消费回执。观察与定时触发均使用 `Event`，已处理输入默认保留最近
 1000 条。Remy 收件箱从每日记录中的已投递提醒生成视图，按优先级和投递时间选择一批符合条件
@@ -165,7 +177,7 @@ Chat 空闲计时和失败重试计时在内存中重新开始。
 单个提醒缺失或损坏时保留原文件和事件回执、
 报告具体路径并隔离故障，不阻断其他提醒或应用启动；修复原文件后自动恢复。
 
-P0 在 Chat 会话允许 fork 时立即处理，延迟由 `components.agent_runtime.default.notifications.p0_delay_seconds` 配置，默认 0。
+P0 在 Chat 会话允许 fork 时立即处理，延迟由 `components.proactive_runtime.default.notifications.p0_delay_seconds` 配置，默认 0。
 P1 等待连续空闲 10 秒，P2 等待 1800 秒，分别由 `notifications.p1_idle_seconds`、`notifications.p2_idle_seconds` 配置，
 继续遵守提醒时间窗口。只有前台 Chat 轮次重置空闲计时。
 临时分支继承当前对话，使用后端的只读模式，执行结束、失败或取消后清理。提示和工具过程留在分支中。
@@ -190,8 +202,8 @@ Codex、Claude Code 和 AgentScope 使用统一会话契约：fork 复制最新�
 收件箱临时故障按指数退避重试（最长 300 秒），SDK 类型或导入错误停止重试，修复环境并重启后恢复。
 `list_agents` 的 Chat 状态会显示收件箱故障，cron 返回的部分采集失败也会写入日志。
 fork 的普通回复不会发送给主人。桌面端从这些已标记的消息生成提醒列表。
-`list_agent_inbox agent_name=<name>` 统一分页查询所有 Agent 待处理、处理中和已处理的事件，省略 `agent_name` 时查询 Chat，
-不会领取或消费事件。`list_agent_outbox agent_name=<name>` 查询任务产出的提醒；
+`list_agent_inbox agent_name=<name>` 分页查看后台任务的输入事件。指定 `agent_name=Remy` 或省略该字段时查看 Chat 收到的提醒。
+查询支持待处理、处理中和已处理状态，不会领取或消费输入。`list_task_reminders agent_name=<name>` 查询任务产出的提醒；
 `read_agent_reminder message_id=<相对路径>` 读取原始提醒。
 Chat 收件条目附带从原始 Markdown 解析的 `reminder` 展示视图。
 `read_agent_reminder agent_name=Remy` 也接受合并后的 Chat 消息 ID，返回 `{id,items}`。原始提醒通过 frontmatter 的 `chat_message_ids` 关联这条消息。
@@ -200,7 +212,7 @@ Chat 收件条目附带从原始 Markdown 解析的 `reminder` 展示视图。
 
 `read_agent_session` 和 `watch_agent_session` 对 Chat 返回当前会话的历史，对任务返回最近一个原生轮次。
 订阅使用 `snapshot` 整体替换视图，`update` 新增或替换完整消息，`heartbeat` 仅表示连接存活。
-事件与定时任务的每轮自动执行都新建原生会话，从 `TASK.md`、本轮输入和历史记录检索重建上下文；历史会话保留执行过程；主 Chat 继续自己的会话，任务问答从最新任务会话创建只读分支，不修改任务执行历史。主动任务的 `proactive_agent_step` 默认总超时为 1200 秒，原生上下文自动压缩沿用 Codex App Server 的全局设置。
+后台任务每轮自动执行均新建原生会话，用 `TASK.md`、本轮输入和相关历史记录重建上下文。历史会话保留执行过程。主 Chat 继续自己的会话，任务问答从最近的任务会话创建只读分支。`proactive_agent_step` 默认总超时为 1200 秒，原生上下文自动压缩沿用 Codex App Server 的全局设置。
 
 `run_proactive_agent` 和 `process_chat_reminders` 为服务私有 Job。`proactive` 包含桌面运行时、初始任务以及独立运行的
 财经、Codex 对话和截图采集任务。采集器显式投递观察并保留源文件。`demo` 继承该预设并增加独立示例。

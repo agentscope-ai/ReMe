@@ -5,13 +5,13 @@
 import asyncio
 from datetime import datetime
 import json
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 from zoneinfo import ZoneInfo
 
 import pytest
 
-from reme.schema import Response
-from .test_agent_runtime import running_runtime
+from reme.schema import Event, Response
+from .test_proactive_runtime import running_runtime
 
 INVALID_SCHEDULES = ("0 0 31 2 *", "0 0 1 1 * 0 2025")
 NOW = datetime(2026, 11, 19, tzinfo=ZoneInfo("Asia/Shanghai"))
@@ -56,7 +56,7 @@ async def test_retained_unusable_cron_survives_restart_without_blocking_other_ta
     async with running_runtime(tmp_path) as (runtime, _, _):
         monkeypatch.setattr(runtime, "now", lambda: NOW)
         await runtime.create({"agent_name": "healthy", "task_description": "Report"})
-        await runtime.append("healthy", {"event_ts": NOW, "source": "test", "description": "Finished"})
+        await runtime.append_events("healthy", [Event(event_ts=NOW, source="test", description="Finished")])
         execute = AsyncMock(return_value=(None, "session-test"))
 
         async def run_job(name, **kwargs):
@@ -73,6 +73,10 @@ async def test_retained_unusable_cron_survives_restart_without_blocking_other_ta
         assert set(views) == {"Remy", "aaa_bad", "healthy"}
         assert views["aaa_bad"]["status"] == "error"
         assert path.read_bytes() == saved
+
+        updated = await runtime.update("aaa_bad", {"min_trigger_interval_seconds": 30})
+        assert updated["config"]["min_trigger_interval_seconds"] == 30
+        assert updated["next_trigger_at"] is None
 
         await runtime.update("aaa_bad", {"enabled": False})
         paused = path.read_bytes()
@@ -93,7 +97,7 @@ async def test_final_cached_cron_trigger_is_delivered_once_after_schedule_expire
         )
         agent = await runtime.definition("timer")
         await runtime._schedule_cron(agent)
-        clock[0] = runtime.cron["timer"][1]
+        clock[0] = runtime.execution("timer").schedule[1]
         await runtime._schedule_cron(agent)
         await runtime._schedule_cron(agent)
         assert (await runtime.inbox.snapshot("timer"))["pending_count"] == 1
@@ -108,4 +112,28 @@ async def test_final_cached_cron_trigger_is_delivered_once_after_schedule_expire
         await runtime.tick(run_job)
         execute.assert_awaited_once()
         assert (await runtime.inbox.snapshot("timer"))["pending_count"] == 0
-        assert not runtime.workers and not runtime.cron
+        assert not runtime.workers
+        assert runtime.execution("timer").schedule[1] is None
+
+
+@pytest.mark.asyncio
+async def test_schedule_calculation_runs_only_when_needed(tmp_path, monkeypatch):
+    async with running_runtime(tmp_path) as (runtime, _, _):
+        clock = [NOW]
+        monkeypatch.setattr(runtime, "now", lambda: clock[0])
+        await runtime.create({"agent_name": "timer", "task_description": "Report", "cron": "* * * * *"})
+        agent = await runtime.definition("timer")
+        calculate = Mock(wraps=runtime._next_cron_time)
+        monkeypatch.setattr(runtime, "_next_cron_time", calculate)
+
+        await runtime._schedule_cron(agent)
+        next_trigger = runtime.execution("timer").schedule[1]
+        await runtime._schedule_cron(agent)
+        await runtime.update("timer", {"min_trigger_interval_seconds": 30})
+        assert (await runtime.status("timer"))["next_trigger_at"] == next_trigger.isoformat()
+        calculate.assert_called_once()
+
+        clock[0] = next_trigger
+        await runtime._schedule_cron(await runtime.definition("timer"))
+        assert calculate.call_count == 2
+        assert (await runtime.inbox.snapshot("timer"))["pending_count"] == 1

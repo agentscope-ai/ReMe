@@ -142,7 +142,7 @@ function docsSidebar(language: "zh" | "en"): DefaultTheme.SidebarItem[] {
         { text: zh ? "文件即记忆" : "Memory as File", link: `/${language}/memory_as_file` },
         { text: zh ? "记忆检索" : "Memory Search", link: `/${language}/memory_search` },
         { text: zh ? "自动关联" : "Auto Link", link: `/${language}/auto_link` },
-        { text: "Proactive Agent", link: `/${language}/proactive_runtime` },
+        { text: zh ? "主动智能运行时" : "Proactive Runtime", link: `/${language}/proactive_runtime` },
         { text: zh ? "应用场景" : "Application Scenarios", link: `/${language}/reme_scene` },
       ],
     },

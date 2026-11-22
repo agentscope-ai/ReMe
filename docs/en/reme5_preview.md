@@ -6,7 +6,7 @@ description: How ReMe is bringing file-native memory, event-driven agents, and s
 # ReMe5 Preview — Proactive Runtime
 
 ReMe started as a Memory Kit for agents. With **ReMe5**, our upcoming `0.5` release, ReMe is growing into a **local-first
-Proactive Runtime** with memory at its core. You can give an agent an ongoing responsibility, let new information or a
+Proactive Runtime** built on file-native long-term memory. ReMe coordinates ongoing work and delegates model execution and native sessions to an agent runtime. You can give an agent an ongoing responsibility, let new information or a
 schedule start its next run, and return later to ask what happened. The task can remember its instructions, build on
 previous work, and bring important changes back to your conversation.
 
@@ -43,16 +43,15 @@ workspace so the Chat Agent can answer follow-up questions and bring back releva
 
 ![ReMe5 roadmap showing how the Chat Agent manages event-driven, scheduled, and custom agents, what executes them, and where the runtime integrates](../figure/reme5-proactive-runtime-overview.svg)
 
-Event-driven and scheduled presets cover common tasks. From the same conversation you can create your own agent with
-an event source or a cron schedule. The roadmap includes a standalone desktop preview and extends the runtime into
+Presets cover common tasks. From the same conversation you can connect an observation source and add a cron schedule to
+the same task. The roadmap includes a standalone desktop preview and extends the runtime into
 existing agent tools through host integrations.
 
 ## How the runtime works
 
-The runtime runs named background agents. **Event-driven agents** receive observations, such as a completed conversation,
-a new log entry, or a paper from a configured feed. **Scheduled agents** use cron to start a round at an agreed time,
-such as a daily briefing or a nightly memory consolidation. They share the same runtime for receiving inputs, running
-tasks, and retaining results. An agent waits between runs without continuously calling the model.
+The runtime coordinates named background tasks. **Observations** can come from a completed conversation, a new log entry,
+or a paper from a configured feed. An **optional schedule** appends a trigger to the same inbox at an agreed time, such as
+for a daily briefing or nightly memory consolidation. Each task waits between runs without continuously calling the model.
 
 ![Proactive Runtime showing how observations reach the Work agent and become daily records with sources and reminder decisions](../figure/proactive-runtime.svg)
 
@@ -127,7 +126,7 @@ reports.” For an event-driven task, you might ask the Chat Agent to follow an 
 when it finishes or fails. Event-driven tasks need a connected source that can provide the observations.
 
 A background agent can propose a reminder based on its task instructions. The Chat Agent considers the current
-conversation when deciding whether to deliver it. [Chat and task management guide](./proactive_runtime.md#personal-runtime)
+conversation when deciding whether to deliver it. [Chat and task management guide](./proactive_runtime.md#chat-and-reminders)
 
 ## Desktop preview, execution backends, and integrations
 

@@ -1,4 +1,4 @@
-# LocalAgentRuntime with Chat and Proactive Agent steps.
+# LocalProactiveRuntime with Chat and Proactive Agent steps.
 # Start with LLM_API_KEY, LLM_BASE_URL and optionally REME_MODEL_NAME.
 # reme start config=proactive
 # Desktop jobs and their runtime dependencies. Examples live in demo.yaml.
@@ -94,7 +94,7 @@ jobs:
     backend: base
     enable_serve: false
     steps:
-      - backend: inbox_chat_step
+      - backend: process_chat_reminders_step
         job_tools: &chat_tools [manage_proactive_agent, todo, idea]
         timeout_seconds: 120
 
@@ -146,8 +146,8 @@ jobs:
   manage_proactive_agent:
     backend: base
     description: >-
-      Manage scheduled and event-driven tasks: list/create/status/update/delete/query. All parameters are top-level.
-      Create requires agent_name and task_description; supply cron for scheduled tasks.
+      Manage background tasks: list/create/status/update/delete/query. All parameters are top-level.
+      Create requires agent_name and task_description. Set cron to add automatic time-based triggers.
       Other actions except list require agent_name; query also requires question and an existing queryable task session.
       Update changes execution settings; edit task requirements in TASK.md at the returned task_path.
       Follow the manage-proactive-agent skill for workflows and examples.
@@ -161,15 +161,15 @@ jobs:
           minLength: 1
           maxLength: 80
           pattern: '^[\w-]+$'
-          description: "Stable Agent name; for new tasks prefer simple lowercase words joined by underscores. Remy is reserved for Chat."
+          description: "Stable Agent name. New task names should use simple lowercase words joined by underscores."
         task_description:
           type: string
           minLength: 1
           maxLength: 100000
           description: "Create only: task description written verbatim to TASK.md."
         enabled: {type: boolean}
-        cron: {type: [string, "null"], description: "Cron expression in the application timezone."}
-        min_trigger_interval_seconds: {type: number, minimum: 0, description: "Event processing interval, not collection frequency."}
+        cron: {type: [string, "null"], description: "Optional cron expression in the application timezone. Null disables automatic triggers."}
+        min_trigger_interval_seconds: {type: number, minimum: 0, description: "Minimum interval before processing observations, in seconds."}
         notify_window:
           type: [object, "null"]
           description: "Time window for automatic Chat processing and sending."
@@ -183,14 +183,14 @@ jobs:
     steps:
       - backend: manage_proactive_agent_step
 
-  append_agent_events:
+  append_task_events:
     backend: base
-    description: "Durably append observations to a named agent; source belongs to each event."
+    description: "Append observations to the input queue of an existing background task."
     parameters:
       type: object
       additionalProperties: false
       properties:
-        agent_name: *agent_name
+        agent_name: &task_agent_name {<<: *agent_name, description: "Name of an existing background task."}
         events:
           type: array
           minItems: 1
@@ -207,7 +207,7 @@ jobs:
             additionalProperties: false
       required: [agent_name, events]
     steps:
-      - backend: append_event_step
+      - backend: append_task_events_step
 
   read_chat_reminders:
     backend: base
@@ -220,7 +220,7 @@ jobs:
       additionalProperties: false
       properties: {}
     steps:
-      - backend: read_inbox_step
+      - backend: read_chat_reminders_step
 
   submit_chat_reminder:
     backend: base
@@ -233,7 +233,7 @@ jobs:
         content: {type: string, maxLength: 100000}
       required: [content]
     steps:
-      - backend: send_chat_msg_step
+      - backend: submit_chat_reminder_step
 
   run_proactive_agent:
     backend: base
@@ -250,21 +250,22 @@ jobs:
   proactive_loop:
     backend: background
     steps:
-      - backend: agent_loop_step
+      - backend: proactive_loop_step
 
-  list_agent_outbox:
+  list_task_reminders:
     backend: base
+    description: "List reminders produced by an existing background task."
     parameters:
       type: object
       additionalProperties: false
       properties:
-        agent_name: *agent_name
+        agent_name: *task_agent_name
         offset: &page_offset {type: integer, minimum: 0, default: 0}
         limit: &page_limit {type: integer, minimum: 1, maximum: 100, default: 20}
         state: {type: string, enum: [all, pending, processed], default: all}
       required: [agent_name]
     steps:
-    - backend: agent_outbox_step
+    - backend: list_task_reminders_step
 
   read_agent_reminder:
     backend: base
@@ -272,7 +273,10 @@ jobs:
       type: object
       additionalProperties: false
       properties:
-        agent_name: &view_agent_name {<<: *agent_name, default: Remy}
+        agent_name: &view_agent_name
+          <<: *agent_name
+          default: Remy
+          description: "Name of a visible Agent. Defaults to Remy."
         message_id: {type: string, minLength: 1, description: "Workspace-relative reminder path or Chat message ID."}
       required: [message_id]
     steps:
@@ -280,6 +284,7 @@ jobs:
 
   list_agent_inbox:
     backend: base
+    description: "List a background task’s input events or Remy’s incoming reminders."
     parameters:
       type: object
       additionalProperties: false
@@ -310,26 +315,26 @@ jobs:
     steps:
     - backend: agent_session_step
 
-  agent_task:
+  task_document:
     backend: base
-    description: "Read or save a named task's TASK.md; saving requires the mtime returned by read."
+    description: "Read or save a named task's TASK.md. Pass the mtime from read as expected_mtime when saving."
     parameters:
       type: object
       additionalProperties: false
       properties:
         action: {type: string, enum: [read, save]}
-        agent_name: *agent_name
+        agent_name: *task_agent_name
         content: {type: string, minLength: 1, maxLength: 100000}
         expected_mtime: {type: string, minLength: 1, maxLength: 80}
       required: [action, agent_name]
     steps:
-    - backend: agent_task_step
+    - backend: task_document_step
 
   watch_agent_session:
     backend: stream
     parameters: *agent_request
     steps:
-    - backend: agent_events_step
+    - backend: watch_agent_session_step
     stream_queue_size: 1
 
   ask_agent:
@@ -346,7 +351,7 @@ jobs:
       required:
       - query
     steps:
-    - backend: agent_chat_step
+    - backend: ask_agent_step
       job_tools: *chat_tools
 
   create_chat_session:
@@ -569,7 +574,7 @@ components:
   agent_inbox:
     default:
       backend: event
-  agent_runtime:
+  proactive_runtime:
     default:
       backend: local
       agent_wrapper: default

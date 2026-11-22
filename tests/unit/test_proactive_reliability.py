@@ -13,10 +13,10 @@ from reme.core.context import ApplicationContext, RuntimeContext
 from reme.components.agent_wrapper import CodexAgentWrapper
 from reme.components.job import CronJob
 from reme.enumeration import ChunkEnum
-from reme.schema import Response, StreamChunk
-from reme.steps.proactive.agent import AgentChatStep, InboxChatStep, ProactiveAgentStep
-from reme.steps.proactive.tools.inbox import ReadInboxStep, SendChatMessageStep
-from .test_agent_runtime import inbox_path, completed_result, create_agent, running_runtime
+from reme.schema import Event, Response, StreamChunk
+from reme.steps.proactive.agent import AskAgentStep, ProcessChatRemindersStep, ProactiveAgentStep
+from reme.steps.proactive.tools.chat_reminders import ReadChatRemindersStep, SubmitChatReminderStep
+from .test_proactive_runtime import inbox_path, completed_result, create_agent, running_runtime
 from .test_inbox_fork import append_message, prepare
 
 
@@ -28,18 +28,18 @@ async def test_latest_foreground_instruction_invalidates_same_session_reminder(t
 
         async def reply(_hint, **options):
             bound = options["injected_job_kwargs"]
-            await ReadInboxStep(app_context=context)(**bound)
+            await ReadChatRemindersStep(app_context=context)(**bound)
             before = await runtime.sessions.current("Remy")
-            await AgentChatStep(app_context=context)(
+            await AskAgentStep(app_context=context)(
                 RuntimeContext(stream_queue=asyncio.Queue()),
                 query="Cancel the reminder",
             )
             assert (await runtime.sessions.current("Remy")).session_id == before.session_id
-            await SendChatMessageStep(app_context=context)(content="Outdated decision", **bound)
+            await SubmitChatReminderStep(app_context=context)(content="Outdated decision", **bound)
 
         wrapper.reply = AsyncMock(side_effect=reply)
         with pytest.raises(RuntimeError, match="conversation changed"):
-            await InboxChatStep(app_context=context)(**arguments)
+            await ProcessChatRemindersStep(app_context=context)(**arguments)
         wrapper.append_session.assert_not_awaited()
         assert list(runtime.notifications.pending) == arguments["msg_ids"]
 
@@ -58,7 +58,7 @@ async def test_inbox_timeout_revokes_tools_without_consuming_messages(tmp_path):
 
         wrapper.reply = AsyncMock(side_effect=reply)
         with pytest.raises(TimeoutError):
-            await InboxChatStep(app_context=context, timeout_seconds=0.01)(**arguments)
+            await ProcessChatRemindersStep(app_context=context, timeout_seconds=0.01)(**arguments)
         assert cancelled.is_set() and runtime.notifications.active_turn is None
         assert list(runtime.notifications.pending) == arguments["msg_ids"]
 
@@ -112,9 +112,9 @@ async def test_missing_reminder_isolated_across_restart_and_recovers_when_restor
         original = path.read_bytes()
         path.unlink()
         await runtime.create({"agent_name": "other", "task_description": "Other"})
-        await runtime.append(
+        await runtime.append_events(
             "other",
-            {"id": "other", "event_ts": runtime.now(), "source": "test", "description": "Other"},
+            [Event(id="other", event_ts=runtime.now(), source="test", description="Other")],
         )
         await runtime.run("other", AsyncMock(return_value=completed_result(runtime, "other")))
         await runtime.outbox.sync()
@@ -151,7 +151,7 @@ async def test_missing_result_preserves_task_sources(tmp_path):
         await runtime.create(
             {"agent_name": "experiment", "task_description": "Observe"},
         )
-        await runtime.append("experiment", {"event_ts": start, "source": "lab", "description": "Finished"})
+        await runtime.append_events("experiment", [Event(event_ts=start, source="lab", description="Finished")])
         await runtime.run("experiment", AsyncMock(return_value=completed_result(runtime, "experiment")))
         await runtime.outbox.sync()
         ref = next(iter(runtime.notifications.pending))
@@ -172,10 +172,10 @@ async def test_partial_priority_consumption_survives_restart(tmp_path, monkeypat
         await runtime.create(
             {"agent_name": "experiment", "task_description": "Observe"},
         )
-        await runtime.append("experiment", {"id": "old", "event_ts": now, "source": "lab", "description": "Old"})
+        await runtime.append_events("experiment", [Event(id="old", event_ts=now, source="lab", description="Old")])
         recent = now - timedelta(days=1)
         runtime.now = lambda: recent
-        await runtime.append("experiment", {"id": "new", "event_ts": now, "source": "lab", "description": "New"})
+        await runtime.append_events("experiment", [Event(id="new", event_ts=now, source="lab", description="New")])
         claim = runtime.inbox.claim
 
         async def urgent(name, limit=None, **_kwargs):
@@ -201,7 +201,7 @@ async def test_session_setup_preserves_workspace_documents(tmp_path):
         agent = await runtime.definition("monitor")
         step = ProactiveAgentStep(app_context=context)
         documents = (
-            ("Remy", "MEMORY.md", AgentChatStep(app_context=context).session_options()),
+            ("Remy", "MEMORY.md", AskAgentStep(app_context=context).session_options()),
             ("monitor", "TASK.md", step.session_options(agent)),
         )
         for name, filename, item in documents:
@@ -331,7 +331,7 @@ async def test_publication_isolates_reminders_removed_during_delivery(tmp_path, 
     async with running_runtime(tmp_path) as (runtime, _, _):
         await create_agent(runtime)
         await runtime.create({"agent_name": "other", "task_description": "Other"})
-        await runtime.append("other", {"event_ts": runtime.now(), "source": "test", "description": "Next"})
+        await runtime.append_events("other", [Event(event_ts=runtime.now(), source="test", description="Next")])
         with monkeypatch.context() as patch:
             patch.setattr(runtime.outbox, "_deliver_locked", AsyncMock())
             first, second = [completed_result(runtime, name) for name in ("monitor", "other")]

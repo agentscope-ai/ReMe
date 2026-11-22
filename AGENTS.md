@@ -43,6 +43,8 @@ and concise documentation together.
 - `reme/core/registry.py`: the frozen built-in registry template and application-local registry factory.
 - `reme/components/job/`: base, stream, background, and cron job implementations.
 - `reme/components/service/`: local CLI, HTTP, and MCP service backends.
+- `reme/components/proactive_runtime/`: task inputs, schedules, execution coordination, and reminders.
+- `reme/steps/proactive/`: task execution, Remy conversation and reminders, management tools, and observation collectors.
 - `reme/components/`: agent wrappers, model adapters, stores, catalogs, graphs, indexes, clients, tokenizers, and
   outbound proxies.
 - `reme/steps/`: registered job steps grouped by common, file I/O, index, evolve, cookbook, and transfer

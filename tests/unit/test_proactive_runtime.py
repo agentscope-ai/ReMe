@@ -11,28 +11,28 @@ from unittest.mock import AsyncMock
 import frontmatter
 import pytest
 
-from reme.components import LocalAgentRuntime
+from reme.components import LocalProactiveRuntime
 from reme.core.context import ApplicationContext, RuntimeContext
 from reme.core.registry import R
 from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.agent_inbox import AgentEventInbox
 from reme.config import resolve_app_config
 from reme.enumeration import ChunkEnum, ComponentEnum
-from reme.schema import AgentNotification, SessionSnapshot, SessionStatus, StreamChunk
+from reme.schema import Event, AgentNotification, SessionSnapshot, SessionStatus, StreamChunk
 from reme.schema.proactive_agent import (
     ManageProactiveAgentRequest,
     ProactiveAgentConfig,
 )
 from reme.steps.proactive.agent import (
-    AgentChatStep,
+    AskAgentStep,
     AgentNewSessionStep,
     AgentReminderStep,
     AgentSessionStep,
-    InboxChatStep,
+    ProcessChatRemindersStep,
     ListChatSessionsStep,
     ProactiveAgentStep,
 )
-from reme.steps.proactive.tools.inbox import ReadInboxStep, SendChatMessageStep
+from reme.steps.proactive.tools.chat_reminders import ReadChatRemindersStep, SubmitChatReminderStep
 from reme.steps.proactive.tools.manage_proactive_agent import ManageProactiveAgentStep
 
 
@@ -83,11 +83,11 @@ async def running_runtime(tmp_path, *, watch=False, agents=None, chat=None, lang
     context = ApplicationContext(workspace_dir=str(tmp_path), timezone="Asia/Shanghai", language=language)
     wrapper = FakeWrapper(app_context=context)
     inbox = AgentEventInbox(app_context=context)
-    runtime = LocalAgentRuntime(app_context=context, agents=agents, chat=chat)
+    runtime = LocalProactiveRuntime(app_context=context, agents=agents, chat=chat)
     context.components = {
         "agent_wrapper": {"default": wrapper},
         "agent_inbox": {"default": inbox},
-        "agent_runtime": {"default": runtime, "selected": runtime},
+        "proactive_runtime": {"default": runtime, "selected": runtime},
     }
     async with wrapper, inbox, runtime:
         if not watch:
@@ -101,9 +101,9 @@ async def create_agent(runtime):
     await runtime.create(
         {"agent_name": "monitor", "task_description": "Monitor experiments"},
     )
-    await runtime.append(
+    await runtime.append_events(
         "monitor",
-        {"id": "event-1", "event_ts": runtime.now(), "source": "experiment", "description": "Finished"},
+        [Event(id="event-1", event_ts=runtime.now(), source="experiment", description="Finished")],
     )
 
 
@@ -135,7 +135,7 @@ async def test_runtime_initializes_chat_memory_and_preserves_it_across_turns_and
             return write(path, *args, **kwargs)
 
         monkeypatch.setattr(runtime.files, "write", reject_turn_initialization)
-        await AgentChatStep(app_context=context)(RuntimeContext(stream_queue=asyncio.Queue()), query="Hello")
+        await AskAgentStep(app_context=context)(RuntimeContext(stream_queue=asyncio.Queue()), query="Hello")
         await AgentNewSessionStep(app_context=context)()
         assert memory.read_text() == content and memory.stat().st_mtime_ns == before
     async with running_runtime(tmp_path, chat={"initial_memory": "Changed startup text"}, language=language) as (
@@ -150,7 +150,7 @@ async def test_runtime_initializes_chat_memory_and_preserves_it_across_turns_and
 def test_initial_chat_memory_configuration_is_validated(tmp_path, chat):
     context = ApplicationContext(workspace_dir=str(tmp_path))
     with pytest.raises(ValueError):
-        LocalAgentRuntime(app_context=context, chat=chat)
+        LocalProactiveRuntime(app_context=context, chat=chat)
     assert not (tmp_path / "reme_agents").exists()
 
 
@@ -192,14 +192,26 @@ def test_builtin_agent_configurations_resolve_steps_and_keep_internal_jobs_priva
     assert wrapper["sandbox"] == "workspace-write"
     if backend == "claude_code":
         assert json.loads(wrapper["settings"])["permissions"]["blockWritesOutsideWorkingDirectories"] is True
+    runtime = components["proactive_runtime"]["default"]
+    assert (runtime["backend"], runtime["agent_wrapper"], runtime["inbox"]) == ("local", "default", "default")
     jobs = config["jobs"]
     for job_name, job in jobs.items():
         if job_name in {"finance_news_cron", "stock_quotes_cron", "btc_quotes_cron"}:
             continue
         for step in job.get("steps", []):
             assert R.get(ComponentEnum.STEP, step["backend"]) is not None
-    assert not jobs["run_proactive_agent"]["enable_serve"]
-    assert not jobs["process_chat_reminders"]["enable_serve"]
+    for job_name in ("run_proactive_agent", "process_chat_reminders", "read_chat_reminders", "submit_chat_reminder"):
+        assert not jobs[job_name]["enable_serve"]
+    assert jobs["proactive_loop"]["backend"] == "background"
+    for job_name in ("append_task_events", "list_task_reminders", "task_document", "ask_agent", "watch_agent_session"):
+        job = jobs[job_name]
+        assert job.get("enable_serve", True)
+        assert job["steps"][0]["backend"] == f"{job_name}_step"
+    for job_name in ("append_task_events", "list_task_reminders", "task_document"):
+        parameters = jobs[job_name]["parameters"]
+        assert "agent_name" in parameters["required"]
+        assert "default" not in parameters["properties"]["agent_name"]
+    assert jobs["list_agent_inbox"]["parameters"]["properties"]["agent_name"]["default"] == "Remy"
     properties = jobs["manage_proactive_agent"]["parameters"]["properties"]
     assert properties.keys() == ManageProactiveAgentRequest.model_json_schema()["properties"].keys()
 
@@ -247,7 +259,7 @@ async def test_chat_tool_changes_fork_existing_history_and_then_reuse_session(tm
         )
         tools = resolve_app_config(config="proactive", log_config=False)["jobs"]["ask_agent"]["steps"][0]["job_tools"]
         for _ in range(2):
-            await AgentChatStep(app_context=context, job_tools=tools)(
+            await AskAgentStep(app_context=context, job_tools=tools)(
                 RuntimeContext(stream_queue=asyncio.Queue()),
                 query="Hello",
             )
@@ -264,7 +276,7 @@ async def test_chat_tools_are_selected_only_from_step_configuration(tmp_path):
     async with running_runtime(tmp_path) as (_, context, wrapper):
         for tools in ([], ["manage_proactive_agent"]):
             kwargs = {"job_tools": tools} if tools else {}
-            await AgentChatStep(app_context=context, **kwargs)(
+            await AskAgentStep(app_context=context, **kwargs)(
                 RuntimeContext(stream_queue=asyncio.Queue()),
                 query="Hello",
             )
@@ -284,7 +296,7 @@ async def test_trigger_updates_create_fresh_sessions(tmp_path):
                 cron="0 * * * *" if agent_type == "cron" else None,
             )
             agent = await runtime.definition("monitor")
-            assert agent.agent_type == agent_type
+            assert (await runtime.view_agent("monitor"))["agent_type"] == agent_type
             step = ProactiveAgentStep(app_context=context)
             now = runtime.now()
             current = await runtime.sessions.ensure(
@@ -305,7 +317,7 @@ async def test_trigger_updates_create_fresh_sessions(tmp_path):
 @pytest.mark.asyncio
 async def test_named_runtime_reference_and_durable_definition_layout(tmp_path):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
-        step = ManageProactiveAgentStep(app_context=context, agent_runtime="selected")
+        step = ManageProactiveAgentStep(app_context=context, proactive_runtime="selected")
         response = await step(
             action="create",
             agent_name="monitor",
@@ -530,7 +542,7 @@ async def test_status_refuses_task_symlinks_and_respects_tool_permissions(tmp_pa
 def test_initial_agent_configuration_rejects_invalid_tasks(tmp_path, agents):
     context = ApplicationContext(workspace_dir=str(tmp_path))
     with pytest.raises(ValueError):
-        LocalAgentRuntime(app_context=context, agents=agents)
+        LocalProactiveRuntime(app_context=context, agents=agents)
     assert not (tmp_path / "reme_agents").exists()
 
 
@@ -647,7 +659,7 @@ async def test_chat_rotation_preserves_inbox_and_wakeup_uses_current_session(tmp
         listing = ListChatSessionsStep(app_context=context)
         assert (await listing()).answer["total"] == 0
         assert not wrapper.created
-        chat = AgentChatStep(app_context=context)
+        chat = AskAgentStep(app_context=context)
         response = await chat(RuntimeContext(stream_queue=asyncio.Queue()), query="Hello")
         assert response.success and response.answer == "Processed"
         first = (await runtime.sessions.current("Remy")).session_id
@@ -663,12 +675,12 @@ async def test_chat_rotation_preserves_inbox_and_wakeup_uses_current_session(tmp
 
         async def run_job(name, **kwargs):
             assert name == "process_chat_reminders"
-            return await InboxChatStep(app_context=context)(**kwargs)
+            return await ProcessChatRemindersStep(app_context=context)(**kwargs)
 
         async def decide(_hint, **options):
             bound = options["injected_job_kwargs"]
-            await ReadInboxStep(app_context=context)(**bound)
-            await SendChatMessageStep(app_context=context)(content="", **bound)
+            await ReadChatRemindersStep(app_context=context)(**bound)
+            await SubmitChatReminderStep(app_context=context)(content="", **bound)
             assert options["resume"] == current and options["ephemeral"]
             return {"status": "completed", "result": "Internal final reply"}
 
@@ -686,7 +698,7 @@ async def test_chat_rotation_preserves_inbox_and_wakeup_uses_current_session(tmp
 @pytest.mark.asyncio
 async def test_agent_tools_preserve_receiver_identity_and_workspace_permissions(tmp_path):
     async with running_runtime(tmp_path) as (_, context, _):
-        tool = ReadInboxStep(app_context=context)
+        tool = ReadChatRemindersStep(app_context=context)
         with pytest.raises(ValueError, match="calling Chat Agent"):
             await tool(_agent_name="other")
         with pytest.raises(PermissionError, match="agent runtime files"):
@@ -723,7 +735,7 @@ async def test_agent_directories_and_reference_only_inbox(tmp_path):
         receipt = (await runtime.inbox.snapshot("monitor"))["receipt"]
         assert refs[0]["id"] == refs[0]["paths"][0]
         assert receipt.metadata["reminder_paths"] == [refs[0]["id"]]
-        await AgentChatStep(app_context=context)(RuntimeContext(stream_queue=asyncio.Queue()), query="Hello")
+        await AskAgentStep(app_context=context)(RuntimeContext(stream_queue=asyncio.Queue()), query="Hello")
         assert (tmp_path / "reme_agents/Remy/MEMORY.md").is_file()
         assert (tmp_path / "reme_agents/Remy/sessions.jsonl").is_file()
         assert not (tmp_path / "session").exists()
@@ -765,7 +777,7 @@ async def test_unhanded_off_results_protect_read_history_and_survive_restart(tmp
             patch.setattr(runtime.outbox, "_deliver_locked", AsyncMock())
             await runtime.run("monitor", AsyncMock(return_value=completed_result(runtime)))
             second = {"id": "event-2", "event_ts": runtime.now(), "source": "lab", "description": "Next"}
-            await runtime.append("monitor", second)
+            await runtime.append_events("monitor", [Event.model_validate(second)])
             batch = await runtime.inbox.claim("monitor")
             with pytest.raises(TimeoutError, match="handoffs"):
                 await runtime.inbox.ack("monitor", batch["token"])
@@ -904,18 +916,18 @@ async def test_cron_restarts_from_future_and_keeps_queued_triggers(tmp_path, mon
         start = runtime.now().replace(second=0, microsecond=0)
         monkeypatch.setattr(runtime, "now", lambda: start)
         await runtime._schedule_cron(agent)
-        first = runtime.cron["timer"][1]
+        first = runtime.execution("timer").schedule[1]
         assert first == start + timedelta(minutes=1)
         monkeypatch.setattr(runtime, "now", lambda: first)
         await runtime._schedule_cron(agent)
         await runtime._schedule_cron(agent)
         assert (await runtime.inbox.snapshot("timer"))["pending_count"] == 1
     async with running_runtime(tmp_path) as (runtime, _, _):
-        assert not runtime.cron
+        assert runtime.execution("timer").schedule is None
         future = first + timedelta(days=1)
         monkeypatch.setattr(runtime, "now", lambda: future)
         await runtime._schedule_cron(await runtime.definition("timer"))
-        assert runtime.cron["timer"][1] > future
+        assert runtime.execution("timer").schedule[1] > future
         assert (await runtime.inbox.snapshot("timer"))["pending_count"] == 1
 
 
@@ -1009,7 +1021,7 @@ async def test_query_registration_owns_requests_during_checkpoint_selection(tmp_
         await runtime.create(
             {"agent_name": "experiment", "task_description": "Observe"},
         )
-        await runtime.append("experiment", {"event_ts": start, "source": "lab", "description": "Finished"})
+        await runtime.append_events("experiment", [Event(event_ts=start, source="lab", description="Finished")])
         source = await runtime.sessions.ensure("experiment", wrapper, {}, start)
         await runtime.run("experiment", AsyncMock(return_value=(None, source)))
         directory = runtime.agents.path("experiment")
@@ -1180,13 +1192,13 @@ async def test_custom_root_and_unicode_identity_share_the_same_layout(tmp_path):
     context = ApplicationContext(workspace_dir=str(tmp_path), reme_agent_dir="runtime/agents")
     wrapper = FakeWrapper(app_context=context)
     inbox = AgentEventInbox(app_context=context)
-    runtime = LocalAgentRuntime(app_context=context)
+    runtime = LocalProactiveRuntime(app_context=context)
     context.components = {"agent_wrapper": {"default": wrapper}, "agent_inbox": {"default": inbox}}
     async with wrapper, inbox, runtime:
         created = await runtime.create(
             {"agent_name": "屏幕观察", "task_description": "Observe screens"},
         )
-        await runtime.append("屏幕观察", {"event_ts": runtime.now(), "source": "screen", "description": "New"})
+        await runtime.append_events("屏幕观察", [Event(event_ts=runtime.now(), source="screen", description="New")])
         path = tmp_path / "runtime/agents/屏幕观察"
         assert (path / "config.json").is_file()
         assert created["task_path"] == "runtime/agents/屏幕观察/TASK.md"
@@ -1199,9 +1211,9 @@ async def test_desktop_views_are_cold_and_include_main_and_task_files(tmp_path):
     async with running_runtime(tmp_path) as (runtime, _, wrapper):
         await create_agent(runtime)
         runtime.files.write(runtime.files.path("resource/input.json"), '{"value": 1}\n')
-        await runtime.append(
+        await runtime.append_events(
             "monitor",
-            {"event_ts": runtime.now(), "source": "test", "description": "Input", "paths": ["resource/input.json"]},
+            [Event(event_ts=runtime.now(), source="test", description="Input", paths=["resource/input.json"])],
         )
         views = (await runtime.list_views())["items"]
         assert [view["agent_name"] for view in views] == ["Remy", "monitor"]
@@ -1231,7 +1243,7 @@ async def test_task_chat_forks_latest_primary_for_each_question_without_consumin
             runtime.now(),
         )
         for query in ["Hello", "Continue"]:
-            response = await AgentChatStep(app_context=context)(
+            response = await AskAgentStep(app_context=context)(
                 RuntimeContext(stream_queue=asyncio.Queue()),
                 agent_name="monitor",
                 query=query,
@@ -1282,7 +1294,7 @@ async def test_task_questions_and_session_reset_do_not_create_empty_task_session
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         with pytest.raises(ValueError, match="no queryable session"):
-            await AgentChatStep(app_context=context)(
+            await AskAgentStep(app_context=context)(
                 RuntimeContext(stream_queue=asyncio.Queue()),
                 agent_name="monitor",
                 query="Status?",
@@ -1297,7 +1309,7 @@ async def test_task_questions_and_session_reset_do_not_create_empty_task_session
 
 @pytest.mark.asyncio
 async def test_agent_subscription_reconnects_from_snapshot_and_observes_new_session(tmp_path):
-    from reme.components.agent_runtime._internal.views import AgentViews
+    from reme.components.proactive_runtime._internal.views import AgentViews
 
     async with running_runtime(tmp_path) as (runtime, _, wrapper):
         wrapper.read_session = AsyncMock(
@@ -1321,7 +1333,7 @@ async def test_agent_subscription_reconnects_from_snapshot_and_observes_new_sess
 async def test_agent_endpoints_reject_unknown_fields_and_enforce_workspace_permissions(tmp_path):
     async with running_runtime(tmp_path) as (_, context, wrapper):
         with pytest.raises(ValueError):
-            await AgentChatStep(app_context=context)(query="hi", agent_name="../chat")
+            await AskAgentStep(app_context=context)(query="hi", agent_name="../chat")
         with pytest.raises(ValueError):
             await AgentSessionStep(app_context=context)(agent_name="Remy", session_id="foreign")
         with pytest.raises(PermissionError):
@@ -1361,7 +1373,7 @@ async def test_desktop_retains_empty_session_reference_when_native_thread_is_not
 
 @pytest.mark.asyncio
 async def test_reminder_message_provenance_survives_history_projection(tmp_path):
-    from reme.components.agent_runtime._internal.views import AgentViews
+    from reme.components.proactive_runtime._internal.views import AgentViews
     from reme.schema import SessionMessage
 
     async with running_runtime(tmp_path) as (runtime, _, wrapper):
@@ -1390,7 +1402,7 @@ async def test_reminder_message_provenance_survives_history_projection(tmp_path)
 
 @pytest.mark.asyncio
 async def test_first_automatic_reply_in_new_session_is_an_atomic_snapshot(tmp_path):
-    from reme.components.agent_runtime._internal.views import AgentViews
+    from reme.components.proactive_runtime._internal.views import AgentViews
     from reme.schema import SessionMessage
 
     async with running_runtime(tmp_path) as (runtime, _, wrapper):

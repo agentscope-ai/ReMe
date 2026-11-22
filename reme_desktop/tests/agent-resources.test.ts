@@ -84,7 +84,7 @@ test("desktop resource requests use the new scoped contracts and reject retired 
   );
   assert.deepEqual(calls, [
     [
-      "list_agent_outbox",
+      "list_task_reminders",
       { agent_name: "finance", state: "pending", offset: 0, limit: 20 },
     ],
     [

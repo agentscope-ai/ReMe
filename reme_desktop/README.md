@@ -1,6 +1,6 @@
 # ReMe Desktop
 
-Electron + React client for ReMe's AgentRuntime. The Python service owns Agents, native sessions and workspace files;
+Electron + React client for ReMe's Proactive Runtime. The Python service coordinates background tasks and reminders and tracks native session references.
 Desktop connects over JSON/SSE through its sandboxed preload bridge. Credentials remain in the backend environment.
 
 The top bar contains **Remy**, **Tree Hollow** and **Knowledge**, with Settings at the right.
@@ -11,9 +11,9 @@ Ideas to Todos. It uses the `todo` and `idea` jobs in the `proactive` configurat
 Task groups offer a **+** action to create tasks. Each task's **…** button and context menu share management,
 pause/enable, folder and delete actions. Run details appear under Settings in the management panel, which saves execution settings and `TASK.md`
 separately; description writes detect concurrent file edits. Pausing leaves the current round running, while
-deleting stops it and retains history. Event-driven tasks still need an event source configured separately.
+deleting stops it and retains history. Configure observation sources separately for tasks that need them.
 
-- Remy's sidebar lists the Chat Agent as **Remy** (`agent_name=Remy`) and each named Cron or Proactive/event Agent.
+- Remy's sidebar lists the Chat Agent as **Remy** (`agent_name=Remy`) and groups background tasks under **Event-only tasks** or **Tasks with a schedule**. Both groups can receive events from collectors.
 - Selecting an Agent opens its latest session snapshot. Remy continues the main Chat conversation; task questions
   run in temporary read-only forks and leave the task's current execution session unchanged. A task needs an existing
   session before it can answer questions. Only Remy offers **Clear conversation**, through its toolbar or `/clear`,
@@ -23,7 +23,7 @@ deleting stops it and retains history. Event-driven tasks still need an event so
 - Each task executes one automatic run at a time. A query can inspect the current task session while it runs on a backend
   that supports active forks. Switching Agents retains separate drafts and in-progress query replies.
 - Remy's Updates tab retains reminder browsing, document details, replay, narration and explicit user-read receipts.
-  Automatic Chat Agent replies retain their turn provenance across reconnects and restarts. AgentRuntime determines
+  Automatic Chat Agent replies retain their turn provenance across reconnects and restarts. Proactive Runtime determines
   notification eligibility; the client applies quiet mode and its presentation budget.
   User reading and Agent inbox processing are independent; reading a reminder never consumes an event batch.
 - Knowledge retains Workspace / Daily / Knowledge browsing, Markdown and YAML previews, wikilinks, tags and search.
@@ -76,12 +76,12 @@ The client uses the following jobs from the same checkout:
 | `create_chat_session`                                                                          | Start a fresh main Chat session; accepts no arguments                                 |
 | `watch_agent_session`                                                                          | Observe current messages and state; Remy also carries the Agent roster                |
 | `list_agent_inbox`                                                                             | Page task input events or Remy's derived reminder inbox                               |
-| `list_agent_outbox`                                                                            | Page a task Agent's committed reminders                                               |
+| `list_task_reminders`                                                                            | Page a task Agent's committed reminders                                               |
 | `read_agent_reminder`                                                                          | Read the source reminder records                                                      |
 | `list_workspace`, `load_file`, `read_image`, `list_tags`, `list_tag_files`, `search_workspace` | Read-only Knowledge browsing                                                          |
 | `asr` / `tts`                                                                                  | Voice input and playback                                                              |
 | `get_client_info`                                                                              | Discover backend capabilities and workspace settings                                  |
-| `manage_proactive_agent` / `agent_task`                                                        | Manage task settings and read/save the original task description with revision checks |
+| `manage_proactive_agent` / `task_document`                                                        | Manage task settings and read/save the original task description with revision checks |
 | `todo` / `idea`                                                                                | Manage Tree Hollow records and progress                                               |
 
 Subscriptions use `snapshot`, `update` and `heartbeat`. Session changes are atomic snapshots; updates batch complete-message upserts.
@@ -105,7 +105,7 @@ They use the latest task session during execution or while waiting for the next 
 context, and send the question directly. Query forks are retained for audit and never replace the task session.
 Desktop displays each query answer separately from automatic progress; questions require an existing task session.
 Only the main Chat Agent supports starting an empty conversation. See
-[`AgentRuntime`](../reme/components/agent_runtime/base_agent_runtime.py) and
+[`BaseProactiveRuntime`](../reme/components/proactive_runtime/base_proactive_runtime.py) and
 [service Steps](../reme/steps/proactive/agent/api.py) for the contracts.
 
 The sidebar separates Remy, Proactive and Cron. Task groups collapse independently. Task workspaces show the latest execution turn and their query replies; memory, reminders, inboxes, event records and outboxes have dedicated views. Workspace links open the original file in Knowledge, including images; web links open the browser.

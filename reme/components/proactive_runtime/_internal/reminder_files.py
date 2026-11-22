@@ -4,7 +4,7 @@ from pathlib import Path
 
 import yaml
 
-from ....schema.agent_runtime import AgentReminder
+from ....schema.proactive_runtime import AgentReminder
 from ....utils.proactive_record import is_date_directory, is_round_record, round_paths, split_record
 
 

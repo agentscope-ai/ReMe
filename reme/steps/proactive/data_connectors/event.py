@@ -19,19 +19,15 @@ class ResourceEventStep(BaseAgentStep):
         agent_name = self.context.get("agent_name")
         if not isinstance(agent_name, str) or not agent_name:
             raise ValueError("resource_event_step requires a target agent_name")
-        if (await self.agent_runtime.definition(agent_name)).cron is not None:
-            raise ValueError("resource observations require an event agent")
         resource = self.context.get("resource")
         if not isinstance(resource, dict) or not isinstance(resource.get("path"), str):
             raise ValueError("resource_event_step requires a published resource")
-        manifest = self.agent_runtime.files.path(resource["path"])
+        manifest = self.proactive_runtime.files.path(resource["path"])
         self.require_paths(manifest)
-        metadata = ResourceMetadata.model_validate_json(self.agent_runtime.files.read(manifest))
-        if metadata.source == "cron":
-            raise ValueError("resource source is reserved for framework triggers")
+        metadata = ResourceMetadata.model_validate_json(self.proactive_runtime.files.read(manifest))
         parent = PurePosixPath(resource["path"]).parent
         paths = [resource["path"], *(str(parent / item.path) for item in metadata.files)]
-        self.require_paths(*(self.agent_runtime.files.path(path) for path in paths))
+        self.require_paths(*(self.proactive_runtime.files.path(path) for path in paths))
         event = Event(
             id=f"resource-{sha256(parent.as_posix().encode()).hexdigest()}",
             event_ts=metadata.created_at,
@@ -39,6 +35,6 @@ class ResourceEventStep(BaseAgentStep):
             description=metadata.description,
             paths=paths,
         )
-        result = await self.agent_runtime.append(agent_name, event)
+        result = await self.proactive_runtime.append_events(agent_name, [event])
         self.context.response.answer = {**resource, **result}
         return self.context.response

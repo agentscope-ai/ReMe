@@ -1,12 +1,12 @@
 """ReMe tools available to proactive agents."""
 
 from .manage_proactive_agent import ManageProactiveAgentStep
-from .append_event import AppendEventStep
-from .inbox import ReadInboxStep, SendChatMessageStep
+from .append_task_events import AppendTaskEventsStep
+from .chat_reminders import ReadChatRemindersStep, SubmitChatReminderStep
 
 __all__ = [
     "ManageProactiveAgentStep",
-    "AppendEventStep",
-    "ReadInboxStep",
-    "SendChatMessageStep",
+    "AppendTaskEventsStep",
+    "ReadChatRemindersStep",
+    "SubmitChatReminderStep",
 ]

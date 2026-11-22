@@ -6,8 +6,8 @@ task_query: |
   - `Records directory`: {daily_dir}
   - `Record path for this run`: {record_path}
 
-  [is_event] ## Events for this run
-  [is_event] {event_batch}
+  ## Events for this run
+  {event_batch}
 
   ## Task requirements
   {task_description}
@@ -64,8 +64,8 @@ task_query_zh: |
   - `记录目录`：{daily_dir}
   - `本轮记录路径`：{record_path}
 
-  [is_event] ## 本轮事件
-  [is_event] {event_batch}
+  ## 本轮事件
+  {event_batch}
 
   ## 任务要求
   {task_description}
@@ -131,3 +131,9 @@ event_input_zh: |
   [has_files] 文件：
   [has_files] {paths}
   [no_files] 文件：无
+
+scheduled_event_input: |
+  - Scheduled trigger, planned time {event_ts}
+
+scheduled_event_input_zh: |
+  - 定时触发，计划时间 {event_ts}

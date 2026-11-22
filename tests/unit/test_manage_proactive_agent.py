@@ -9,7 +9,7 @@ import pytest
 
 from reme.schema.proactive_agent import ManageProactiveAgentRequest
 from reme.steps.proactive.tools.manage_proactive_agent import ManageProactiveAgentStep
-from .test_agent_runtime import running_runtime
+from .test_proactive_runtime import running_runtime
 
 
 @pytest.mark.parametrize(
@@ -74,7 +74,7 @@ async def test_all_actions_expose_only_their_results_and_keep_task_files(tmp_pat
         assert created["next_trigger_at"] == "2026-11-17T08:00:00+08:00"
         task_file = tmp_path / created["task_path"]
         assert task_file.read_text() == arguments["task_description"]
-        assert not runtime.cron  # Inspecting the next trigger must not schedule or run work.
+        assert runtime.execution("tech_news").schedule is None
         assert (await tool(action="list")).answer == {"items": [created], "total": 1}
         assert (await tool(action="status", agent_name="tech_news")).answer == created
         updated = (await tool(action="update", agent_name="tech_news", cron="0 9 * * *")).answer
@@ -99,7 +99,7 @@ async def test_all_actions_expose_only_their_results_and_keep_task_files(tmp_pat
 
 
 @pytest.mark.asyncio
-async def test_trigger_changes_clear_old_settings_without_ignoring_explicit_conflicts(tmp_path):
+async def test_schedule_and_observation_interval_can_be_updated_independently(tmp_path):
     async with running_runtime(tmp_path) as (runtime, context, _):
         tool = ManageProactiveAgentStep(app_context=context)
         await tool(
@@ -108,18 +108,21 @@ async def test_trigger_changes_clear_old_settings_without_ignoring_explicit_conf
             task_description="跟进实验",
             min_trigger_interval_seconds=30,
         )
-        await tool(action="update", agent_name="experiment_watch", cron="0 * * * *", min_trigger_interval_seconds=0)
-        assert (await runtime.definition("experiment_watch")).min_trigger_interval_seconds == 0
-        await tool(action="update", agent_name="experiment_watch", cron=None)
-        assert (await runtime.definition("experiment_watch")).cron is None
-        with pytest.raises(ValueError, match="trigger interval"):
+        scheduled = (await tool(action="update", agent_name="experiment_watch", cron="0 * * * *")).answer
+        assert scheduled["agent_type"] == "cron"
+        assert scheduled["min_trigger_interval_seconds"] == 30
+        changed = (
             await tool(
                 action="update",
                 agent_name="experiment_watch",
-                cron="0 * * * *",
-                min_trigger_interval_seconds=30,
+                cron="0 8 * * *",
+                min_trigger_interval_seconds=60,
             )
-        assert (await runtime.definition("experiment_watch")).agent_type == "proactive"
+        ).answer
+        assert changed["cron"] == "0 8 * * *" and changed["min_trigger_interval_seconds"] == 60
+        cleared = (await tool(action="update", agent_name="experiment_watch", cron=None)).answer
+        assert cleared["agent_type"] == "proactive" and cleared["cron"] is None
+        assert cleared["min_trigger_interval_seconds"] == 60
         await tool(action="update", agent_name="experiment_watch", notify_window={"start": "09:00", "end": "18:00"})
         assert (await runtime.definition("experiment_watch")).notify_window.start == "09:00"
         cleared = (await tool(action="update", agent_name="experiment_watch", notify_window=None)).answer

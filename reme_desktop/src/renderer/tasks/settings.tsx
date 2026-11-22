@@ -31,7 +31,22 @@ export default function TaskSettingsFields({
   const daily = kind === "daily" || kind === "weekdays";
   return (
     <>
-      {value.cron !== null ? (
+      <label className="task-field">
+        <span>{t("taskTriggers")}</span>
+        <select
+          value={value.cron === null ? "events" : "scheduled"}
+          onChange={(event) => {
+            setKind("daily");
+            patch({
+              cron: event.target.value === "scheduled" ? "0 8 * * *" : null,
+            });
+          }}
+        >
+          <option value="events">{t("taskObserve")}</option>
+          <option value="scheduled">{t("taskObserveAndSchedule")}</option>
+        </select>
+      </label>
+      {value.cron !== null && (
         <div className="task-field">
           <label htmlFor="task-schedule">{t("taskSchedule")}</label>
           <div className="task-field-row">
@@ -87,9 +102,8 @@ export default function TaskSettingsFields({
             })}
           </small>
         </div>
-      ) : (
-        <p className="task-hint">{t("taskEventsHint")}</p>
       )}
+      <p className="task-hint">{t("taskEventsHint")}</p>
       <label className="task-switch">
         <span>{t("taskEnabled")}</span>
         <Switch
@@ -99,23 +113,21 @@ export default function TaskSettingsFields({
       </label>
       <details className="task-advanced">
         <summary>{t("taskAdvanced")}</summary>
-        {value.cron === null && (
-          <label className="task-field">
-            <span>{t("taskMinInterval")}</span>
-            <input
-              type="number"
-              min="0"
-              step="any"
-              required
-              value={value.min_trigger_interval_seconds}
-              onChange={(event) =>
-                patch({
-                  min_trigger_interval_seconds: Number(event.target.value),
-                })
-              }
-            />
-          </label>
-        )}
+        <label className="task-field">
+          <span>{t("taskMinInterval")}</span>
+          <input
+            type="number"
+            min="0"
+            step="any"
+            required
+            value={value.min_trigger_interval_seconds}
+            onChange={(event) =>
+              patch({
+                min_trigger_interval_seconds: Number(event.target.value),
+              })
+            }
+          />
+        </label>
         <label className="task-switch">
           <span>{t("taskLimitNotifications")}</span>
           <Switch

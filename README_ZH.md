@@ -32,6 +32,8 @@
 🧠 ReMe 将对话和资料持续沉淀为可读、可编辑、可检索、相互链接的 Markdown 记忆。QwenPaw、DeepSeek Harness 等 Agent
 可以共享同一个 workspace，共同检索、维护和演化知识，而持久文件始终由用户掌控。
 
+**主动智能运行时（Proactive Runtime）** 把这些长期记忆用于持续任务。它接收外部事件或定时触发，交给 Codex 等 Agent Runtime 执行，并在工作区记录结果和提醒。
+
 - **Memory as File, File as Memory**：ReMe 使用带 frontmatter 和 wikilink 的普通 Markdown 保存持久记忆。用户和 Agent
   都可以使用熟悉的工具查看、编辑、移动、同步和备份；索引及生成的元数据均可重建。
 - **自进化知识库**：ReMe 将对话和资料逐步加工为 daily note 与长期知识，在保留来源的同时，持续提炼事实、偏好、
@@ -396,7 +398,7 @@ ReMe 通过 Agent 多轮搜索与读取的方式，评测多会话和超长上�
 | [Auto Dream](https://reme.agentscope.io/zh/auto_dream) 与 [Auto Link](https://reme.agentscope.io/zh/auto_link) | 将 daily 记忆整理为持续演化的 digest 节点和可读 wikilink 关系。        |
 | [记忆检索](https://reme.agentscope.io/zh/memory_search)                                     | 使用 BM25、可选向量、RRF 融合、行号范围召回和渐进式链接扩展。          |
 | [Proactive 主题读取](https://reme.agentscope.io/zh/proactive)                               | 安全读取兴趣主题，并将其接入宿主 Agent 的决策流程。                    |
-| [Proactive Agent](https://reme.agentscope.io/zh/proactive_runtime)                          | 了解持续任务如何接收信息、保存进展、发送提醒，并通过 Personal Runtime 与用户对话。 |
+| [主动智能运行时](https://reme.agentscope.io/zh/proactive_runtime)                          | 了解如何利用长期记忆持续跟进任务，并通过 Remy 查看进展与提醒。 |
 | [应用场景](https://reme.agentscope.io/zh/reme_scene)                                        | 查看金融研究、研发记忆和个人知识库的完整使用示例。                     |
 | [框架说明](https://reme.agentscope.io/zh/framework)                                         | 理解 Application、Job、Step、Component、service、配置和生命周期边界。  |
 | [Agent 集成](https://reme.agentscope.io/zh/integrations)                                    | 选择接口，并将 DSH、Claude Code、Codex、Qoder、OpenClaw、Hermes 或其他 Agent 接入 ReMe。 |

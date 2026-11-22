@@ -51,7 +51,7 @@ export const clientInfo: ClientInfo = {
     "ask_agent",
     "read_agent_session",
     "create_chat_session",
-    "list_agent_outbox",
+    "list_task_reminders",
     "read_agent_reminder",
     "list_agent_inbox",
   ],

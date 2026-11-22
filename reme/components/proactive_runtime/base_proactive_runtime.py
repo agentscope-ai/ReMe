@@ -1,4 +1,4 @@
-"""Public lifecycle and coordination contract for file-native Agent runtimes."""
+"""Coordinate proactive tasks and reminder delivery through an Agent wrapper."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from ...utils.files.workspace_files import WorkspaceFiles
     from ...utils.proactive_record import RoundRecord
     from ._internal.notifications import ChatNotifications
-    from ._internal.outbox import AgentOutbox
+    from ._internal.outbox import ReminderOutbox
     from ._internal.registry import AgentRegistry
     from ._internal.sessions import AgentSessions
     from ._internal.live_turn import LiveTurns
@@ -25,12 +25,13 @@ if TYPE_CHECKING:
     from ..agent_inbox import BaseAgentInbox
     from ...schema.proactive_agent import ProactiveAgent
     from ...schema.agent_activity import AgentActivity
+    from ...schema.event import Event
 
 
-class BaseAgentRuntime(BaseComponent):
+class BaseProactiveRuntime(BaseComponent):
     """Expose owned Agent resources and operations independently of the local backend."""
 
-    component_type = ComponentEnum.AGENT_RUNTIME
+    component_type = ComponentEnum.PROACTIVE_RUNTIME
     agent_wrapper: BaseAgentWrapper
     files: WorkspaceFiles
     agents: AgentRegistry
@@ -38,7 +39,7 @@ class BaseAgentRuntime(BaseComponent):
     live_turns: LiveTurns
     inbox: BaseAgentInbox
     notifications: ChatNotifications
-    outbox: AgentOutbox
+    outbox: ReminderOutbox
     chat_lock: asyncio.Lock
     chat_tasks: set[asyncio.Task]
     workers: dict[str, asyncio.Task]
@@ -51,10 +52,6 @@ class BaseAgentRuntime(BaseComponent):
     @abstractmethod
     def now(self) -> datetime:
         """Read time in the application timezone."""
-
-    @abstractmethod
-    async def prepare(self, agent: ProactiveAgent) -> None:
-        """Prepare an Agent's owned execution resources."""
 
     @abstractmethod
     async def definition(self, agent_name: str) -> ProactiveAgent:
@@ -73,16 +70,16 @@ class BaseAgentRuntime(BaseComponent):
         """Stop owned execution while preserving task history."""
 
     @abstractmethod
-    async def append(self, agent_name: str, events) -> dict:
-        """Persist external observations for an event Agent; cron inputs belong to the scheduler."""
+    async def append_events(self, agent_name: str, events: list[Event]) -> dict:
+        """Persist external observations for a background task."""
 
     @abstractmethod
     async def status(self, agent_name: str) -> dict:
-        """Return execution settings, status, and the original memory path."""
+        """Return execution settings, status, and the task document path."""
 
     @abstractmethod
     async def list_agents(self) -> dict:
-        """List task settings, current status, and memory paths without memory bodies."""
+        """List task settings, current status, and document paths."""
 
     @asynccontextmanager
     @abstractmethod

@@ -15,7 +15,7 @@ from .base import BaseAgentStep
 from ....core.registry import R
 from ....enumeration import ChunkEnum
 from ....schema import TokenUsage, collect_reply
-from ....schema.agent_runtime import AgentNotification
+from ....schema.proactive_runtime import AgentNotification
 from ....schema.proactive_agent import CRON_EVENT_SOURCE, ProactiveRecordDecision
 from ....utils.async_utils import complete_in_thread
 from ....utils.counter import global_counter_add_many
@@ -45,7 +45,7 @@ class ProactiveAgentStep(BaseAgentStep):
         self.recent_history_hours = recent_history_hours
 
     def _paths(self, agent, now: datetime) -> dict[str, Path]:
-        runtime = self.agent_runtime
+        runtime = self.proactive_runtime
         daily = runtime.files.path(self.config_value("daily_dir"))
         day = daily / now.date().isoformat()
         stem = f"{agent.agent_name}_{now:%H%M%S}"
@@ -71,10 +71,13 @@ class ProactiveAgentStep(BaseAgentStep):
         return options
 
     def _query(self, events, paths, now, task_content, *, is_cron):
-        """Build the task type's Markdown query with its task snapshot and round inputs."""
-        files = self.agent_runtime.files
+        """Build the round prompt from the task snapshot and claimed events."""
+        files = self.proactive_runtime.files
         event_sections = []
-        for number, event in enumerate(() if is_cron else events, 1):
+        for number, event in enumerate(events, 1):
+            if is_cron:
+                event_sections.append(self.prompt_format("scheduled_event_input", event_ts=event["event_ts"]))
+                continue
             attachments = event["paths"]
             event_sections.append(
                 self.prompt_format(
@@ -90,7 +93,6 @@ class ProactiveAgentStep(BaseAgentStep):
                     no_files=not attachments,
                 ),
             )
-        # Cron keeps its planned time in the inbox. The prompt uses the actual run time.
         return self.prompt_format(
             "task_query",
             workspace_dir=self.workspace_path,
@@ -144,7 +146,7 @@ class ProactiveAgentStep(BaseAgentStep):
 
     def _warn_local_links(self, path, content):
         """Check Markdown links relative to their source without blocking submission."""
-        files = self.agent_runtime.files
+        files = self.proactive_runtime.files
         directory = path.parent.relative_to(files.workspace).as_posix()
         try:
             targets = markdown_link_targets(content)
@@ -166,7 +168,7 @@ class ProactiveAgentStep(BaseAgentStep):
 
     def _read_record(self, path: Path, reply_text: str | None, *, is_cron: bool) -> AgentNotification | None:
         """Validate the round record or an explicit event skip."""
-        files = self.agent_runtime.files
+        files = self.proactive_runtime.files
         try:
             text = files.read(path)
         except FileNotFoundError:
@@ -190,11 +192,11 @@ class ProactiveAgentStep(BaseAgentStep):
         if set(arguments) != {"agent_name"}:
             raise ValueError("proactive_agent_step requires only agent_name")
         self.require_paths(self.workspace_path)
-        record = RoundRecord(self.agent_runtime.files)
+        record = RoundRecord(self.proactive_runtime.files)
         self.context.response.metadata.pop("reme.agent_run", None)
         started, outcome = monotonic(), "failed"
         try:
-            self.context.response.answer = await self.agent_runtime.run(
+            self.context.response.answer = await self.proactive_runtime.run(
                 arguments["agent_name"],
                 partial(self._execute, record=record),
                 record=record,
@@ -238,7 +240,7 @@ class ProactiveAgentStep(BaseAgentStep):
             "max_local_search_calls": self.max_local_search_calls,
         }
         self.context.response.metadata["reme.agent_run"] = stats
-        runtime = self.agent_runtime
+        runtime = self.proactive_runtime
         now = runtime.now()
         paths = await asyncio.to_thread(self._paths, agent, now)
         await record.prepare(paths["record_path"])

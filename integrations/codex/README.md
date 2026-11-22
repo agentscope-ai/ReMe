@@ -6,6 +6,8 @@ Connect Codex to your ReMe service to remember project decisions, preferences, a
 across conversations. ReMe can automatically record and recall memories, and organize them each day.
 Your memory files stay in your own ReMe workspace.
 
+The host integration gives existing conversations access to ReMe's long-term memory. The [Proactive Runtime](https://reme.agentscope.io/en/proactive_runtime) can also use this agent as an execution backend for its own tasks. Those runs use task-owned sessions.
+
 ## HTTP connection (default)
 
 The default plugin connects directly to ReMe's HTTP MCP endpoint. It starts no persistent Python

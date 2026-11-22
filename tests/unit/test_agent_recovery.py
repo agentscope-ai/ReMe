@@ -9,11 +9,11 @@ from unittest.mock import AsyncMock
 import pytest
 import frontmatter
 
-from reme.schema import Response, SessionMessage
-from reme.steps.proactive.agent import InboxChatStep, ProactiveAgentStep
+from reme.schema import Event, Response, SessionMessage
+from reme.steps.proactive.agent import ProcessChatRemindersStep, ProactiveAgentStep
 from reme.steps.file_io import SaveStep, get_path_lock
-from reme.steps.proactive.tools.inbox import ReadInboxStep, SendChatMessageStep
-from .test_agent_runtime import completed_result, create_agent, running_runtime
+from reme.steps.proactive.tools.chat_reminders import ReadChatRemindersStep, SubmitChatReminderStep
+from .test_proactive_runtime import completed_result, create_agent, running_runtime
 from .test_inbox_fork import prepare
 from .test_proactive_run import REMIND, SKIP, install_round
 
@@ -59,7 +59,7 @@ async def test_full_cron_queue_starts_its_existing_consumer(tmp_path, monkeypatc
         start = runtime.now().replace(second=0, microsecond=0)
         monkeypatch.setattr(runtime, "now", lambda: start)
         await runtime._schedule_cron(agent)
-        first = runtime.cron["timer"][1]
+        first = runtime.execution("timer").schedule[1]
         monkeypatch.setattr(runtime, "now", lambda: first)
         await runtime._schedule_cron(agent)
         monkeypatch.setattr(runtime, "now", lambda: first + timedelta(minutes=1))
@@ -75,7 +75,7 @@ async def test_full_cron_queue_starts_its_existing_consumer(tmp_path, monkeypatc
             await runtime._tick_tasks(job)
             await asyncio.gather(*runtime.workers.values())
         assert (await runtime.inbox.snapshot("timer"))["pending_count"] == 0
-        assert runtime.cron["timer"][1] == first + timedelta(minutes=1)
+        assert runtime.execution("timer").schedule[1] == first + timedelta(minutes=1)
 
 
 @pytest.mark.asyncio
@@ -84,9 +84,9 @@ async def test_waiting_append_releases_management_lock_for_consumption(tmp_path)
         await create_agent(runtime)
         runtime.inbox.max_pending_items = 1
         append = asyncio.create_task(
-            runtime.append(
+            runtime.append_events(
                 "monitor",
-                {"id": "next", "event_ts": runtime.now(), "source": "test", "description": "Next"},
+                [Event(id="next", event_ts=runtime.now(), source="test", description="Next")],
             ),
         )
         try:
@@ -111,13 +111,9 @@ async def test_recovered_native_reminder_finishes_ack_without_regenerating(tmp_p
                     "task_description": "Observe",
                 },
             )
-            await runtime.append(
+            await runtime.append_events(
                 "other",
-                {
-                    "event_ts": runtime.now(),
-                    "source": "test",
-                    "description": "Finished",
-                },
+                [Event(event_ts=runtime.now(), source="test", description="Finished")],
             )
             result, session = completed_result(runtime, "other", priority="P1")
             await runtime.run("other", AsyncMock(return_value=(result, session)))
@@ -153,7 +149,7 @@ async def test_recovered_native_reminder_finishes_ack_without_regenerating(tmp_p
                     await runtime.notifications.send(turn, "The experiment has finished.")
         await runtime.outbox.refresh()
         wrapper.reply = AsyncMock(side_effect=AssertionError("Accepted decisions must not be regenerated"))
-        response = await InboxChatStep(app_context=context)(**args)
+        response = await ProcessChatRemindersStep(app_context=context)(**args)
         assert response.answer == {"sent": True}
         assert not runtime.notifications.pending
         wrapper.reply.assert_not_awaited()
@@ -166,9 +162,9 @@ async def test_delete_cancels_an_append_waiting_for_capacity(tmp_path):
         await create_agent(runtime)
         runtime.inbox.max_pending_items = 1
         append = asyncio.create_task(
-            runtime.append(
+            runtime.append_events(
                 "monitor",
-                {"id": "next", "event_ts": runtime.now(), "source": "test", "description": "Next"},
+                [Event(id="next", event_ts=runtime.now(), source="test", description="Next")],
             ),
         )
         try:
@@ -209,20 +205,20 @@ async def test_full_receiver_consumes_both_reminders_without_waiting_for_more_ca
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         for name in ("first", "second"):
             await runtime.create({"agent_name": name, "task_description": "Report"})
-            await runtime.append(name, {"event_ts": runtime.now(), "source": "test", "description": "Finished"})
+            await runtime.append_events(name, [Event(event_ts=runtime.now(), source="test", description="Finished")])
             await runtime.run(name, AsyncMock(return_value=completed_result(runtime, name)))
         runtime.inbox.max_pending_items = 1
         runtime.notifications.config.p0_delay_seconds = 0
 
         async def decide(_hint, **options):
             bound = options["injected_job_kwargs"]
-            await ReadInboxStep(app_context=context)(**bound)
-            await SendChatMessageStep(app_context=context)(content="", **bound)
+            await ReadChatRemindersStep(app_context=context)(**bound)
+            await SubmitChatReminderStep(app_context=context)(content="", **bound)
             return {"status": "completed"}
 
         async def run_job(name, **kwargs):
             assert name == "process_chat_reminders"
-            return await InboxChatStep(app_context=context)(**kwargs)
+            return await ProcessChatRemindersStep(app_context=context)(**kwargs)
 
         wrapper.reply = AsyncMock(side_effect=decide)
         jobs = AsyncMock(side_effect=run_job)

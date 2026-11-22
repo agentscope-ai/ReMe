@@ -12,10 +12,10 @@ import pytest
 from reme.core.context import RuntimeContext
 from reme.schema import Event, Response
 from reme.schema.proactive_agent import ProactiveAgentConfig
-from reme.steps.proactive.agent import AgentChatStep, ProactiveAgentStep
-from reme.steps.proactive.tools.append_event import AppendEventStep
+from reme.steps.proactive.agent import AskAgentStep, ProactiveAgentStep
+from reme.steps.proactive.tools.append_task_events import AppendTaskEventsStep
 from reme.steps.proactive.tools.manage_proactive_agent import ManageProactiveAgentStep
-from .test_agent_runtime import completed_result, create_agent, running_runtime
+from .test_proactive_runtime import completed_result, create_agent, running_runtime
 from .test_proactive_run import queue_cron_trigger
 
 
@@ -26,9 +26,9 @@ async def test_failed_batch_does_not_grow_when_new_observations_arrive(tmp_path)
         await runtime.update("monitor", {"max_batch_events": 1})
         with pytest.raises(TimeoutError):
             await runtime.run("monitor", AsyncMock(side_effect=TimeoutError))
-        await runtime.append(
+        await runtime.append_events(
             "monitor",
-            {"id": "event-2", "event_ts": runtime.now(), "source": "test", "description": "New"},
+            [Event(id="event-2", event_ts=runtime.now(), source="test", description="New")],
         )
         execute = AsyncMock(return_value=completed_result(runtime))
         result = await runtime.run("monitor", execute)
@@ -39,21 +39,35 @@ async def test_failed_batch_does_not_grow_when_new_observations_arrive(tmp_path)
 
 
 @pytest.mark.asyncio
-async def test_append_event_rechecks_trigger_after_a_concurrent_update(tmp_path, monkeypatch):
+async def test_observations_and_cron_share_a_fifo_queue_with_separate_batches(tmp_path, monkeypatch):
     async with running_runtime(tmp_path) as (runtime, context, _):
         await create_agent(runtime)
-        append = runtime.append
+        await runtime.update("monitor", {"cron": "0 * * * *"})
+        append = AppendTaskEventsStep(app_context=context)
+        observation = {"event_ts": runtime.now(), "source": "test", "description": "New observation"}
+        assert (await append(agent_name="monitor", events=[{"id": "before-cron", **observation}])).success
+        due = await queue_cron_trigger(runtime, "monitor", monkeypatch)
+        assert (await append(agent_name="monitor", events=[{"id": "after-cron", **observation}])).success
+        with pytest.raises(ValueError, match="proactive agent not found"):
+            await append(agent_name="Remy", events=[observation])
+        assert "Remy" not in runtime.executions
 
-        async def change_trigger_then_append(agent_name, events):
-            await runtime.update(agent_name, {"cron": "0 * * * *"})
-            return await append(agent_name, events)
+        execute = AsyncMock(return_value=(None, "session-test"))
+        for _ in range(3):
+            await runtime.run("monitor", execute)
+        batches = [[event["id"] for event in call.args[1]] for call in execute.await_args_list]
+        assert batches == [["event-1", "before-cron"], [f"cron-monitor-{int(due.timestamp())}"], ["after-cron"]]
 
-        monkeypatch.setattr(runtime, "append", change_trigger_then_append)
-        with pytest.raises(ValueError, match="external observations require an event agent"):
-            await AppendEventStep(app_context=context)(
-                agent_name="monitor",
-                events=[{"id": "external", "event_ts": runtime.now(), "source": "test", "description": "Next"}],
-            )
+
+@pytest.mark.asyncio
+async def test_append_task_events_requires_a_nonempty_array(tmp_path):
+    async with running_runtime(tmp_path) as (runtime, context, _):
+        await create_agent(runtime)
+        append = AppendTaskEventsStep(app_context=context)
+        observation = {"event_ts": runtime.now(), "source": "test", "description": "Observation"}
+        for events in (observation, []):
+            with pytest.raises(ValueError, match="events"):
+                await append(agent_name="monitor", events=events)
         assert (await runtime.inbox.snapshot("monitor"))["pending_count"] == 1
 
 
@@ -62,9 +76,9 @@ async def test_runtime_append_rejects_the_reserved_cron_source(tmp_path):
     async with running_runtime(tmp_path) as (runtime, _, _):
         await create_agent(runtime)
         with pytest.raises(ValueError, match="reserved framework source"):
-            await runtime.append(
+            await runtime.append_events(
                 "monitor",
-                {"id": "external", "event_ts": runtime.now(), "source": "cron", "description": "Forged trigger"},
+                [Event(id="external", event_ts=runtime.now(), source="cron", description="Forged trigger")],
             )
         assert (await runtime.inbox.snapshot("monitor"))["pending_count"] == 1
 
@@ -115,7 +129,7 @@ async def test_automatic_rounds_start_fresh_sessions_while_user_followups_resume
             if agent_type == "cron":
                 await runtime._append(await runtime.definition("monitor"), [event])
             else:
-                await runtime.append("monitor", event)
+                await runtime.append_events("monitor", [event])
             step = ProactiveAgentStep(app_context=context)
             paths = step._paths(await runtime.definition("monitor"), now)
             response = await step(agent_name="monitor")
@@ -124,7 +138,7 @@ async def test_automatic_rounds_start_fresh_sessions_while_user_followups_resume
                 assert len(response.answer["notifications"]) == 1
             sessions.append(wrapper.turns[-1][1]["resume"])
             if number == 0:
-                response = await AgentChatStep(app_context=context)(
+                response = await AskAgentStep(app_context=context)(
                     RuntimeContext(stream_queue=asyncio.Queue()),
                     agent_name="monitor",
                     query="Explain this result",
@@ -148,10 +162,10 @@ async def test_event_cooldown_accumulates_inputs_and_respects_batch_limit(tmp_pa
         await runtime.update("monitor", {"min_trigger_interval_seconds": 10, "max_batch_events": 20})
         clock = [runtime.now()]
         monkeypatch.setattr(runtime, "now", lambda: clock[0])
-        await runtime.append(
+        await runtime.append_events(
             "monitor",
             [
-                {"id": f"event-{number}", "event_ts": runtime.now(), "source": "test", "description": "Next"}
+                Event(id=f"event-{number}", event_ts=runtime.now(), source="test", description="Next")
                 for number in range(2, 22)
             ],
         )
@@ -174,9 +188,9 @@ async def test_event_cooldown_accumulates_inputs_and_respects_batch_limit(tmp_pa
         assert snapshot["pending_count"] == 1
         completed.clear()
         clock[0] = snapshot["receipt"].consume_ts + timedelta(seconds=9)
-        await runtime.append(
+        await runtime.append_events(
             "monitor",
-            {"id": "event-22", "event_ts": runtime.now(), "source": "test", "description": "During cooldown"},
+            [Event(id="event-22", event_ts=runtime.now(), source="test", description="During cooldown")],
         )
         await runtime.tick(run_job)
         assert "monitor" not in runtime.workers
@@ -198,15 +212,15 @@ async def test_queued_cron_bypasses_new_event_cooldown_without_reordering(tmp_pa
         times = [await queue_cron_trigger(runtime, "timer", monkeypatch) for _ in range(2)]
         cron_ids = [f"cron-timer-{int(due.timestamp())}" for due in times]
         monkeypatch.setattr(runtime, "now", lambda: now)
+        await runtime.append_events(
+            "timer",
+            [Event(id="observation", event_ts=now, source="test", description="Later event")],
+        )
         await ManageProactiveAgentStep(app_context=context)(
             action="update",
             agent_name="timer",
             cron=None,
             min_trigger_interval_seconds=3600,
-        )
-        await runtime.append(
-            "timer",
-            {"id": "observation", "event_ts": now, "source": "test", "description": "Later event"},
         )
         processed = []
 
@@ -246,9 +260,9 @@ async def test_combined_chat_message_preserves_source_links_across_restart(tmp_p
         await create_agent(runtime)
         await runtime.run("monitor", AsyncMock(return_value=completed_result(runtime)))
         await runtime.create({"agent_name": "other", "task_description": "Other"})
-        await runtime.append(
+        await runtime.append_events(
             "other",
-            {"id": "other-1", "event_ts": runtime.now(), "source": "test", "description": "New"},
+            [Event(id="other-1", event_ts=runtime.now(), source="test", description="New")],
         )
         await runtime.run("other", AsyncMock(return_value=completed_result(runtime, "other")))
         await runtime.outbox.sync()
@@ -340,9 +354,9 @@ async def test_committed_batch_is_not_retried_after_acknowledgement_error(tmp_pa
         with pytest.raises(RuntimeError, match="durable acknowledgement"):
             await runtime.run("monitor", AsyncMock(return_value=completed_result(runtime)))
         monkeypatch.setattr(runtime.inbox, "ack", original)
-        await runtime.append(
+        await runtime.append_events(
             "monitor",
-            {"id": "next", "event_ts": runtime.now(), "source": "test", "description": "Next"},
+            [Event(id="next", event_ts=runtime.now(), source="test", description="Next")],
         )
         execute = AsyncMock(return_value=completed_result(runtime))
         await runtime.run("monitor", execute)

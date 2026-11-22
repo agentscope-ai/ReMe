@@ -2,18 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { errorText, translator } from "../../shared/i18n.ts";
 import type { DesktopState } from "../../shared/protocol.ts";
-import type {
-  TaskDocument,
-  TaskSettings,
-  TaskType,
-} from "../../shared/tasks.ts";
+import type { TaskDocument, TaskSettings } from "../../shared/tasks.ts";
 import { formatDate, requestResource } from "../resources.ts";
 import TaskSettingsFields from "./settings.tsx";
 import { changedTaskSettings, taskSettings } from "../../shared/tasks.ts";
 import "./tasks.css";
 
 export type TaskTarget =
-  | { mode: "create"; agentType: TaskType }
+  | { mode: "create"; withSchedule: boolean }
   | { mode: "edit" | "delete"; agentName: string };
 
 export default function TaskDialog({
@@ -42,7 +38,7 @@ export default function TaskDialog({
     () =>
       baseline ?? {
         enabled: true,
-        cron: create && target.agentType === "proactive" ? null : "0 8 * * *",
+        cron: create && target.withSchedule ? "0 8 * * *" : null,
         min_trigger_interval_seconds: 0,
         notify_window: null,
       },
@@ -259,37 +255,17 @@ export default function TaskDialog({
         >
           <fieldset disabled={busy || (!create && !agent)}>
             {create && (
-              <div className="task-field-row">
-                <label className="task-field">
-                  <span>{t("taskName")}</span>
-                  <input
-                    autoFocus
-                    required
-                    maxLength={80}
-                    value={name}
-                    onChange={(event) => setName(event.target.value)}
-                    placeholder="tech_news"
-                  />
-                </label>
-                <div className="task-field">
-                  <label htmlFor="task-type">{t("taskType")}</label>
-                  <select
-                    id="task-type"
-                    value={settings.cron === null ? "proactive" : "cron"}
-                    onChange={(event) => {
-                      const agent_type = event.target.value as TaskType;
-                      setSettings({
-                        ...settings,
-                        cron: agent_type === "cron" ? "0 8 * * *" : null,
-                        min_trigger_interval_seconds: 0,
-                      });
-                    }}
-                  >
-                    <option value="cron">{t("scheduledTasks")}</option>
-                    <option value="proactive">{t("proactiveTasks")}</option>
-                  </select>
-                </div>
-              </div>
+              <label className="task-field">
+                <span>{t("taskName")}</span>
+                <input
+                  autoFocus
+                  required
+                  maxLength={80}
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  placeholder="tech_news"
+                />
+              </label>
             )}
             {(create || tab === "description") && (
               <div className="task-field">
@@ -310,7 +286,7 @@ export default function TaskDialog({
             )}
             {(create || tab === "settings") && (
               <TaskSettingsFields
-                key={`${retry}:${settings.cron === null ? "proactive" : "cron"}`}
+                key={retry}
                 value={settings}
                 timezone={state.clientInfo?.timezone ?? null}
                 language={language}

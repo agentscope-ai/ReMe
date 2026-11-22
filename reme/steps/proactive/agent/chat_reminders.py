@@ -7,11 +7,11 @@ import math
 from ....constants import CHAT_AGENT_NAME
 from .chat import BaseChatAgentStep
 from ....core.registry import R
-from ....schema.agent_runtime import InboxWakeRequest
+from ....schema.proactive_runtime import ProcessChatRemindersRequest
 
 
-@R.register("inbox_chat_step")
-class InboxChatStep(BaseChatAgentStep):
+@R.register("process_chat_reminders_step")
+class ProcessChatRemindersStep(BaseChatAgentStep):
     """Keep automatic inference and tool traces outside the foreground session."""
 
     def __init__(self, timeout_seconds=120, **kwargs):
@@ -21,13 +21,13 @@ class InboxChatStep(BaseChatAgentStep):
         self.timeout_seconds = timeout_seconds
 
     async def execute(self):
-        request = InboxWakeRequest.model_validate(self.parameters())
+        request = ProcessChatRemindersRequest.model_validate(self.parameters())
         self.require_paths(self.workspace_path)
         async with asyncio.timeout(self.timeout_seconds):
             return await self._execute(request)
 
-    async def _execute(self, request: InboxWakeRequest):
-        runtime = self.agent_runtime
+    async def _execute(self, request: ProcessChatRemindersRequest):
+        runtime = self.proactive_runtime
         if not any(identifier in runtime.notifications.pending for identifier in request.msg_ids):
             self.context.response.answer = {"skipped": "already_read"}
             return self.context.response

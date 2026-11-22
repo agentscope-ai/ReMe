@@ -8,10 +8,10 @@ from unittest.mock import AsyncMock
 import pytest
 
 from reme.core.context import RuntimeContext
-from reme.schema import Response
-from reme.steps.proactive.agent import AgentLoopStep, InboxChatStep
-from reme.steps.proactive.tools.inbox import ReadInboxStep
-from .test_agent_runtime import running_runtime
+from reme.schema import Event, Response
+from reme.steps.proactive.agent import ProactiveLoopStep, ProcessChatRemindersStep
+from reme.steps.proactive.tools.chat_reminders import ReadChatRemindersStep
+from .test_proactive_runtime import running_runtime
 from .test_inbox_fork import prepare
 
 
@@ -19,9 +19,9 @@ from .test_inbox_fork import prepare
 async def test_shared_loop_runs_both_consumers_and_releases_their_claims_on_stop(tmp_path):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         arguments = await prepare(runtime, context)
-        await runtime.append(
+        await runtime.append_events(
             "monitor",
-            {"id": "next", "event_ts": runtime.now(), "source": "test", "description": "New observation"},
+            [Event(id="next", event_ts=runtime.now(), source="test", description="New observation")],
         )
         task_started, chat_started, stop = asyncio.Event(), asyncio.Event(), asyncio.Event()
 
@@ -30,7 +30,7 @@ async def test_shared_loop_runs_both_consumers_and_releases_their_claims_on_stop
             await asyncio.Event().wait()
 
         async def reply(_hint, **options):
-            await ReadInboxStep(app_context=context)(**options["injected_job_kwargs"])
+            await ReadChatRemindersStep(app_context=context)(**options["injected_job_kwargs"])
             chat_started.set()
             await asyncio.Event().wait()
 
@@ -38,10 +38,10 @@ async def test_shared_loop_runs_both_consumers_and_releases_their_claims_on_stop
             if name == "run_proactive_agent":
                 return Response(answer=await runtime.run(kwargs["agent_name"], execute))
             assert name == "process_chat_reminders"
-            return await InboxChatStep(app_context=context)(**kwargs)
+            return await ProcessChatRemindersStep(app_context=context)(**kwargs)
 
         wrapper.reply = AsyncMock(side_effect=reply)
-        step = AgentLoopStep(app_context=context)
+        step = ProactiveLoopStep(app_context=context)
         step.run_job = run_job
         loop = asyncio.create_task(step(RuntimeContext(stop_event=stop)))
         try:
@@ -67,7 +67,7 @@ async def test_shared_loop_runs_both_consumers_and_releases_their_claims_on_stop
 async def test_shared_loop_requires_background_job_lifecycle(tmp_path):
     async with running_runtime(tmp_path) as (_, context, _):
         with pytest.raises(RuntimeError, match="BackgroundJob stop_event"):
-            await AgentLoopStep(app_context=context)()
+            await ProactiveLoopStep(app_context=context)()
 
 
 @pytest.mark.parametrize("failed", ["task", "chat"])
@@ -90,9 +90,9 @@ async def test_scheduler_failure_does_not_starve_the_other_consumer(tmp_path, mo
             )
             monkeypatch.setattr(runtime, "_schedule_cron", failure)
         else:
-            await runtime.append(
+            await runtime.append_events(
                 "monitor",
-                {"id": "next", "event_ts": runtime.now(), "source": "test", "description": "New observation"},
+                [Event(id="next", event_ts=runtime.now(), source="test", description="New observation")],
             )
             monkeypatch.setattr(runtime.notifications, "tick", failure)
         with pytest.raises(OSError, match="scheduler unavailable"):

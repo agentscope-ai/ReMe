@@ -261,7 +261,7 @@ export class DesktopController {
           "watch_agent_session",
           "ask_agent",
           "create_chat_session",
-          "list_agent_outbox",
+          "list_task_reminders",
           "read_agent_reminder",
           "list_agent_inbox",
         ]) {

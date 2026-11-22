@@ -73,7 +73,7 @@ reme/
     agent_wrapper/           # AgentScope / Claude Code / Codex wrapper
     codex_app_server/        # BaseCodexAppServer / SDK 后端 / 共享会话生命周期
     agent_inbox/             # BaseAgentInbox / 本地存储与 Agent 事件输入
-    agent_runtime/           # BaseAgentRuntime / 本地 Agent 协调
+    proactive_runtime/           # BaseProactiveRuntime / 本地 Agent 协调
   steps/
     base_step.py             # BaseStep、Ref、dispatch_steps
     common/                  # version、help、health_check、status、chat
@@ -590,7 +590,7 @@ Codex wrapper 通过 `app_server: default` 或 `app_server: oauth` 引用共享�
 `reme_agents/` 保存任务配置、事件收件箱、个人记忆和会话引用。Remy 收件箱从每日记录中的提醒和确认字段生成，
 对话内容保存在原生会话历史中。
 
-Agent Runtime 统一管理临时活动状态与实时输出；桌面通过 `watch_agent_session` 订阅。Codex 原生状态通知只负责操作完成与断连处理。
+Proactive Runtime 管理临时活动状态与实时输出；桌面通过 `watch_agent_session` 订阅。Codex 原生状态通知只负责操作完成与断连处理。
 三个 wrapper 都支持 `append_session(..., role="user" | "assistant")`，只追加上下文，不触发模型生成，默认角色为 `assistant`。
 同一 `message_id` 重试时必须保持内容和角色一致。注入消息的 `source="proactive"` 与角色独立，重载或 fork 后仍保留。
 `SessionSnapshot.revision` 是与活动状态无关、重载后稳定的内容指纹。通过 `expected_revision` 追加时，

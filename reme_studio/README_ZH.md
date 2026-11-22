@@ -193,7 +193,7 @@ Chat 身份为 `Remy`，会话选择与提醒状态从工作区文件恢复。
 提示词位于 `reme/steps/proactive/agent/chat.yaml` 和 `reme/steps/proactive/agent/proactive.yaml`，支持 `language=zh/en`。
 
 该配置设置 `service.web_enabled=false`，连接 ReMe Desktop；服务接口与通知流程见
-[Agent 运行时](../docs/zh/services.md#agent-运行时)。
+[主动智能运行时](../docs/zh/services.md#proactive-runtime)。
 
 ### 7. 服务状态
 

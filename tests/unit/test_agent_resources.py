@@ -7,9 +7,9 @@ from unittest.mock import AsyncMock
 import pytest
 
 from reme.core.context import RuntimeContext
-from reme.schema.agent_view import AgentInboxRequest, AgentOutboxRequest, AgentReminderRequest
-from reme.steps.proactive.agent import AgentInboxStep, AgentOutboxStep, AgentReminderStep
-from .test_agent_runtime import completed_result, create_agent, running_runtime
+from reme.schema.agent_view import AgentInboxRequest, ListTaskRemindersRequest, AgentReminderRequest
+from reme.steps.proactive.agent import AgentInboxStep, ListTaskRemindersStep, AgentReminderStep
+from .test_proactive_runtime import completed_result, create_agent, running_runtime
 from .test_agent_inbox import event, make_inbox
 
 
@@ -46,7 +46,7 @@ async def test_inbox_outbox_and_reminder_reads_share_canonical_files(tmp_path):
         hour = (now.hour + 1) % 24
         await runtime.update("monitor", {"notify_window": {"start": f"{hour:02}:00", "end": f"{hour:02}:01"}})
         await runtime.run("monitor", AsyncMock(return_value=completed_result(runtime)))
-        task = AgentOutboxStep(app_context=context)
+        task = ListTaskRemindersStep(app_context=context)
         inbox = AgentInboxStep(app_context=context)
         reminder = AgentReminderStep(app_context=context)
         outgoing = (await task(agent_name="monitor")).answer["items"]
@@ -92,8 +92,8 @@ async def test_inbox_endpoint_accepts_chat_and_tasks_and_preserves_processing_st
     [
         (AgentInboxRequest, {"limit": 101}),
         (AgentInboxRequest, {"offset": True}),
-        (AgentOutboxRequest, {}),
-        (AgentOutboxRequest, {"agent_name": "monitor", "mark_read": True}),
+        (ListTaskRemindersRequest, {}),
+        (ListTaskRemindersRequest, {"agent_name": "monitor", "mark_read": True}),
         (AgentReminderRequest, {}),
         (AgentReminderRequest, {"message_id": "id", "state": "all"}),
         (AgentReminderRequest, {"message_id": "id", "mark_read": True}),

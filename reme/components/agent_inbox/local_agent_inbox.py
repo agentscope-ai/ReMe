@@ -294,6 +294,9 @@ class LocalAgentInbox(BaseAgentInbox):
         Event.validate_paths([directory])
         if self._workspace / directory != self._path(name):
             raise ValueError("directory does not match the item-inbox storage layout")
+        self._check_open()
+        if name in self._inboxes:
+            return
         async with self._changed:
             await finish_cleanup(self._mount(name))
 

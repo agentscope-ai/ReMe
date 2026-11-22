@@ -14,10 +14,10 @@ import pytest
 from reme.config import resolve_app_config
 from reme.core.registry import R
 from reme.enumeration import ChunkEnum, ComponentEnum
-from reme.schema import StreamChunk
+from reme.schema import Event, StreamChunk
 from reme.steps.proactive.agent import ProactiveAgentStep
 from reme.steps.proactive.tools.manage_proactive_agent import ManageProactiveAgentStep
-from .test_agent_runtime import create_agent, running_runtime
+from .test_proactive_runtime import create_agent, running_runtime
 
 
 async def queue_cron_trigger(runtime, name, monkeypatch):
@@ -107,7 +107,8 @@ async def test_round_publishes_and_acknowledges_the_same_note(
 ):
     async with running_runtime(tmp_path, language=language) as (runtime, context, wrapper):
         await create_round_task(runtime, monkeypatch, agent_type)
-        now = runtime.now()
+        scheduled = runtime.now() if agent_type == "cron" else None
+        now = scheduled + timedelta(minutes=7) if scheduled else runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)
         window_start = now + timedelta(hours=1)
         await runtime.update(
@@ -132,11 +133,17 @@ async def test_round_publishes_and_acknowledges_the_same_note(
         if language == "zh":
             assert "## 任务要求\nMonitor" in query
             assert "## 2. 查询历史" in query and "## 3. 记录与提醒" in query
-            assert ("## 本轮事件" in query) == (agent_type == "proactive")
+            assert "## 本轮事件" in query
+            if scheduled is not None:
+                assert f"定时触发，计划时间 {scheduled.isoformat()}" in query
+                assert f"当前时间：{now.isoformat()}" in query
         else:
             assert "## Task requirements\nMonitor" in query
             assert "## 2. Search past records" in query and "## 3. Record and remind" in query
-            assert ("## Events for this run" in query) == (agent_type == "proactive")
+            assert "## Events for this run" in query
+            if scheduled is not None:
+                assert f"Scheduled trigger, planned time {scheduled.isoformat()}" in query
+                assert f"Current time: {now.isoformat()}" in query
         assert ("Finished" in query) == (agent_type == "proactive")
         assert list((tmp_path / "daily").rglob("*.md")) == [path]
 
@@ -370,15 +377,17 @@ async def test_queued_observations_run_before_cron_trigger_after_switch(tmp_path
         await create_agent(runtime)
         attachment = "resource/alert.txt"
         runtime.files.write(runtime.files.path(attachment), "Evidence")
-        await runtime.append(
+        await runtime.append_events(
             "monitor",
-            {
-                "id": "observation",
-                "event_ts": runtime.now(),
-                "source": "experiment",
-                "description": "Alarm from the experiment",
-                "paths": [attachment],
-            },
+            [
+                Event(
+                    id="observation",
+                    event_ts=runtime.now(),
+                    source="experiment",
+                    description="Alarm from the experiment",
+                    paths=[attachment],
+                ),
+            ],
         )
         await ManageProactiveAgentStep(app_context=context)(action="update", agent_name="monitor", cron="* * * * *")
         now = await queue_cron_trigger(runtime, "monitor", monkeypatch)
@@ -419,7 +428,7 @@ async def test_backlogged_cron_processes_each_trigger_with_current_time(tmp_path
             assert response.answer["processed"] == 1
             query = calls[0][0]
             assert now.isoformat() in query
-            assert due.isoformat() not in query
+            assert due.isoformat() in query
             receipt = (await runtime.inbox.snapshot("timer"))["receipt"]
             assert receipt.item_ids == [f"cron-timer-{int(due.timestamp())}"]
 
@@ -433,9 +442,9 @@ async def test_cron_skip_record_keeps_trigger_pending_after_model_failure(tmp_pa
         if switch_to_event:
             await queue_cron_trigger(runtime, "timer", monkeypatch)
             await ManageProactiveAgentStep(app_context=context)(action="update", agent_name="timer", cron=None)
-            await runtime.append(
+            await runtime.append_events(
                 "timer",
-                {"event_ts": runtime.now(), "source": "experiment", "description": "Later observation"},
+                [Event(event_ts=runtime.now(), source="experiment", description="Later observation")],
             )
         pending = await runtime.inbox.pending_ids("timer")
 
@@ -449,7 +458,7 @@ async def test_cron_skip_record_keeps_trigger_pending_after_model_failure(tmp_pa
         assert await runtime.inbox.pending_ids("timer") == pending
         assert snapshot["receipt"] is None and snapshot["in_flight_count"] == 0
         assert runtime.execution("timer").retry_items == [f"cron-timer-{int(trigger.timestamp())}"]
-        assert "## Events for this run" not in calls[0][0]
+        assert "## Events for this run" in calls[0][0]
         assert not paths["record_path"].exists()
 
 

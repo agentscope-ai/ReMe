@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from reme.core.context import ApplicationContext, RuntimeContext
-from reme.components import LocalAgentRuntime
+from reme.components import LocalProactiveRuntime
 from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.agent_inbox import AgentEventInbox
 from reme.utils.files.workspace_files import WorkspaceFiles
@@ -105,7 +105,7 @@ async def runtime(tmp_path):
     context = ApplicationContext(workspace_dir=str(tmp_path / "workspace"), language="zh")
     Path(context.app_config.workspace_dir).mkdir(exist_ok=True)
     inbox = AgentEventInbox(app_context=context)
-    agents = LocalAgentRuntime(
+    agents = LocalProactiveRuntime(
         app_context=context,
         agents=[
             {
@@ -117,11 +117,11 @@ async def runtime(tmp_path):
     context.components = {
         "agent_inbox": {"default": inbox},
         "agent_wrapper": {"default": Mock(spec=BaseAgentWrapper)},
-        "agent_runtime": {"default": agents},
+        "proactive_runtime": {"default": agents},
     }
-    job = BaseJob(app_context=context, steps=[{"backend": "append_event_step"}])
+    job = BaseJob(app_context=context, steps=[{"backend": "append_task_events_step"}])
     delivery = AsyncMock(side_effect=job.__call__)
-    context.jobs["append_agent_events"] = delivery
+    context.jobs["append_task_events"] = delivery
     async with inbox, agents, job:
         agents.watcher.cancel()
         await asyncio.gather(agents.watcher, return_exceptions=True)
@@ -660,19 +660,21 @@ async def test_interrupted_pending_cleanup_recovers_without_replaying_dialogue(t
 async def test_screenshot_delivery_failure_does_not_block_dialogue_progress(tmp_path, source, devices, monkeypatch):
     home, path = source
     async with runtime(tmp_path) as (context, inbox, delivery):
+        proactive_runtime = context.components["proactive_runtime"]["default"]
+        await proactive_runtime.update("work", {"cron": "0 * * * *"})
         await CodexDialogueInitStep(**options(context, home))()
         append(path, record("UserMessage", "first", "first"))
         await CodexDialogueStep(**options(context, home))()
         committed = progress(context).read_bytes()
-        append_event = context.components["agent_runtime"]["default"].append
+        append_events = proactive_runtime.append_events
 
-        async def fail_screenshot(agent_name, event):
-            if event.source == "screenshot":
+        async def fail_screenshot(agent_name, events):
+            if any(event.source == "screenshot" for event in events):
                 raise ConnectionError("screen delivery failed")
-            return await append_event(agent_name, event)
+            return await append_events(agent_name, events)
 
         with monkeypatch.context() as patch:
-            patch.setattr(context.components["agent_runtime"]["default"], "append", fail_screenshot)
+            patch.setattr(context.components["proactive_runtime"]["default"], "append_events", fail_screenshot)
             screen = await capture_screen(context)
         assert not screen.success and "screen delivery failed" in screen.answer
         assert progress(context).read_bytes() == committed

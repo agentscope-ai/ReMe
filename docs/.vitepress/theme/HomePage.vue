@@ -13,7 +13,7 @@ const translations = {
   zh: {
     eyebrow: "LOCAL-FIRST · FILE-NATIVE",
     title: "让 Agent 真正记住，\n让记忆始终属于你。",
-    lead: "ReMe 将对话、资料与经验沉淀为可读、可编辑、可检索、相互链接的本地文件，让不同 Agent 共享同一套长期记忆。",
+    lead: "ReMe 将对话、资料与经验沉淀为可读、可编辑、可检索、相互链接的本地文件，让不同 Agent 共享长期记忆，并把它用于持续任务和提醒。",
     quickStart: "快速开始",
     learnMore: "了解 ReMe",
     stars: "GitHub Stars",
@@ -26,6 +26,7 @@ const translations = {
       { mark: "✦", title: "自动记忆", href: "/zh/auto_memory", tone: "cyan" },
       { mark: "⌕", title: "混合检索", href: "/zh/memory_search", tone: "blue" },
       { mark: "⌁", title: "图谱关联", href: "/zh/auto_link", tone: "amber" },
+      { mark: "↗", title: "主动智能运行时", href: "/zh/proactive_runtime", tone: "violet" },
     ],
     agentTitle: "ReMe 接入 Agent",
     agentGuide: "接入指南",
@@ -73,7 +74,7 @@ const translations = {
   en: {
     eyebrow: "LOCAL-FIRST · FILE-NATIVE",
     title: "Memory for AI agents.\nFiles that remain yours.",
-    lead: "ReMe turns conversations, resources, and experience into readable, editable, searchable, interconnected local files—a shared long-term memory layer for every agent.",
+    lead: "ReMe turns conversations, resources, and experience into readable, editable, searchable, interconnected local files—shared long-term memory for agents and the context for ongoing tasks and reminders.",
     quickStart: "Quick Start",
     learnMore: "Meet ReMe",
     stars: "GitHub Stars",
@@ -86,6 +87,7 @@ const translations = {
       { mark: "✦", title: "Auto memory", href: "/en/auto_memory", tone: "cyan" },
       { mark: "⌕", title: "Hybrid search", href: "/en/memory_search", tone: "blue" },
       { mark: "⌁", title: "Linked graph", href: "/en/auto_link", tone: "amber" },
+      { mark: "↗", title: "Proactive Runtime", href: "/en/proactive_runtime", tone: "violet" },
     ],
     agentTitle: "ReMe for agents",
     agentGuide: "Integration guide",

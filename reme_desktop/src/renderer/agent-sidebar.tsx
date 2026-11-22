@@ -145,35 +145,35 @@ export default function AgentSidebar({
             (agent) => agent.agent_type === agentType,
           );
           const key = `group:${agentType}`;
+          const label = t(
+            agentType === "proactive" ? "eventOnlyTasks" : "scheduledTasks",
+          );
           return (
             <Disclosure
               key={agentType}
-              label={t(
-                agentType === "proactive" ? "proactiveTasks" : "scheduledTasks",
-              )}
+              label={label}
               open={expanded[key] ?? true}
               onOpenChange={(value) => setOpen(key, value)}
               className="agent-group"
               triggerClassName="agent-group-heading"
               summary={
                 <>
-                  <span>
-                    {t(
-                      agentType === "proactive"
-                        ? "proactiveTasks"
-                        : "scheduledTasks",
-                    )}
-                  </span>
+                  <span>{label}</span>
                   <small>{items.length}</small>
                 </>
               }
               actions={
                 <button
                   className="agent-group-add"
-                  aria-label={`${t("taskCreate")} · ${t(agentType === "proactive" ? "proactiveTasks" : "scheduledTasks")}`}
+                  aria-label={`${t("taskCreate")} · ${label}`}
                   title={t("taskCreate")}
                   disabled={busy || state.connection !== "connected"}
-                  onClick={() => onManage({ mode: "create", agentType })}
+                  onClick={() =>
+                    onManage({
+                      mode: "create",
+                      withSchedule: agentType === "cron",
+                    })
+                  }
                 >
                   <Plus size={15} />
                 </button>

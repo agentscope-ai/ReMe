@@ -1,8 +1,6 @@
 import type { AgentView, TaskSettings } from "./wire.ts";
 export type { TaskSettings } from "./wire.ts";
 
-export type TaskType = "proactive" | "cron";
-
 export interface TaskDocument {
   path: string;
   content: string;
@@ -122,7 +120,7 @@ export function taskPayload(request: TaskRequest): {
   return {
     job:
       action === "read" || action === "save"
-        ? "agent_task"
+        ? "task_document"
         : "manage_proactive_agent",
     body,
   };

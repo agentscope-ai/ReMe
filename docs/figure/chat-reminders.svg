@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1780" height="1120" viewBox="0 0 1780 1120" role="img" aria-labelledby="title desc">
-  <title id="title">Personal Runtime</title>
+  <title id="title">Proactive Runtime</title>
   <desc id="desc">Remy manages named tasks through manage_proactive_agent. Each task owns its description, settings and session references. Remy's Inbox derives its state from delivered reminders and acknowledgement fields in daily records. A read-only fork reads the selected batch and its evidence, then submits a decision. A text decision appends an assistant message to Chat. An empty decision acknowledges the batch silently. The workspace cards show personal memory, session references, the derived Chat Inbox, task files and daily records.</desc>
-  <metadata>Source: reme/schema/proactive_agent.py; reme/config/proactive.yaml; reme/components/agent_inbox/; reme/components/agent_runtime/_internal/registry.py; reme/components/agent_runtime/_internal/sessions.py; reme/components/agent_runtime/_internal/outbox.py; reme/components/agent_runtime/_internal/notifications.py; reme/steps/proactive/agent/proactive.py; reme/steps/proactive/agent/inbox.py; reme/steps/proactive/agent/inbox.yaml; reme/steps/proactive/tools/manage_proactive_agent.py; reme/steps/proactive/tools/inbox.py. Drawn from the current working tree. Paths are relative to the configured workspace root; {date} is an application-local calendar date. Permanent task paths shown.</metadata>
+  <metadata>Source: reme/schema/proactive_agent.py; reme/config/proactive.yaml; reme/components/agent_inbox/; reme/components/proactive_runtime/_internal/registry.py; reme/components/proactive_runtime/_internal/sessions.py; reme/components/proactive_runtime/_internal/outbox.py; reme/components/proactive_runtime/_internal/notifications.py; reme/steps/proactive/agent/proactive.py; reme/steps/proactive/agent/inbox.py; reme/steps/proactive/agent/inbox.yaml; reme/steps/proactive/tools/manage_proactive_agent.py; reme/steps/proactive/tools/inbox.py. Drawn from the current working tree. Paths are relative to the configured workspace root; {date} is an application-local calendar date. Permanent task paths shown.</metadata>
   <defs>
     <style>
       text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; fill: #22383F; }
@@ -35,7 +35,7 @@
   </defs>
   <rect x="0" y="0" width="1780" height="1120" rx="0" fill="#F8FAFA" />
   <text x="64" y="43" class="section teal">REME / 02</text>
-  <text x="64" y="91" class="title">Personal Runtime</text>
+  <text x="64" y="91" class="title">Proactive Runtime</text>
   <path d="M64 118H1716" class="line" stroke="#DFE8E8" stroke-width="1" />
   <g data-role="section-headings">
     <text x="64" y="166" class="section teal">01</text>
@@ -142,13 +142,13 @@
     </g>
     <text x="832" y="523" class="small muted">An empty decision consumes the batch silently.</text>
   </g>
-  <g data-role="proactive-runtimes" data-box="1304,196,412,356">
+  <g data-role="background-tasks" data-box="1304,196,412,356">
     <rect x="1304" y="196" width="412" height="356" rx="16" fill="#FFFFFF" stroke="#DDE7E7" />
-    <text x="1328" y="238" class="heading">Proactive Runtimes</text>
-    <g data-role="stacked-runtime-cards">
+    <text x="1328" y="238" class="heading">Background tasks</text>
+    <g data-role="stacked-task-cards">
       <rect x="1352" y="294" width="340" height="144" rx="12" fill="#E8EFEF" stroke="#DDE7E7" />
       <rect x="1340" y="318" width="340" height="144" rx="12" fill="#F5F8F8" stroke="#DDE7E7" />
-      <g data-role="proactive-runtime-instance" data-box="1328,342,340,144">
+      <g data-role="background-task" data-box="1328,342,340,144">
         <rect x="1328" y="342" width="340" height="144" rx="12" fill="#E8F2F1" stroke="#CFE2E1" />
         <text x="1498" y="414" font-size="15" font-weight="600" text-anchor="middle" dominant-baseline="middle"><tspan class="teal">Event Inbox</tspan><tspan dx="7" class="muted">→</tspan><tspan dx="7">Proactive run</tspan><tspan dx="7" class="muted">→</tspan><tspan dx="7" class="purple">Outbox</tspan></text>
       </g>
@@ -159,11 +159,11 @@
     <text x="744" y="287" font-size="14" class="purple" font-weight="600" text-anchor="middle">Read reminders</text>
     <text x="744" y="324" font-size="12" class="muted" text-anchor="middle">Selected batch</text>
   </g>
-  <g data-role="runtime-to-inbox">
+  <g data-role="task-to-inbox">
     <path d="M1302 410H1218" class="line" stroke="#9A83BA" stroke-width="1.7" marker-end="url(#purple)" stroke-dasharray="4 5" />
     <text x="1260" y="398" font-size="14" class="purple" font-weight="600" text-anchor="middle">deliver</text>
   </g>
-  <g data-role="skill-to-runtimes">
+  <g data-role="skill-to-tasks">
     <path d="M706 650H1000" class="line" stroke="#9A83BA" stroke-width="1.7" stroke-dasharray="4 5" />
     <path d="M1024 650H1368V554" class="line" stroke="#9A83BA" stroke-width="1.7" marker-end="url(#purple)" stroke-dasharray="4 5" />
     <text x="1170" y="634" font-size="14" class="purple" font-weight="600" text-anchor="middle">Manage tasks</text>
@@ -206,5 +206,5 @@
     </g>
   </g>
   <text x="64" y="1050" font-size="12" class="muted">Paths are relative to the workspace root (default: .reme/). Directory settings may be overridden.</text>
-  <text x="1716" y="1103" font-size="12" class="muted" text-anchor="end">REME / PERSONAL RUNTIME</text>
+  <text x="1716" y="1103" font-size="12" class="muted" text-anchor="end">REME / PROACTIVE RUNTIME</text>
 </svg>

@@ -14,10 +14,20 @@ from pydantic import (
 )
 
 from ..constants import CHAT_AGENT_NAME
-from .agent_runtime import AgentName, InboxPriority
 from .agent_message import ClientModel
+from .event import Event
+from .proactive_runtime import AgentName, InboxPriority
 
 CRON_EVENT_SOURCE = "cron"
+
+
+class AppendTaskEventsRequest(BaseModel):
+    """Append a nonempty batch of observations to one existing background task."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    agent_name: AgentName
+    events: list[Event] = Field(min_length=1)
 
 
 class NotificationWindow(BaseModel):
@@ -56,17 +66,16 @@ class TaskSettings(ClientModel):
             raise ValueError("min_trigger_interval_seconds must be a number")
         return value
 
-    @model_validator(mode="after")
-    def validate_trigger(self):
-        """Validate the final task after creation or a partial update."""
-        if self.cron is not None:
+    @field_validator("cron")
+    @classmethod
+    def validate_cron(cls, expression):
+        """Validate the optional schedule independently of observation processing."""
+        if expression is not None:
             from croniter import croniter
 
-            if not self.cron or not croniter.is_valid(self.cron):
-                raise ValueError("cron tasks require a valid cron expression")
-            if self.min_trigger_interval_seconds:
-                raise ValueError("cron tasks do not accept an event trigger interval")
-        return self
+            if not expression or not croniter.is_valid(expression):
+                raise ValueError("cron must be a valid expression")
+        return expression
 
 
 class ProactiveAgentConfig(TaskSettings):
@@ -74,11 +83,6 @@ class ProactiveAgentConfig(TaskSettings):
 
     agent_name: AgentName
     max_batch_events: int = Field(default=20, ge=1, strict=True)
-
-    @property
-    def agent_type(self) -> Literal["proactive", "cron"]:
-        """Classify tasks by their trigger."""
-        return "cron" if self.cron is not None else "proactive"
 
     @field_validator("agent_name")
     @classmethod

@@ -33,6 +33,8 @@
 such as QwenPaw and DeepSeek Harness can share the same workspace to retrieve, maintain, and evolve knowledge, while
 users retain control of the durable files.
 
+The **Proactive Runtime** uses that memory in ongoing tasks. It schedules work from new events or a cron expression, delegates execution to an agent runtime such as Codex, and records results and reminders in the workspace.
+
 - **Memory as File, File as Memory**: ReMe stores durable memory as ordinary Markdown with frontmatter and wikilinks.
   Users and agents can inspect, edit, move, sync, and back it up with familiar tools, while indexes and generated
   metadata remain rebuildable.
@@ -419,6 +421,7 @@ These guides cover the main user workflows and the runtime contracts implemented
 | [Auto Dream](https://reme.agentscope.io/en/auto_dream) and [Auto Link](https://reme.agentscope.io/en/auto_link) | Consolidate daily notes into evolving digest nodes and readable wikilink relationships.             |
 | [Memory Search](https://reme.agentscope.io/en/memory_search)                                 | Use BM25, optional vectors, RRF fusion, line-range recall, and progressive link expansion.          |
 | [Proactive](https://reme.agentscope.io/en/proactive)                                         | Read interest topics safely and integrate them into a host agent's decision flow.                   |
+| [Proactive Runtime](https://reme.agentscope.io/en/proactive_runtime) | Use long-term memory to follow tasks, act on events and schedules, and deliver reminders. |
 | [Application Scenarios](https://reme.agentscope.io/en/reme_scene)                            | Follow concrete financial research, coding-memory, and personal knowledge-base examples.           |
 | [Framework](https://reme.agentscope.io/en/framework)                                         | Understand Application, Job, Step, Component, service, configuration, and lifecycle boundaries.     |
 | [Agent Integrations](https://reme.agentscope.io/en/integrations)                             | Choose an interface and connect DSH, Claude Code, Codex, Qoder, OpenClaw, Hermes, or another agent. |

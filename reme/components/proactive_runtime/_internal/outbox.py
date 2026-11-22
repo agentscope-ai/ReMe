@@ -7,14 +7,14 @@ import yaml
 
 from .reminder_files import ReminderFiles
 from ....constants import CHAT_AGENT_NAME, PROACTIVE_MESSAGE_ID_PREFIX
-from ....schema.agent_runtime import AgentReminder
+from ....schema.proactive_runtime import AgentReminder
 from ....utils.async_utils import complete_in_thread
 from ....utils.files.path_lock import get_path_lock
 
 _FILE_ERRORS = (OSError, RuntimeError, TypeError, ValueError, yaml.YAMLError)
 
 
-class AgentOutbox:
+class ReminderOutbox:
     """Deliver committed reminders and rebuild the inbox from their files."""
 
     def __init__(self, runtime, daily_dir):

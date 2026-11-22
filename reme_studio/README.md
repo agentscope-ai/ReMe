@@ -218,7 +218,7 @@ for task management. Its Chat identity is `Remy`. It restores session selection 
 Prompts live in `reme/steps/proactive/agent/chat.yaml` and `reme/steps/proactive/agent/proactive.yaml` and support `language=zh/en`.
 
 This configuration sets `service.web_enabled=false` and connects to ReMe Desktop. See
-[Agent Runtime](../docs/en/services.md#agent-runtime) for the service API and notification flow.
+[Proactive Runtime](../docs/en/services.md#proactive-runtime) for the service API and notification flow.
 
 ### 7. Service status
 

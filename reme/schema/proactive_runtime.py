@@ -104,7 +104,7 @@ class AgentReminder(AgentNotification):
     chat_message_ids: list[ChatMessageId] = Field(default_factory=list)
 
 
-class InboxWakeRequest(BaseModel):
+class ProcessChatRemindersRequest(BaseModel):
     """A framework-selected batch eligible for automatic processing."""
 
     model_config = ConfigDict(extra="forbid")
@@ -119,7 +119,7 @@ class InboxWakeRequest(BaseModel):
         return Event.validate_paths(value)
 
 
-class SendChatMessageRequest(BaseModel):
+class SubmitChatReminderRequest(BaseModel):
     """Submit user-facing text, or an empty decision to stay quiet."""
 
     model_config = ConfigDict(extra="forbid")
