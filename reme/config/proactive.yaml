@@ -172,6 +172,7 @@ jobs:
         min_trigger_interval_seconds: {type: number, minimum: 0, description: "Event processing interval, not collection frequency."}
         notify_window:
           type: [object, "null"]
+          description: "Time window for automatic Chat processing and sending."
           properties:
             start: {type: string, pattern: '^(?:[01][0-9]|2[0-3]):[0-5][0-9]$'}
             end: {type: string, pattern: '^(?:[01][0-9]|2[0-3]):[0-5][0-9]$'}
@@ -212,7 +213,7 @@ jobs:
     backend: base
     enable_serve: false
     description: >-
-      Read the selected reminders as agent_name, created_at, message and supporting paths, excluding the reminder Markdown.
+      Read the selected reminders as agent_name, delivered_at, message and the source record in paths.
       Successful submit_chat_reminder decisions consume the batch automatically.
     parameters:
       type: object
@@ -239,11 +240,11 @@ jobs:
     enable_serve: false
     track_execution: true
     steps:
-      - backend: proactive_agent_step  # Use proactive_agent_step_v2 to switch both task types.
+      - backend: proactive_agent_step
         effort: low  # Scheduled and event-driven runs.
         timeout_seconds: 1200
         max_local_search_calls: 10
-        max_timeline_entries: 10
+        recent_history_hours: 24
         sandbox: null  # Use the selected wrapper's sandbox setting.
 
   proactive_loop:
@@ -272,8 +273,7 @@ jobs:
       additionalProperties: false
       properties:
         agent_name: &view_agent_name {<<: *agent_name, default: Remy}
-        message_id: {type: string, minLength: 1, maxLength: 128}
-        mark_read: {type: boolean, default: false}
+        message_id: {type: string, minLength: 1, description: "Workspace-relative reminder path or Chat message ID."}
       required: [message_id]
     steps:
     - backend: agent_reminder_step

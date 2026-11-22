@@ -614,8 +614,8 @@ thread with the current configuration. Rejected or cancelled preparation retains
 Proactive reminders are evaluated in a disposable read-only fork with only `read_chat_reminders` and `submit_chat_reminder` tools.
 Only explicitly submitted text is appended to the foreground conversation; fork reasoning and ordinary replies stay
 outside it. Codex stores injected content in its native rollout without a second application-authored message copy.
-`reme_agents/` contains task configuration, event inboxes, reminder Markdown, personal memory and session
-references. Remy's inbox derives its state from reminder files and their acknowledgement fields. Native
+`reme_agents/` contains task configuration, event inboxes, personal memory and session references.
+Remy's inbox derives its state from reminders and acknowledgement fields in the daily records. Native
 conversation histories retain the conversation content.
 
 The Agent runtime owns transient execution activity and live output. Desktop clients observe `watch_agent_session`; native Codex status notifications remain internal to operation completion and disconnect handling.

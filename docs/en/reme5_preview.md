@@ -54,7 +54,7 @@ a new log entry, or a paper from a configured feed. **Scheduled agents** use cro
 such as a daily briefing or a nightly memory consolidation. They share the same runtime for receiving inputs, running
 tasks, and retaining results. An agent waits between runs without continuously calling the model.
 
-![Proactive Runtime showing how observations reach the Work agent and become sourced records, summaries, and optional reminders](../figure/proactive-runtime.svg)
+![Proactive Runtime showing how observations reach the Work agent and become daily records with sources and reminder decisions](../figure/proactive-runtime.svg)
 
 The diagram shows the current Work prototype. Codex dialogue and screen capture are built-in sources in the prototype
 configuration. Claude Code traces illustrate how another source can publish through the event interface.
@@ -62,13 +62,13 @@ configuration. Claude Code traces illustrate how another source can publish thro
 
 1. **Collect and queue.** A connector gathers an observation and submits an event with its source and associated files.
    A cron trigger submits a scheduled event when due. Each task has its own inbox and processes one batch at a time.
-2. **Run with context.** The agent reads its task instructions, recent summaries, and the relevant source material. It
+2. **Run with context.** The agent reads its task instructions and the original inputs, then searches recent records. It
    compares incoming information with what it already knows so it can identify a meaningful change.
-3. **Save results and deliver selectively.** The agent records new findings with source links and proposes a reminder
-   when the task calls for one. The runtime validates and saves the result before acknowledging the input. If the run
+3. **Save results and deliver selectively.** The agent writes new findings, source links, and its reminder decision
+   in one daily record. The runtime validates and saves the result before acknowledging the input. If the run
    fails, the input remains eligible for retry. Committed reminders can be delivered independently of the run.
 
-Task instructions, notes, summaries, and reminders live in the user’s workspace. A task reads the latest instructions
+Task instructions and daily records live in the user’s workspace. A task reads the latest instructions
 when it runs, and a user can open the files to check or correct the context that carries forward. Connected sources are
 defined by configuration. Source links let users trace an agent’s conclusions back to the relevant conversation,
 document, or observation. [Execution and storage details](./proactive_runtime.md#how-a-task-keeps-running)

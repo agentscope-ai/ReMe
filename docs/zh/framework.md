@@ -587,7 +587,7 @@ Codex wrapper 通过 `app_server: default` 或 `app_server: oauth` 引用共享�
 
 主动提醒在临时只读分身中评估，仅绑定 `read_chat_reminders` 和 `submit_chat_reminder`；只有明确提交的文本追加到前台会话，
 分身推理过程与普通回复留在分身中。Codex 把追加内容保存在原生 rollout，不保存另一份应用消息副本。
-`reme_agents/` 保存任务配置、事件收件箱、提醒 Markdown、个人记忆和会话引用。Remy 收件箱从提醒文件及其确认字段生成，
+`reme_agents/` 保存任务配置、事件收件箱、个人记忆和会话引用。Remy 收件箱从每日记录中的提醒和确认字段生成，
 对话内容保存在原生会话历史中。
 
 Agent Runtime 统一管理临时活动状态与实时输出；桌面通过 `watch_agent_session` 订阅。Codex 原生状态通知只负责操作完成与断连处理。

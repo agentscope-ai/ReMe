@@ -6,6 +6,7 @@ import asyncio
 from datetime import timedelta
 from unittest.mock import AsyncMock
 
+import frontmatter
 import pytest
 
 from reme.core.context import RuntimeContext
@@ -19,8 +20,7 @@ from .test_proactive_run import install_round
 async def prepare(runtime, context, priority="P1"):
     await AgentNewSessionStep(app_context=context)()
     await create_agent(runtime)
-    result, session = completed_result(runtime)
-    result.notifications[0].priority = priority
+    result, session = completed_result(runtime, priority=priority)
     await runtime.run("monitor", AsyncMock(return_value=(result, session)))
     await runtime.outbox.sync()
     runtime.notifications.last_activity_at -= timedelta(seconds=2000)
@@ -59,9 +59,9 @@ async def test_fork_sends_only_explicit_content_and_consumes_decisions(tmp_path,
                 "items": [
                     {
                         "agent_name": "monitor",
-                        "created_at": turn.items[0]["created_at"],
+                        "delivered_at": turn.items[0]["delivered_at"],
                         "message": "Experiment finished",
-                        "paths": ["daily/experiment.md"],
+                        "paths": arguments["msg_ids"],
                     },
                 ],
             }
@@ -97,7 +97,7 @@ async def test_fork_sends_only_explicit_content_and_consumes_decisions(tmp_path,
 
 @pytest.mark.parametrize("content", ["", "New experiment progress"])
 @pytest.mark.asyncio
-async def test_chat_decision_preserves_generated_task_record_and_summary(tmp_path, monkeypatch, content):
+async def test_chat_decision_updates_only_record_frontmatter(tmp_path, monkeypatch, content):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         now = runtime.now()
@@ -106,10 +106,8 @@ async def test_chat_decision_preserves_generated_task_record_and_summary(tmp_pat
         paths = step._paths(await runtime.definition("monitor"), now)
         install_round(runtime, wrapper, monkeypatch, paths)
         await step(agent_name="monitor")
-        saved = {
-            key: (runtime.files.read(paths[key]), paths[key].stat().st_mtime_ns)
-            for key in ("record_path", "today_summary_path")
-        }
+        path = paths["record_path"]
+        saved = frontmatter.loads(path.read_text())
         await runtime.outbox.sync()
         identifiers = list(runtime.notifications.pending)
         runtime.notifications.last_activity_at -= timedelta(seconds=2000)
@@ -126,40 +124,23 @@ async def test_chat_decision_preserves_generated_task_record_and_summary(tmp_pat
 
         assert response.answer == {"sent": bool(content)}
         assert not runtime.notifications.pending
-        for key, (body, mtime) in saved.items():
-            assert runtime.files.read(paths[key]) == body
-            assert paths[key].stat().st_mtime_ns == mtime
-        assert paths["reminder_path"].exists()
+        latest = frontmatter.loads(path.read_text())
+        assert latest.content == saved.content
+        assert latest["reminder_message"] == saved["reminder_message"]
+        assert latest["read_at"]
         if content:
             wrapper.append_session.assert_awaited_once()
         else:
             wrapper.append_session.assert_not_awaited()
 
 
-@pytest.mark.parametrize(
-    "supporting_paths,expected_paths",
-    [
-        ([], []),
-        (["daily/experiment.md", "daily/experiment.md"], ["daily/experiment.md"]),
-        (
-            ["daily/other.md", "daily/experiment.md", "daily/other.md"],
-            ["daily/other.md", "daily/experiment.md"],
-        ),
-    ],
-)
 @pytest.mark.asyncio
-async def test_read_inbox_exposes_unique_supporting_paths_without_changing_internal_snapshot(
-    tmp_path,
-    supporting_paths,
-    expected_paths,
-):
+async def test_read_inbox_exposes_source_record_without_changing_internal_snapshot(tmp_path):
     async with running_runtime(tmp_path) as (runtime, context, _):
         await AgentNewSessionStep(app_context=context)()
         await create_agent(runtime)
-        result, session = completed_result(runtime)
-        reminder = result.notifications[0]
-        reminder.paths = [reminder.paths[0], *supporting_paths, reminder.paths[0]]
-        await runtime.run("monitor", AsyncMock(return_value=(result, session)))
+        reminder, session = completed_result(runtime)
+        await runtime.run("monitor", AsyncMock(return_value=(reminder, session)))
         await runtime.outbox.sync()
         ids = list(runtime.notifications.pending)
         session_id = (await runtime.sessions.current("Remy")).session_id
@@ -167,13 +148,13 @@ async def test_read_inbox_exposes_unique_supporting_paths_without_changing_inter
             bound = {"_agent_name": "Remy", "_inbox_turn": turn.id}
             tool = ReadInboxStep(app_context=context)
             response = await tool(**bound)
-            assert response.answer["items"][0]["paths"] == expected_paths
+            assert response.answer["items"][0]["paths"] == reminder.paths
             assert turn.items[0]["paths"] == reminder.paths
             assert turn.items[0]["id"] == ids[0] and turn.items[0]["read_at"] is None
             response.answer["items"][0]["paths"].append("local-only.md")
             response.answer["items"][0]["message"] = "Local edit"
             reread = (await tool(**bound)).answer["items"][0]
-            assert reread["paths"] == expected_paths and reread["message"] == reminder.message
+            assert reread["paths"] == reminder.paths and reread["message"] == reminder.message
             assert list(runtime.notifications.pending) == ids
 
 
@@ -300,7 +281,6 @@ async def test_priority_wakeup_can_overtake_older_low_priority_reminders(tmp_pat
             {"id": "urgent", "event_ts": runtime.now(), "source": "test", "description": "Urgent"},
         )
         result, session = completed_result(runtime, "urgent")
-        result.notifications[0].priority = "P0"
         await runtime.run("urgent", AsyncMock(return_value=(result, session)))
         await runtime.outbox.sync()
         urgent = [identifier for identifier in runtime.notifications.pending if identifier not in low["msg_ids"]]
@@ -448,7 +428,7 @@ async def test_tools_cannot_read_other_priorities_or_consume_later_arrivals(tmp_
         wrapper.reply = AsyncMock(side_effect=reply)
         await InboxChatStep(app_context=context)(**arguments)
         assert len(runtime.notifications.pending) == 1
-        assert not set(arguments["msg_ids"]) & runtime.notifications.pending.keys()
+        assert not set(arguments["msg_ids"]) & runtime.notifications.pending
         wrapper.append_session.assert_not_awaited()
 
 
@@ -551,8 +531,8 @@ async def test_fork_rechecks_original_reminders_before_sending_or_consuming(tmp_
         async def reply(_hint, **options):
             bound = options["injected_job_kwargs"]
             await ReadInboxStep(app_context=context)(**bound)
-            ref = next(iter(runtime.notifications.pending.values()))
-            path = runtime.files.path(ref.file)
+            ref = next(iter(runtime.notifications.pending))
+            path = runtime.files.path(ref)
             runtime.files.write(path, runtime.files.read(path).replace("Experiment finished", "Experiment cancelled"))
             await SendChatMessageStep(app_context=context)(content=content, **bound)
 

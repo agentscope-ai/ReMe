@@ -85,7 +85,7 @@ async def test_run_result_is_distinct_from_model_status(tmp_path, monkeypatch, f
         paths = step._paths(await runtime.definition("monitor"), now)
         install_round(runtime, wrapper, monkeypatch, paths, failed=failure == "model")
         if failure == "commit":
-            monkeypatch.setattr(runtime.outbox, "save", AsyncMock(side_effect=OSError("Commit failed")))
+            monkeypatch.setattr(runtime.outbox, "verify", AsyncMock(side_effect=OSError("Commit failed")))
             with pytest.raises(OSError, match="Commit failed"):
                 await step(agent_name="monitor")
         else:
@@ -206,7 +206,7 @@ async def test_local_search_budget_warns_once_without_interrupting(tmp_path, mon
 
         monkeypatch.setattr(wrapper, "reply_stream", stream)
         response = await step(agent_name="monitor")
-        assert response.success and paths["today_summary_path"].exists()
+        assert response.success and paths["record_path"].exists()
         stats = response.metadata["reme.agent_run"]
         assert stats["tool_calls"] == 13
         assert stats["web_lookup_calls"] == 4 and stats["local_search_calls"] == 5

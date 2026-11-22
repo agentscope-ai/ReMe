@@ -9,9 +9,7 @@ from unittest.mock import AsyncMock
 import pytest
 import frontmatter
 
-from reme.enumeration import ChunkEnum
-from reme.schema import Response, SessionMessage, StreamChunk
-from reme.schema.proactive_agent import ProactiveRunResult
+from reme.schema import Response, SessionMessage
 from reme.steps.proactive.agent import InboxChatStep, ProactiveAgentStep
 from reme.steps.file_io import SaveStep, get_path_lock
 from reme.steps.proactive.tools.inbox import ReadInboxStep, SendChatMessageStep
@@ -21,87 +19,17 @@ from .test_proactive_run import install_round
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("model_writes", [False, True])
-async def test_failed_round_restores_the_previous_summary(tmp_path, monkeypatch, model_writes):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
-        await create_agent(runtime)
-        now = runtime.now()
-        monkeypatch.setattr(runtime, "now", lambda: now)
-        step = ProactiveAgentStep(app_context=context)
-        paths = step._paths(await runtime.definition("monitor"), now)
-        summary = paths["today_summary_path"]
-        runtime.files.write(summary, "original\n")
-        if model_writes:
-
-            def edit_summary(_write):
-                summary.write_text("my edit\n")
-
-            install_round(runtime, wrapper, monkeypatch, paths, omit="record_path", hook=edit_summary)
-        else:
-
-            async def fail(*_args, **_kwargs):
-                summary.write_text("my edit\n")
-                raise OSError("model failed without writing")
-                yield StreamChunk(chunk_type=ChunkEnum.CONTENT, chunk="unreachable")  # pylint: disable=unreachable
-
-            monkeypatch.setattr(wrapper, "reply_stream", fail)
-        with pytest.raises(FileNotFoundError if model_writes else OSError):
-            await step(agent_name="monitor")
-        assert summary.read_text() == "original\n"
-        assert not paths["record_path"].exists() and not paths["reminder_path"].exists()
-        assert not summary.with_suffix(".md.bak").exists()
-        assert (await runtime.inbox.snapshot("monitor"))["pending_count"] == 1
-
-
-@pytest.mark.asyncio
-async def test_round_backs_up_summary_before_writes_and_preserves_an_older_backup(tmp_path, monkeypatch):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
-        await create_agent(runtime)
-        now = runtime.now()
-        monkeypatch.setattr(runtime, "now", lambda: now)
-        step = ProactiveAgentStep(app_context=context)
-        paths = step._paths(await runtime.definition("monitor"), now)
-        summary = paths["today_summary_path"]
-        old_backup = summary.with_suffix(".md.bak")
-        runtime.files.write(summary, "original\n")
-        runtime.files.write(old_backup, "earlier backup\n")
-        install_round(runtime, wrapper, monkeypatch, paths)
-        generate = wrapper.reply_stream
-
-        async def stream(query, **options):
-            backups = list(summary.parent.glob(f"{summary.name}.*.bak"))
-            assert len(backups) == 1 and backups[0].read_text() == "original\n"
-            assert not list(paths["daily_dir"].rglob("*.bak"))
-            assert all(
-                path.relative_to(tmp_path).as_posix() in query
-                for path in (paths["record_path"], paths["reminder_path"], summary)
-            )
-            async for chunk in generate(query, **options):
-                with paths["record_path"].open("a", encoding="utf-8") as handle:
-                    handle.write("\n\nTimeline evidence")
-                yield chunk
-
-        monkeypatch.setattr(wrapper, "reply_stream", stream)
-        assert (await step(agent_name="monitor")).success
-        record = frontmatter.loads(paths["record_path"].read_text())
-        assert record["action"] == "write" and record.content == "New progress\n\nTimeline evidence"
-        assert list(summary.parent.glob("*.bak")) == [old_backup]
-        assert old_backup.read_text() == "earlier backup\n"
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize("filename", ["inbox_read.jsonl", "inbox_unread.jsonl"])
-async def test_real_receipt_write_failure_restores_only_uncommitted_files(tmp_path, monkeypatch, filename):
+async def test_real_receipt_write_failure_removes_only_an_uncommitted_record(tmp_path, monkeypatch, filename):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)
         step = ProactiveAgentStep(app_context=context)
         paths = step._paths(await runtime.definition("monitor"), now)
-        runtime.files.write(paths["today_summary_path"], "original\n")
         install_round(runtime, wrapper, monkeypatch, paths)
-        restore = AsyncMock(wraps=step._restore_files)
-        monkeypatch.setattr(step, "_restore_files", restore)
+        restore = AsyncMock(wraps=step._rollback_record)
+        monkeypatch.setattr(step, "_rollback_record", restore)
         replace = runtime.inbox._replace
 
         def fail(path, raw):
@@ -117,49 +45,10 @@ async def test_real_receipt_write_failure_restores_only_uncommitted_files(tmp_pa
         assert runtime.inbox._failed and "monitor" not in runtime.workers
         assert restore.await_count == (0 if committed else 1)
         assert paths["record_path"].exists() is committed
-        assert paths["reminder_path"].exists() is committed
-        summary = paths["today_summary_path"]
-        backups = list(tmp_path.rglob("*.bak"))
-        if committed:
-            assert paths["record_path"].name in summary.read_text()
-            assert not backups
-        else:
-            assert summary.read_text() == "original\n"
-            assert not backups
     async with running_runtime(tmp_path) as (runtime, _, _):
         snapshot = await runtime.inbox.snapshot("monitor")
         assert snapshot["pending_count"] == (0 if committed else 1)
         assert (snapshot["receipt"] is not None) is committed
-
-
-@pytest.mark.asyncio
-async def test_failed_summary_restoration_retains_its_backup(tmp_path, monkeypatch):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
-        await create_agent(runtime)
-        now = runtime.now()
-        monkeypatch.setattr(runtime, "now", lambda: now)
-        step = ProactiveAgentStep(app_context=context)
-        paths = step._paths(await runtime.definition("monitor"), now)
-        summary = paths["today_summary_path"]
-        runtime.files.write(summary, "original\n")
-        install_round(runtime, wrapper, monkeypatch, paths)
-        write = runtime.files.write
-
-        async def fail(*_args, **_kwargs):
-            def fail_summary(path, content, **kwargs):
-                if path == summary:
-                    raise OSError("summary restoration failed")
-                return write(path, content, **kwargs)
-
-            monkeypatch.setattr(runtime.files, "write", fail_summary)
-            raise OSError("commit failed")
-
-        monkeypatch.setattr(runtime.outbox, "save", fail)
-        with pytest.raises(OSError, match="summary restoration failed"):
-            await step(agent_name="monitor")
-        assert summary.with_suffix(".md.bak").read_text() == "original\n"
-        assert not paths["record_path"].exists() and not paths["reminder_path"].exists()
-        assert (await runtime.status("monitor"))["pending_events"] == 1
 
 
 @pytest.mark.asyncio
@@ -181,7 +70,7 @@ async def test_full_cron_queue_starts_its_existing_consumer(tmp_path, monkeypatc
         async def job(_name, agent_name):
             answer = await runtime.run(
                 agent_name,
-                AsyncMock(return_value=(ProactiveRunResult(notifications=[]), "session")),
+                AsyncMock(return_value=(None, "session")),
             )
             return Response(answer=answer)
 
@@ -205,7 +94,7 @@ async def test_waiting_append_releases_management_lock_for_consumption(tmp_path)
         )
         try:
             async with asyncio.timeout(2):
-                await runtime.run("monitor", AsyncMock(return_value=(ProactiveRunResult(notifications=[]), "session")))
+                await runtime.run("monitor", AsyncMock(return_value=(None, "session")))
                 await append
             assert (await runtime.inbox.snapshot("monitor"))["pending_count"] == 1
         finally:
@@ -233,8 +122,7 @@ async def test_recovered_native_reminder_finishes_ack_without_regenerating(tmp_p
                     "description": "Finished",
                 },
             )
-            result, session = completed_result(runtime, "other")
-            result.notifications[0].priority = "P1"
+            result, session = completed_result(runtime, "other", priority="P1")
             await runtime.run("other", AsyncMock(return_value=(result, session)))
             await runtime.outbox.sync()
             args["msg_ids"] = list(runtime.notifications.pending)
@@ -353,9 +241,9 @@ async def test_full_receiver_consumes_both_reminders_without_waiting_for_more_ca
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("stage", ["before_save", "while_save_waits", "after_save"])
+@pytest.mark.parametrize("stage", ["before_verify", "while_verify_waits", "after_verify"])
 @pytest.mark.parametrize("ack_fails", [False, True])
-async def test_user_reminder_edits_survive_outbox_save_and_receipt_failure(tmp_path, monkeypatch, stage, ack_fails):
+async def test_user_record_edits_survive_commit_and_receipt_failure(tmp_path, monkeypatch, stage, ack_fails):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         now = runtime.now()
@@ -363,13 +251,12 @@ async def test_user_reminder_edits_survive_outbox_save_and_receipt_failure(tmp_p
         step = ProactiveAgentStep(app_context=context)
         paths = step._paths(await runtime.definition("monitor"), now)
         install_round(runtime, wrapper, monkeypatch, paths)
-        save = runtime.outbox.save
+        verify = runtime.outbox.verify
 
-        async def edit_reminder():
-            path = paths["reminder_path"]
+        async def edit_record():
+            path = paths["record_path"]
             document = frontmatter.loads(path.read_text())
-            assert ("id" in document) is (stage == "after_save")
-            document.content = "User edited reminder"
+            document.content = "User edited record"
             response = await SaveStep(app_context=context)(
                 path=path.relative_to(tmp_path).as_posix(),
                 content=frontmatter.dumps(document),
@@ -377,24 +264,24 @@ async def test_user_reminder_edits_survive_outbox_save_and_receipt_failure(tmp_p
             )
             assert response.success
 
-        async def edit_during_save(*args, **kwargs):
-            if stage == "while_save_waits":
-                async with await get_path_lock(paths["reminder_path"]):
-                    edit = asyncio.create_task(edit_reminder())
+        async def edit_during_verify(*args, **kwargs):
+            if stage == "while_verify_waits":
+                async with await get_path_lock(paths["record_path"]):
+                    edit = asyncio.create_task(edit_record())
                     await asyncio.sleep(0)
-                    publication = asyncio.create_task(save(*args, **kwargs))
+                    publication = asyncio.create_task(verify(*args, **kwargs))
                     await asyncio.sleep(0.02)
                     assert not publication.done()
                 _, refs = await asyncio.gather(edit, publication)
                 return refs
-            if stage == "before_save":
-                await edit_reminder()
-            refs = await save(*args, **kwargs)
-            if stage == "after_save":
-                await edit_reminder()
+            if stage == "before_verify":
+                await edit_record()
+            refs = await verify(*args, **kwargs)
+            if stage == "after_verify":
+                await edit_record()
             return refs
 
-        monkeypatch.setattr(runtime.outbox, "save", edit_during_save)
+        monkeypatch.setattr(runtime.outbox, "verify", edit_during_verify)
         ack = AsyncMock(wraps=runtime.inbox.ack)
         monkeypatch.setattr(runtime.inbox, "ack", ack)
         if ack_fails:
@@ -406,7 +293,7 @@ async def test_user_reminder_edits_survive_outbox_save_and_receipt_failure(tmp_p
                 return replace(path, raw)
 
             monkeypatch.setattr(runtime.inbox, "_replace", fail_receipt)
-        if stage != "after_save":
+        if stage != "after_verify":
             with pytest.raises(RuntimeError, match="changed outside this round"):
                 await step(agent_name="monitor")
             ack.assert_not_awaited()
@@ -415,26 +302,26 @@ async def test_user_reminder_edits_survive_outbox_save_and_receipt_failure(tmp_p
                 await step(agent_name="monitor")
         else:
             assert (await step(agent_name="monitor")).success
-        assert paths["reminder_path"].exists()
-        assert frontmatter.loads(paths["reminder_path"].read_text()).content == "User edited reminder"
+        assert paths["record_path"].exists()
+        assert frontmatter.loads(paths["record_path"].read_text()).content == "User edited record"
     async with running_runtime(tmp_path) as (runtime, _, _):
-        committed = stage == "after_save" and not ack_fails
+        committed = stage == "after_verify" and not ack_fails
         assert (await runtime.inbox.snapshot("monitor"))["pending_count"] == (0 if committed else 1)
-        assert frontmatter.loads(paths["reminder_path"].read_text()).content == "User edited reminder"
+        assert frontmatter.loads(paths["record_path"].read_text()).content == "User edited record"
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("operation", ["save", "update"])
-async def test_outbox_writers_share_the_file_jobs_path_lock(tmp_path, operation):
+@pytest.mark.parametrize("operation", ["verify", "update"])
+async def test_outbox_operations_share_the_file_jobs_path_lock(tmp_path, operation):
     async with running_runtime(tmp_path) as (runtime, _, _):
         await create_agent(runtime)
         result, session = completed_result(runtime)
-        path = runtime.files.path(result.notifications[0].paths[0])
+        path = runtime.files.path(result.paths[0])
         if operation == "update":
             await runtime.run("monitor", AsyncMock(return_value=(result, session)))
             await runtime.outbox.sync()
-            ref = next(iter(runtime.outbox.committed))
-            action = runtime.outbox.update(ref, user_read_at=runtime.now())
+            ref = next(iter(runtime.outbox.records))
+            action = runtime.outbox.update(ref, read_at=runtime.now())
         else:
             action = runtime.run("monitor", AsyncMock(return_value=(result, session)))
         task = None

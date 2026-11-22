@@ -11,7 +11,7 @@ import pytest
 
 from reme.core.context import RuntimeContext
 from reme.schema import Event, Response
-from reme.schema.proactive_agent import ProactiveAgentConfig, ProactiveRunResult
+from reme.schema.proactive_agent import ProactiveAgentConfig
 from reme.steps.proactive.agent import AgentChatStep, ProactiveAgentStep
 from reme.steps.proactive.tools.append_event import AppendEventStep
 from reme.steps.proactive.tools.manage_proactive_agent import ManageProactiveAgentStep
@@ -91,15 +91,15 @@ async def test_automatic_rounds_start_fresh_sessions_while_user_followups_resume
         async def reply(query, **kwargs):
             if kwargs.get("sandbox") == "workspace-write":
                 if agent_type == "cron":
-                    runtime.files.write(paths["record_path"], "---\naction: write\n---\nNo changes\n")
-                    runtime.files.write(paths["reminder_path"], "---\naction: P0\n---\nNo changes\n")
                     runtime.files.write(
-                        paths["today_summary_path"],
-                        f"## Today's records\n- [Check]({paths['record_path'].name})\n"
-                        "\n## Today's reminders\n- No changes\n",
+                        paths["record_path"],
+                        "---\nreminder_priority: P0\nreminder_message: No changes\n---\nChecked results\n",
                     )
                 else:
-                    runtime.files.write(paths["record_path"], "---\naction: skip\n---\n")
+                    runtime.files.write(
+                        paths["record_path"],
+                        "---\nreminder_priority: skip\nreminder_message: No changes\n---\n",
+                    )
             async for chunk in original_reply(query, **kwargs):
                 yield chunk
 
@@ -160,7 +160,7 @@ async def test_event_cooldown_accumulates_inputs_and_respects_batch_limit(tmp_pa
 
         async def execute(_agent, events):
             batches.append([event["id"] for event in events])
-            return ProactiveRunResult(notifications=[]), f"session-{len(batches)}"
+            return None, f"session-{len(batches)}"
 
         async def run_job(_name, **kwargs):
             answer = await runtime.run(kwargs["agent_name"], execute)
@@ -212,7 +212,7 @@ async def test_queued_cron_bypasses_new_event_cooldown_without_reordering(tmp_pa
 
         async def execute(_agent, events):
             processed.append([item["id"] for item in events])
-            return ProactiveRunResult(notifications=[]), f"session-{len(processed)}"
+            return None, f"session-{len(processed)}"
 
         async def run_job(_name, **kwargs):
             return Response(success=True, answer=await runtime.run(kwargs["agent_name"], execute))
@@ -240,7 +240,7 @@ async def test_queued_cron_bypasses_new_event_cooldown_without_reordering(tmp_pa
 
 
 @pytest.mark.asyncio
-async def test_chat_read_updates_all_sources_idempotently_and_survives_restart(tmp_path):
+async def test_combined_chat_message_preserves_source_links_across_restart(tmp_path):
     message_id = "reme-proactive-reminder-combined"
     async with running_runtime(tmp_path) as (runtime, _, _):
         await create_agent(runtime)
@@ -252,33 +252,29 @@ async def test_chat_read_updates_all_sources_idempotently_and_survives_restart(t
         )
         await runtime.run("other", AsyncMock(return_value=completed_result(runtime, "other")))
         await runtime.outbox.sync()
-        refs = list(runtime.outbox.committed)
+        refs = list(runtime.outbox.records)
         for ref in refs:
             await runtime.outbox.update(ref, chat_message_ids=[message_id])
-        result = await runtime.outbox.read("Remy", message_id, mark_read=True)
+        result = await runtime.outbox.read("Remy", message_id)
         assert len(result["items"]) == 2
-        first = {item["id"]: item["user_read_at"] for item in result["items"]}
-        assert all(first.values())
+        assert {item["id"] for item in result["items"]} == set(refs)
         assert all(item["read_at"] is None for item in result["items"])
         assert len(runtime.notifications.pending) == 2
-        again = await runtime.outbox.read("Remy", message_id, mark_read=True)
-        assert {item["id"]: item["user_read_at"] for item in again["items"]} == first
         with pytest.raises(ValueError):
-            await runtime.outbox.read("monitor", message_id, mark_read=True)
+            await runtime.outbox.read("monitor", message_id)
     async with running_runtime(tmp_path) as (runtime, _, _):
         result = await runtime.outbox.read("Remy", message_id)
-        assert {item["id"]: item["user_read_at"] for item in result["items"]} == first
+        assert {item["id"] for item in result["items"]} == set(refs)
         assert all(
-            frontmatter.loads(runtime.files.read(runtime.files.path(ref.file)))["chat_message_ids"] == [message_id]
+            frontmatter.loads(runtime.files.read(runtime.files.path(ref)))["chat_message_ids"] == [message_id]
             for ref in refs
         )
 
 
 @pytest.mark.asyncio
-async def test_read_acknowledgements_do_not_require_retained_reminder_sources(tmp_path):
+async def test_chat_message_query_requires_retained_sources(tmp_path):
     async with running_runtime(tmp_path) as (runtime, _, _):
         message_id = "reme-proactive-expired"
-        assert await runtime.outbox.read("Remy", message_id, mark_read=True) == {"id": message_id, "items": []}
         with pytest.raises(ValueError, match="no retained source"):
             await runtime.outbox.read("Remy", message_id)
 
@@ -312,8 +308,9 @@ async def test_sent_chat_message_keeps_source_links_before_consumption(tmp_path)
             message_id = f"reme-proactive-{turn.message_id}"
 
             async def append(*_args, **_kwargs):
-                acknowledged = await runtime.outbox.read("Remy", message_id, mark_read=True)
-                assert acknowledged["items"] and all(item["user_read_at"] for item in acknowledged["items"])
+                sources = await runtime.outbox.read("Remy", message_id)
+                assert [item["id"] for item in sources["items"]] == ids
+                assert sources["items"][0]["read_at"] is None
                 return SessionMessage(
                     id=message_id,
                     role="assistant",
@@ -324,8 +321,8 @@ async def test_sent_chat_message_keeps_source_links_before_consumption(tmp_path)
             wrapper.append_session = AsyncMock(side_effect=append)
             await runtime.notifications.send(turn, "Combined result")
         assert not runtime.notifications.pending
-        result = await runtime.outbox.read("Remy", message_id, mark_read=True)
-        assert result["items"][0]["user_read_at"]
+        result = await runtime.outbox.read("Remy", message_id)
+        assert result["items"][0]["read_at"]
         assert result["items"][0]["chat_message_ids"] == [message_id]
 
 

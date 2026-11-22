@@ -11,7 +11,6 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from reme.schema import Response
-from reme.schema.proactive_agent import ProactiveRunResult
 from .test_agent_runtime import running_runtime
 
 INVALID_SCHEDULES = ("0 0 31 2 *", "0 0 1 1 * 0 2025")
@@ -58,7 +57,7 @@ async def test_retained_unusable_cron_survives_restart_without_blocking_other_ta
         monkeypatch.setattr(runtime, "now", lambda: NOW)
         await runtime.create({"agent_name": "healthy", "task_description": "Report"})
         await runtime.append("healthy", {"event_ts": NOW, "source": "test", "description": "Finished"})
-        execute = AsyncMock(return_value=(ProactiveRunResult(notifications=[]), "session-test"))
+        execute = AsyncMock(return_value=(None, "session-test"))
 
         async def run_job(name, **kwargs):
             assert name == "run_proactive_agent" and kwargs["agent_name"] == "healthy"
@@ -99,7 +98,7 @@ async def test_final_cached_cron_trigger_is_delivered_once_after_schedule_expire
         await runtime._schedule_cron(agent)
         assert (await runtime.inbox.snapshot("timer"))["pending_count"] == 1
         assert (await runtime.status("timer"))["next_trigger_at"] is None
-        execute = AsyncMock(return_value=(ProactiveRunResult(notifications=[]), "session-test"))
+        execute = AsyncMock(return_value=(None, "session-test"))
 
         async def run_job(_name, **_kwargs):
             return Response(answer=await runtime.run("timer", execute))

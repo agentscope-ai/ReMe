@@ -127,8 +127,7 @@ class BaseAgentRuntime(BaseComponent):
         execute: Callable,
         *,
         on_failure: Callable | None = None,
-        on_write: Callable | None = None,
-        before_write: Callable | None = None,
+        check_version: Callable | None = None,
     ) -> dict:
         """Execute and commit one serial input batch; restore failed outputs when requested."""
 

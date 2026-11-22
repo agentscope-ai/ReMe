@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ..constants import CHAT_AGENT_NAME
 from .agent_runtime import AgentName, AgentType
@@ -140,7 +140,6 @@ class AgentOutboxRequest(AgentPageRequest):
 
 
 class AgentReminderRequest(AgentRequest):
-    """Read a scoped reminder and optionally acknowledge explicit user reading."""
+    """Read a reminder by its workspace-relative path or Chat message ID."""
 
-    message_id: str = Field(min_length=1, max_length=128)
-    mark_read: StrictBool = False
+    message_id: str = Field(min_length=1)

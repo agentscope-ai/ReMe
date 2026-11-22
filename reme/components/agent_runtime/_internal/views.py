@@ -49,12 +49,10 @@ class AgentViews:
             running = facts["running"]
         session = await runtime.sessions.current(agent_name)
         status, error = "idle", facts.get("error")
-        issues = runtime.outbox.issues
-        prefix = directory.relative_to(runtime.workspace_path).as_posix() + "/"
         problems = [
             f"{path}: {message}"
-            for path, message in issues.items()
-            if agent_name == CHAT_AGENT_NAME or path.startswith(prefix) or path.startswith(str(directory) + "/")
+            for path, message in runtime.outbox.issues.items()
+            if agent_name == CHAT_AGENT_NAME or runtime.outbox.storage.owns(path, agent_name)
         ]
         if problems:
             error = "; ".join(filter(None, [error, *problems]))[:2000]

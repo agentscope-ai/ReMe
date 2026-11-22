@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock
 import pytest
 
 from reme.schema import SessionSnapshot, SessionStatus
-from reme.schema.proactive_agent import ProactiveRunResult
 from reme.core.context import RuntimeContext
 from reme.steps.proactive.agent import AgentChatStep, InboxChatStep
 from reme.steps.proactive.tools.inbox import ReadInboxStep, SendChatMessageStep
@@ -31,7 +30,7 @@ async def test_query_forks_latest_running_session_instead_of_previous_receipt(tm
         previous = await runtime.sessions.ensure("monitor", wrapper, {}, runtime.now())
         await runtime.run(
             "monitor",
-            AsyncMock(return_value=(ProactiveRunResult(notifications=[]), previous)),
+            AsyncMock(return_value=(None, previous)),
         )
         await runtime.append("monitor", {"event_ts": runtime.now(), "source": "test", "description": "New"})
         entered, release = asyncio.Event(), asyncio.Event()
@@ -42,7 +41,7 @@ async def test_query_forks_latest_running_session_instead_of_previous_receipt(tm
             source = await runtime.sessions.ensure("monitor", wrapper, {}, runtime.now(), new=True)
             entered.set()
             await release.wait()
-            return ProactiveRunResult(notifications=[]), source
+            return None, source
 
         running = asyncio.create_task(runtime.run("monitor", execute))
         try:

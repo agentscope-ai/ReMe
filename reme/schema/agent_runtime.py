@@ -31,7 +31,7 @@ def validate_agent_name(value: str) -> str:
 
 AgentName = Annotated[str, Field(min_length=1, max_length=80, pattern=r"^[\w-]+$"), AfterValidator(validate_agent_name)]
 AgentType = Literal["chat", "proactive", "cron"]
-InboxMessageId = Annotated[str, Field(pattern=r"^[a-zA-Z0-9_-]{1,128}$")]
+ChatMessageId = Annotated[str, Field(pattern=r"^[a-zA-Z0-9_-]{1,128}$")]
 InboxPriority = Literal["P0", "P1", "P2"]
 
 
@@ -79,12 +79,12 @@ class AgentNotification(BaseModel):
 
     priority: InboxPriority
     message: str = Field(min_length=1, max_length=100000)
-    paths: list[str] = Field(min_length=1, description="Reminder Markdown first, followed by related workspace files.")
+    paths: list[str] = Field(min_length=1, max_length=1, description="Path to the source daily record.")
 
     @field_validator("message")
     @classmethod
     def nonblank_message(cls, value: str) -> str:
-        """An intentional empty decision is an empty array, not whitespace content."""
+        """Require user-facing reminder text."""
         if not value.strip():
             raise ValueError("reminder message must not be blank")
         return value
@@ -96,30 +96,12 @@ class AgentNotification(BaseModel):
         return Event.validate_paths(value)
 
 
-class ReminderRef(BaseModel):
-    """Locate one message without copying its contents or delivery state."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    file: str
-    id: InboxMessageId
-
-    @field_validator("file")
-    @classmethod
-    def relative_file(cls, value: str) -> str:
-        """References always stay workspace-relative."""
-        return Event.validate_paths([value])[0]
-
-
 class AgentReminder(AgentNotification):
-    """The single durable message with independent Agent and user acknowledgements."""
+    """Reminder content and its delivery and Chat processing state."""
 
-    id: InboxMessageId
-    created_at: AwareDatetime
     delivered_at: AwareDatetime | None = None
     read_at: AwareDatetime | None = None
-    user_read_at: AwareDatetime | None = None
-    chat_message_ids: list[InboxMessageId] = Field(default_factory=list)
+    chat_message_ids: list[ChatMessageId] = Field(default_factory=list)
 
 
 class InboxWakeRequest(BaseModel):
@@ -128,7 +110,13 @@ class InboxWakeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     priority: InboxPriority
-    msg_ids: list[InboxMessageId] = Field(min_length=1, max_length=100)
+    msg_ids: list[str] = Field(min_length=1, max_length=100)
+
+    @field_validator("msg_ids")
+    @classmethod
+    def relative_paths(cls, value: list[str]) -> list[str]:
+        """Chat batches reference workspace-relative daily records."""
+        return Event.validate_paths(value)
 
 
 class SendChatMessageRequest(BaseModel):

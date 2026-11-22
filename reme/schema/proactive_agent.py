@@ -14,7 +14,7 @@ from pydantic import (
 )
 
 from ..constants import CHAT_AGENT_NAME
-from .agent_runtime import AgentName, AgentNotification, InboxPriority
+from .agent_runtime import AgentName, InboxPriority
 from .agent_message import ClientModel
 
 CRON_EVENT_SOURCE = "cron"
@@ -113,32 +113,20 @@ class ProactiveAgent(ProactiveAgentConfig):
 
 
 class ProactiveRecordDecision(BaseModel):
-    """The agent-authored frontmatter of a v2 daily record."""
+    """The inbox delivery decision in a daily record's frontmatter."""
 
     model_config = ConfigDict(extra="forbid")
 
-    has_content: StrictBool
-    remind: StrictBool
-    reminder_priority: InboxPriority | None
-    reminder_message: str | None = Field(max_length=100000)
+    reminder_priority: Literal[InboxPriority, "skip"]
+    reminder_message: str = Field(max_length=100000)
 
-    @model_validator(mode="after")
-    def validate_reminder(self):
-        """Require both a priority and a message exactly when submitting a reminder."""
-        if self.remind:
-            if self.reminder_priority is None or not (self.reminder_message or "").strip():
-                raise ValueError("a submitted reminder requires a priority and a nonblank message")
-        elif self.reminder_priority is not None or self.reminder_message is not None:
-            raise ValueError("an unsubmitted reminder requires null priority and message")
-        return self
-
-
-class ProactiveRunResult(BaseModel):
-    """One successful round can intentionally produce no notifications."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    notifications: list[AgentNotification]
+    @field_validator("reminder_message")
+    @classmethod
+    def nonblank_reminder_message(cls, value):
+        """Require the inbox message or the reason for skipping delivery."""
+        if not value.strip():
+            raise ValueError("reminder_message must not be blank")
+        return value
 
 
 class ManageProactiveAgentRequest(TaskSettings):

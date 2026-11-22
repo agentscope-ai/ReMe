@@ -18,11 +18,10 @@ from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.agent_inbox import AgentEventInbox
 from reme.config import resolve_app_config
 from reme.enumeration import ChunkEnum, ComponentEnum
-from reme.schema import SessionSnapshot, SessionStatus, StreamChunk
+from reme.schema import AgentNotification, SessionSnapshot, SessionStatus, StreamChunk
 from reme.schema.proactive_agent import (
     ManageProactiveAgentRequest,
     ProactiveAgentConfig,
-    ProactiveRunResult,
 )
 from reme.steps.proactive.agent import (
     AgentChatStep,
@@ -155,15 +154,18 @@ def test_initial_chat_memory_configuration_is_validated(tmp_path, chat):
     assert not (tmp_path / "reme_agents").exists()
 
 
-def completed_result(runtime, agent_name="monitor"):
-    detail = "daily/experiment.md"
-    runtime.files.write(runtime.files.path(detail), "# Experiment finished\n")
-    path = runtime.agents.path(agent_name) / "reminder" / f"{runtime.now():%Y-%m-%d}" / f"{agent_name}_090000.md"
-    runtime.files.write(path, "---\naction: P0\n---\nExperiment finished\n")
-    reminder = path.relative_to(runtime.files.workspace).as_posix()
+def completed_result(runtime, agent_name="monitor", *, priority="P0"):
+    path = runtime.outbox.storage.daily_dir / f"{runtime.now():%Y-%m-%d}" / f"{agent_name}_090000.md"
+    message = "Experiment finished"
+    runtime.files.write(
+        path,
+        frontmatter.dumps(frontmatter.Post("Experiment results", reminder_priority=priority, reminder_message=message)),
+    )
     return (
-        ProactiveRunResult.model_validate(
-            {"notifications": [{"priority": "P0", "message": "Experiment finished", "paths": [reminder, detail]}]},
+        AgentNotification(
+            priority=priority,
+            message=message,
+            paths=[path.relative_to(runtime.files.workspace).as_posix()],
         ),
         "session-1",
     )
@@ -177,8 +179,8 @@ def inbox_path(runtime, read=False):
 def inbox_history(runtime):
     """Inspect canonical receipts independently of the fork-only read tool."""
     outbox = runtime.outbox
-    refs = sorted(outbox.committed, key=lambda ref: (outbox.records[ref].created_at, ref.id))
-    return [{**outbox.records[ref].model_dump(mode="json"), "from_agent_name": outbox.owners[ref]} for ref in refs]
+    refs = sorted(outbox.records, key=lambda ref: (outbox.records[ref].delivered_at, ref))
+    return [outbox.message(ref) for ref in refs]
 
 
 @pytest.mark.parametrize("name,backend", [("proactive", "codex"), ("proactive_cc", "claude_code"), ("demo", "codex")])
@@ -414,7 +416,7 @@ async def test_round_executor_receives_only_current_agent_and_event_batch(tmp_pa
         async def execute(agent, events):
             assert agent.agent_name == "monitor"
             batches.append(events)
-            return ProactiveRunResult(notifications=[]), "session-1"
+            return None, "session-1"
 
         result = await runtime.run("monitor", execute)
         assert result["processed"] == 1
@@ -539,52 +541,45 @@ async def test_inbox_reads_frontmatter_across_dates_and_excludes_uncommitted_rem
         await runtime.create({"agent_name": "other", "task_description": "Other task"})
         now = runtime.now()
         yesterday = now - timedelta(days=1)
-        directory = runtime.agents.path("monitor") / "reminder"
-        old_path = directory / f"{yesterday.date()}" / "old.md"
-        new_path = directory / f"{now.date()}" / "new.md"
-        uncommitted = directory / f"{now.date()}" / "uncommitted.md"
-        other_path = runtime.agents.path("other") / "reminder" / f"{now.date()}" / "other.md"
-        for path, identifier, created_at, delivered in (
-            (old_path, "old", yesterday, True),
-            (new_path, "new", now, True),
-            (uncommitted, "uncommitted", now + timedelta(seconds=1), False),
-            (other_path, "other", now + timedelta(seconds=2), True),
+        directory = tmp_path / "daily"
+        old_path = directory / f"{yesterday.date()}" / "monitor_080000.md"
+        new_path = directory / f"{now.date()}" / "monitor_090000.md"
+        uncommitted = directory / f"{now.date()}" / "monitor_100000.md"
+        other_path = directory / f"{now.date()}" / "other_090002.md"
+        for path, timestamp in (
+            (old_path, yesterday),
+            (new_path, now),
+            (uncommitted, None),
+            (other_path, now + timedelta(seconds=2)),
         ):
-            runtime.files.write(
-                path,
-                frontmatter.dumps(
-                    frontmatter.Post(
-                        identifier,
-                        id=identifier,
-                        created_at=created_at.isoformat(),
-                        action="P1",
-                        paths=[path.relative_to(tmp_path).as_posix(), "daily/result.md"],
-                        delivered_at=created_at.isoformat() if delivered else None,
-                        read_at=now.isoformat() if identifier == "old" else None,
-                    ),
-                ),
-            )
+            metadata = {"reminder_priority": "P1", "reminder_message": path.stem}
+            if timestamp is not None:
+                metadata["delivered_at"] = timestamp.isoformat()
+            if path == old_path:
+                metadata["read_at"] = now.isoformat()
+            runtime.files.write(path, frontmatter.dumps(frontmatter.Post(path.stem, **metadata)))
+        old, new, other = (path.relative_to(tmp_path).as_posix() for path in (old_path, new_path, other_path))
         contents = {path: path.read_bytes() for path in (old_path, new_path, uncommitted, other_path)}
 
         await runtime.outbox.sync()
         unread = (await runtime.notifications.read())["items"]
-        assert [item["id"] for item in unread] == ["new", "other"]
+        assert [item["id"] for item in unread] == [new, other]
         history = inbox_history(runtime)
-        assert [item["id"] for item in history] == ["old", "new", "other"]
+        assert [item["id"] for item in history] == [old, new, other]
         assert history[0]["read_at"] and history[1]["read_at"] is None
         assert history[1]["delivered_at"] and history[1]["from_agent_name"] == "monitor"
         assert history[2]["from_agent_name"] == "other"
-        assert inbox_history(runtime)[0]["id"] == "old"
+        assert inbox_history(runtime)[0]["id"] == old
         document = frontmatter.loads(runtime.files.read(new_path))
         document["read_at"] = now.isoformat()
         runtime.files.write(new_path, frontmatter.dumps(document))
         contents[new_path] = new_path.read_bytes()
         await runtime.outbox.sync()
-        assert [item["id"] for item in (await runtime.notifications.read())["items"]] == ["other"]
+        assert [item["id"] for item in (await runtime.notifications.read())["items"]] == [other]
         history = inbox_history(runtime)
-        assert next(item for item in history if item["id"] == "new")["read_at"]
+        assert next(item for item in history if item["id"] == new)["read_at"]
         assert contents == {path: path.read_bytes() for path in contents}
-        assert set(runtime.notifications.pending) == {"other"} and not wrapper.turns
+        assert set(runtime.notifications.pending) == {other} and not wrapper.turns
 
 
 @pytest.mark.asyncio
@@ -592,10 +587,16 @@ async def test_committed_outbox_recovers_delivery_without_repeating_execution(tm
     async with running_runtime(tmp_path) as (runtime, _, _):
         await create_agent(runtime)
         execute = AsyncMock(return_value=completed_result(runtime))
+        write = runtime.outbox._write
+
+        def interrupt_delivery(path, item, **kwargs):
+            if item.delivered_at:
+                raise OSError("interrupted delivery")
+            write(path, item, **kwargs)
+
+        monkeypatch.setattr(runtime.outbox, "_write", interrupt_delivery)
         await runtime.run("monitor", execute)
-        monkeypatch.setattr(runtime.outbox, "update", AsyncMock(side_effect=OSError("interrupted delivery")))
-        with pytest.raises(OSError, match="interrupted delivery"):
-            await runtime.outbox.sync()
+        assert not runtime.notifications.pending
         assert execute.await_count == 1
         assert (await runtime.status("monitor"))["pending_events"] == 0
 
@@ -717,10 +718,11 @@ async def test_agent_directories_and_reference_only_inbox(tmp_path):
         refs = [item["event"] for item in (await runtime.list_inputs("Remy"))["items"]]
         assert not inbox_path(runtime).exists()
         assert len(refs) == 1 and set(refs[0]) == {"id", "event_ts", "source", "description", "paths", "metadata"}
-        assert refs[0]["paths"][0].startswith("reme_agents/monitor/reminder/")
+        assert refs[0]["paths"][0] == f"daily/{runtime.now():%Y-%m-%d}/monitor_090000.md"
         assert refs[0]["source"] == "monitor" and "message" not in refs[0]
         receipt = (await runtime.inbox.snapshot("monitor"))["receipt"]
-        assert receipt.metadata["reminders"] == [{"id": refs[0]["id"], "file": refs[0]["paths"][0]}]
+        assert refs[0]["id"] == refs[0]["paths"][0]
+        assert receipt.metadata["reminder_paths"] == [refs[0]["id"]]
         await AgentChatStep(app_context=context)(RuntimeContext(stream_queue=asyncio.Queue()), query="Hello")
         assert (tmp_path / "reme_agents/Remy/MEMORY.md").is_file()
         assert (tmp_path / "reme_agents/Remy/sessions.jsonl").is_file()
@@ -754,18 +756,20 @@ async def test_task_names_and_directory_identity_are_validated(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_unhanded_off_results_protect_read_history_and_survive_restart(tmp_path):
+async def test_unhanded_off_results_protect_read_history_and_survive_restart(tmp_path, monkeypatch):
     async with running_runtime(tmp_path) as (runtime, _, _):
         runtime.inbox.max_read_items = 1
         runtime.inbox.append_timeout_seconds = 0.02
         await create_agent(runtime)
-        await runtime.run("monitor", AsyncMock(return_value=completed_result(runtime)))
-        second = {"id": "event-2", "event_ts": runtime.now(), "source": "lab", "description": "Next"}
-        await runtime.append("monitor", second)
-        batch = await runtime.inbox.claim("monitor")
-        with pytest.raises(TimeoutError, match="handoffs"):
-            await runtime.inbox.ack("monitor", batch["token"])
-        await runtime.inbox.nack("monitor", batch["token"])
+        with monkeypatch.context() as patch:
+            patch.setattr(runtime.outbox, "deliver", AsyncMock())
+            await runtime.run("monitor", AsyncMock(return_value=completed_result(runtime)))
+            second = {"id": "event-2", "event_ts": runtime.now(), "source": "lab", "description": "Next"}
+            await runtime.append("monitor", second)
+            batch = await runtime.inbox.claim("monitor")
+            with pytest.raises(TimeoutError, match="handoffs"):
+                await runtime.inbox.ack("monitor", batch["token"])
+            await runtime.inbox.nack("monitor", batch["token"])
         await runtime.outbox.sync()
         assert len(list((runtime.agents.path("monitor") / "inbox").glob("inbox_unread.jsonl"))) == 1
     async with running_runtime(tmp_path) as (runtime, _, _):
@@ -779,18 +783,16 @@ async def test_read_view_retention_does_not_resurrect_old_messages(tmp_path):
     async with running_runtime(tmp_path) as (runtime, _, _):
         await create_agent(runtime)
         now = runtime.now()
-        directory = runtime.agents.path("monitor") / "reminder" / f"{now.date()}"
+        directory = tmp_path / "daily" / f"{now.date()}"
         for index in range(1001):
-            path = directory / f"msg-{index:04}.md"
+            path = directory / f"monitor_090000_{index:04}.md"
             runtime.files.write(
                 path,
                 frontmatter.dumps(
                     frontmatter.Post(
                         "Done",
-                        id=f"msg-{index:04}",
-                        created_at=now.isoformat(),
-                        action="P2",
-                        paths=[path.relative_to(tmp_path).as_posix(), "daily/result.md"],
+                        reminder_priority="P2",
+                        reminder_message="Done",
                         delivered_at=now.isoformat(),
                         read_at=now.isoformat(),
                     ),
@@ -798,7 +800,9 @@ async def test_read_view_retention_does_not_resurrect_old_messages(tmp_path):
             )
         await runtime.outbox.sync()
         assert len(runtime.notifications.read_refs) == 1000
-        assert "msg-0000" not in runtime.notifications.read_refs
+        assert (directory / "monitor_090000_0000.md").relative_to(
+            tmp_path,
+        ).as_posix() not in runtime.notifications.read_refs
         assert not inbox_path(runtime, True).exists()
         await runtime.outbox.sync()
         assert len(runtime.notifications.read_refs) == 1000
@@ -811,26 +815,26 @@ async def test_external_frontmatter_updates_and_corrupt_reminders_fail_closed(tm
         await create_agent(runtime)
         await runtime.run("monitor", AsyncMock(return_value=completed_result(runtime)))
         await runtime.outbox.sync()
-        ref = next(iter(runtime.notifications.pending.values()))
-        path = runtime.files.path(ref.file)
+        ref = next(iter(runtime.notifications.pending))
+        path = runtime.files.path(ref)
         document = frontmatter.loads(runtime.files.read(path))
-        document["user_read_at"] = runtime.now().isoformat()
+        document["chat_message_ids"] = ["reme-proactive-test"]
         runtime.files.write(path, frontmatter.dumps(document))
         await runtime.outbox.sync()
-        assert runtime.outbox.records[ref].user_read_at is not None
-        document["action"] = "invalid"
+        assert runtime.outbox.records[ref].chat_message_ids == ["reme-proactive-test"]
+        document["reminder_priority"] = "invalid"
         invalid = frontmatter.dumps(document)
         runtime.files.write(path, invalid)
         await runtime.outbox.sync()
         assert path.read_text() == invalid
-        assert ref.file in runtime.outbox.issues
-        assert ref.id not in runtime.notifications.pending
+        assert ref in runtime.outbox.issues
+        assert ref not in runtime.notifications.pending
         assert (await runtime.list_views())["items"][1]["error"]
-        document["action"] = "P0"
+        document["reminder_priority"] = "P0"
         runtime.files.write(path, frontmatter.dumps(document))
         await runtime.outbox.sync()
         assert not runtime.outbox.issues
-        assert ref.id in runtime.notifications.pending
+        assert ref in runtime.notifications.pending
 
 
 @pytest.mark.asyncio
@@ -839,8 +843,8 @@ async def test_failed_markdown_state_write_preserves_body_and_retries(tmp_path, 
         await create_agent(runtime)
         await runtime.run("monitor", AsyncMock(return_value=completed_result(runtime)))
         await runtime.outbox.sync()
-        ref = next(iter(runtime.notifications.pending.values()))
-        path = runtime.files.path(ref.file)
+        ref = next(iter(runtime.notifications.pending))
+        path = runtime.files.path(ref)
         original = path.read_bytes()
         from reme.utils.files import workspace_files as files
 
@@ -850,27 +854,44 @@ async def test_failed_markdown_state_write_preserves_body_and_retries(tmp_path, 
         with monkeypatch.context() as patch:
             patch.setattr(files, "sync_file", failed_sync)
             with pytest.raises(OSError, match="disk unavailable"):
-                await runtime.notifications.consume([ref.id])
+                await runtime.notifications.consume([ref])
         assert path.read_bytes() == original
-        assert ref.id in runtime.notifications.pending
-        await runtime.notifications.consume([ref.id])
+        assert ref in runtime.notifications.pending
+        await runtime.notifications.consume([ref])
         document = frontmatter.loads(path.read_text())
-        assert document.content == "Experiment finished" and document["read_at"]
+        assert document.content == "Experiment results" and document["read_at"]
 
 
-@pytest.mark.parametrize("relative", ["daily/experiment.md", "reme_agents/other/reminder/2026-11-15/other.md"])
+@pytest.mark.parametrize("relative", ["daily/experiment.md", "daily/2026-11-15/other_090000.md"])
 @pytest.mark.asyncio
-async def test_notification_cannot_overwrite_a_file_outside_its_reminder_directory(tmp_path, relative):
+async def test_reminder_cannot_reference_a_record_outside_its_task(tmp_path, relative):
     async with running_runtime(tmp_path) as (runtime, _, _):
         await create_agent(runtime)
         result, session_id = completed_result(runtime)
-        result.notifications[0].paths[0] = relative
+        result = result.model_copy(update={"paths": [relative]})
         path = runtime.files.path(relative)
         runtime.files.write(path, "# Original\n")
-        with pytest.raises(ValueError, match="first notification path"):
+        with pytest.raises(ValueError, match="task's dated daily record"):
             await runtime.run("monitor", AsyncMock(return_value=(result, session_id)))
         assert path.read_text() == "# Original\n"
         assert (await runtime.status("monitor"))["pending_events"] == 1
+
+
+@pytest.mark.asyncio
+async def test_outbox_recovery_ignores_receipts_for_another_tasks_record(tmp_path):
+    async with running_runtime(tmp_path) as (runtime, _, _):
+        await create_agent(runtime)
+        await runtime.create({"agent_name": "other", "task_description": "Publish its own results"})
+        reminder, _ = completed_result(runtime, "other")
+        (ref,) = reminder.paths
+        batch = await runtime.inbox.claim("monitor")
+        await runtime.inbox.ack("monitor", batch["token"], metadata={"reminder_paths": [ref]}, retain=True)
+
+        await runtime.outbox.sync()
+
+        assert not runtime.outbox.records and not runtime.outbox.issues
+        assert "delivered_at" not in frontmatter.loads(runtime.files.read(runtime.files.path(ref)))
+        await runtime.inbox.forget("monitor")
 
 
 @pytest.mark.asyncio
@@ -923,7 +944,7 @@ async def test_shutdown_cancels_agent_tasks_waiting_for_locks(tmp_path, operatio
     async with running_runtime(tmp_path) as (runtime, _, _):
         await create_agent(runtime)
         lock = runtime.management_lock if operation == "query" else runtime.execution("monitor").lock
-        execute = AsyncMock(return_value=(ProactiveRunResult(notifications=[]), "session-1"))
+        execute = AsyncMock(return_value=(None, "session-1"))
 
         async def invoke():
             if operation == "run":
@@ -990,7 +1011,7 @@ async def test_query_registration_owns_requests_during_checkpoint_selection(tmp_
         )
         await runtime.append("experiment", {"event_ts": start, "source": "lab", "description": "Finished"})
         source = await runtime.sessions.ensure("experiment", wrapper, {}, start)
-        await runtime.run("experiment", AsyncMock(return_value=(ProactiveRunResult(notifications=[]), source)))
+        await runtime.run("experiment", AsyncMock(return_value=(None, source)))
         directory = runtime.agents.path("experiment")
         monkeypatch.setattr(runtime, "now", lambda: start + timedelta(days=8))
         current = runtime.sessions.current
@@ -1221,7 +1242,7 @@ async def test_task_chat_forks_latest_primary_for_each_question_without_consumin
         assert all(options["sandbox"] == "read-only" for options in wrapper.created[1:])
         assert wrapper.turns[0][1]["resume"] != wrapper.turns[1][1]["resume"]
         assert (await runtime.status("monitor"))["pending_events"] == 1
-        assert not list((runtime.agents.path("monitor") / "reminder").rglob("*.md"))
+        assert not list((tmp_path / "daily").rglob("*.md"))
         assert (await runtime.sessions.current("monitor")).session_id == source
         assert not (await runtime.sessions.current("monitor")).temporary
 
@@ -1244,7 +1265,7 @@ async def test_query_allows_background_work_and_is_cancelled_on_delete(tmp_path)
         await started.wait()
         try:
             assert (await runtime.list_views())["items"][1]["status"] == "idle"
-            execute = AsyncMock(return_value=(ProactiveRunResult(notifications=[]), "session-1"))
+            execute = AsyncMock(return_value=(None, "session-1"))
             assert (await runtime.run("monitor", execute))["processed"] == 1
             assert not task.done()
             await runtime.delete("monitor")
@@ -1318,13 +1339,12 @@ async def test_desktop_reminder_read_does_not_consume_agent_inbox(tmp_path):
         page = await runtime.list_inputs("Remy", state="pending")
         assert len(page["items"]) == 1
         item = page["items"][0]["event"]
-        response = await tool(message_id=item["id"], mark_read=True)
-        assert response.answer["user_read_at"]
-        assert (await tool(message_id=item["id"])).answer["user_read_at"]
+        response = await tool(message_id=item["id"])
+        assert response.answer["read_at"] is None
         assert (await runtime.list_inputs("Remy", state="pending"))["total"] == 1
-        ref = next(iter(runtime.outbox.committed))
+        ref = next(iter(runtime.outbox.records))
         assert runtime.outbox.records[ref].read_at is None
-        assert ref.id in runtime.notifications.pending
+        assert ref in runtime.notifications.pending
 
 
 @pytest.mark.asyncio

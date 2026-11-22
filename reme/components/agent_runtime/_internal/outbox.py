@@ -1,282 +1,190 @@
-"""Canonical Markdown reminders with delivery state in frontmatter."""
+"""Canonical Markdown reminders keyed by workspace-relative filename."""
 
 import asyncio
 from contextlib import AsyncExitStack, asynccontextmanager
-from contextvars import ContextVar
-from itertools import chain
 
 import yaml
 
-from .outbox_v1 import ReminderFiles
-from .outbox_v2 import DailyReminderFiles
+from .reminder_files import ReminderFiles
 from ....constants import CHAT_AGENT_NAME, PROACTIVE_MESSAGE_ID_PREFIX
-from ....schema.agent_runtime import AgentReminder, ReminderRef
-from ....schema.event import Event
-from ....utils.async_utils import complete_in_thread, finish_cleanup
+from ....schema.agent_runtime import AgentReminder
+from ....utils.async_utils import complete_in_thread
 from ....utils.files.path_lock import get_path_lock
-from ....utils.proactive_record import is_date_directory
+
+_FILE_ERRORS = (OSError, RuntimeError, TypeError, ValueError, yaml.YAMLError)
 
 
 class AgentOutbox:
-    """Rebuild messages from reminder files and publication eligibility from input receipts."""
+    """Deliver committed reminders and rebuild the inbox from their files."""
 
     def __init__(self, runtime, daily_dir):
         self.runtime = runtime
         self.files = runtime.files
-        self._legacy = ReminderFiles(runtime)
-        self._daily = DailyReminderFiles(self.files, self.files.path(daily_dir))
+        self.storage = ReminderFiles(self.files, daily_dir)
         self.lock = asyncio.Lock()
         self.sync_lock = asyncio.Lock()
-        self.records: dict[ReminderRef, AgentReminder] = {}
-        self.owners: dict[ReminderRef, str] = {}
-        self.committed: set[ReminderRef] = set()
+        self.records: dict[str, AgentReminder] = {}
+        self.owners: dict[str, str] = {}
         self.cache = {}
         self.issues: dict[str, str] = {}
-        self._decision_scope = ContextVar("reminder_decision", default=None)
 
     def _scan(self):
         records, owners, cache, issues = {}, {}, {}, {}
         for agent in self.runtime.agents.load(include_deleted=True).values():
-            for path in chain(self._legacy.paths(agent), self._daily.paths(agent)):
+            for path in self.storage.paths(agent.agent_name):
+                ref = path.relative_to(self.files.workspace).as_posix()
                 try:
-                    if not is_date_directory(path.parent):
-                        raise ValueError("reminder directories must use YYYY-MM-DD names")
                     self.files.checked(path)
                     stat = path.stat()
                     signature = (stat.st_ino, stat.st_size, stat.st_mtime_ns)
                     previous = self.cache.get(path)
-                    item = previous[1] if previous and previous[0] == signature else self._read(path)
-                except (OSError, RuntimeError, TypeError, ValueError, yaml.YAMLError) as exc:
-                    issues[path.relative_to(self.files.workspace).as_posix()] = str(exc)
+                    item = previous[1] if previous and previous[0] == signature else self.storage.read(path)
+                except _FILE_ERRORS as exc:
+                    issues[ref] = str(exc)
                     continue
                 cache[path] = (signature, item)
                 if item is not None:
-                    ref = ReminderRef(file=path.relative_to(self.files.workspace).as_posix(), id=item.id)
                     records[ref] = item
                     owners[ref] = agent.agent_name
         return records, owners, cache, issues
 
-    def _storage(self, path):
-        return self._daily if self._daily.contains(path) else self._legacy
+    def _write(self, path, item):
+        self.files.write(path, self.storage.serialize(path, item))
 
-    def _read(self, path):
-        return self._storage(path).read(path)
-
-    def _write(self, path, item, *, on_write=None):
-        self.files.write(
-            path,
-            self._storage(path).serialize(path, item),
-            **({"on_write": lambda version: on_write(path, version)} if on_write is not None else {}),
-        )
-
-    def supporting_paths(self, item):
-        """Give Chat the files that provide additional context for a reminder."""
-        canonical = item["reminder_path"]
-        paths = dict.fromkeys(item["paths"])
-        if not self._daily.contains(self.files.path(canonical)):
-            paths.pop(canonical, None)
-        return list(paths)
-
-    @staticmethod
-    def _committed_references(records, receipts, issues):
-        committed = {
-            ReminderRef.model_validate(ref)
-            for group in receipts.values()
-            for receipt in group
-            for ref in receipt.metadata.get("reminders", [])
-        }
-        committed.update(ref for ref, item in records.items() if item.delivered_at is not None)
-        for ref in committed - records.keys():
-            issues.setdefault(ref.file, f"committed reminder is missing or invalid: {ref.id}")
-        return committed & records.keys()
-
-    async def sync(self):
-        """Reload reminders and retry pending publication."""
-        async with self.sync_lock:
-            await self._sync()
+    def _report(self, ref, error):
+        if self.issues.get(ref) != error:
+            self.runtime.logger.error(f"Reminder unavailable at {ref}: {error}")
+            self.issues[ref] = error
 
     async def refresh(self):
-        """Refresh canonical records without publishing or consuming messages."""
+        """Reload delivered records, leaving uncommitted files out of mailbox views."""
         receipts = await self.runtime.inbox.receipts()
         async with self.lock:
             records, owners, cache, issues = await asyncio.to_thread(self._scan)
-            committed = self._committed_references(records, receipts, issues)
-            for path, error in issues.items():
-                if self.issues.get(path) != error:
-                    self.runtime.logger.error(f"Reminder unavailable at {path}: {error}")
-            self.records, self.owners, self.cache = records, owners, cache
-            self.committed = committed
-            self.issues = issues
+            for group in receipts.values():
+                for receipt in group:
+                    for ref in receipt.metadata.get("reminder_paths", []):
+                        if isinstance(ref, str) and ref not in records and ref in self.issues:
+                            issues.setdefault(ref, self.issues[ref])
+            for ref, error in issues.items():
+                self._report(ref, error)
+            self.records, self.owners, self.cache, self.issues = records, owners, cache, issues
         return receipts
 
-    async def _sync(self):
-        receipts = await self.refresh()
-        try:
-            if not self.runtime.closed:
-                await self.publish()
-        finally:
-            for name, group in receipts.items():
+    async def sync(self):
+        """Recover delivery from durable input receipts before releasing their retention."""
+        async with self.sync_lock:
+            receipts = await self.refresh()
+            for agent, group in receipts.items():
                 retained, released = [], []
                 for receipt in group:
-                    handed_off = all(
-                        ReminderRef.model_validate(ref) in self.records
-                        and self.records[ReminderRef.model_validate(ref)].delivered_at is not None
-                        for ref in receipt.metadata.get("reminders", [])
-                    )
+                    refs = [ref for ref in receipt.metadata.get("reminder_paths", []) if self.storage.owns(ref, agent)]
+                    await self.deliver(agent, [ref for ref in refs if ref not in self.records])
+                    handed_off = all(ref in self.records for ref in refs)
                     (released if handed_off else retained).extend(receipt.item_ids)
-                await self.runtime.inbox.retain(name, retained)
-                await self.runtime.inbox.retain(name, released, release=True)
+                await self.runtime.inbox.retain(agent, retained)
+                await self.runtime.inbox.retain(agent, released, release=True)
 
-    def _order(self, ref):
+    def order(self, ref):
+        """Order reminders by priority, delivery time and stable path."""
         item = self.records[ref]
-        return item.priority, item.created_at, ref.id
+        return item.priority, item.delivered_at, ref
 
     def allows(self, ref, agents, now):
-        """Share sender eligibility between queue admission, scheduling and decision commit."""
+        """Apply the sender's settings when Chat is about to handle a reminder."""
         agent = agents.get(self.owners.get(ref))
         return agent is not None and agent.enabled and (agent.notify_window is None or agent.notify_window.allows(now))
 
     def event(self, ref):
-        """Describe the source of a reminder in the inbox listing."""
-        return Event(
-            id=ref.id,
-            event_ts=self.records[ref].created_at,
-            source=self.owners[ref],
-            description=f"Reminder from {self.owners[ref]}",
-            paths=[ref.file],
-        ).model_dump(mode="json")
+        """Describe a reminder without limiting its path to a generic event ID's length."""
+        owner = self.owners[ref]
+        return {
+            "id": ref,
+            "event_ts": self.records[ref].delivered_at.isoformat(),
+            "source": owner,
+            "description": f"Reminder from {owner}",
+            "paths": [ref],
+            "metadata": {},
+        }
 
-    async def save(self, agent, run_id, result, now, *, on_write=None, before_write=None):
-        """Save validated model output before its event consumption receipt is committed."""
-        refs = []
-        for index, notification in enumerate(result.notifications):
-            path = self.files.path(notification.paths[0])
-            if not self._storage(path).owns(path, agent):
-                raise ValueError("the first notification path must be the Agent's dated reminder or daily Markdown")
-            if not is_date_directory(path.parent):
-                raise ValueError("reminder directories must use YYYY-MM-DD names")
-            item = AgentReminder(**notification.model_dump(), id=f"{run_id}-{index}", created_at=now)
-            async with await get_path_lock(path):
-                if before_write is not None:
-                    await asyncio.to_thread(before_write, path)
-                previous = await asyncio.to_thread(self._read, path)
-                if previous is not None:
-                    if previous.id != item.id:
-                        raise ValueError("cannot overwrite another reminder")
-                    item = previous
-                await complete_in_thread(
-                    self._write,
-                    path,
-                    item,
-                    **({"on_write": on_write} if on_write is not None else {}),
-                )
-            refs.append(ReminderRef(file=path.relative_to(self.files.workspace).as_posix(), id=item.id))
-            async with self.lock:
-                self.cache.pop(path, None)
-        return refs
+    async def verify(self, agent_name, reminder, *, check_version=None):
+        """Verify the pending reminder against its source before committing the input receipt."""
+        (ref,) = reminder.paths
+        if not self.storage.owns(ref, agent_name):
+            raise ValueError("a reminder must reference the task's dated daily record")
+        path = self.files.path(ref)
+        async with await get_path_lock(path):
+            if check_version is not None:
+                await asyncio.to_thread(check_version, path)
+            draft = await asyncio.to_thread(self.storage.read, path, draft=True)
+            if draft.delivered_at is not None:
+                raise ValueError(f"cannot overwrite a delivered reminder: {path}")
+            if (draft.priority, draft.message) != (reminder.priority, reminder.message):
+                raise ValueError(f"reminder decision changed: {path}")
+        return ref
+
+    async def deliver(self, agent, refs):
+        """Complete a committed handoff regardless of the Chat notification window."""
+        for ref in refs:
+            try:
+                path = self.files.path(ref)
+                async with await get_path_lock(path):
+                    item = await asyncio.to_thread(self.storage.read, path, draft=True)
+                    if item.delivered_at is None:
+                        item = item.model_copy(update={"delivered_at": self.runtime.now()})
+                        await complete_in_thread(self._write, path, item)
+                    async with self.lock:
+                        self.records[ref] = item
+                        self.owners[ref] = agent
+                        self.cache.pop(path, None)
+                        self.issues.pop(ref, None)
+            except _FILE_ERRORS as exc:
+                async with self.lock:
+                    self._report(ref, str(exc))
 
     async def update(self, ref, **changes):
-        """Atomically update acknowledgement fields in the canonical Markdown."""
-        scope = self._decision_scope.get()
-        if scope is not None and scope["active"] and ref in scope["refs"]:
-            # Native delivery callbacks may immediately acknowledge user reading.
-            # They inherit the guarded scope, which only permits metadata merges.
-            scope["updates"] += 1
-            scope["idle"].clear()
-            try:
-                await self._update(ref, **changes)
-            finally:
-                scope["updates"] -= 1
-                if not scope["updates"]:
-                    scope["idle"].set()
-            return
-        async with await get_path_lock(self.files.path(ref.file)):
-            await self._update(ref, **changes)
+        """Update Chat receipts under the workspace's file lock."""
+        async with await get_path_lock(self.files.path(ref)):
+            await self._update_locked(ref, **changes)
 
     @asynccontextmanager
     async def decision(self, items):
-        """Keep the fork's content stable from validation through native delivery and acknowledgement."""
-        refs = {ReminderRef(file=item["reminder_path"], id=item["id"]): item for item in items}
+        """Keep the reminder content stable through native delivery and acknowledgement."""
+        paths = {item["id"]: self.files.path(item["id"]) for item in items}
         async with AsyncExitStack() as stack:
-            for path in sorted({self.files.path(ref.file) for ref in refs}):
+            for path in sorted(paths.values()):
                 await stack.enter_async_context(await get_path_lock(path))
-            for ref, expected in refs.items():
-                latest = await asyncio.to_thread(self._read, self.files.path(ref.file))
+            for expected in items:
+                latest = await asyncio.to_thread(self.storage.read, paths[expected["id"]])
                 if (
                     latest is None
-                    or latest.id != ref.id
                     or latest.read_at is not None
-                    or any(getattr(latest, key) != expected[key] for key in ("priority", "message", "paths"))
+                    or (latest.priority, latest.message) != (expected["priority"], expected["message"])
                 ):
                     raise RuntimeError("reminders changed; reassess the current inbox before submitting")
+            yield self._update_locked
 
-            scope = {"refs": frozenset(refs), "active": True, "updates": 0, "idle": asyncio.Event()}
-            scope["idle"].set()
-            token = self._decision_scope.set(scope)
-            try:
-                yield
-            finally:
-                # Children may outlive the decision; inherited scopes cannot bypass
-                # path locks after this guard releases them.
-                scope["active"] = False
-                try:
-                    await finish_cleanup(scope["idle"].wait())
-                finally:
-                    self._decision_scope.reset(token)
-
-    async def _update(self, ref, **changes):
-        """Merge runtime metadata while the caller holds the canonical file's path lock."""
-        if set(changes) - {
-            "delivered_at",
-            "read_at",
-            "user_read_at",
-            "chat_message_ids",
-        }:
-            raise ValueError("only reminder acknowledgements can be updated")
+    async def _update_locked(self, ref, *, read_at=None, chat_message_ids=()):
         async with self.lock:
-            path = self.files.path(ref.file)
-            item = await asyncio.to_thread(self._read, path)
-            if item is None or item.id != ref.id:
-                raise ValueError("reminder identity is missing or changed")
-            message_ids = changes.pop("chat_message_ids", [])
-            changes = {key: value for key, value in changes.items() if getattr(item, key) is None}
-            if message_ids:
-                combined = list(dict.fromkeys([*item.chat_message_ids, *message_ids]))
-                if combined != item.chat_message_ids:
-                    changes["chat_message_ids"] = combined
-            if changes:
-                item = AgentReminder.model_validate({**item.model_dump(), **changes})
-                await complete_in_thread(self._write, path, item)
+            path = self.files.path(ref)
+            item = await asyncio.to_thread(self.storage.read, path)
+            if item is None:
+                raise ValueError(f"reminder is missing or undelivered: {ref}")
+            updated = AgentReminder.model_validate(
+                {
+                    **item.model_dump(),
+                    "read_at": item.read_at or read_at,
+                    "chat_message_ids": list(dict.fromkeys([*item.chat_message_ids, *chat_message_ids])),
+                },
+            )
+            if updated != item:
+                await complete_in_thread(self._write, path, updated)
                 self.cache.pop(path, None)
             if ref in self.records:
-                self.records[ref] = item
-
-    async def publish(self):
-        """Stable references make receiver publication safe to repeat after interruption."""
-        agents = await asyncio.to_thread(self.runtime.agents.load)
-        async with self.lock:
-            refs = sorted(self.committed, key=self._order)
-        for ref in refs:
-            async with self.lock:
-                item = self.records.get(ref)
-                owner = self.owners.get(ref)
-                if (
-                    ref not in self.committed
-                    or item is None
-                    or item.delivered_at is not None
-                    or item.read_at is not None
-                ):
-                    continue
-                if not self.allows(ref, agents, self.runtime.now()):
-                    continue
-            await self.update(ref, delivered_at=self.runtime.now())
-            self.runtime.logger.info(
-                f"Proactive agent={owner} reminder={ref.id} result=delivered path={ref.file}",
-            )
-            self.runtime.changed.set()
+                self.records[ref] = updated
 
     async def inbox(self, *, state="all", offset=0, limit=20):
-        """Project the receiver view directly from canonical reminder files."""
+        """Project the receiver view directly from daily records."""
         if state not in {"all", "pending", "processing", "processed"}:
             raise ValueError("invalid item state")
         if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 100:
@@ -286,18 +194,14 @@ class AgentOutbox:
         claimed = set(turn.msg_ids) if turn else set()
         async with self.lock:
             processed = sorted(
-                (ref for ref in self.committed if self.records[ref].read_at is not None),
-                key=lambda ref: (self.records[ref].read_at, ref.id),
+                (ref for ref, item in self.records.items() if item.read_at is not None),
+                key=lambda ref: (self.records[ref].read_at, ref),
             )[-self.runtime.inbox.max_read_items :]
-            pending = [
-                ref
-                for ref in self.committed
-                if self.records[ref].delivered_at is not None and self.records[ref].read_at is None
-            ]
+            pending = [ref for ref, item in self.records.items() if item.read_at is None]
             items = []
             for ref in [*processed, *pending]:
                 item = self.records[ref]
-                status = "processed" if item.read_at is not None else "processing" if ref.id in claimed else "pending"
+                status = "processed" if item.read_at is not None else "processing" if ref in claimed else "pending"
                 if state in {"all", status}:
                     items.append(
                         {
@@ -310,12 +214,8 @@ class AgentOutbox:
             items.sort(key=lambda value: (value["event"]["event_ts"], value["event"]["id"]), reverse=True)
             return {"items": items[offset : offset + limit], "total": len(items), "offset": offset, "limit": limit}
 
-    def references(self, agent_name):
-        """Find retained records owned by an identity without storing duplicate sender fields."""
-        return {ref for ref, owner in self.owners.items() if owner == agent_name}
-
     async def list(self, agent_name, *, state="all", offset=0, limit=20):
-        """Page one task's committed outgoing reminders."""
+        """Page one task's delivered outgoing reminders."""
         if state not in {"all", "pending", "processed"}:
             raise ValueError("invalid mailbox state")
         if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 100:
@@ -323,13 +223,13 @@ class AgentOutbox:
         await self.runtime.definition(agent_name)
         await self.refresh()
         async with self.lock:
-            refs = [ref for ref in self.committed if self.owners[ref] == agent_name]
             refs = [
                 ref
-                for ref in refs
-                if state == "all" or (self.records[ref].read_at is not None) == (state == "processed")
+                for ref, item in self.records.items()
+                if self.owners[ref] == agent_name
+                and (state == "all" or (item.read_at is not None) == (state == "processed"))
             ]
-            refs.sort(key=lambda ref: (self.records[ref].created_at, ref.id), reverse=True)
+            refs.sort(key=lambda ref: (self.records[ref].delivered_at, ref), reverse=True)
             return {
                 "items": [self.message(ref) for ref in refs[offset : offset + limit]],
                 "total": len(refs),
@@ -338,37 +238,21 @@ class AgentOutbox:
             }
 
     def message(self, ref):
-        """Render canonical content for Inbox, Outbox and single-reminder views."""
-        return {**self.records[ref].model_dump(mode="json"), "from_agent_name": self.owners[ref]}
+        """Render the source path as the reminder ID."""
+        return {"id": ref, **self.records[ref].model_dump(mode="json"), "from_agent_name": self.owners[ref]}
 
-    async def read(self, agent_name, message_id, *, mark_read=False):
-        """Authorize the mailbox before updating only the user's read receipt."""
+    async def read(self, agent_name, message_id):
+        """Read a task reminder, or find the sources of a combined Chat message."""
         if agent_name != CHAT_AGENT_NAME:
             await self.runtime.definition(agent_name)
         await self.refresh()
-        if agent_name == CHAT_AGENT_NAME and message_id.startswith(PROACTIVE_MESSAGE_ID_PREFIX):
-            async with self.lock:
-                refs = [ref for ref in self.committed if message_id in self.records[ref].chat_message_ids]
-            if not refs and not mark_read:
-                raise ValueError("chat reminder has no retained source messages")
-
-            async def acknowledge():
-                for ref in refs:
-                    await self.update(ref, user_read_at=self.runtime.now())
-
-            if mark_read:
-                await finish_cleanup(acknowledge())
-            async with self.lock:
+        async with self.lock:
+            if message_id in self.records:
+                if agent_name in {CHAT_AGENT_NAME, self.owners[message_id]}:
+                    return self.message(message_id)
+            elif agent_name == CHAT_AGENT_NAME and message_id.startswith(PROACTIVE_MESSAGE_ID_PREFIX):
+                refs = sorted(ref for ref, item in self.records.items() if message_id in item.chat_message_ids)
+                if not refs:
+                    raise ValueError("chat reminder has no retained source messages")
                 return {"id": message_id, "items": [self.message(ref) for ref in refs]}
-        async with self.lock:
-            ref = next((ref for ref in self.committed if ref.id == message_id), None)
-            if (
-                ref is None
-                or (agent_name == CHAT_AGENT_NAME and not (self.records[ref].delivered_at or self.records[ref].read_at))
-                or (agent_name not in {CHAT_AGENT_NAME, self.owners[ref]})
-            ):
-                raise ValueError("message not found in this mailbox")
-        if mark_read:
-            await self.update(ref, user_read_at=self.runtime.now())
-        async with self.lock:
-            return self.message(ref)
+            raise ValueError("message not found in this mailbox")

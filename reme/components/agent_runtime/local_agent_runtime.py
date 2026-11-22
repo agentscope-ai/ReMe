@@ -4,8 +4,6 @@ import asyncio
 from contextlib import aclosing, asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from hashlib import sha256
-import json
 import math
 from zoneinfo import ZoneInfo
 
@@ -397,7 +395,7 @@ class LocalAgentRuntime(BaseAgentRuntime):
                 if session_id is not None:
                     await finish_cleanup(self.agent_wrapper.release_session(session_id))
 
-    async def run(self, agent_name, execute, *, on_failure=None, on_write=None, before_write=None):
+    async def run(self, agent_name, execute, *, on_failure=None, check_version=None):
         """Commit successful execution before handing asynchronous delivery to the outbox."""
         async with (
             self._agent_task(agent_name),
@@ -433,41 +431,34 @@ class LocalAgentRuntime(BaseAgentRuntime):
                     started_at=self.executions[agent_name].started_at,
                     phase="working",
                 )
-                result, session_id = await execute(agent, batch["items"])
+                reminder, session_id = await execute(agent, batch["items"])
                 self.activities[agent_name] = self.activities[agent_name].model_copy(update={"session_id": session_id})
-                run_id = sha256(json.dumps([agent_name, batch["items"]], sort_keys=True).encode()).hexdigest()[:32]
 
                 async def commit():
-                    refs = await self.outbox.save(
-                        agent,
-                        run_id,
-                        result,
-                        self.now(),
-                        **({"on_write": on_write} if on_write is not None else {}),
-                        **({"before_write": before_write} if before_write is not None else {}),
-                    )
+                    refs = []
+                    if reminder is not None:
+                        refs.append(await self.outbox.verify(agent_name, reminder, check_version=check_version))
                     await self.inbox.ack(
                         agent_name,
                         batch["token"],
-                        metadata={
-                            "reminders": [ref.model_dump() for ref in refs],
-                            "session_id": session_id,
-                        },
+                        metadata={"reminder_paths": refs, "session_id": session_id},
                         retain=bool(refs),
                     )
                     execution.retry_items = None
+                    return refs
 
-                await finish_cleanup(commit())
+                refs = await finish_cleanup(commit())
+                await self.outbox.deliver(agent_name, refs)
                 self.logger.info(
                     f"Proactive agent={agent_name} session={session_id} result=committed "
-                    f"processed={len(batch['items'])} notifications={len(result.notifications)}",
+                    f"processed={len(batch['items'])} notifications={len(refs)}",
                 )
                 self.activities[agent_name] = self.activities[agent_name].model_copy(update={"phase": "completed"})
                 self.changed.set()
                 return {
                     "agent_name": agent_name,
                     "processed": len(batch["items"]),
-                    "notifications": result.model_dump()["notifications"],
+                    "notifications": [reminder.model_dump()] if reminder is not None else [],
                 }
             except BaseException as exc:
                 phase = "interrupted" if isinstance(exc, asyncio.CancelledError) else "failed"

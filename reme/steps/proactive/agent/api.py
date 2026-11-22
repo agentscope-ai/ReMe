@@ -155,7 +155,7 @@ class AgentOutboxStep(_AgentViewStep):
 
 @R.register("agent_reminder_step")
 class AgentReminderStep(_AgentViewStep):
-    """Keep user reading separate from Inbox processing."""
+    """Read a task reminder or the sources of a Chat message."""
 
     async def execute(self):
         request = self.request(AgentReminderRequest)

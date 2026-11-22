@@ -9,12 +9,38 @@ description: 通过 ReMe 管理定时任务和事件监控，包括任务要求�
 按需用 `status` 查状态。名称建议用下划线连接简短的小写英文单词，如 `experiment_watch`。名称忽略大小写必须唯一，
 `Remy` 保留给主对话。
 
-## 任务要求与运行配置
+## 怎么写 `task_description`
 
-- 创建时用 `task_description` 写清已确认的目标、背景、提醒条件和时间。传 `cron` 创建定时任务，省略则创建事件任务。
-- 需求以 `task_path` 指向的 `TASK.md` 为准。编辑前读取当前内容，保留有效背景，保存后重新读取核对。重建同名已删除任务会复用原文件和历史。
-- `update` 修改运行设置。调整约定执行时间时同步修改 `cron` 与 `TASK.md`。`cron` 使用应用时区。
-  `notify_window` 使用 HH:MM 格式的 `{start,end}`，传 `null` 取消限制。事件任务的
+写清每轮都适用的目标和必要背景。创建时将正文保存到 `task_path` 指向的 `TASK.md`，每轮执行时读取该文件。任务进展和提醒决定同写一份每日记录。下面的标题用于示意每轮输入，填写 `task_description` 时只写要求正文。
+
+### 事件驱动
+
+采集器把完整资料保存为工作区内的本地文件。运行时在 `本轮事件` 中提供每条事件的时间、来源、简述和相关文件路径（如有），供任务读取和核实。
+
+```markdown
+## 本轮事件
+{事件时间、来源、简述和工作区相对文件路径}
+
+## 任务要求
+{task_description}
+```
+
+写清要从事件资料里判断什么、哪些情况需要记录或投递到收件箱，以及消息要包含哪些依据。当前这批事件的事实和文件路径随事件投递。
+
+### 定时驱动
+
+```markdown
+## 任务要求
+{task_description}
+```
+
+写清触发后要做什么、用哪些资料、交付什么。有特殊要求时，写清什么结果需要汇报。执行时间和频率只写在 `cron`，资料的时间范围可以写在 `task_description`，例如「过去 24 小时发布的新闻」。
+
+## 运行配置
+
+- 传 `cron` 创建定时任务，省略则创建事件任务。`cron` 使用应用时区，仅调整执行时间或频率时用 `update` 修改 `cron`。
+- 修改任务要求时，先读取 `task_path` 指向的 `TASK.md`，保留有效背景，保存后重新读取核对。重建同名已删除任务会复用原文件和历史。
+- `notify_window` 使用 HH:MM 格式的 `{start,end}`，限定 Remy 自动处理和发送提醒的时段。传 `null` 取消限制。任务结果提交后直接进入收件箱。事件任务的
   `min_trigger_interval_seconds` 从上一轮成功完成时计时，采集频率由采集器配置。
 
 ## 六个 action 示例
@@ -31,7 +57,7 @@ description: 通过 ReMe 管理定时任务和事件监控，包括任务要求�
 ### create：创建定时任务
 
 ```json
-{"action":"create","agent_name":"tech_news","task_description":"每天早上整理重要科技新闻，简洁说明事实和影响，保留来源；每天08:00提醒。","cron":"0 8 * * *"}
+{"action":"create","agent_name":"tech_news","task_description":"整理过去 24 小时的重要科技新闻，简洁说明每条新闻的事实和影响，附原始来源链接，提交早报。","cron":"0 8 * * *"}
 ```
 
 创建成功后核对 `task_path` 和 `next_trigger_at`。框架按日程触发定时任务。
@@ -74,7 +100,7 @@ description: 通过 ReMe 管理定时任务和事件监控，包括任务要求�
 主人交办“跟进实验日志，异常或结束时通知我”时，先确认实验、日志位置、判断条件和采集频率，再创建事件任务：
 
 ```json
-{"action":"create","agent_name":"experiment_watch","task_description":"跟进本次实验，分析持续投递的实验日志；确认异常或结束时提醒，说明依据与影响。正常进展只记录，没有新日志不能单独作为结束依据。"}
+{"action":"create","agent_name":"experiment_watch","task_description":"读取本轮事件引用的实验日志，判断实验状态。日志明确显示进程因错误退出、关键指标出现 NaN 或实验完成时提醒，说明状态和判断依据，并附原日志链接。正常进展只记录，结束状态须有明确日志依据。"}
 ```
 
 创建事件任务后接入来源：
@@ -96,7 +122,7 @@ curl --fail-with-body http://127.0.0.1:2333/append_agent_events \
       "id": "experiment-log-snapshot-001",
       "event_ts": "2026-11-17T10:30:00+08:00",
       "source": "experiment_log",
-      "description": "实验日志已更新，请读取快照判断运行状态。",
+      "description": "实验日志快照已更新。",
       "paths": ["resource/experiments/snapshot-001.log"]
     }]
   }'

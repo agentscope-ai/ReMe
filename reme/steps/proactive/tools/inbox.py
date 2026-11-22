@@ -19,7 +19,7 @@ class _InboxTool(BaseAgentStep):
 
 @R.register("read_inbox_step")
 class ReadInboxStep(_InboxTool):
-    """Expose reminder text and supporting paths while the runtime owns acknowledgements."""
+    """Expose reminder text and source records while the runtime owns acknowledgements."""
 
     async def execute(self):
         if self.parameters():
@@ -29,9 +29,9 @@ class ReadInboxStep(_InboxTool):
             "items": [
                 {
                     "agent_name": item["from_agent_name"],
-                    "created_at": item["created_at"],
+                    "delivered_at": item["delivered_at"],
                     "message": item["message"],
-                    "paths": self.agent_runtime.outbox.supporting_paths(item),
+                    "paths": item["paths"].copy(),
                 }
                 for item in batch["items"]
             ],

@@ -11,7 +11,6 @@ from .agent_runtime import (
     ChatAgentConfig,
     NotificationConfig,
     AgentReminder,
-    ReminderRef,
     SendChatMessageRequest,
 )
 from .agent_activity import AgentActivity
@@ -51,7 +50,6 @@ from .proactive_agent import (
     NotificationWindow,
     ProactiveAgent,
     ProactiveAgentConfig,
-    ProactiveRunResult,
     TaskSettings,
 )
 from .file_chunk import FileChunk
@@ -120,13 +118,11 @@ __all__ = [
     "ProactiveAgentConfig",
     "CreateProactiveAgentConfig",
     "AgentReminder",
-    "ReminderRef",
     "AgentNotification",
     "AgentName",
     "AgentType",
     "NotificationConfig",
     "SendChatMessageRequest",
-    "ProactiveRunResult",
     "FileChunk",
     "FileFrontMatter",
     "FileLink",

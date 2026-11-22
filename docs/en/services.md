@@ -158,21 +158,20 @@ completion. Inputs remain queued during this cooldown. The built-in finance task
 
 With `config=proactive`, Chat, proactive, cron, and temporary forks share the Codex app server's native tool settings, including `web_search`.
 Temporary `query` forks use the backend's read-only mode.
-`notify_window={start,end}` limits reminder delivery and automatic Chat evaluation. Tasks can run and save results
-outside that window.
+`notify_window={start,end}` limits automatic Chat evaluation and sending. Committed reminders enter the inbox immediately and can be browsed outside the window.
 Tasks remain in their stable directories until explicitly deleted; deletion retains source files and history. On restart cron schedules the next future trigger; queued events still run, but missed offline triggers are not backfilled.
-Chat idle and retry timers restart in memory. Daily handoffs use `daily/YYYY-MM-DD/<agent_name>.md`; round details use
-`<agent_name>_HHMMSS.md`, with numeric suffixes for same-second collisions. The framework keeps each reminder body in Markdown and
-updates delivery and read timestamps in its frontmatter under the Agent's `reminder/YYYY-MM-DD/HHMMSS.md`.
-Round details and reminders share the same time and collision suffix. Existing reminder files keep their original paths.
+Chat idle and retry timers restart in memory. Tasks save progress and their reminder decision together in
+`daily/YYYY-MM-DD/{agent_name}_HHMMSS.md`. Same-second collisions add a numeric suffix. The body holds new information,
+and `reminder_priority` and `reminder_message` describe the delivery decision in the frontmatter. ReMe writes delivery and
+processing timestamps to the same frontmatter. The workspace-relative record path is the reminder ID.
 
 `components.agent_inbox.default` uses the `event` backend (`AgentEventInbox`), inheriting the generic local
 inbox implementation. `components.agent_runtime.default.inbox` selects that component. Each task stores pending
 inputs in `inbox/inbox_unread.jsonl` and processed batches in `inbox/inbox_read.jsonl`; each batch contains `items`,
 `consume_ts` and `metadata`. Claims reserve selected IDs without consuming them; successful execution commits a receipt.
 The tasks receive `Event` records for observations and cron triggers. The processed history limit defaults to
-1,000 events. Remy's inbox view is derived from committed reminder Markdown and its acknowledgement fields. The
-runtime selects one eligible batch at a time by priority and creation time, subject to the configured inbox item
+1,000 events. Remy's inbox view is derived from daily records with delivered reminders. The
+runtime selects one eligible batch at a time by priority and delivery time, subject to the configured inbox item
 and byte limits. A file watcher and periodic scans reconcile edits and interrupted handoffs.
 
 Missing or corrupt individual reminders
@@ -206,23 +205,22 @@ and cron logs unsuccessful partial collection results.
 
 Reading is limited to the selected batch. Nonempty content is appended as an assistant message marked
 `source="proactive"`; empty content commits a silent decision without inserting a message. Successful decisions
-automatically consume the messages read, independently of user-read state. Failures remain retryable, and a switched
+automatically consume the messages read by the fork. Failures remain retryable, and a switched
 Chat session or a new foreground turn rejects the old fork's decision. The ordinary fork reply is never sent to the user.
 Desktop derives its reminder list from these marked messages. `list_agent_inbox agent_name=<name>` pages any Agent's pending,
 processing and processed events without claiming them; omitted `agent_name` selects Chat. `list_agent_outbox agent_name=<name>`
-pages a task's committed reminders. `read_agent_reminder message_id=<id>` reads a canonical reminder; `mark_read=true`
-acknowledges user reading without consuming its Inbox event.
+pages a task's delivered reminders. `read_agent_reminder message_id=<relative-path>` reads the source reminder.
 Chat Inbox entries include a resolved `reminder` view from the canonical Markdown for display.
 
 `read_agent_session` and `watch_agent_session` expose the selected Chat session's history and the latest native turn of
 each task. Subscriptions use `snapshot` for whole-view replacement and `update` for complete-message upserts. A
 `heartbeat` carries no application state. Each automatic event or cron run starts a fresh native session and rebuilds
-context from the task description and daily summaries. Earlier sessions remain available as history. Main Chat continues its
+context from `TASK.md`, the current inputs and searches of past records. Earlier sessions remain available as history. Main Chat continues its
 current session; task questions fork the latest task session read-only without changing task execution history.
 
-Event tasks accept `max_batch_events` (default 20); retries within the same process keep the original batch and leave new inputs for later rounds. `proactive_agent_step` defaults to a 1200-second total timeout; native automatic compaction inherits the global Codex App Server settings. Daily summaries carry current state; per-round details retain chronology and evidence.
+Event tasks accept `max_batch_events` (default 20); retries within the same process keep the original batch and leave new inputs for later rounds. `proactive_agent_step` defaults to a 1200-second total timeout; native automatic compaction inherits the global Codex App Server settings.
 
-`read_agent_reminder agent_name=Remy` also accepts a combined Chat message ID and returns `{id,items}`. `mark_read=true` acknowledges all retained source reminders, linked through their `chat_message_ids` frontmatter. Acknowledgement remains successful with an empty list after the sources have been removed. Only explicit user reading is synchronized; historical initialization, suppression and bubble presentation do not imply reading.
+`read_agent_reminder agent_name=Remy` also accepts a combined Chat message ID and returns `{id,items}`. The source reminders link to that message through `chat_message_ids` in their frontmatter.
 
 One background `proactive_loop` schedules task execution and Chat reminder decisions with independent workers and retries.
 

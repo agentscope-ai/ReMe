@@ -1,74 +1,60 @@
 """Consume one event batch in a fresh session and persist a durable completion receipt."""
 
 import asyncio
-from datetime import timedelta
+from datetime import datetime
 import json
 import math
+from pathlib import Path
 from posixpath import join, normpath
 import shlex
 from time import monotonic
-from typing import get_args
 from urllib.parse import unquote, urlsplit
 
-import frontmatter
-
+from ._artifacts import RoundRecord
 from .base import BaseAgentStep
-from ._artifacts import RoundArtifacts
 from ....core.registry import R
 from ....enumeration import ChunkEnum
-from ....schema.agent_runtime import InboxPriority
-from ....schema.proactive_agent import CRON_EVENT_SOURCE, ProactiveRunResult
 from ....schema import TokenUsage, collect_reply
+from ....schema.agent_runtime import AgentNotification
+from ....schema.proactive_agent import CRON_EVENT_SOURCE, ProactiveRecordDecision
 from ....utils.async_utils import complete_in_thread
 from ....utils.counter import global_counter_add_many
 from ....utils.documents.markdown_parser import markdown_link_targets
+from ....utils.proactive_record import split_record
+
+_NO_KEY_INFORMATION = "NO_KEY_INFORMATION"
 
 
 @R.register("proactive_agent_step")
 class ProactiveAgentStep(BaseAgentStep):
-    """Restore context, process inputs and publish validated reminder documents."""
+    """Process one round and record its results and reminder decision together."""
 
-    def __init__(self, timeout_seconds=1200, max_local_search_calls=10, max_timeline_entries=10, **kwargs):
+    def __init__(self, timeout_seconds=1200, max_local_search_calls=10, recent_history_hours=24, **kwargs):
         super().__init__(**kwargs)
         if type(timeout_seconds) not in (int, float) or not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be a finite positive number")
         self.timeout_seconds = timeout_seconds
         for name, value in (
             ("max_local_search_calls", max_local_search_calls),
-            ("max_timeline_entries", max_timeline_entries),
+            ("recent_history_hours", recent_history_hours),
         ):
             if type(value) is not int or value <= 0:
                 raise ValueError(f"{name} must be a positive integer")
         self.max_local_search_calls = max_local_search_calls
-        self.max_timeline_entries = max_timeline_entries
-        self._round_files = None
+        self.recent_history_hours = recent_history_hours
+        self._record = None
 
-    def _paths(self, agent, now):
+    def _paths(self, agent, now: datetime) -> dict[str, Path]:
         runtime = self.agent_runtime
         daily = runtime.files.path(self.config_value("daily_dir"))
-        agent_dir = runtime.agents.directory_for(agent)
-        summary_dir = agent_dir / "summary"
-        reminder_dir = agent_dir / "reminder"
-        today = now.date()
-        yesterday = today - timedelta(days=1)
-        day = today.isoformat()
-        stem = f"{now:%H%M%S}"
+        day = daily / now.date().isoformat()
+        stem = f"{agent.agent_name}_{now:%H%M%S}"
+        record = runtime.files.checked(day / f"{stem}.md")
         collision = 0
-        while True:
-            filename = f"{stem}{'_' + str(collision) if collision else ''}.md"
-            detail = runtime.files.checked(daily / day / f"{agent.agent_name}_{filename}")
-            reminder = runtime.files.checked(reminder_dir / day / filename)
-            if not detail.exists() and not reminder.exists():
-                break
+        while record.exists():
             collision += 1
-        return {
-            "daily_dir": daily,
-            "task_path": runtime.agents.task_path(agent),
-            "today_summary_path": runtime.files.checked(summary_dir / f"{today}.md"),
-            "yesterday_summary_path": runtime.files.checked(summary_dir / f"{yesterday}.md"),
-            "record_path": detail,
-            "reminder_path": reminder,
-        }
+            record = runtime.files.checked(day / f"{stem}_{collision}.md")
+        return {"daily_dir": daily, "task_path": runtime.agents.task_path(agent), "record_path": record}
 
     def session_options(self, agent):
         """Build tool bindings and permissions for an automatic run."""
@@ -84,13 +70,13 @@ class ProactiveAgentStep(BaseAgentStep):
             options["effort"] = effort
         return options
 
-    def _query(self, events, paths, now, task_content, *, is_cron, **prompt_values):
+    def _query(self, events, paths, now, task_content, *, is_cron):
         """Build the task type's Markdown query with its task snapshot and round inputs."""
         files = self.agent_runtime.files
-        inputs = []
+        event_sections = []
         for number, event in enumerate(() if is_cron else events, 1):
             attachments = event["paths"]
-            inputs.append(
+            event_sections.append(
                 self.prompt_format(
                     "event_input",
                     number=number,
@@ -106,26 +92,20 @@ class ProactiveAgentStep(BaseAgentStep):
             )
         # Cron keeps its planned time in the inbox. The prompt uses the actual run time.
         return self.prompt_format(
-            "cron_query" if is_cron else "proactive_query",
+            "task_query",
             workspace_dir=self.workspace_path,
             app_timezone=self.app_context.app_config.timezone or str(now.tzinfo),
-            task_content=task_content,
-            input_content="\n\n".join(inputs),
+            event_batch="\n\n".join(event_sections),
+            is_cron=is_cron,
+            is_event=not is_cron,
             now=now.isoformat(),
             max_local_search_calls=self.max_local_search_calls,
-            max_timeline_entries=self.max_timeline_entries,
-            **prompt_values,
-            **{
-                key: value.relative_to(files.workspace).as_posix() for key, value in paths.items() if key != "task_path"
-            },
+            task_description=task_content,
+            recent_history_hours=self.recent_history_hours,
+            no_key_information=_NO_KEY_INFORMATION,
+            daily_dir=paths["daily_dir"].relative_to(files.workspace).as_posix(),
+            record_path=paths["record_path"].relative_to(files.workspace).as_posix(),
         )
-
-    def _read_optional(self, path):
-        """Only a missing optional file is treated as absent."""
-        try:
-            return self.agent_runtime.files.read(path)
-        except FileNotFoundError:
-            return None
 
     @staticmethod
     def _lookup_type(call):
@@ -162,28 +142,12 @@ class ProactiveAgentStep(BaseAgentStep):
                 return "local_search_calls"
         return None
 
-    def _read_document(self, path, *, record=False):
-        """Require an explicit decision and validate the body."""
-        document = frontmatter.loads(self.agent_runtime.files.read(path))
-        action = document.get("action")
-        actions = ("write", "skip") if record else (*get_args(InboxPriority), "skip")
-        if action not in actions:
-            raise ValueError(f"{path}: action must be one of {', '.join(actions)}")
-        if not record and set(document.metadata) != {"action"}:
-            raise ValueError(f"{path}: reminder frontmatter must contain only action")
-        if record and action == "skip":
-            if document.content.strip():
-                raise ValueError(f"{path}: a skipped record body must be blank")
-        elif not document.content.strip():
-            raise ValueError(f"{path}: document body must not be blank")
-        return document
-
-    def _warn_local_links(self, path, content, before=""):
-        """Check new Markdown links relative to their source without blocking submission."""
+    def _warn_local_links(self, path, content):
+        """Check Markdown links relative to their source without blocking submission."""
         files = self.agent_runtime.files
         directory = path.parent.relative_to(files.workspace).as_posix()
         try:
-            targets = markdown_link_targets(content) - markdown_link_targets(before)
+            targets = markdown_link_targets(content)
         except (ValueError, RuntimeError) as exc:
             self.logger.warning(f"Could not parse Markdown links source={path}: {exc}")
             return
@@ -200,68 +164,47 @@ class ProactiveAgentStep(BaseAgentStep):
                 reason = str(exc)
             self.logger.warning(f"Proactive local link source={path} target={target!r}: {reason}")
 
-    def _read_artifacts(self, paths, summary_before, *, is_cron):
-        """Validate the final branch and derive notifications only from saved documents."""
+    def _read_record(self, path: Path, reply_text: str | None, *, is_cron: bool) -> AgentNotification | None:
+        """Validate the round record or an explicit event skip."""
         files = self.agent_runtime.files
-        record = self._read_document(paths["record_path"], record=True)
-        summary = self._read_optional(paths["today_summary_path"])
-        if record["action"] == "skip":
-            if is_cron:
-                raise ValueError("a scheduled task requires an execution record and daily summary update")
-            if self._read_optional(paths["reminder_path"]) is not None:
-                raise ValueError("a skipped record must not create a reminder")
-            if summary != summary_before:
-                raise ValueError("a skipped record must not change the daily summary")
-            return ProactiveRunResult(notifications=[])
-
-        reminder = self._read_document(paths["reminder_path"])
-        if not summary or not summary.strip():
-            raise ValueError("a new record requires a nonempty daily summary")
-        if summary == summary_before:
-            raise ValueError("a new record must update its daily summary")
-        notifications = []
-        if reminder["action"] != "skip":
-            notifications.append(
-                {
-                    "priority": reminder["action"],
-                    "message": reminder.content,
-                    "paths": [
-                        paths[key].relative_to(files.workspace).as_posix() for key in ("reminder_path", "record_path")
-                    ],
-                },
-            )
-        result = ProactiveRunResult(notifications=notifications)
-        self._warn_local_links(paths["record_path"], record.content)
-        self._warn_local_links(paths["reminder_path"], reminder.content)
-        self._warn_local_links(paths["today_summary_path"], summary, summary_before or "")
-        return result
+        try:
+            text = files.read(path)
+        except FileNotFoundError:
+            if not is_cron and reply_text is not None and reply_text.strip() == _NO_KEY_INFORMATION:
+                return None
+            raise
+        metadata, body = split_record(text)
+        decision = ProactiveRecordDecision.model_validate(metadata)
+        self._warn_local_links(path, body)
+        if decision.reminder_priority == "skip":
+            return None
+        self._warn_local_links(path, decision.reminder_message)
+        return AgentNotification(
+            priority=decision.reminder_priority,
+            message=decision.reminder_message,
+            paths=[path.relative_to(files.workspace).as_posix()],
+        )
 
     async def execute(self):
         arguments = self.parameters()
         if set(arguments) != {"agent_name"}:
             raise ValueError("proactive_agent_step requires only agent_name")
         self.require_paths(self.workspace_path)
-        self._round_files = None
+        self._record = None
         self.context.response.metadata.pop("reme.agent_run", None)
         started, outcome = monotonic(), "failed"
         try:
             self.context.response.answer = await self.agent_runtime.run(
                 arguments["agent_name"],
                 self._execute,
-                on_failure=self._restore_files,
-                on_write=self._record_write,
-                before_write=self._check_write,
+                on_failure=self._rollback_record,
+                check_version=self._check_record,
             )
             outcome = "completed"
         except asyncio.CancelledError:
             outcome = "interrupted"
             raise
         finally:
-            if self._round_files is not None:
-                try:
-                    await complete_in_thread(self._round_files.close)
-                except OSError as exc:
-                    self.logger.warning(f"Could not remove round backup: {exc}")
             if stats := self.context.response.metadata.get("reme.agent_run"):
                 stats.update(result=outcome, elapsed_seconds=monotonic() - started)
                 prefix = ("agent_runs", stats["agent_type"])
@@ -281,21 +224,12 @@ class ProactiveAgentStep(BaseAgentStep):
                 )
         return self.context.response
 
-    async def _restore_files(self):
-        """Restore only this round's files when its input receipt was not committed."""
-        if self._round_files is not None:
-            await self._round_files.rollback()
+    async def _rollback_record(self):
+        if self._record is not None:
+            await self._record.rollback()
 
-    def _record_write(self, path, version):
-        """Track the outbox's own canonicalization without claiming external edits."""
-        self._round_files.record_write(path, version)
-
-    def _check_write(self, path):
-        """Keep user edits authoritative until the outbox has added its metadata."""
-        self._round_files.check_written(path)
-
-    def _make_artifacts(self, paths):
-        return RoundArtifacts(self.agent_runtime.files, paths)
+    def _check_record(self, path):
+        self._record.check_version(path)
 
     async def _execute(self, agent, events):
         """Run the complete workflow in one turn, then validate its saved decisions."""
@@ -315,8 +249,8 @@ class ProactiveAgentStep(BaseAgentStep):
         runtime = self.agent_runtime
         now = runtime.now()
         paths = await asyncio.to_thread(self._paths, agent, now)
-        artifacts = self._round_files = self._make_artifacts(paths)
-        before = await artifacts.prepare()
+        record = self._record = RoundRecord(runtime.files, paths["record_path"])
+        await record.prepare()
         task_content = await asyncio.to_thread(runtime.files.read, paths["task_path"])
         if not task_content.strip():
             raise ValueError("TASK.md must not be blank")
@@ -382,6 +316,7 @@ class ProactiveAgentStep(BaseAgentStep):
 
         try:
             model_error = None
+            reply_text = None
             try:
                 async with asyncio.timeout(self.timeout_seconds):
                     session_id = await runtime.sessions.ensure(
@@ -400,24 +335,25 @@ class ProactiveAgentStep(BaseAgentStep):
                                 on_chunk=observe,
                             )
                         finally:
-                            async with artifacts.locked():
-                                await complete_in_thread(artifacts.capture_outputs)
+                            async with record.locked():
+                                await complete_in_thread(record.capture)
                     if reply["status"] != "completed":
                         raise RuntimeError(reply.get("error") or f"Proactive agent {reply['status']}")
+                    reply_text = reply["result"]
             except Exception as exc:
                 model_error = exc
                 stats["model_status"] = "timeout" if isinstance(exc, TimeoutError) else "failed"
             try:
-                async with artifacts.locked():
-                    result = await asyncio.to_thread(self._read_artifacts, paths, before, is_cron=is_cron)
+                async with record.locked():
+                    reminder = await asyncio.to_thread(self._read_record, record.path, reply_text, is_cron=is_cron)
             except Exception as validation_error:
                 if model_error is not None:
                     raise model_error from validation_error
                 raise
             if model_error is not None:
-                self.logger.warning(f"{label} result=accepted_artifacts model_error={type(model_error).__name__}")
+                self.logger.warning(f"{label} result=accepted_record model_error={type(model_error).__name__}")
             self.logger.info(
-                f"{label} result=validated notifications={len(result.notifications)} "
+                f"{label} result=validated notifications={int(reminder is not None)} "
                 f"elapsed={monotonic() - started:.2f}s path={paths['record_path']}",
             )
         except BaseException as exc:
@@ -445,4 +381,4 @@ class ProactiveAgentStep(BaseAgentStep):
                     self.logger.warning(f"{label} could not read saved tool statistics: {exc}")
             stats["session_id"] = session_id
             update_counts()
-        return result, session_id
+        return reminder, session_id

@@ -38,31 +38,32 @@ async def test_event_pages_are_ordered_isolated_snapshots_without_claiming_or_wr
 
 
 @pytest.mark.asyncio
-async def test_inbox_outbox_and_user_receipts_share_canonical_reminders_without_consuming(tmp_path):
+async def test_inbox_outbox_and_reminder_reads_share_canonical_files(tmp_path):
     async with running_runtime(tmp_path) as (runtime, context, _):
         await create_agent(runtime)
         await runtime.create({"agent_name": "other", "task_description": "Other"})
+        now = runtime.now()
+        hour = (now.hour + 1) % 24
+        await runtime.update("monitor", {"notify_window": {"start": f"{hour:02}:00", "end": f"{hour:02}:01"}})
         await runtime.run("monitor", AsyncMock(return_value=completed_result(runtime)))
         task = AgentOutboxStep(app_context=context)
         inbox = AgentInboxStep(app_context=context)
         reminder = AgentReminderStep(app_context=context)
         outgoing = (await task(agent_name="monitor")).answer["items"]
-        assert len(outgoing) == 1 and outgoing[0]["delivered_at"] is None
-        assert not (await inbox()).answer["items"]
-        assert not runtime.notifications.pending
+        assert len(outgoing) == 1 and outgoing[0]["delivered_at"]
+        identifier = outgoing[0]["id"]
+        assert identifier == outgoing[0]["paths"][0]
         with pytest.raises(ValueError, match="not found"):
-            await reminder(agent_name="other", message_id=outgoing[0]["id"], mark_read=True)
-        await runtime.outbox.sync()
-        incoming = (await inbox()).answer["items"]
-        assert incoming[0]["reminder"] == (await task(agent_name="monitor")).answer["items"][0]
-        identifier = incoming[0]["event"]["id"]
-        read = (await reminder(message_id=identifier, mark_read=True)).answer
-        assert read == (await task(agent_name="monitor")).answer["items"][0]
-        assert read["user_read_at"] and read["read_at"] is None and identifier in runtime.notifications.pending
+            await reminder(agent_name="other", message_id=identifier)
+        (incoming,) = (await inbox()).answer["items"]
+        assert incoming["reminder"] == outgoing[0]
+        assert incoming["event"]["id"] == identifier
+        assert (await reminder(message_id=identifier)).answer == outgoing[0]
+        assert identifier in runtime.notifications.pending
         await runtime.notifications.consume([identifier])
         assert not (await inbox(state="pending")).answer["items"]
         assert (await inbox(state="processed")).answer["items"][0]["event"]["id"] == identifier
-        assert (await task(agent_name="monitor", state="processed")).answer["items"][0]["user_read_at"]
+        assert (await task(agent_name="monitor", state="processed")).answer["items"][0]["read_at"]
         with pytest.raises(PermissionError):
             await task(RuntimeContext(_allowed_paths=["daily"]), agent_name="monitor")
         with pytest.raises(ValueError):
@@ -95,7 +96,7 @@ async def test_inbox_endpoint_accepts_chat_and_tasks_and_preserves_processing_st
         (AgentOutboxRequest, {"agent_name": "monitor", "mark_read": True}),
         (AgentReminderRequest, {}),
         (AgentReminderRequest, {"message_id": "id", "state": "all"}),
-        (AgentReminderRequest, {"message_id": "id", "action": "read"}),
+        (AgentReminderRequest, {"message_id": "id", "mark_read": True}),
     ],
 )
 def test_resource_schemas_reject_ambiguous_or_retired_arguments(schema, values):
