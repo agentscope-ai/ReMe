@@ -24,18 +24,7 @@ class ReadChatRemindersStep(_ChatReminderTool):
     async def execute(self):
         if self.parameters():
             raise ValueError("read_chat_reminders accepts no arguments")
-        batch = await self.proactive_runtime.notifications.read_turn(self.turn())
-        self.context.response.answer = {
-            "items": [
-                {
-                    "agent_name": item["from_agent_name"],
-                    "delivered_at": item["delivered_at"],
-                    "message": item["message"],
-                    "paths": item["paths"].copy(),
-                }
-                for item in batch["items"]
-            ],
-        }
+        self.context.response.answer = await self.proactive_runtime.notifications.read_turn(self.turn())
         return self.context.response
 
 

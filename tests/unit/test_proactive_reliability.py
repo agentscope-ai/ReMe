@@ -161,7 +161,7 @@ async def test_missing_result_preserves_task_sources(tmp_path):
         await runtime.tick(AsyncMock())
         assert directory.is_dir() and (directory / "TASK.md").is_file()
         assert ref in runtime.outbox.issues
-        assert (await runtime.inbox.snapshot("experiment"))["receipt"].metadata["reminder_paths"] == [ref]
+        assert (await runtime.inbox.snapshot("experiment"))["receipt"].metadata["reminder_path"] == ref
 
 
 @pytest.mark.asyncio

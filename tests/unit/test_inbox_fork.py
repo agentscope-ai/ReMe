@@ -301,18 +301,37 @@ async def test_priority_wakeup_can_overtake_older_low_priority_reminders(tmp_pat
         assert runtime.notifications.active_turn is None
 
 
+@pytest.mark.asyncio
+async def test_chat_read_rechecks_message_size_after_selection(tmp_path, monkeypatch):
+    async with running_runtime(tmp_path) as (runtime, context, _):
+        arguments = await prepare(runtime, context)
+        monkeypatch.setattr(runtime.inbox, "claim_max_bytes", 320)
+        (ref,) = arguments["msg_ids"]
+        session = await runtime.sessions.current("Remy")
+        async with runtime.notifications.turn(session.session_id, **arguments) as turn:
+            path = runtime.files.path(ref)
+            document = frontmatter.loads(runtime.files.read(path))
+            document["reminder_message"] = "提醒" * 100
+            runtime.files.write(path, frontmatter.dumps(document))
+            await runtime.outbox.refresh()
+            assert (await runtime.notifications.read_turn(turn)) == {"items": []}
+            assert not turn.msg_ids
+        assert runtime.notifications.pending == {ref}
+
+
 @pytest.mark.parametrize("priority", ["P0", "P1"])
 @pytest.mark.asyncio
 async def test_oversized_p0_reminder_does_not_block_a_fitting_reminder(tmp_path, monkeypatch, priority):
+
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         monkeypatch.setattr(runtime.inbox, "claim_max_bytes", 320)
         monkeypatch.setattr(runtime.inbox, "max_item_bytes", 320)
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)
-        oversized = "超限提醒" * 5
+        oversized = "large"
         await runtime.create({"agent_name": oversized, "task_description": "Observe"})
         await runtime.append_events(oversized, [Event(event_ts=now, source="test", description="Finished")])
-        execute = AsyncMock(return_value=completed_result(runtime, oversized))
+        execute = AsyncMock(return_value=completed_result(runtime, oversized, message="提醒" * 100))
         assert (await runtime.run(oversized, execute))["processed"] == 1
         await runtime.outbox.sync()
         oversized_id = next(iter(runtime.notifications.pending))

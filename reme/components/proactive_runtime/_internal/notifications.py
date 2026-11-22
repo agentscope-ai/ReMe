@@ -85,13 +85,6 @@ class ChatNotifications:
         """Invalidate an older reminder decision as soon as a user turn is queued."""
         self.chat_revision += 1
 
-    async def read(self, msg_ids=None):
-        """Expand pending references without duplicating canonical message state."""
-        async with self.lock:
-            outbox = self.runtime.outbox
-            refs = self.pending if msg_ids is None else self.pending.intersection(msg_ids)
-            return {"items": [outbox.message(ref) for ref in sorted(refs, key=outbox.order)]}
-
     async def consume(self, msg_ids):
         """Acknowledge the messages covered by a committed decision."""
         async with self.lock:
@@ -108,35 +101,40 @@ class ChatNotifications:
 
         await finish_cleanup(save())
 
+    @staticmethod
+    def _tool_item(item):
+        return {
+            "agent_name": item["from_agent_name"],
+            "delivered_at": item["delivered_at"],
+            "message": item["message"],
+            "paths": item["paths"].copy(),
+        }
+
     def _bounded(self, refs):
         """Bound one inference batch using the configured inbox count and byte budgets."""
         inbox = self.runtime.inbox
         limit = min(20, inbox.claim_max_items, inbox.max_read_items, inbox.max_pending_items)
-        byte_limit = remaining = min(inbox.claim_max_bytes, inbox.max_pending_bytes)
+        byte_limit = min(inbox.claim_max_bytes, inbox.max_pending_bytes)
+        item_limit = byte_limit - len(b'{"items":[]}')
+        remaining = item_limit + 1  # The first item has no comma before it.
         selected = []
         for ref in refs:
             if len(selected) >= limit:
                 break
-            size = (
-                len(
-                    json.dumps(self.runtime.outbox.event(ref), ensure_ascii=False, separators=(",", ":")).encode(
-                        "utf-8",
-                    ),
-                )
-                + 1
-            )
-            if size > byte_limit:
+            item = self._tool_item(self.runtime.outbox.message(ref))
+            size = len(json.dumps(item, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+            if size > item_limit:
                 if ref not in self._reported_oversized:
                     self._reported_oversized.add(ref)
                     self.runtime.logger.warning(
-                        f"Chat reminder {ref} remains pending: "
-                        f"reference is {size} bytes, exceeding the {byte_limit}-byte batch limit",
+                        f"Chat reminder {ref} remains pending: content is {size} bytes "
+                        f"and does not fit the {byte_limit}-byte batch limit",
                     )
                 continue
-            if size > remaining:
+            if size + 1 > remaining:
                 break
             selected.append(ref)
-            remaining -= size
+            remaining -= size + 1
         return tuple(selected)
 
     @asynccontextmanager
@@ -164,7 +162,9 @@ class ChatNotifications:
             messages = {message.id: message for message in snapshot.messages if message.role == "assistant"}
             recovered = {}
             for identifier in selected:
-                item = self.runtime.outbox.records[identifier]
+                item = self.runtime.outbox.records.get(identifier)
+                if item is None:
+                    continue
                 for message_id in item.chat_message_ids:
                     if message_id in messages:
                         recovered[identifier] = messages[message_id]
@@ -193,8 +193,12 @@ class ChatNotifications:
         async with turn.lock:
             self.current_turn(turn.id)
             if turn.items is None:
-                turn.items = (await self.read(turn.msg_ids))["items"]
-            return {"items": turn.items}
+                async with self.lock:
+                    outbox = self.runtime.outbox
+                    refs = sorted(self.pending.intersection(turn.msg_ids), key=outbox.order)
+                    turn.msg_ids = self._bounded(ref for ref in refs if outbox.records[ref].priority == turn.priority)
+                    turn.items = [outbox.message(ref) for ref in turn.msg_ids]
+            return {"items": [self._tool_item(item) for item in turn.items]}
 
     async def send(self, turn, content):
         """Commit the explicit text or silence, then consume only what the fork read."""

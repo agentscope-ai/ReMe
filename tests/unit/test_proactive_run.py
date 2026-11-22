@@ -149,7 +149,7 @@ async def test_round_publishes_and_acknowledges_the_same_note(
 
         (ref,) = runtime.outbox.records
         related = [path.relative_to(tmp_path).as_posix()]
-        (item,) = (await runtime.notifications.read())["items"]
+        item = runtime.outbox.message(ref)
         assert item["message"] == "Verified result"
         assert item["priority"] == priority
         assert related == item["paths"]

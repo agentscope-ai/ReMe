@@ -429,7 +429,7 @@ class LocalProactiveRuntime(BaseProactiveRuntime):
                         await self.inbox.ack(
                             agent_name,
                             batch["token"],
-                            metadata={"reminder_paths": [ref] if ref is not None else [], "session_id": session_id},
+                            metadata={"reminder_path": ref, "session_id": session_id},
                             retain=ref is not None,
                         )
                         execution.retry_items = None

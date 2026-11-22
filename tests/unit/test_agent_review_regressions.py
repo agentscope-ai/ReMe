@@ -230,7 +230,7 @@ async def test_native_decision_holds_file_lock_against_other_writers(tmp_path):
     async with running_runtime(tmp_path) as (runtime, context, _):
         args = await prepare(runtime, context)
         ref = args["msg_ids"][0]
-        items = (await runtime.notifications.read([ref]))["items"]
+        items = [runtime.outbox.message(ref)]
 
         async with runtime.outbox.decision(items) as update:
             other = asyncio.create_task(runtime.outbox.update(ref, read_at=runtime.now()))

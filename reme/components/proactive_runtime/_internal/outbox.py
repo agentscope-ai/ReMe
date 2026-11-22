@@ -63,9 +63,9 @@ class ReminderOutbox:
             records, owners, cache, issues = await asyncio.to_thread(self._scan)
             for group in receipts.values():
                 for receipt in group:
-                    for ref in receipt.metadata.get("reminder_paths", []):
-                        if isinstance(ref, str) and ref not in records and ref in self.issues:
-                            issues.setdefault(ref, self.issues[ref])
+                    ref = receipt.metadata.get("reminder_path")
+                    if isinstance(ref, str) and ref not in records and ref in self.issues:
+                        issues.setdefault(ref, self.issues[ref])
             for ref, error in issues.items():
                 self._report(ref, error)
             self.records, self.owners, self.cache, self.issues = records, owners, cache, issues
@@ -78,14 +78,15 @@ class ReminderOutbox:
             for agent, group in receipts.items():
                 retained, released = [], []
                 for receipt in group:
-                    refs = [ref for ref in receipt.metadata.get("reminder_paths", []) if self.storage.owns(ref, agent)]
-                    for ref in refs:
+                    ref = receipt.metadata.get("reminder_path")
+                    if self.storage.owns(ref, agent) and ref not in self.records:
+                        path = self.files.workspace / ref
+                        async with await get_path_lock(path):
+                            await self._deliver_locked(agent, ref, path)
                         if ref not in self.records:
-                            path = self.files.workspace / ref
-                            async with await get_path_lock(path):
-                                await self._deliver_locked(agent, ref, path)
-                    handed_off = all(ref in self.records for ref in refs)
-                    (released if handed_off else retained).extend(receipt.item_ids)
+                            retained.extend(receipt.item_ids)
+                            continue
+                    released.extend(receipt.item_ids)
                 await self.runtime.inbox.retain(agent, retained)
                 await self.runtime.inbox.retain(agent, released, release=True)
 

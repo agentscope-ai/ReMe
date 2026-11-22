@@ -154,9 +154,8 @@ def test_initial_chat_memory_configuration_is_validated(tmp_path, chat):
     assert not (tmp_path / "reme_agents").exists()
 
 
-def completed_result(runtime, agent_name="monitor", *, priority="P0"):
+def completed_result(runtime, agent_name="monitor", *, priority="P0", message="Experiment finished"):
     path = runtime.outbox.storage.daily_dir / f"{runtime.now():%Y-%m-%d}" / f"{agent_name}_090000.md"
-    message = "Experiment finished"
     runtime.files.write(
         path,
         frontmatter.dumps(frontmatter.Post("Experiment results", reminder_priority=priority, reminder_message=message)),
@@ -574,8 +573,7 @@ async def test_inbox_reads_frontmatter_across_dates_and_excludes_uncommitted_rem
         contents = {path: path.read_bytes() for path in (old_path, new_path, uncommitted, other_path)}
 
         await runtime.outbox.sync()
-        unread = (await runtime.notifications.read())["items"]
-        assert [item["id"] for item in unread] == [new, other]
+        assert runtime.notifications.pending == {new, other}
         history = inbox_history(runtime)
         assert [item["id"] for item in history] == [old, new, other]
         assert history[0]["read_at"] and history[1]["read_at"] is None
@@ -587,7 +585,7 @@ async def test_inbox_reads_frontmatter_across_dates_and_excludes_uncommitted_rem
         runtime.files.write(new_path, frontmatter.dumps(document))
         contents[new_path] = new_path.read_bytes()
         await runtime.outbox.sync()
-        assert [item["id"] for item in (await runtime.notifications.read())["items"]] == [other]
+        assert runtime.notifications.pending == {other}
         history = inbox_history(runtime)
         assert next(item for item in history if item["id"] == new)["read_at"]
         assert contents == {path: path.read_bytes() for path in contents}
@@ -617,16 +615,15 @@ async def test_committed_outbox_recovers_delivery_without_repeating_execution(tm
         assert (await restored.run("monitor", execute))["processed"] == 0
         execute.assert_not_awaited()
         await restored.outbox.sync()
-        items = (await restored.notifications.read())["items"]
-        assert len(items) == 1
-        record = items[0]
+        (ref,) = restored.notifications.pending
+        record = restored.outbox.message(ref)
         assert record["from_agent_name"] == "monitor"
         await restored.outbox.sync()
-        assert len((await restored.notifications.read())["items"]) == 1
+        assert restored.notifications.pending == {ref}
         await restored.notifications.consume([record["id"]])
         read_at = inbox_history(restored)[0]["read_at"]
         await restored.notifications.consume([record["id"]])
-        assert not (await restored.notifications.read())["items"]
+        assert not restored.notifications.pending
         assert inbox_history(restored)[0]["read_at"] == read_at
 
     async with running_runtime(tmp_path) as (restored, _, _):
@@ -642,7 +639,7 @@ async def test_failed_consumption_confirmation_retries_uncommitted_work(tmp_path
         with pytest.raises(OSError, match="interrupted ack"):
             await runtime.run("monitor", AsyncMock(return_value=completed_result(runtime)))
         await runtime.outbox.sync()
-        assert not (await runtime.notifications.read())["items"]
+        assert not runtime.notifications.pending
         assert (await runtime.status("monitor"))["pending_events"] == 1
 
     async with running_runtime(tmp_path) as (runtime, _, _):
@@ -650,7 +647,7 @@ async def test_failed_consumption_confirmation_retries_uncommitted_work(tmp_path
         await runtime.run("monitor", execute)
         execute.assert_awaited_once()
         await runtime.outbox.sync()
-        assert len((await runtime.notifications.read())["items"]) == 1
+        assert len(runtime.notifications.pending) == 1
 
 
 @pytest.mark.asyncio
@@ -667,11 +664,11 @@ async def test_chat_rotation_preserves_inbox_and_wakeup_uses_current_session(tmp
         execute = AsyncMock(return_value=completed_result(runtime))
         await runtime.run("monitor", execute)
         await runtime.outbox.sync()
-        identifier = (await runtime.notifications.read())["items"][0]["id"]
+        (identifier,) = runtime.notifications.pending
         assert (await AgentNewSessionStep(app_context=context)()).success
         current = (await runtime.sessions.current("Remy")).session_id
         assert current != first and (await listing()).answer["total"] == 2
-        assert (await runtime.notifications.read())["items"][0]["id"] == identifier
+        assert runtime.notifications.pending == {identifier}
 
         async def run_job(name, **kwargs):
             assert name == "process_chat_reminders"
@@ -734,7 +731,7 @@ async def test_agent_directories_and_reference_only_inbox(tmp_path):
         assert refs[0]["source"] == "monitor" and "message" not in refs[0]
         receipt = (await runtime.inbox.snapshot("monitor"))["receipt"]
         assert refs[0]["id"] == refs[0]["paths"][0]
-        assert receipt.metadata["reminder_paths"] == [refs[0]["id"]]
+        assert receipt.metadata["reminder_path"] == refs[0]["id"]
         await AskAgentStep(app_context=context)(RuntimeContext(stream_queue=asyncio.Queue()), query="Hello")
         assert (tmp_path / "reme_agents/Remy/MEMORY.md").is_file()
         assert (tmp_path / "reme_agents/Remy/sessions.jsonl").is_file()
@@ -786,7 +783,7 @@ async def test_unhanded_off_results_protect_read_history_and_survive_restart(tmp
         assert len(list((runtime.agents.path("monitor") / "inbox").glob("inbox_unread.jsonl"))) == 1
     async with running_runtime(tmp_path) as (runtime, _, _):
         await runtime.outbox.sync()
-        assert len((await runtime.notifications.read())["items"]) == 1
+        assert len(runtime.notifications.pending) == 1
         assert (await runtime.status("monitor"))["pending_events"] == 1
 
 
@@ -897,7 +894,7 @@ async def test_outbox_recovery_ignores_receipts_for_another_tasks_record(tmp_pat
         reminder, _ = completed_result(runtime, "other")
         (ref,) = reminder.paths
         batch = await runtime.inbox.claim("monitor")
-        await runtime.inbox.ack("monitor", batch["token"], metadata={"reminder_paths": [ref]}, retain=True)
+        await runtime.inbox.ack("monitor", batch["token"], metadata={"reminder_path": ref}, retain=True)
 
         await runtime.outbox.sync()
 
