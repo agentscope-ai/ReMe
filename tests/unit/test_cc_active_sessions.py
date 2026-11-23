@@ -184,6 +184,11 @@ async def test_interrupted_append_admission_releases_runtime_and_retries_saved_i
 async def test_live_client_accepts_once_and_keeps_the_model_result_separate(wrapper, monkeypatch, role, outcome):
     session_id = await wrapper.create_session()
     state = install_client(monkeypatch, wrapper, session_id, lose_receipt=outcome == "lost_receipt")
+    append_timeout = 60
+    deadline = asyncio.Timeout(None)
+    if outcome == "timeout":
+        timeout = asyncio.timeout
+        monkeypatch.setattr(asyncio, "timeout", lambda delay: deadline if delay == append_timeout else timeout(delay))
     running = asyncio.create_task(wrapper.reply("Question", resume=session_id))
     observers = []
     try:
@@ -195,13 +200,16 @@ async def test_live_client_accepts_once_and_keeps_the_model_result_separate(wrap
                 message_id="observation",
                 role=role,
                 delivery="immediate",
-                timeout=0.05 if outcome == "timeout" else 30,
+                timeout=append_timeout,
             ),
         )
         observers.append(first)
         await asyncio.wait_for(state.submitted.wait(), 2)
         assert not running.done() and len(state.clients) == 1
-        if outcome == "cancelled":
+        if outcome == "timeout":
+            # Expire the caller's deadline after the native client accepts the append.
+            deadline.reschedule(asyncio.get_running_loop().time())
+        elif outcome == "cancelled":
             first.cancel()
         error = {"timeout": TimeoutError, "cancelled": asyncio.CancelledError, "lost_receipt": OSError}[outcome]
         with pytest.raises(error):
