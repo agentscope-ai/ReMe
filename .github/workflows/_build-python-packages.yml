@@ -44,11 +44,6 @@ jobs:
           python -m pip install build packaging pytest twine
 
       - name: Validate package versions
-        if: inputs.expected_version == ''
-        run: python scripts/bump_version.py --check
-
-      - name: Validate release version
-        if: inputs.expected_version != ''
         env:
           EXPECTED_VERSION: ${{ inputs.expected_version }}
         run: python scripts/bump_version.py --check --expected-version "${EXPECTED_VERSION}"

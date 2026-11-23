@@ -277,7 +277,7 @@ jobs:
 
   list_agent_inbox:
     backend: base
-    description: "List a background task’s input events or Remy’s incoming reminders."
+    description: "List a task's input events or Remy's incoming reminder records, with their processing state."
     parameters:
       type: object
       additionalProperties: false

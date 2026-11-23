@@ -335,7 +335,7 @@ class LocalProactiveRuntime(BaseProactiveRuntime):
     async def list_inputs(self, agent_name, **kwargs):
         """Page a task's input events or Chat's reminder view."""
         if agent_name == CHAT_AGENT_NAME:
-            return await self.outbox.inbox(**kwargs)
+            return await self.outbox.list(**kwargs)
         await self._mount_inbox(await self.definition(agent_name))
         page = await self.inbox.read(agent_name, **kwargs)
         page["items"] = [{"event": item.pop("item"), **item} for item in page["items"]]

@@ -704,7 +704,7 @@ async def test_agent_tools_preserve_receiver_identity_and_workspace_permissions(
 
 
 @pytest.mark.asyncio
-async def test_agent_directories_and_reference_only_inbox(tmp_path):
+async def test_agent_directories_and_reminder_record_inbox(tmp_path):
     async with running_runtime(tmp_path) as (runtime, context, _):
         await create_agent(runtime)
         await runtime.create(
@@ -723,13 +723,12 @@ async def test_agent_directories_and_reference_only_inbox(tmp_path):
         assert json.loads(event_path.read_text())["metadata"] == {}
         await runtime.run("monitor", AsyncMock(return_value=completed_result(runtime)))
         await runtime.outbox.sync()
-        refs = [item["event"] for item in (await runtime.list_inputs("Remy"))["items"]]
+        (reminder,) = (await runtime.list_inputs("Remy"))["items"]
         assert not inbox_path(runtime).exists()
-        assert len(refs) == 1 and set(refs[0]) == {"id", "event_ts", "source", "description", "paths", "metadata"}
-        assert refs[0]["id"] == f"daily/{runtime.now():%Y-%m-%d}/monitor_090000.md"
-        assert refs[0]["source"] == "monitor" and "message" not in refs[0]
+        assert reminder["id"] == f"daily/{runtime.now():%Y-%m-%d}/monitor_090000.md"
+        assert reminder["from_agent_name"] == "monitor" and reminder["message"]
         receipt = (await runtime.inbox.snapshot("monitor"))["receipt"]
-        assert receipt.metadata["reminder_path"] == refs[0]["id"]
+        assert receipt.metadata["reminder_path"] == reminder["id"]
         await AskAgentStep(app_context=context)(RuntimeContext(stream_queue=asyncio.Queue()), query="Hello")
         assert (tmp_path / "reme_agents/Remy/MEMORY.md").is_file()
         assert (tmp_path / "reme_agents/Remy/sessions.jsonl").is_file()
@@ -1345,7 +1344,7 @@ async def test_desktop_reminder_read_does_not_consume_agent_inbox(tmp_path):
         tool = AgentReminderStep(app_context=context)
         page = await runtime.list_inputs("Remy", state="pending")
         assert len(page["items"]) == 1
-        item = page["items"][0]["event"]
+        item = page["items"][0]
         response = await tool(message_id=item["id"])
         assert response.answer["read_at"] is None
         assert (await runtime.list_inputs("Remy", state="pending"))["total"] == 1

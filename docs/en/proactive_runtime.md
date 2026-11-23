@@ -72,6 +72,8 @@ Each task owns a directory under `reme_agent_dir`. Deleting a task stops its exe
 
 Remy's Inbox reads delivered reminders from the daily records. It holds the active batch in memory and applies the configured count and byte limits. Task input inboxes use durable claim, acknowledgement and retry.
 
+`list_agent_inbox` returns input events for background tasks and reminder records for Remy. Remy's reminder records have the same fields as `list_task_reminders`, including the source path as `id` and the current `state`. Remy's inbox also reports `processing` for reminders in an active batch.
+
 ## Studio protocol
 
 Studio reads `get_client_info` for workspace settings, served jobs and speech capabilities. Task create, status

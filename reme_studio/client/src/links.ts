@@ -5,22 +5,25 @@ export function resolveWorkspaceLink(
   workspace = "",
 ): string | undefined {
   try {
-    const wiki = href.startsWith("#reme-file=");
+    const wikiPrefix = "#reme-file=";
+    const wiki = href.startsWith(wikiPrefix);
     if (href.startsWith("#") && !wiki) return;
-    let target = decodeURIComponent(wiki ? href.slice(11) : href.split("#")[0]);
-    if (target.startsWith("file:")) {
-      const url = new URL(target);
-      if (url.host && url.host !== "localhost") return;
-      target = decodeURIComponent(url.pathname);
-    }
-    target = target.replaceAll("\\", "/");
     const root = workspace.replaceAll("\\", "/").replace(/\/$/, "");
+    const windows = /^[a-z]:/i.test(root);
+    let path = wiki ? href.slice(wikiPrefix.length) : href.split("#")[0];
+    if (!wiki && /^file:/i.test(path)) {
+      const url = new URL(path);
+      if (url.host && url.host !== "localhost") return;
+      path = url.pathname;
+      if (windows && /^\/[a-z]:\//i.test(path)) path = path.slice(1);
+    }
+    let target = decodeURIComponent(path).replaceAll("\\", "/");
     const absolute = target.startsWith("/") || /^[a-z]:\//i.test(target);
     if (absolute) {
-      const windows = /^[a-z]:/i.test(root);
       const compare = (value: string) =>
         windows ? value.toLowerCase() : value;
-      if (!root || !compare(target).startsWith(compare(root) + "/")) return;
+      if (!workspace || !compare(target).startsWith(compare(root) + "/"))
+        return;
       target = target.slice(root.length + 1);
     } else if (/^[a-z][a-z\d+.-]*:/i.test(target) || target.startsWith("~"))
       return;
@@ -37,8 +40,10 @@ export function resolveWorkspaceLink(
       } else if (part && part !== ".") parts.push(part);
     }
     if (!parts.length) return;
-    const path = parts.join("/");
-    return wiki && !/\.[^/]+$/.test(path) ? path + ".md" : path;
+    const relativePath = parts.join("/");
+    return wiki && !/\.[^/]+$/.test(relativePath)
+      ? relativePath + ".md"
+      : relativePath;
   } catch {
     return;
   }

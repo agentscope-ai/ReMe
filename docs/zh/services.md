@@ -203,9 +203,8 @@ Codex、Claude Code 和 AgentScope 使用统一会话契约：fork 复制最新�
 `list_agents` 的 Chat 状态会显示收件箱故障，cron 返回的部分采集失败也会写入日志。
 fork 的普通回复不会发送给主人。桌面端从这些已标记的消息生成提醒列表。
 `list_agent_inbox agent_name=<name>` 分页查看后台任务的输入事件。指定 `agent_name=Remy` 或省略该字段时查看 Chat 收到的提醒。
-查询支持待处理、处理中和已处理状态，不会领取或消费输入。`list_task_reminders agent_name=<name>` 查询任务产出的提醒；
-`read_agent_reminder message_id=<相对路径>` 读取原始提醒。
-Chat 收件条目附带从原始 Markdown 解析的 `reminder` 展示视图。
+查询支持待处理、处理中和已处理状态，不会领取或消费输入。`list_task_reminders agent_name=<name>` 查询任务产出的提醒。
+两个提醒列表均返回来自每日记录的提醒和当前状态。`read_agent_reminder message_id=<相对路径>` 读取原始提醒。
 `read_agent_reminder agent_name=Remy` 也接受合并后的 Chat 消息 ID，返回 `{id,items}`。原始提醒通过 frontmatter 的 `chat_message_ids` 关联这条消息。
 
 单个后台 `proactive_loop` 调度任务执行和 Chat 提醒判断，各自保留独立 worker 与重试。

@@ -302,7 +302,6 @@ async def test_chat_read_rechecks_message_size_after_selection(tmp_path, monkeyp
             document = frontmatter.loads(runtime.files.read(path))
             document["reminder_message"] = "提醒" * 100
             runtime.files.write(path, frontmatter.dumps(document))
-            await runtime.outbox.refresh()
             assert await runtime.notifications.read_turn(turn) == ""
             assert not turn.msg_ids
         assert runtime.notifications.pending == {ref}

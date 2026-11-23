@@ -137,9 +137,9 @@ async def test_decision_revalidates_after_a_queued_editor_save(tmp_path, monkeyp
             refreshed.set()
             return result
 
-        monkeypatch.setattr(runtime.outbox, "refresh", observe_refresh)
         async with runtime.notifications.turn(source, "P1", args["msg_ids"]) as turn:
             await runtime.notifications.read_turn(turn)
+            monkeypatch.setattr(runtime.outbox, "refresh", observe_refresh)
             async with await get_path_lock(path):
                 edit = asyncio.create_task(
                     SaveStep(app_context=context)(

@@ -104,7 +104,7 @@ class ChatNotifications:
 
     @staticmethod
     def _inbox_item(item):
-        return f"### {item['from_agent_name']} · {item['delivered_at']}\n\n" f"{item['message']}\n\n" f"`{item['id']}`"
+        return f"### {item['from_agent_name']} · {item['delivered_at']}\n\n{item['message']}\n\n`{item['id']}`"
 
     def _bounded(self, refs):
         """Bound one inference batch using the configured inbox count and byte budgets."""
@@ -188,8 +188,9 @@ class ChatNotifications:
         async with turn.lock:
             self.current_turn(turn.id)
             if turn.items is None:
+                outbox = self.runtime.outbox
+                await outbox.refresh()
                 async with self.lock:
-                    outbox = self.runtime.outbox
                     refs = sorted(self.pending.intersection(turn.msg_ids), key=outbox.order)
                     turn.msg_ids = self._bounded(ref for ref in refs if outbox.records[ref].priority == turn.priority)
                     turn.items = [outbox.message(ref) for ref in turn.msg_ids]

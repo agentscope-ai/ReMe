@@ -100,18 +100,6 @@ class ReminderOutbox:
         agent = agents.get(self.owners.get(ref))
         return agent is not None and agent.enabled and (agent.notify_window is None or agent.notify_window.allows(now))
 
-    def event(self, ref):
-        """Describe a reminder without limiting its path to a generic event ID's length."""
-        owner = self.owners[ref]
-        return {
-            "id": ref,
-            "event_ts": self.records[ref].delivered_at.isoformat(),
-            "source": owner,
-            "description": f"Reminder from {owner}",
-            "paths": [ref],
-            "metadata": {},
-        }
-
     @asynccontextmanager
     async def handoff(self, agent_name, reminder, record):
         """Hold the record's write lock from validation through the receipt and initial delivery."""
@@ -198,52 +186,38 @@ class ReminderOutbox:
             key=lambda ref: (self.records[ref].read_at, ref),
         )[-self.runtime.inbox.max_read_items :]
 
-    async def inbox(self, *, state="all", offset=0, limit=20):
-        """Project the receiver view directly from daily records."""
-        if state not in {"all", "pending", "processing", "processed"}:
-            raise ValueError("invalid item state")
-        if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 100:
-            raise ValueError("offset must be nonnegative and limit must be between 1 and 100")
-        await self.refresh()
-        turn = self.runtime.notifications.active_turn
-        claimed = set(turn.msg_ids) if turn else set()
-        async with self.lock:
-            pending = [ref for ref, item in self.records.items() if item.read_at is None]
-            items = []
-            for ref in [*self.processed_refs(), *pending]:
-                item = self.records[ref]
-                status = "processed" if item.read_at is not None else "processing" if ref in claimed else "pending"
-                if state in {"all", status}:
-                    items.append(
-                        {
-                            "event": self.event(ref),
-                            "state": status,
-                            "consume_ts": item.read_at.isoformat() if item.read_at else None,
-                            "reminder": self.message(ref),
-                        },
-                    )
-            items.sort(key=lambda value: (value["event"]["event_ts"], value["event"]["id"]), reverse=True)
-            return {"items": items[offset : offset + limit], "total": len(items), "offset": offset, "limit": limit}
-
-    async def list(self, agent_name, *, state="all", offset=0, limit=20):
-        """Page one task's delivered outgoing reminders."""
-        if state not in {"all", "pending", "processed"}:
+    async def list(self, agent_name=None, *, state="all", offset=0, limit=20):
+        """Page one task's outgoing reminders, or Chat's inbox when no sender is specified."""
+        states = {"all", "pending", "processed"}
+        if agent_name is None:
+            states.add("processing")
+        if state not in states:
             raise ValueError("invalid mailbox state")
         if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 100:
             raise ValueError("offset must be nonnegative and limit must be between 1 and 100")
-        await self.runtime.definition(agent_name)
+        if agent_name is not None:
+            await self.runtime.definition(agent_name)
         await self.refresh()
         async with self.lock:
-            refs = [
-                ref
-                for ref, item in self.records.items()
-                if self.owners[ref] == agent_name
-                and (state == "all" or (item.read_at is not None) == (state == "processed"))
-            ]
-            refs.sort(key=lambda ref: (self.records[ref].delivered_at, ref), reverse=True)
+            turn = self.runtime.notifications.active_turn
+            claimed = set(turn.msg_ids) if agent_name is None and turn else set()
+            if agent_name is None:
+                refs = [
+                    *self.processed_refs(),
+                    *(ref for ref, item in self.records.items() if item.read_at is None),
+                ]
+            else:
+                refs = [ref for ref, owner in self.owners.items() if owner == agent_name]
+            rows = []
+            for ref in refs:
+                item = self.records[ref]
+                status = "processed" if item.read_at is not None else "processing" if ref in claimed else "pending"
+                if state in {"all", status}:
+                    rows.append((item.delivered_at, ref, status))
+            rows.sort(reverse=True)
             return {
-                "items": [self.message(ref) for ref in refs[offset : offset + limit]],
-                "total": len(refs),
+                "items": [{**self.message(ref), "state": status} for _, ref, status in rows[offset : offset + limit]],
+                "total": len(rows),
                 "offset": offset,
                 "limit": limit,
             }

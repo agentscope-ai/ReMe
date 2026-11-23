@@ -282,12 +282,11 @@ export interface TaskReminder {
   from_agent_name: string;
   priority: "P0" | "P1" | "P2";
   message: string;
-  delivered_at: string | null;
+  delivered_at: string;
   read_at: string | null;
 }
 
 export interface InputEvent {
-  reminder?: TaskReminder;
   event: {
     id: string;
     event_ts: string;

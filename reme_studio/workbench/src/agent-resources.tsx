@@ -18,6 +18,9 @@ import {
 } from "./resources.ts";
 import ResourcePane, { ResourceMessage } from "./resource-pane.tsx";
 
+type ListedResource =
+  InputEvent | (TaskReminder & { state: InputEvent["state"] });
+
 export default function AgentResources({
   state,
   inbox,
@@ -43,9 +46,10 @@ export default function AgentResources({
         offset,
         state: filter === "processing" ? "pending" : filter,
       };
-  const { page, error, loading, refresh } = useResourcePage<
-    TaskReminder | InputEvent
-  >(request, active && state.connection === "connected");
+  const { page, error, loading, refresh } = useResourcePage<ListedResource>(
+    request,
+    active && state.connection === "connected",
+  );
   useEffect(() => {
     if (
       state.focusTarget?.kind === "mail" &&
@@ -88,9 +92,13 @@ export default function AgentResources({
     };
   }, [inbox, selected, agentName, Boolean(listed), Boolean(page), active]);
   const item =
-    listed && "event" in listed
-      ? (listed.reminder ?? listed)
-      : (listed ?? (focusedMail?.id === selected ? focusedMail : undefined));
+    listed ??
+    (focusedMail?.id === selected
+      ? {
+          ...focusedMail,
+          state: focusedMail.read_at ? "processed" : "pending",
+        }
+      : undefined);
   const stateLabel = (value: string) =>
     t(
       value === "pending"
@@ -169,7 +177,7 @@ export default function AgentResources({
             : undefined
         }
         rows={(page?.items ?? []).map((value) => {
-          if ("event" in value && !value.reminder)
+          if ("event" in value)
             return {
               id: value.event.id,
               title: resourceSource(
@@ -181,21 +189,14 @@ export default function AgentResources({
               badge: stateLabel(value.state),
               state: value.state,
             };
-          const mail = "event" in value ? value.reminder! : value;
-          const status =
-            "event" in value
-              ? value.state
-              : mail.read_at
-                ? "processed"
-                : "pending";
           return {
-            id: mail.id,
-            title: mail.from_agent_name,
-            preview: plainText(mail.message),
-            time: mail.delivered_at,
-            badge: `${mail.priority} · ${stateLabel(status)}`,
-            state: status,
-            target: { kind: "mail" as const, agentName, id: mail.id },
+            id: value.id,
+            title: value.from_agent_name,
+            preview: plainText(value.message),
+            time: value.delivered_at,
+            badge: `${value.priority} · ${stateLabel(value.state)}`,
+            state: value.state,
+            target: { kind: "mail" as const, agentName, id: value.id },
           };
         })}
       >
@@ -264,9 +265,7 @@ export default function AgentResources({
                 <span>
                   {t("fromAgent")} {item.from_agent_name}
                 </span>
-                <span>
-                  {stateLabel(item.read_at ? "processed" : "pending")}
-                </span>
+                <span>{stateLabel(item.state)}</span>
               </div>
             </ResourceMessage>
           ))}

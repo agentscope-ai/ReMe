@@ -74,7 +74,6 @@ jobs:
       upload_artifacts: true
 
   publish-reme:
-    if: ${{ !cancelled() && needs.publish-studio.result == 'success' }}
     needs: publish-studio
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -170,10 +169,8 @@ jobs:
           if-no-files-found: error
 
   publish-studio:
-    if: >-
-      !cancelled() && needs.build.result == 'success' &&
-      (inputs.publish_pypi || (github.event_name == 'release' && needs.desktop.result == 'success'))
-    needs: [build, desktop]
+    if: github.event_name == 'release' || inputs.publish_pypi
+    needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: pypi
@@ -191,10 +188,8 @@ jobs:
           skip-existing: true
 
   publish-studio-npm:
-    if: >-
-      !cancelled() && needs.build.result == 'success' &&
-      (inputs.publish_npm || (github.event_name == 'release' && needs.publish-reme.result == 'success'))
-    needs: [build, publish-reme]
+    if: github.event_name == 'release' || inputs.publish_npm
+    needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: npm
@@ -223,10 +218,8 @@ jobs:
           fi
 
   publish-desktop:
-    if: >-
-      !cancelled() && needs.desktop.result == 'success' &&
-      (inputs.publish_desktop || (github.event_name == 'release' && needs.publish-studio-npm.result == 'success'))
-    needs: [prepare, desktop, publish-studio-npm]
+    if: github.event_name == 'release' || inputs.publish_desktop
+    needs: [prepare, desktop]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -257,7 +250,7 @@ jobs:
           fi
 
   publish-docker:
-    if: github.event_name == 'workflow_dispatch' && inputs.publish_docker
+    if: github.event_name == 'release' || inputs.publish_docker
     needs: prepare
     permissions:
       contents: read

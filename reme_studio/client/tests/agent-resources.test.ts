@@ -33,6 +33,26 @@ test("workspace links resolve documents, wikilinks and contained native paths", 
     resolveWorkspaceLink("C:\\work\\reme\\daily\\note.md", "", "C:/work/reme"),
     "daily/note.md",
   );
+  assert.equal(
+    resolveWorkspaceLink(
+      "file:///C:/Work/ReMe/daily/100%25%23.md",
+      "",
+      "c:/work/reme",
+    ),
+    "daily/100%#.md",
+  );
+  assert.equal(
+    resolveWorkspaceLink(
+      "file:///work/reme/daily/report%2520.md",
+      "",
+      "/work/reme",
+    ),
+    "daily/report%20.md",
+  );
+  assert.equal(
+    resolveWorkspaceLink("file:///daily/report.md", "", "/"),
+    "daily/report.md",
+  );
   for (const url of [
     "../outside.md",
     "/work/other/note.md",

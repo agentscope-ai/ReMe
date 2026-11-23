@@ -220,9 +220,9 @@ automatically consume the messages read by the fork. Failures remain retryable, 
 Chat session or a new foreground turn rejects the old fork's decision. The ordinary fork reply is never sent to the user.
 Desktop derives its reminder list from these marked messages. `list_agent_inbox agent_name=<name>` pages a task's input
 events. Set `agent_name=Remy` or omit it to view Chat's incoming reminders. The query shows pending, processing, and
-processed entries without claiming them. `list_task_reminders agent_name=<name>`
-pages a task's delivered reminders. `read_agent_reminder message_id=<relative-path>` reads the source reminder.
-Chat Inbox entries include a resolved `reminder` view from the canonical Markdown for display.
+processed entries without claiming them. `list_task_reminders agent_name=<name>` pages a task's delivered reminders.
+Both reminder lists return daily records with their current state. `read_agent_reminder message_id=<relative-path>`
+reads the source reminder.
 
 `read_agent_session` and `watch_agent_session` expose the selected Chat session's history and the latest native turn of
 each task. Subscriptions use `snapshot` for whole-view replacement and `update` for complete-message upserts. A

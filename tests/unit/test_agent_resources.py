@@ -55,14 +55,16 @@ async def test_inbox_outbox_and_reminder_reads_share_canonical_files(tmp_path):
         assert (tmp_path / identifier).is_file()
         with pytest.raises(ValueError, match="not found"):
             await reminder(agent_name="other", message_id=identifier)
-        (incoming,) = (await inbox()).answer["items"]
-        assert incoming["reminder"] == outgoing[0]
-        assert incoming["event"]["id"] == identifier
-        assert (await reminder(message_id=identifier)).answer == outgoing[0]
+        detail = (await reminder(message_id=identifier)).answer
+        assert "state" not in detail
+        assert (await inbox()).answer["items"] == outgoing == [{**detail, "state": "pending"}]
+        async with runtime.notifications.turn("chat", detail["priority"], [identifier]):
+            assert (await inbox(state="processing")).answer["items"] == [{**detail, "state": "processing"}]
+            assert (await task(agent_name="monitor")).answer["items"] == outgoing
         assert identifier in runtime.notifications.pending
         await runtime.notifications.consume([identifier])
         assert not (await inbox(state="pending")).answer["items"]
-        assert (await inbox(state="processed")).answer["items"][0]["event"]["id"] == identifier
+        assert (await inbox(state="processed")).answer["items"][0]["id"] == identifier
         assert (await task(agent_name="monitor", state="processed")).answer["items"][0]["read_at"]
         with pytest.raises(PermissionError):
             await task(RuntimeContext(_allowed_paths=["daily"]), agent_name="monitor")
