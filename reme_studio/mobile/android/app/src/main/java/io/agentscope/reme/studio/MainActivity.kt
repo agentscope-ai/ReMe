@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
@@ -61,6 +62,8 @@ class MainActivity : ComponentActivity() {
             settings.apply {
                 javaScriptEnabled = true
                 domStorageEnabled = true
+                // The bundled HTTPS page can connect to a user-entered HTTP ReMe server.
+                mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                 // Narration starts when synthesized audio arrives, asynchronously from the UI.
                 mediaPlaybackRequiresUserGesture = false
                 allowFileAccess = false

@@ -16,6 +16,21 @@ declare global {
       messageHandlers?: {
         remeStudio?: {
           postMessage(message: NativeMessage): Promise<NativeReply>;
+          postMessage(message: {
+            action: "request.open";
+            id: number;
+            url: string;
+            body: string;
+            accept: string;
+          }): Promise<{ status: number; contentType: string }>;
+          postMessage(message: {
+            action: "request.read";
+            id: number;
+          }): Promise<string | null>;
+          postMessage(message: {
+            action: "request.cancel";
+            id: number;
+          }): Promise<boolean>;
         };
       };
     };
@@ -58,6 +73,76 @@ if (android) {
   };
 }
 
+function decodeBase64(encoded: string): Uint8Array<ArrayBuffer> {
+  return Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0));
+}
+
+export const iosFetch: typeof fetch | undefined =
+  ios &&
+  (async (url, init) => {
+    if (typeof url !== "string" || typeof init?.body !== "string")
+      throw new TypeError("Expected a ReMe job URL and JSON body");
+    const signal = init.signal;
+    signal?.throwIfAborted();
+    const id = nextRequest++;
+    let stream: ReadableStreamDefaultController<Uint8Array> | undefined;
+    const cleanup = () => signal?.removeEventListener("abort", abort);
+    const cancel = () => {
+      cleanup();
+      void ios.postMessage({ action: "request.cancel", id }).catch(() => {});
+    };
+    const abort = () => {
+      cancel();
+      stream?.error(signal?.reason);
+    };
+    signal?.addEventListener("abort", abort, { once: true });
+    try {
+      const { status, contentType } = await ios.postMessage({
+        action: "request.open",
+        id,
+        url,
+        body: init.body,
+        accept: new Headers(init.headers).get("accept") ?? "",
+      });
+      signal?.throwIfAborted();
+      const headers = contentType ? { "Content-Type": contentType } : undefined;
+      if (status === 204 || status === 205 || status === 304) {
+        cancel();
+        return new Response(null, { status, headers });
+      }
+      const body = new ReadableStream<Uint8Array>(
+        {
+          start(controller) {
+            stream = controller;
+          },
+          async pull(controller) {
+            try {
+              const chunk = await ios.postMessage({
+                action: "request.read",
+                id,
+              });
+              signal?.throwIfAborted();
+              if (chunk === null) {
+                cleanup();
+                controller.close();
+              } else controller.enqueue(decodeBase64(chunk));
+            } catch (error) {
+              cancel();
+              throw error;
+            }
+          },
+          cancel,
+        },
+        { highWaterMark: 0 },
+      );
+      return new Response(body, { status, headers });
+    } catch (error) {
+      cancel();
+      signal?.throwIfAborted();
+      throw error;
+    }
+  });
+
 async function openAndroidRecorder(
   signal: AbortSignal,
   progress: (seconds: number, level: number) => void,
@@ -95,9 +180,7 @@ async function openAndroidRecorder(
       signal.throwIfAborted();
       if (!stop.success || typeof stop.audio !== "string")
         throw new UiError("speechMicFailed");
-      const bytes = Uint8Array.from(atob(stop.audio), (char) =>
-        char.charCodeAt(0),
-      );
+      const bytes = decodeBase64(stop.audio);
       const view = new DataView(bytes.buffer);
       const pcm = new Int16Array(bytes.length / 2);
       for (let index = 0; index < pcm.length; index++)

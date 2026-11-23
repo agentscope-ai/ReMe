@@ -36,6 +36,7 @@ export default function Settings({
   version,
   companionVisible,
   desktop,
+  editableEndpoint,
   collapsed,
   onNavigate,
 }: {
@@ -43,6 +44,7 @@ export default function Settings({
   version: string;
   companionVisible: boolean;
   desktop: boolean;
+  editableEndpoint: boolean;
   collapsed?: boolean;
   onNavigate?: () => void;
 }) {
@@ -144,7 +146,7 @@ export default function Settings({
                       )}
                     </span>
                   </div>
-                  {desktop && (
+                  {editableEndpoint && (
                     <form
                       className="setting-endpoint"
                       onSubmit={(event) => {
@@ -159,6 +161,9 @@ export default function Settings({
                           aria-label={t("endpoint")}
                           value={endpoint}
                           onChange={(event) => setEndpoint(event.target.value)}
+                          inputMode="url"
+                          autoCapitalize="none"
+                          autoCorrect="off"
                           spellCheck={false}
                         />
                         <button

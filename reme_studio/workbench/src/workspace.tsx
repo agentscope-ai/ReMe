@@ -316,6 +316,7 @@ export default function Workbench({
           version={version}
           companionVisible={companionVisible}
           desktop={desktop}
+          editableEndpoint={desktop || mobile}
           collapsed={sidebarCollapsed("settings")}
           onNavigate={closeCompactSidebar}
         />

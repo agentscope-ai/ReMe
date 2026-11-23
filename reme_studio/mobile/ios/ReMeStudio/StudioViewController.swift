@@ -12,6 +12,7 @@ final class StudioViewController: UIViewController, WKNavigationDelegate, WKUIDe
     private var webView: WKWebView!
     private var failure: UIStackView?
     private var darkStatusBar = false
+    private let requests = StudioRequests()
 
     override var preferredStatusBarStyle: UIStatusBarStyle {
         darkStatusBar ? .lightContent : .darkContent
@@ -101,6 +102,7 @@ final class StudioViewController: UIViewController, WKNavigationDelegate, WKUIDe
     }
 
     private func loadPage() {
+        requests.cancelAll()
         webView.load(URLRequest(url: Self.pageURL))
     }
 
@@ -138,6 +140,7 @@ final class StudioViewController: UIViewController, WKNavigationDelegate, WKUIDe
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        requests.cancelAll()
         showFailure("The Studio page closed unexpectedly.")
     }
 
@@ -189,7 +192,25 @@ final class StudioViewController: UIViewController, WKNavigationDelegate, WKUIDe
             return
         }
         let value = payload["value"] as? String
+        let id = payload["id"] as? Int
         switch action {
+        case "request.open":
+            guard let id, let urlString = payload["url"] as? String,
+                  let url = URL(string: urlString), Self.validWebURL(url),
+                  let body = payload["body"] as? String, let accept = payload["accept"] as? String else {
+                reply(nil, "Invalid ReMe request")
+                return
+            }
+            requests.open(id: id, url: url, body: body, accept: accept, reply: reply)
+        case "request.read":
+            guard let id else {
+                reply(nil, "Invalid ReMe request")
+                return
+            }
+            requests.read(id: id, reply: reply)
+        case "request.cancel":
+            if let id { requests.cancel(id: id) }
+            reply(true, nil)
         case "openExternal":
             guard let value, let url = URL(string: value), Self.validWebURL(url) else {
                 complete(false)

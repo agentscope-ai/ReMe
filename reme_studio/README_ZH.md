@@ -14,7 +14,8 @@ Desktop 还有桌宠、托盘和系统通知。会话、任务状态和工作区
 reme start config=proactive
 ```
 
-浏览器打开 <http://127.0.0.1:2333/> 即可使用 Studio。Desktop 默认连接同一个地址。
+浏览器打开 <http://127.0.0.1:2333/> 即可使用 Studio。桌面端、Android 和 iOS 默认连接同一个地址。
+使用其他服务时，在「设置 → 通用」填入完整的 HTTP 或 HTTPS 地址并点击「连接」。重启后应用会记住该地址。
 
 ## 开发
 

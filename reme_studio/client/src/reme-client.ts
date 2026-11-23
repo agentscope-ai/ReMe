@@ -33,8 +33,10 @@ export class ReMeClient {
         AbortSignal.timeout(options.timeoutMs ?? 30_000),
       ]),
     });
-    if (!response.ok)
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => {});
       throw new UiError("httpError", { job, status: response.status });
+    }
     let payload: JobResponse<T>;
     if (options.maxBytes && response.body) {
       const reader = response.body.getReader();
@@ -94,8 +96,10 @@ export class ReMeClient {
         body: JSON.stringify(body),
         signal: joined,
       });
-      if (!response.ok || !response.body)
+      if (!response.ok || !response.body) {
+        await response.body?.cancel().catch(() => {});
         throw new UiError("httpError", { job, status: response.status });
+      }
       if (
         response.headers.get("content-type")?.split(";")[0].trim() !==
         "text/event-stream"

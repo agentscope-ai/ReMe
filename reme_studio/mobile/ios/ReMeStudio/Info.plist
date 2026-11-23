@@ -20,15 +20,11 @@
     <string>$(CURRENT_PROJECT_VERSION)</string>
     <key>NSAppTransportSecurity</key>
     <dict>
-        <key>NSExceptionDomains</key>
-        <dict>
-            <key>127.0.0.1</key>
-            <dict>
-                <key>NSExceptionAllowsInsecureHTTPLoads</key>
-                <true/>
-            </dict>
-        </dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <true/>
     </dict>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>ReMe Studio connects to the ReMe service you choose on your local network.</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>ReMe uses the microphone to record voice messages for transcription by your ReMe service.</string>
     <key>UIApplicationSceneManifest</key>

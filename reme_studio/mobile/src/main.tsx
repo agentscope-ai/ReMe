@@ -2,10 +2,10 @@
 
 import { useEffect, useLayoutEffect, useSyncExternalStore } from "react";
 import { createRoot } from "react-dom/client";
-import { defaultSettings } from "../../client/src/settings.ts";
 import { BrowserHost } from "../../client/src/browser-host.ts";
 import { HostContext, workbenchHost } from "../../workbench/src/host.ts";
 import {
+  iosFetch,
   nativeRequest,
   openNativeRecorder,
   platform,
@@ -20,13 +20,16 @@ declare const __REME_VERSION__: string;
 
 document.documentElement.dataset.platform = platform;
 
-const browser = new BrowserHost(defaultSettings.endpoint, async (url) => {
-  if (!(await nativeRequest({ action: "openExternal", value: url })).success)
-    throw new Error(
-      document.documentElement.lang === "zh-CN"
-        ? "无法在浏览器中打开链接。"
-        : "Could not open the link in the browser.",
-    );
+const browser = new BrowserHost({
+  fetchRequest: iosFetch,
+  async openExternal(url) {
+    if (!(await nativeRequest({ action: "openExternal", value: url })).success)
+      throw new Error(
+        document.documentElement.lang === "zh-CN"
+          ? "无法在浏览器中打开链接。"
+          : "Could not open the link in the browser.",
+      );
+  },
 });
 
 const host = {

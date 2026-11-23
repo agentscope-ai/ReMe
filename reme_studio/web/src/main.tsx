@@ -11,7 +11,7 @@ const endpoint = (
   import.meta.env.VITE_REME_API_URL ||
   location.origin + (import.meta.env.DEV ? "/api" : "")
 ).replace(/\/$/, "");
-const browser = new BrowserHost(endpoint);
+const browser = new BrowserHost({ fixedEndpoint: endpoint });
 const host = workbenchHost(browser);
 
 function App() {

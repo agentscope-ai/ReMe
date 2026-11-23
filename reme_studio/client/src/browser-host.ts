@@ -41,7 +41,7 @@ function applyChanges<T extends object>(
 
 export class BrowserStorage implements ClientStorage {
   settings: Settings;
-  private savedPreferences: Omit<Settings, "endpoint">;
+  private savedPreferences: Partial<Settings>;
   private savedPresentations = read<Record<string, Presentation>>(
     presentationsKey,
     {},
@@ -49,15 +49,21 @@ export class BrowserStorage implements ClientStorage {
   private readonly presentations = structuredClone(this.savedPresentations);
   private dirty = false;
 
-  constructor(endpoint: string) {
+  constructor(private readonly fixedEndpoint?: string) {
+    const saved = read<Partial<Settings>>(settingsKey, {});
     this.settings = {
       ...defaultSettings,
-      ...read<Partial<Settings>>(settingsKey, {}),
-      endpoint,
+      ...saved,
+      endpoint: fixedEndpoint ?? saved.endpoint ?? defaultSettings.endpoint,
       transparentBackground: false,
     };
-    const { endpoint: _, ...preferences } = this.settings;
-    this.savedPreferences = preferences;
+    this.savedPreferences = this.preferences();
+  }
+
+  private preferences(): Partial<Settings> {
+    const preferences: Partial<Settings> = { ...this.settings };
+    if (this.fixedEndpoint !== undefined) delete preferences.endpoint;
+    return preferences;
   }
 
   scope(endpoint: string, workspace: string): string {
@@ -84,11 +90,8 @@ export class BrowserStorage implements ClientStorage {
 
   private persist(): void {
     if (!this.dirty) return;
-    const { endpoint: _, ...preferences } = this.settings;
-    const storedPreferences = read<Partial<typeof preferences>>(
-      settingsKey,
-      {},
-    );
+    const preferences = this.preferences();
+    const storedPreferences = read<Partial<Settings>>(settingsKey, {});
     if (applyChanges(storedPreferences, this.savedPreferences, preferences)) {
       localStorage.setItem(settingsKey, JSON.stringify(storedPreferences));
       this.savedPreferences = preferences;
@@ -128,11 +131,14 @@ export class BrowserHost implements StudioApi {
   private state: StudioState;
 
   constructor(
-    endpoint: string,
-    private readonly openExternal?: (url: string) => Promise<void>,
+    private readonly options: {
+      fixedEndpoint?: string;
+      fetchRequest?: typeof fetch;
+      openExternal?: (url: string) => Promise<void>;
+    } = {},
   ) {
     this.controller = new ClientController(
-      new BrowserStorage(endpoint),
+      new BrowserStorage(options.fixedEndpoint),
       (state) => {
         this.state = { ...state };
         for (const listener of this.listeners) listener();
@@ -162,6 +168,7 @@ export class BrowserHost implements StudioApi {
       (command) => {
         for (const callback of this.commands) callback(command);
       },
+      options.fetchRequest,
     );
     this.state = { ...this.controller.state };
   }
@@ -272,7 +279,8 @@ export class BrowserHost implements StudioApi {
           throw new UiError("sessionUnavailable");
         return controller.speakMessage(action.messageId);
       case "settings.update": {
-        const { type: _, endpoint: _endpoint, ...update } = action;
+        const { type: _, ...update } = action;
+        if (this.options.fixedEndpoint !== undefined) delete update.endpoint;
         if (update.notifications && "Notification" in globalThis)
           update.notifications =
             (await Notification.requestPermission()) === "granted";
@@ -319,7 +327,7 @@ export class BrowserHost implements StudioApi {
     if (/^https?:\/\//i.test(href)) {
       const url = new URL(href);
       if (url.username || url.password) throw new UiError("invalidAction");
-      if (this.openExternal) await this.openExternal(url.href);
+      if (this.options.openExternal) await this.options.openExternal(url.href);
       else window.open(url, "_blank", "noopener,noreferrer");
       return;
     }

@@ -1,6 +1,8 @@
 # ReMe Studio for iOS
 
-ReMe Studio for iOS 启动后直接连接 `http://127.0.0.1:2333`。部署目标为 iOS 18.0 及以上。 [Apple 兼容机型](https://support.apple.com/en-us/104985)
+ReMe Studio for iOS 默认连接 `http://127.0.0.1:2333`。在「设置 → 通用」可填写手机能访问的 ReMe 地址，例如
+`http://203.0.113.10:2333`（将 IP 替换为你的服务地址）。点击「连接」后应用会保存地址，重启时自动连接。部署目标为 iOS 18.0 及以上。
+[Apple 兼容机型](https://support.apple.com/en-us/104985)
 
 ## Android 与 iOS 共用的基建
 
@@ -15,7 +17,7 @@ ReMe Studio for iOS 启动后直接连接 `http://127.0.0.1:2333`。部署目标
 
 - SwiftUI 承载 `WKWebView`。Xcode 构建 `safari18` 目标的共享页面，将页面打包到 App Bundle，并同步 ReMe 版本。 [静态资源加载](ReMeStudio/StudioAssets.swift) · [ReMe 版本](../../../reme/_version.py)
 - 原生桥处理外链和状态栏主题。宿主只为内置页面的主 frame 处理麦克风授权，应用进入后台时释放录音。 [iOS 宿主](ReMeStudio/StudioViewController.swift)
-- WebView 使用共享客户端直接发送 HTTP 请求和订阅 SSE。会话、工作区文件、模型凭据和后台任务由 ReMe 服务管理。 [服务配置](../../../reme/config/proactive.yaml)
+- 共享客户端通过 iOS 的 `URLSession` 发送 HTTP 请求和接收 SSE。会话、工作区文件、模型凭据和后台任务由 ReMe 服务管理。 [服务配置](../../../reme/config/proactive.yaml)
 
 ## 构建与联调
 
@@ -33,7 +35,8 @@ xcrun simctl list devices available
 reme start config=proactive
 ```
 
-在 Xcode 打开 `reme_studio/mobile/ios/ReMeStudio.xcodeproj`，选择 `ReMeStudio` scheme 和 iPhone Simulator 后运行。在「设置 → 通用」确认服务显示「已连接」。也可从仓库根目录运行 UI 测试，验证启动和重启后自动连接。
+在 Xcode 打开 `reme_studio/mobile/ios/ReMeStudio.xcodeproj`，选择 `ReMeStudio` scheme 和 iPhone Simulator 后运行。在「设置 → 通用」确认服务显示「已连接」。也可从仓库根目录运行 UI 测试，验证地址保存和重启后自动连接。
+测试默认使用本机服务，可通过 `TEST_RUNNER_REME_TEST_ENDPOINT` 指定其他可访问的地址。
 
 ```bash
 xcodebuild -project reme_studio/mobile/ios/ReMeStudio.xcodeproj \

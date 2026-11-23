@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import { BrowserStorage } from "../src/browser-host.ts";
 
-test("browser tabs save only their own settings and receipt changes", async (t) => {
+function useLocalStorage(t: TestContext): Map<string, string> {
   const original = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
   const storage = new Map<string, string>();
   Object.defineProperty(globalThis, "localStorage", {
@@ -16,7 +16,11 @@ test("browser tabs save only their own settings and receipt changes", async (t) 
     if (original) Object.defineProperty(globalThis, "localStorage", original);
     else Reflect.deleteProperty(globalThis, "localStorage");
   });
+  return storage;
+}
 
+test("browser tabs save only their own settings and receipt changes", async (t) => {
+  const storage = useLocalStorage(t);
   const endpoint = "http://127.0.0.1:2333";
   const scope = "test-session";
   const initial = new BrowserStorage(endpoint);
@@ -59,4 +63,25 @@ test("browser tabs save only their own settings and receipt changes", async (t) 
     first: { userRead: true, presented: true },
     second: { userRead: true, presented: true },
   });
+});
+
+test("mobile saves a custom service address and web stays on its configured address", async (t) => {
+  useLocalStorage(t);
+  const initial = "http://127.0.0.1:2333";
+  const remote = "http://192.0.2.10:2444";
+  const mobile = new BrowserStorage();
+  assert.equal(mobile.settings.endpoint, initial);
+  mobile.settings.endpoint = remote;
+  mobile.changed();
+  await mobile.flush();
+
+  const web = new BrowserStorage("https://studio.example.test");
+  assert.equal(web.settings.endpoint, "https://studio.example.test");
+  web.settings.theme = "dark";
+  web.changed();
+  await web.flush();
+
+  const restarted = new BrowserStorage();
+  assert.equal(restarted.settings.endpoint, remote);
+  assert.equal(restarted.settings.theme, "dark");
 });

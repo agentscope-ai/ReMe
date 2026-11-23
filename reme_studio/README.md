@@ -14,7 +14,9 @@ Install `reme-ai[core]`, configure the model in the backend environment, and sta
 reme start config=proactive
 ```
 
-Open <http://127.0.0.1:2333/> for Studio. Desktop connects to the same service at that address.
+Open <http://127.0.0.1:2333/> for Studio. Desktop, Android, and iOS use that address by default.
+To use a different service, open **Settings → General**, enter the complete HTTP or HTTPS URL, and select **Connect**.
+The app remembers the address on restart.
 
 ## Develop
 
