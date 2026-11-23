@@ -1,0 +1,13 @@
+{
+  "name": "@agentscope-ai/reme-mobile",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  }
+}

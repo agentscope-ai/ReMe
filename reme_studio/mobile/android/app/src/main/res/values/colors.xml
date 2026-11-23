@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="studio_surface_light">#FEFEFE</color>
+    <color name="studio_surface_dark">#18181A</color>
+    <color name="studio_surface">@color/studio_surface_light</color>
+</resources>

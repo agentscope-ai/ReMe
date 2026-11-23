@@ -8,6 +8,10 @@ on:
         required: false
         default: ''
         type: string
+      source_ref:
+        description: Release commit to build
+        type: string
+        default: ''
       upload_artifacts:
         description: Upload distributions for later publish jobs
         required: false
@@ -26,6 +30,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.source_ref }}
           persist-credentials: false
 
       - name: Set up Python
@@ -39,11 +44,6 @@ jobs:
           python -m pip install build packaging pytest twine
 
       - name: Validate package versions
-        if: inputs.expected_version == ''
-        run: python scripts/bump_version.py --check
-
-      - name: Validate release version
-        if: inputs.expected_version != ''
         env:
           EXPECTED_VERSION: ${{ inputs.expected_version }}
         run: python scripts/bump_version.py --check --expected-version "${EXPECTED_VERSION}"
@@ -141,18 +141,49 @@ jobs:
             )
           done
 
+      - name: Set up Node for Studio
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '22.22.3'
+          cache: npm
+          cache-dependency-path: reme_studio/package-lock.json
+
+      - name: Build Studio distributions
+        run: |
+          npm ci --prefix reme_studio --ignore-scripts
+          npm run build:static --prefix reme_studio
+          mkdir -p dist/studio-npm
+          npm pack ./reme_studio/web --pack-destination dist/studio-npm
+          python scripts/package_studio.py
+          python -m build reme_studio/web/python --outdir dist/studio
+          python -m twine check dist/studio/*
+          tar -tzf dist/studio-npm/*.tgz | grep '^package/dist-static/index.html$'
+
       - name: Verify released core dependencies
         if: inputs.upload_artifacts
         run: |
           REME_WHEEL="$(pwd)/$(ls dist/reme/reme_ai-[0-9]*.whl)"
+          STUDIO_WHEEL="$(pwd)/$(ls dist/studio/reme_studio-[0-9]*.whl)"
           python -m venv "${RUNNER_TEMP}/reme-core-package-smoke"
-          "${RUNNER_TEMP}/reme-core-package-smoke/bin/python" -m pip install "${REME_WHEEL}[core]"
+          "${RUNNER_TEMP}/reme-core-package-smoke/bin/python" -m pip install "${REME_WHEEL}[core]" "${STUDIO_WHEEL}"
           cd "${RUNNER_TEMP}"
-          "${RUNNER_TEMP}/reme-core-package-smoke/bin/python" - <<'PY'
+          "${RUNNER_TEMP}/reme-core-package-smoke/bin/python" -I - <<'PYCODE'
+          from importlib.metadata import version
           from reme_studio import static_dir
 
+          assert version("reme-ai") == version("reme-studio")
           assert (static_dir() / "index.html").is_file()
-          PY
+          PYCODE
+
+      - name: Upload Studio distributions
+        if: inputs.upload_artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: studio-distributions
+          path: |
+            dist/studio/
+            dist/studio-npm/
+          if-no-files-found: error
 
       - name: Upload ReMe distributions
         if: inputs.upload_artifacts

@@ -43,7 +43,7 @@
 
   <rect x="40" y="248" width="1280" height="657" rx="14" fill="#FFFFFF" stroke="#D5E3E3" />
   <text x="68" y="290" class="heading">Proactive Runtime</text>
-  <text x="1292" y="289" class="body muted" text-anchor="end">Triggers · task execution · workspace memory</text>
+  <text x="1292" y="289" class="body muted" text-anchor="end">Triggers · task coordination · workspace memory</text>
 
   <rect x="68" y="314" width="842" height="514" rx="12" fill="#F1F5F6" />
   <text x="88" y="346" class="card-title">Predefined agents and workflows</text>
@@ -109,14 +109,14 @@
   <text x="950" y="346" class="card-title">Custom agents</text>
 
   <rect x="950" y="361" width="322" height="112" rx="8" class="preset-card" />
-  <text x="968" y="397" class="preset-name teal">Event-driven</text>
+  <text x="968" y="397" class="preset-name teal">Observations</text>
   <text x="968" y="429" class="preset-copy">Choose a connected source.</text>
   <text x="968" y="452" class="preset-copy">Run when a new event arrives.</text>
 
   <rect x="950" y="488" width="322" height="112" rx="8" class="preset-card" />
-  <text x="968" y="524" class="preset-name purple">Cron-driven</text>
+  <text x="968" y="524" class="preset-name purple">Optional schedule</text>
   <text x="968" y="556" class="preset-copy">Choose a time and frequency.</text>
-  <text x="968" y="579" class="preset-copy">Run on that schedule.</text>
+  <text x="968" y="579" class="preset-copy">Triggers join the same inbox.</text>
 
   <path d="M950 632h322" fill="none" stroke="#D5E3E3" />
   <text x="950" y="670" class="label">Task instructions and reminders</text>

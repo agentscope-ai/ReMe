@@ -311,6 +311,8 @@ components:
 
 Rebuild the embedding index after changing the model or dimensions.
 
+Configure the Inbox, execution wrapper, Remy's initial memory, background tasks, and reminder delays through `components.proactive_runtime.default`. See [Proactive Runtime](./services.md#proactive-runtime).
+
 ## Service and Jobs
 
 Minimal HTTP configuration:

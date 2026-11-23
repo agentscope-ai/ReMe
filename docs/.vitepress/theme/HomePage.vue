@@ -13,7 +13,7 @@ const translations = {
   zh: {
     eyebrow: "LOCAL-FIRST · FILE-NATIVE",
     title: "让 Agent 真正记住，\n让记忆始终属于你。",
-    lead: "ReMe 将对话、资料与经验沉淀为可读、可编辑、可检索、相互链接的本地文件，让不同 Agent 共享同一套长期记忆。",
+    lead: "ReMe 将对话、资料与经验沉淀为可读、可编辑、可检索、相互链接的本地文件，让不同 Agent 共享长期记忆，并把它用于持续任务和提醒。",
     quickStart: "快速开始",
     learnMore: "了解 ReMe",
     stars: "GitHub Stars",
@@ -26,6 +26,7 @@ const translations = {
       { mark: "✦", title: "自动记忆", href: "/zh/auto_memory", tone: "cyan" },
       { mark: "⌕", title: "混合检索", href: "/zh/memory_search", tone: "blue" },
       { mark: "⌁", title: "图谱关联", href: "/zh/auto_link", tone: "amber" },
+      { mark: "↗", title: "主动智能运行时", href: "/zh/proactive_runtime", tone: "violet" },
     ],
     agentTitle: "ReMe 接入 Agent",
     agentGuide: "接入指南",
@@ -56,11 +57,9 @@ const translations = {
     piLabel: "π-Bench 主动性",
     piDetail: "5 类用户画像的平均 PROC 得分",
     piDelta: "较 NanoBot +2.4%",
-    sectionLabel: "03 / PRODUCTS & PLUGINS",
-    sectionTitle: "从记忆工作区，到自动研究",
-    sectionLead: "三个完整入口，把 ReMe 用到真实工作流中。",
+    sectionLabel: "03 / PLUGINS",
+    sectionTitle: "用 ReMe 跟进论文和财经资讯",
     products: [
-      { mark: "▣", label: "WORKSPACE", title: "ReMe Studio", detail: "在本地 Web 工作区中浏览、编辑、搜索记忆，并探索 wikilink 图谱。", href: "/studio/?lang=zh", tone: "mint" },
       { mark: "◌", label: "DISCOVER", title: "Daily Paper", detail: "筛选值得阅读的论文，分析 PDF，并生成文件化笔记与五分钟简报。", href: "/zh/plugins/daily-paper", tone: "cyan" },
       { mark: "↗", label: "RESEARCH", title: "Auto Fin", detail: "连接最新财联社新闻与本地历史记忆，生成带 wikilink 的研究报告。", href: "/zh/plugins/auto-fin", tone: "amber" },
     ],
@@ -73,7 +72,7 @@ const translations = {
   en: {
     eyebrow: "LOCAL-FIRST · FILE-NATIVE",
     title: "Memory for AI agents.\nFiles that remain yours.",
-    lead: "ReMe turns conversations, resources, and experience into readable, editable, searchable, interconnected local files—a shared long-term memory layer for every agent.",
+    lead: "ReMe turns conversations, resources, and experience into readable, editable, searchable, interconnected local files—shared long-term memory for agents and the context for ongoing tasks and reminders.",
     quickStart: "Quick Start",
     learnMore: "Meet ReMe",
     stars: "GitHub Stars",
@@ -86,6 +85,7 @@ const translations = {
       { mark: "✦", title: "Auto memory", href: "/en/auto_memory", tone: "cyan" },
       { mark: "⌕", title: "Hybrid search", href: "/en/memory_search", tone: "blue" },
       { mark: "⌁", title: "Linked graph", href: "/en/auto_link", tone: "amber" },
+      { mark: "↗", title: "Proactive Runtime", href: "/en/proactive_runtime", tone: "violet" },
     ],
     agentTitle: "ReMe for agents",
     agentGuide: "Integration guide",
@@ -116,11 +116,9 @@ const translations = {
     piLabel: "π-Bench proactivity",
     piDetail: "Average PROC score across five personas",
     piDelta: "+2.4% over NanoBot",
-    sectionLabel: "03 / PRODUCTS & PLUGINS",
-    sectionTitle: "From memory workspace to automated research",
-    sectionLead: "Three complete paths for putting ReMe into real workflows.",
+    sectionLabel: "03 / PLUGINS",
+    sectionTitle: "Follow papers and financial news with ReMe",
     products: [
-      { mark: "▣", label: "WORKSPACE", title: "ReMe Studio", detail: "Browse, edit, and search memory in a local web workspace, then explore its wikilink graph.", href: "/studio/?lang=en", tone: "mint" },
       { mark: "◌", label: "DISCOVER", title: "Daily Paper", detail: "Select useful papers, analyze PDFs, and create file-native notes plus a five-minute brief.", href: "/en/plugins/daily-paper", tone: "cyan" },
       { mark: "↗", label: "RESEARCH", title: "Auto Fin", detail: "Connect recent CLS news with local memory to create traceable, wikilink-backed reports.", href: "/en/plugins/auto-fin", tone: "amber" },
     ],
@@ -283,7 +281,6 @@ onMounted(async () => {
         <p class="section-label">{{ text.sectionLabel }}</p>
         <div>
           <h2>{{ text.sectionTitle }}</h2>
-          <p>{{ text.sectionLead }}</p>
         </div>
       </div>
       <div class="product-grid">
@@ -293,7 +290,6 @@ onMounted(async () => {
           class="product-card"
           :class="product.tone"
           :href="localLink(product.href)"
-          :target="product.href.startsWith('/studio/') ? '_self' : undefined"
         >
           <span class="product-mark">{{ product.mark }}</span>
           <span class="product-label">{{ product.label }}</span>
@@ -447,8 +443,7 @@ onMounted(async () => {
 .product-section::before { position: absolute; z-index: -1; inset: 0 calc(50% - 50vw); border-top: 1px solid var(--home-line); background: var(--section-light); content: ""; }
 .section-heading { display: grid; grid-template-columns: minmax(190px, 0.38fr) minmax(0, 1fr); gap: 40px; align-items: start; margin-bottom: 36px; }
 .section-heading h2, .traffic-heading h2 { max-width: 820px; margin: 0; color: var(--home-ink); font-size: clamp(38px, 3.6vw, 58px); line-height: 1.1; letter-spacing: -0.045em; }
-.section-heading p:not(.section-label) { margin: 15px 0 0; color: var(--home-muted); font-size: 16px; }
-.product-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+.product-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
 .product-card { position: relative; display: flex; min-height: 360px; flex-direction: column; padding: 30px; overflow: hidden; border: 1px solid color-mix(in srgb, var(--card-accent) 30%, var(--home-line)); border-radius: 22px; color: var(--home-ink); background: radial-gradient(circle at 80% 0, color-mix(in srgb, var(--card-accent) 14%, transparent), transparent 50%), linear-gradient(150deg, var(--home-surface), color-mix(in srgb, var(--card-accent) 5%, var(--home-surface-soft))); text-decoration: none; transition: transform 170ms ease, box-shadow 170ms ease; }
 .product-card:hover { transform: translateY(-4px); box-shadow: 0 20px 38px color-mix(in srgb, var(--card-accent) 14%, transparent); }
 .product-mark { display: grid; place-items: center; width: 46px; height: 46px; border-radius: 13px; color: var(--card-accent); background: color-mix(in srgb, var(--card-accent) 13%, var(--home-surface)); font: 650 24px/1 var(--vp-font-family-mono); }
@@ -482,9 +477,6 @@ onMounted(async () => {
   .benchmark-section, .traffic-section { grid-template-columns: 1fr; min-height: auto; }
   .benchmark-intro, .traffic-heading { max-width: 720px; }
   .traffic-window { width: 100%; max-width: 1000px; }
-}
-@media (max-width: 1000px) {
-  .product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 700px) {
   .reme-home { padding-right: 20px; padding-left: 20px; }

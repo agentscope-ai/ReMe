@@ -6,15 +6,16 @@ import shutil
 from pathlib import Path
 
 REPOSITORY_DIR = Path(__file__).resolve().parents[1]
-STUDIO_DIR = REPOSITORY_DIR / "reme_studio"
-STATIC_DIR = STUDIO_DIR / "src" / "reme_studio" / "static"
+STUDIO_DIR = REPOSITORY_DIR / "reme_studio" / "web"
+PYTHON_DIR = STUDIO_DIR / "python"
+STATIC_DIR = PYTHON_DIR / "src" / "reme_studio" / "static"
 LICENSE_FILE = REPOSITORY_DIR / "LICENSE"
 STATIC_GITIGNORE = "*\n!.gitignore\n"
 
 
 def prepare_package() -> None:
     """Copy generated assets into the importable Python package."""
-    shutil.copyfile(LICENSE_FILE, STUDIO_DIR / "LICENSE")
+    shutil.copyfile(LICENSE_FILE, PYTHON_DIR / "LICENSE")
     source = STUDIO_DIR / "dist-static"
     if not (source / "index.html").is_file():
         raise FileNotFoundError(f"Studio static build is unavailable: {source}")

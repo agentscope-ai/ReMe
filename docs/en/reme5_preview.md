@@ -6,7 +6,7 @@ description: How ReMe is bringing file-native memory, event-driven agents, and s
 # ReMe5 Preview — Proactive Runtime
 
 ReMe started as a Memory Kit for agents. With **ReMe5**, our upcoming `0.5` release, ReMe is growing into a **local-first
-Proactive Runtime** with memory at its core. You can give an agent an ongoing responsibility, let new information or a
+Proactive Runtime** built on file-native long-term memory. ReMe coordinates ongoing work and delegates model execution and native sessions to an agent runtime. You can give an agent an ongoing responsibility, let new information or a
 schedule start its next run, and return later to ask what happened. The task can remember its instructions, build on
 previous work, and bring important changes back to your conversation.
 
@@ -43,18 +43,17 @@ workspace so the Chat Agent can answer follow-up questions and bring back releva
 
 ![ReMe5 roadmap showing how the Chat Agent manages event-driven, scheduled, and custom agents, what executes them, and where the runtime integrates](../figure/reme5-proactive-runtime-overview.svg)
 
-Event-driven and scheduled presets cover common tasks. From the same conversation you can create your own agent with
-an event source or a cron schedule. The roadmap includes a standalone desktop preview and extends the runtime into
+Presets cover common tasks. From the same conversation you can connect an observation source and add a cron schedule to
+the same task. The roadmap includes a standalone desktop preview and extends the runtime into
 existing agent tools through host integrations.
 
 ## How the runtime works
 
-The runtime runs named background agents. **Event-driven agents** receive observations, such as a completed conversation,
-a new log entry, or a paper from a configured feed. **Scheduled agents** use cron to start a round at an agreed time,
-such as a daily briefing or a nightly memory consolidation. They share the same runtime for receiving inputs, running
-tasks, and retaining results. An agent waits between runs without continuously calling the model.
+The runtime coordinates named background tasks. **Observations** can come from a completed conversation, a new log entry,
+or a paper from a configured feed. An **optional schedule** appends a trigger to the same inbox at an agreed time, such as
+for a daily briefing or nightly memory consolidation. Each task waits between runs without continuously calling the model.
 
-![Proactive Runtime showing how observations reach the Work agent and become sourced records, summaries, and optional reminders](../figure/proactive-runtime.svg)
+![Proactive Runtime showing how observations reach the Work agent and become daily records with sources and reminder decisions](../figure/proactive-runtime.svg)
 
 The diagram shows the current Work prototype. Codex dialogue and screen capture are built-in sources in the prototype
 configuration. Claude Code traces illustrate how another source can publish through the event interface.
@@ -62,13 +61,13 @@ configuration. Claude Code traces illustrate how another source can publish thro
 
 1. **Collect and queue.** A connector gathers an observation and submits an event with its source and associated files.
    A cron trigger submits a scheduled event when due. Each task has its own inbox and processes one batch at a time.
-2. **Run with context.** The agent reads its task instructions, recent summaries, and the relevant source material. It
+2. **Run with context.** The agent reads its task instructions and the original inputs, then searches recent records. It
    compares incoming information with what it already knows so it can identify a meaningful change.
-3. **Save results and deliver selectively.** The agent records new findings with source links and proposes a reminder
-   when the task calls for one. The runtime validates and saves the result before acknowledging the input. If the run
+3. **Save results and deliver selectively.** The agent writes new findings, source links, and its reminder decision
+   in one daily record. The runtime validates and saves the result before acknowledging the input. If the run
    fails, the input remains eligible for retry. Committed reminders can be delivered independently of the run.
 
-Task instructions, notes, summaries, and reminders live in the user’s workspace. A task reads the latest instructions
+Task instructions and daily records live in the user’s workspace. A task reads the latest instructions
 when it runs, and a user can open the files to check or correct the context that carries forward. Connected sources are
 defined by configuration. Source links let users trace an agent’s conclusions back to the relevant conversation,
 document, or observation. [Execution and storage details](./proactive_runtime.md#how-a-task-keeps-running)
@@ -90,9 +89,8 @@ new Codex dialogue and screenshots to test that workflow.
 Auto Dream currently consolidates daily memory into personal, procedural, and wiki knowledge. The plan is to give each
 of the three agents its own cron schedule and instructions about which evidence to use.
 
-The existing `daily/` and `digest/` notes are valuable context for this transition. The migration milestone will cover
-how existing workspaces and source links carry forward, and how current users move their Auto Memory and Auto Dream
-configurations to the new tasks. [Current Auto Dream inputs and outputs](./auto_dream.md#inputs-and-outputs)
+The scheduled agents can draw context from `daily/` and `digest/` notes.
+[Current Auto Dream inputs and outputs](./auto_dream.md#inputs-and-outputs)
 
 ### Predefined agents and workflows
 
@@ -113,7 +111,7 @@ The prototype already includes an event-driven Finance example and a scheduled t
 examples to test whether to keep a record, send a notification, or do both. The desktop prototype also has a Todo
 interface and background task summaries that we can build on.
 [Prototype agent definitions](https://github.com/agentscope-ai/ReMe/blob/main/reme/config/proactive.yaml) ·
-[Desktop prototype](https://github.com/agentscope-ai/ReMe/tree/main/reme_desktop)
+[Desktop prototype](https://github.com/agentscope-ai/ReMe/tree/main/reme_studio/desktop)
 
 ## Create and manage agents from chat
 
@@ -127,14 +125,14 @@ reports.” For an event-driven task, you might ask the Chat Agent to follow an 
 when it finishes or fails. Event-driven tasks need a connected source that can provide the observations.
 
 A background agent can propose a reminder based on its task instructions. The Chat Agent considers the current
-conversation when deciding whether to deliver it. [Chat and task management guide](./proactive_runtime.md#personal-runtime)
+conversation when deciding whether to deliver it. [Chat and task management guide](./proactive_runtime.md#chat-and-reminders)
 
 ## Desktop preview, execution backends, and integrations
 
 - **ReMe Desktop.** We plan to publish a proof-of-concept preview for **macOS and Windows**. It will provide a place to
   try the whole workflow, from delegating a task in chat to inspecting its inputs, progress, knowledge, and reminders.
   The Electron prototype on `main` connects to the ReMe service and already has the main chat and named background task
-  views. [Desktop source and setup](https://github.com/agentscope-ai/ReMe/tree/main/reme_desktop)
+  views. [Desktop source and setup](https://github.com/agentscope-ai/ReMe/tree/main/reme_studio/desktop)
 - **Execution backends.** The planned options for running ReMe agents are **AgentScope, Codex, and Claude Code**. The
   main prototype configuration uses Codex and there is a separate Claude Code configuration. We will validate task
   execution, session handling, and notification behavior on each supported backend before documenting its preview support.
@@ -154,7 +152,7 @@ work in an existing Codex or Claude Code session and bring results back into tha
 | --- | --- | --- |
 | **Runtime and desktop prototype** | On `main` | Chat Agent, event-driven and scheduled background agents, workspace-backed task state, and reminder delivery. |
 | **Real-workflow testing** | In progress | Exercise Work, Finance, and scheduled tasks. Check whether records capture real changes, source links hold up, and reminders remain useful across retries and repeated events. |
-| **Memory workflows and presets** | Planned for ReMe5 | Bring Auto Memory into Work, build the three scheduled Auto Dream agents, and document how existing workspaces and configurations carry forward. Develop initial Research, Todo, and Daily Summary workflows. |
+| **Memory workflows and presets** | Planned for ReMe5 | Bring Auto Memory into Work, build the three scheduled Auto Dream agents, and develop initial Research, Todo, and Daily Summary workflows. |
 | **ReMe5 and desktop preview** | Targeting release by the end of 2026 | Publish the runtime and the macOS and Windows proof of concept. Document setup, available execution backends, and the supported preview workflows. |
 | **Host integrations** | Planned in stages | Connect supported host event sources, then validate task follow-up and result delivery within each host. |
 
@@ -162,7 +160,7 @@ work in an existing Codex or Claude Code session and bring results back into tha
 
 The source checkout already contains the desktop prototype and its companion service configuration. The desktop README
 walks through starting the ReMe service in one terminal and the desktop client in another.
-[Run the prototype from source](https://github.com/agentscope-ai/ReMe/tree/main/reme_desktop#start)
+[Run the prototype from source](https://github.com/agentscope-ai/ReMe/tree/main/reme_studio/desktop#reme-studio-for-desktop)
 
 If you try it, tell us which Harness you want ReMe to follow, what useful changes it should record, and what would make
 an update worth interrupting you. If you already use Auto Memory or Auto Dream, we would like to hear which sources,

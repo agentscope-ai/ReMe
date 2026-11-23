@@ -14,7 +14,7 @@ import pytest
 from pydantic import ValidationError
 
 from reme.core.context import ApplicationContext, RuntimeContext
-from reme.components.agent_runtime import BaseAgentRuntime
+from reme.components.proactive_runtime import BaseProactiveRuntime
 from reme.utils.files.workspace_files import WorkspaceFiles
 from reme.schema import ResourceMetadata
 from reme.steps.proactive.data_connectors import BaseConnectorStep, ResourceEventStep, ScreenCaptureStep
@@ -269,11 +269,10 @@ async def test_invalid_source_fails_before_collection(tmp_path, source):
 
 @pytest.mark.asyncio
 async def test_event_ids_include_source_and_date_and_are_retry_stable(tmp_path):
-    runtime = Mock(spec=BaseAgentRuntime)
+    runtime = Mock(spec=BaseProactiveRuntime)
     runtime.files = WorkspaceFiles(tmp_path)
-    runtime.definition = AsyncMock(return_value=SimpleNamespace(cron=None))
-    runtime.append = AsyncMock(return_value={})
-    step = ResourceEventStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)), agent_runtime=runtime)
+    runtime.append_events = AsyncMock(return_value={})
+    step = ResourceEventStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)), proactive_runtime=runtime)
     paths = [
         "resource/screenshot/2026-11-15/123045_123456",
         "resource/screenshot/2026-11-16/123045_123456",
@@ -294,9 +293,9 @@ async def test_event_ids_include_source_and_date_and_are_retry_stable(tmp_path):
         manifest = f"{package}/metadata.json"
         (tmp_path / manifest).write_text(metadata.model_dump_json())
         await step(agent_name="observer", resource={"path": manifest})
-        event = runtime.append.call_args.args[1]
+        (event,) = runtime.append_events.call_args.args[1]
         assert event.paths == [manifest, f"{package}/1.png"]
-    ids = [call.args[1].id for call in runtime.append.call_args_list]
+    ids = [call.args[1][0].id for call in runtime.append_events.call_args_list]
     assert len(set(ids[:3])) == 3
     assert ids[0] == ids[-1]
 

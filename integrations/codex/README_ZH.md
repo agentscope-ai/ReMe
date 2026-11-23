@@ -5,6 +5,8 @@
 将 Codex 接入自己的 ReMe 服务，即可跨会话记住项目决策、个人偏好和待办事项。
 ReMe 可以自动记录、召回记忆，并每天整理。记忆文件保存在你自己的 ReMe 工作区中。
 
+宿主集成为已有对话接入 ReMe 的长期记忆。[主动智能运行时](https://reme.agentscope.io/zh/proactive_runtime) 也可以选择该 Agent 作为执行后端，在各任务自己的会话中处理输入。
+
 ## HTTP 连接（默认）
 
 默认插件直接连接 ReMe 的 HTTP MCP，不再为每个会话启动常驻 Python 代理。

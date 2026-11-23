@@ -159,8 +159,8 @@ class BaseJob(BaseComponent):
             try:
                 await self._run_steps(context)
             except Exception as e:
-                self.logger.exception(f"Failed to execute job: {e}")
                 context.response.success = False
                 context.response.answer = _describe_exception(e)
+                self.logger.exception(f"Job '{self.name}' failed: {context.response.answer}")
                 context.response.metadata[JOB_ERROR_METADATA_KEY] = _exception_details(e)
         return context.response

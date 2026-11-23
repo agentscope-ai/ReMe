@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from ...constants import CHAT_AGENT_NAME
 from .local_agent_inbox import LocalAgentInbox
 from ...core.registry import R
-from ...schema.agent_runtime import validate_agent_name
+from ...schema.proactive_runtime import validate_agent_name
 from ...schema.application_config import ApplicationConfig
 from ...schema.event import Event
 

@@ -5,7 +5,7 @@ description: ReMe 如何将文件化记忆、事件驱动的 Agent 和定时任�
 
 # ReMe5 前瞻 · Proactive Runtime
 
-ReMe 从面向 Agent 的 Memory Kit 起步。**ReMe5** 是即将发布的 `0.5` 版，ReMe 将由此发展为一套**以记忆为核心、本地优先的 Proactive Runtime**。
+ReMe 从面向 Agent 的 Memory Kit 起步。**ReMe5** 是即将发布的 `0.5` 版，ReMe 将由此发展为一套**以文件化长期记忆为基础的主动智能系统**。ReMe 的 Proactive Runtime 用工作区记录重建任务上下文，调用 Codex 等执行后端，并保存结果和提醒。
 你可以把一件需要持续跟进的事交给 Agent。收到新信息，或者到了约定时间，它就会运行一轮，记住你的要求，接着上次的进展往下做。
 遇到重要变化时，它会把消息带回对话，你也可以随时追问发生了什么。
 
@@ -36,27 +36,25 @@ ReMe 现有的记忆流程是这个能力的基础。Auto Memory 把对话提炼
 
 ![ReMe5 方案总览，展示 Chat Agent 如何管理事件驱动、定时和自定义 Agent，以及运行它们的后端和计划接入的宿主](../figure/reme5-proactive-runtime-overview.svg)
 
-常见任务可以从事件驱动或定时预设开始。你也可以在同一个对话里创建自己的 Agent，为它指定事件源或 Cron 日程。
+常见任务可以从预设开始。你也可以在同一个对话里创建任务，为它接入观察来源并按需添加 Cron 日程。
 这套运行时会在 ReMe 自己的桌面预览中提供，也计划接入已有的 Agent 工具。
 
 ## 运行时如何工作
 
-运行时按名称管理后台 Agent。**事件驱动的 Agent** 接收新的观察，例如一轮对话结束、一条日志更新，或者某个已配置的订阅源发布了论文。
-**定时 Agent** 按 Cron 日程启动，例如每天整理一份简报，或在夜间整理长期记忆。两者共用一套接收输入、运行任务和保存结果的流程。
-等待下一轮时无需持续调用模型。
+运行时按名称管理后台任务。**观察事件** 可以来自一轮对话、一条日志或订阅源发布的论文。**可选日程** 会在约定时间向同一收件箱追加触发事件，例如每天启动简报任务，或在夜间触发记忆整理。等待下一轮时无需持续调用模型。
 
-![Proactive Runtime 如何把新观察交给 Work Agent，并生成带来源的记录、总结和可选提醒](../figure/proactive-runtime.svg)
+![Proactive Runtime 如何把新观察交给 Work Agent，并将进展、来源和提醒决定写入同一记录](../figure/proactive-runtime.svg)
 
 图中是现有的 Work 原型。原型配置内置了 Codex 对话和截图采集。图中的 Claude Code 执行轨迹演示了其他来源如何通过事件接口接入。
 [运行时指南](./proactive_runtime.md)
 
 1. **采集与排队。** 采集器提交事件，并附上来源和相关文件。到了约定时间，Cron 也会提交一条定时事件。每个任务有独立的收件箱，
    一次处理一批输入。
-2. **带着上下文执行。** Agent 读取任务说明、近期总结和相关原始资料，把收到的信息和已有进展对照，判断这次有什么实质变化。
-3. **保存结果并按需提醒。** Agent 写下新的发现和来源链接，符合任务要求时提出提醒。运行时校验并保存结果，再确认输入已处理。
+2. **带着上下文执行。** Agent 读取任务说明和原始资料，再查找近期记录，把收到的信息和已有进展对照，判断这次有什么实质变化。
+3. **保存结果并按需提醒。** Agent 把新的发现、来源链接和提醒决定写在同一份每日记录里。运行时校验并保存结果，再确认输入已处理。
    执行失败的输入可以重试。已经保存的提醒可以独立投递。
 
-任务要求、记录、总结和提醒都保存在用户自己的工作区中。任务每轮读取最新要求，用户也可以直接打开文件检查和修正后续执行要用的背景。
+任务说明和每日记录都保存在用户自己的工作区中。任务每轮读取最新要求，用户也可以直接打开文件检查和修正后续执行要用的背景。
 配置决定哪些来源会接入，记录里的链接可以追溯到原始对话、文档或观察结果。
 [执行和存储细节](./proactive_runtime.md)
 
@@ -75,8 +73,7 @@ Work 也可以主动汇报。现在的原型已经用新增 Codex 对话和截�
 现在的 Auto Dream 会把每日记录沉淀为个人、流程经验和 Wiki 知识。我们计划把这三类整理工作交给三个独立的 Agent，
 每个 Agent 采用自己的 Cron 日程和资料整理规则。
 
-现有 `daily/` 和 `digest/` 中的笔记是过渡时的重要背景。迁移里程碑会说明如何继续使用已有工作区和来源链接，
-以及如何把现有的 Auto Memory 和 Auto Dream 配置迁移到新任务。
+定时 Agent 可以从 `daily/` 和 `digest/` 的笔记中获取背景。
 [当前 Auto Dream 的输入输出](./auto_dream.md#输入和输出)
 
 ### 预设 Agent 和工作流
@@ -97,7 +94,7 @@ ReMe5 计划提供一组预设，用于跟进持续进行的工作、定时整�
 原型已有事件驱动的 Finance 示例和定时的科技简报。我们用这些示例测试哪些内容值得记下来，哪些需要及时告诉用户。
 现有桌面原型里的 Todo 界面和后台任务总结也可以作为这些工作流的基础。
 [原型 Agent 配置](https://github.com/agentscope-ai/ReMe/blob/main/reme/config/proactive.yaml) ·
-[桌面原型](https://github.com/agentscope-ai/ReMe/tree/main/reme_desktop)
+[桌面原型](https://github.com/agentscope-ai/ReMe/tree/main/reme_studio/desktop)
 
 ## 在对话中创建和管理 Agent
 
@@ -114,7 +111,7 @@ Chat Agent 通过 `manage-proactive-agent` skill 创建自定义 Agent，并管�
 
 - **ReMe Desktop** 计划发布 **macOS 和 Windows** 的概念验证预览。你可以体验从聊天交办任务到查看输入、进展、知识和提醒的完整流程。
   `main` 上的 Electron 原型已能连接 ReMe 服务，展示主对话和各个后台任务。
-  [桌面源码和启动说明](https://github.com/agentscope-ai/ReMe/tree/main/reme_desktop)
+  [桌面源码和启动说明](https://github.com/agentscope-ai/ReMe/tree/main/reme_studio/desktop)
 - **执行后端** 计划支持 **AgentScope、Codex 和 Claude Code**。目前默认原型使用 Codex，也有独立的 Claude Code 配置。
   我们会验证每个后端的任务执行、会话处理和提醒行为，再在文档中列出各自支持的预览能力。
   [Codex 配置](https://github.com/agentscope-ai/ReMe/blob/main/reme/config/proactive.yaml) ·
@@ -132,14 +129,14 @@ Codex 和 Claude Code 可以同时出现在两种角色中。作为执行后端�
 | --- | --- | --- |
 | **运行时和桌面原型** | 已合入 `main` | Chat Agent、事件驱动和定时任务、在工作区保存任务状态、提醒投递。 |
 | **真实工作流测试** | 进行中 | 测试 Work、Finance 和定时任务，检查能否记录实质变化、来源链接是否有效，以及重试或重复事件下的提醒表现。 |
-| **记忆工作流和预定义任务** | 计划纳入 ReMe5 | 将 Auto Memory 纳入 Work，实现三个定时 Auto Dream Agent，说明如何迁移现有工作区和配置，并开发首批 Research、Todo 和 Daily Summary 工作流。 |
+| **记忆工作流和预定义任务** | 计划纳入 ReMe5 | 将 Auto Memory 纳入 Work，实现三个定时 Auto Dream Agent，并开发首批 Research、Todo 和 Daily Summary 工作流。 |
 | **ReMe5 和桌面预览** | 目标是 2026 年底前 | 发布运行时和 macOS、Windows 概念验证，提供安装指南和已支持的后端、工作流说明。 |
 | **宿主集成** | 分阶段推进 | 接入各宿主可提供的事件来源，验证任务跟进和结果投递。 |
 
 ## 试用原型和分享反馈
 
 源码中已经有桌面原型及配套服务配置。桌面 README 说明了如何在一个终端启动 ReMe 服务，再在另一个终端启动客户端。
-[从源码运行原型](https://github.com/agentscope-ai/ReMe/tree/main/reme_desktop#start)
+[从源码运行原型](https://github.com/agentscope-ai/ReMe/tree/main/reme_studio/desktop#reme-studio-for-desktop)
 
 欢迎告诉我们，你希望 ReMe 跟进哪个 Harness，哪些变化值得记录，什么情况值得发一条提醒。如果你已经在用 Auto Memory 或 Auto Dream，
 也欢迎分享对你最重要的数据来源、记忆文件或任务日程。

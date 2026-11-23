@@ -62,8 +62,8 @@ workspace/
 ## 定时屏幕采集
 
 `config=proactive` 默认启用 `screen_capture_cron`，按应用时区每 5 分钟采集截图，启动时不立即采集。
-截图独立投递给 `work` 事件 Agent，与 Codex 对话采集互不依赖。可用 `jobs.screen_capture_cron.enabled=false`
-关闭，或通过 `jobs.screen_capture_cron.agent_name` 改为其他事件 Agent。
+截图独立投递给 `work` 任务，与 Codex 对话采集互不依赖。可用 `jobs.screen_capture_cron.enabled=false` 关闭，
+或通过 `jobs.screen_capture_cron.agent_name` 指定另一个已有后台任务。目标任务也可配置自己的 `cron`。
 
 `BaseConnectorStep` 将资料直接写入资源目录，最后原子写入 `metadata.json`；`ScreenCaptureStep` 为每个显示器保留一张原尺寸 PNG。
 随后 `ResourceEventStep` 向指定 Agent 投递带稳定 ID 的观察事件，包含资源描述、manifest 与全部文件的
@@ -117,7 +117,7 @@ BTC 使用滚动 24 小时涨跌幅，保存统计窗口和采集时间；USDT �
 价格和 24 小时基准价不变时，不生成新资源或事件；仅采集时间或统计窗口推进不算新增信息，时间倒退的统计窗口会被跳过。
 
 采集器将 `news.jsonl`、`quotes.jsonl` 或 `btc.jsonl` 保存到 `resource/<source>/YYYY-MM-DD/hhmmss_<suffix>/`，
-随后调用已有 `append_agent_events` Job，投递给 `finance` 事件 Agent。采集不调用 LLM；无新增时不创建文件或事件。
+随后调用 `append_task_events` 投递给 `finance` 任务。采集不调用 LLM；无新增时不创建文件或事件。
 新闻首次回看最近 24 小时，按保留新闻文件中的 ID 去重；成功拉取后保存来源进度，后续从上次检查时间向前重叠十分钟拉取，
 最多回看 24 小时。删除进度文件后恢复完整回看，保留的新闻 ID 仍防止重复；超过回看窗口的停机可能留下缺口。
 已落盘但缺少投递回执的批次会在采集新数据前补投，股票批次还受交易时段限制；

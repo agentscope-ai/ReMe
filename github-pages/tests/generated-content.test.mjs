@@ -42,7 +42,6 @@ test("generates every required bilingual guide", async () => {
   await access(path.join(generatedDir, "zh/integrations/openclaw.md"));
   await access(path.join(generatedDir, "en/integrations/openclaw.md"));
   await access(path.join(generatedDir, "public/figures/dsh/reme-status-overview.png"));
-  await access(path.join(generatedDir, "public/figures/studio/studio-overview.png"));
   for (const name of ["qwenpaw.png", "deepseek-harness.svg", "openclaw.svg", "claude-code.png", "hermes.svg", "zvec.ico", "faiss.png"]) {
     await access(path.join(generatedDir, "public/ecosystem", name));
   }
@@ -61,7 +60,6 @@ test("maps mirrored pages back to their canonical repository sources", async () 
   assert.equal(sourceMap["en/integrations/qoder.md"], "integrations/qoder/README.md");
   assert.equal(sourceMap["zh/integrations/qoder.md"], "integrations/qoder/README_ZH.md");
   assert.equal(sourceMap["en/integrations/hermes.md"], "integrations/hermes_agent/README.md");
-  assert.equal(sourceMap["en/workspace/studio.md"], "reme_studio/README.md");
   assert.equal(sourceMap["zh/plugins/lme.md"], "plugins/lme/README_ZH.md");
   assert.equal(sourceMap["en/reference/jobs.md"], "reme/config/default.yaml");
   for (const language of ["zh", "en"]) {
@@ -146,15 +144,6 @@ test("keeps Qoder language switches on the documentation site", async () => {
   assert.doesNotMatch(chinese, /\]\([^)]*README\.md\)/);
 });
 
-test("publishes Studio screenshots with site-safe links", async () => {
-  const english = await readFile(path.join(generatedDir, "en/workspace/studio.md"), "utf8");
-  const chinese = await readFile(path.join(generatedDir, "zh/workspace/studio.md"), "utf8");
-  assert.match(english, /\(\/figures\/studio\/studio-overview\.png\)/);
-  assert.match(chinese, /\(\/figures\/studio\/settings-status\.png\)/);
-  assert.match(english, /\(\/zh\/workspace\/studio\)/);
-  assert.match(chinese, /\(\/en\/workspace\/studio\)/);
-});
-
 test("publishes OpenClaw and Hermes integration figures with site-safe links", async () => {
   for (const [page, integration] of [
     ["en/integrations/openclaw.md", "openclaw"],
@@ -171,17 +160,6 @@ test("publishes OpenClaw and Hermes integration figures with site-safe links", a
   }
   const hermesEnglish = await readFile(path.join(generatedDir, "en/integrations/hermes.md"), "utf8");
   assert.match(hermesEnglish, /\(\/zh\/integrations\/hermes\)/);
-});
-
-test("keeps Studio source READMEs portable for package registries", async () => {
-  for (const name of ["README.md", "README_ZH.md"]) {
-    const source = await readFile(path.join(repoDir, "reme_studio", name), "utf8");
-    assert.doesNotMatch(source, /\]\(\.\/figures\//);
-    assert.match(
-      source,
-      /\]\(https:\/\/raw\.githubusercontent\.com\/agentscope-ai\/ReMe\/main\/reme_studio\/figures\//,
-    );
-  }
 });
 
 test("generates the callable Job reference from default.yaml", async () => {
@@ -208,8 +186,6 @@ test("keeps generated content disposable and excludes internal plans", async () 
 });
 
 test("maps every legacy query-string document ID to a generated page", async () => {
-  assert.equal(Object.keys(legacyRoutes).length, 45);
-  assert.equal(legacyRoutes["studio-en"], "/en/workspace/studio");
   assert.equal(legacyRoutes["en-quick_start"], "/en/quick_start");
   assert.equal(legacyRoutes["agents-guide"], "https://github.com/agentscope-ai/ReMe/blob/main/AGENTS.md");
 
@@ -237,7 +213,6 @@ test("tracks every generated input in documentation CI and deployment", async ()
     "integrations/dsh/figures/**",
     "integrations/openclaw/README*.md",
     "integrations/openclaw/figures/**",
-    "reme_studio/**",
     "benchmark/toolmemory/gitcha.png",
     "benchmark/memlens/docs/**",
     "benchmark/mobilemem/docs/**",

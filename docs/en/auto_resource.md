@@ -69,8 +69,9 @@ Permanent material should remain in user-controlled workspace paths.
 ## Scheduled Screen Capture
 
 `config=proactive` enables `screen_capture_cron` every five minutes in the application timezone, without a startup capture.
-It publishes screenshots to the `work` event Agent, independently of Codex dialogue collection. Set
-`jobs.screen_capture_cron.enabled=false` to disable it or change `jobs.screen_capture_cron.agent_name` to another event Agent.
+It publishes screenshots to the `work` task, independently of Codex dialogue collection. Set
+`jobs.screen_capture_cron.enabled=false` to disable it or use `jobs.screen_capture_cron.agent_name` to select another
+existing background task. The receiving task can also have its own `cron` schedule.
 
 `BaseConnectorStep` writes payloads directly to their resource directory and atomically writes `metadata.json` last;
 `ScreenCaptureStep` saves one original-size PNG per display. `ResourceEventStep` then appends a stable-ID observation
@@ -134,7 +135,7 @@ Unchanged prices and 24-hour opening prices produce no new resource or event; ad
 alone does not count as new information. Older statistics windows are ignored.
 
 The collectors save `news.jsonl`, `quotes.jsonl` or `btc.jsonl` under `resource/<source>/YYYY-MM-DD/hhmmss_<suffix>/`, then call
-the existing `append_agent_events` Job for the `finance` event Agent. Collection does not use an LLM. Empty batches produce
+`append_task_events` for the `finance` task. Collection does not use an LLM. Empty batches produce
 no files or events. News uses a rolling 24-hour lookback and retained news IDs for deduplication; outages longer than
 the lookback can leave gaps. After a successful fetch, a source-owned progress file narrows subsequent requests to
 the last checked time with a ten-minute overlap, bounded by the 24-hour lookback. Removing this progress file restores

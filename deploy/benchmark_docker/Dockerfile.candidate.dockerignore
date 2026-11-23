@@ -25,7 +25,7 @@ plugins/*
 **/htmlcov
 **/node_modules
 **/dist
-**/dist-static
+**/dist-*
 **/.generated
 **/.next
 **/.vite
@@ -36,7 +36,10 @@ plugins/*
 **/logs
 **/*.log
 **/*.tmp
-reme_studio/src/reme_studio/static
+reme_studio/web/python/src/reme_studio/static
+reme_studio/desktop/assets
+reme_studio/desktop/out
+reme_studio/desktop/dist
 benchmark
 cookbook
 docs

@@ -294,6 +294,9 @@ class LocalAgentInbox(BaseAgentInbox):
         Event.validate_paths([directory])
         if self._workspace / directory != self._path(name):
             raise ValueError("directory does not match the item-inbox storage layout")
+        self._check_open()
+        if name in self._inboxes:
+            return
         async with self._changed:
             await finish_cleanup(self._mount(name))
 
@@ -366,30 +369,6 @@ class LocalAgentInbox(BaseAgentInbox):
                     "in_flight_count": len(inbox.claim[1]) if inbox.claim else 0,
                 },
             )
-
-    async def committed(self, name: str, item_ids: list[str]) -> bool:
-        """Read the atomic commit log without relying on possibly stale in-memory state."""
-        async with self._changed:
-            name = self._normalize_name(name)
-            if self._closed or name not in self._inboxes:
-                raise RuntimeError("Agent inbox is not mounted")
-
-            def read():
-                path = self._path(name, "inbox_read.jsonl")
-                if not path.exists():
-                    return False
-                with path.open("rb") as handle:
-                    for raw in handle:
-                        if not raw.endswith(b"\n"):
-                            raise ValueError("incomplete durable inbox receipt")
-                        value = json.loads(raw)
-                        items = [self._item(self._encode(item)) for item in value.pop("items")]
-                        receipt = InboxReceipt(item_ids=[item["id"] for item in items], **value)
-                        if set(item_ids).issubset(receipt.item_ids):
-                            return True
-                return False
-
-            return await asyncio.to_thread(read)
 
     async def list(self) -> list[dict]:
         """Return inbox summaries without reading or exposing item history."""

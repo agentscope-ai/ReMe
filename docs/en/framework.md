@@ -78,7 +78,7 @@ reme/
     agent_wrapper/           # AgentScope / Claude Code / Codex wrappers
     codex_app_server/        # BaseCodexAppServer / SDK backend / shared session ownership
     agent_inbox/             # BaseAgentInbox / local storage and Agent event inputs
-    agent_runtime/           # BaseAgentRuntime / local Agent coordination
+    proactive_runtime/           # BaseProactiveRuntime / local Agent coordination
   steps/
     base_step.py             # BaseStep, Ref, dispatch_steps
     common/                  # version, help, health_check, status, chat
@@ -181,10 +181,10 @@ HTTP service behavior:
 | `StreamJob`                               | `POST /<job.name>` returning `text/event-stream`. |
 | `enable_serve: false`                     | No endpoint is registered.                        |
 
-After registering Job endpoints, the HTTP service can also mount the ReMe Studio single-page application. The default is
+After registering Job endpoints, the HTTP service can mount ReMe Studio. The `proactive` preset enables it with
 `service.web_enabled=true`. Builds are resolved from `service.web_static_dir`, `REME_WEB_STATIC_DIR`, the optional
 `reme_studio` package installed by the `web` and `core` extras, and source-tree locations such as
-`reme_studio/dist-static`. If no `index.html` is found, only the frontend is skipped and the Job API remains available. The
+`reme_studio/web/dist-static`. If no `index.html` is found, only the frontend is skipped and the Job API remains available. The
 Studio `GET` fallback does not replace existing `POST /<job.name>` routes.
 
 MCP service behavior:
@@ -611,14 +611,14 @@ thread with the current configuration. Rejected or cancelled preparation retains
 `output_schema` applies only to the current invocation; omission uses the calling wrapper's default, and explicit
 `None` disables that default for this invocation.
 
-Proactive reminders are evaluated in a disposable read-only fork with only `read_chat_reminders` and `submit_chat_reminder` tools.
+A disposable read-only fork receives the selected Chat inbox entries in its prompt. It reads relevant source records and submits its decision through `submit_chat_reminder`.
 Only explicitly submitted text is appended to the foreground conversation; fork reasoning and ordinary replies stay
 outside it. Codex stores injected content in its native rollout without a second application-authored message copy.
-`reme_agents/` contains task configuration, event inboxes, reminder Markdown, personal memory and session
-references. Remy's inbox derives its state from reminder files and their acknowledgement fields. Native
+`reme_agents/` contains task configuration, event inboxes, personal memory and session references.
+Remy's inbox derives its state from reminders and acknowledgement fields in the daily records. Native
 conversation histories retain the conversation content.
 
-The Agent runtime owns transient execution activity and live output. Desktop clients observe `watch_agent_session`; native Codex status notifications remain internal to operation completion and disconnect handling.
+The Proactive Runtime owns transient execution activity and live output. Desktop clients observe `watch_agent_session`; native Codex status notifications remain internal to operation completion and disconnect handling.
 All three wrappers support `append_session(..., role="user" | "assistant")` without generating a reply; the default role
 is `assistant`. Retries with the same `message_id` must retain both content and role. Injected messages keep
 `source="proactive"` independently of their role, including after reload or fork.

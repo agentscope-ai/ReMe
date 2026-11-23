@@ -32,6 +32,8 @@
 🧠 ReMe 将对话和资料持续沉淀为可读、可编辑、可检索、相互链接的 Markdown 记忆。QwenPaw、DeepSeek Harness 等 Agent
 可以共享同一个 workspace，共同检索、维护和演化知识，而持久文件始终由用户掌控。
 
+**主动智能运行时（Proactive Runtime）** 把这些长期记忆用于持续任务。它接收外部事件或定时触发，交给 Codex 等 Agent Runtime 执行，并在工作区记录结果和提醒。
+
 - **Memory as File, File as Memory**：ReMe 使用带 frontmatter 和 wikilink 的普通 Markdown 保存持久记忆。用户和 Agent
   都可以使用熟悉的工具查看、编辑、移动、同步和备份；索引及生成的元数据均可重建。
 - **自进化知识库**：ReMe 将对话和资料逐步加工为 daily note 与长期知识，在保留来源的同时，持续提炼事实、偏好、
@@ -49,7 +51,7 @@
 
 <!-- 最新动态最多展开 5 条；新增条目时，将超出的旧条目移入下方“更多更新”折叠区。 -->
 
-- [2026.11] - **`NEW`** **[ReMe5 前瞻 · Proactive Runtime](docs/zh/reme5_preview.md)**。ReMe 将以文件化记忆为核心，
+- [ROADMAP] - **[ReMe5 前瞻 · Proactive Runtime](docs/zh/reme5_preview.md)**。ReMe 将以文件化记忆为核心，
   支持事件驱动和定时 Agent。你可以把需要持续跟进的事交给 ReMe，有新进展时它会记下来，并在需要时提醒你。
   我们计划在 **2026 年底前**发布 ReMe5，欢迎先看我们的设计方案、开发计划和里程碑。
 - [2026.10] - **[基于决策模型的上下文压缩](docs/zh/context_compaction.md)**：根据下一步任务判断旧工具证据的保留价值，
@@ -58,15 +60,6 @@
   写入记忆并保留图片来源；Auto Resource 将图片资料整理为可检索、可回溯原图的 daily 卡片。Qwen3.8-Max 下，
   ReMe Image 的 LLM-Judge 得分为 [MemLens-256K 72.49%](benchmark/memlens/docs/zh/evaluation.md)、
   [MobileMem 60.69%](benchmark/mobilemem/docs/zh/evaluation.md)；详情还包含 Kimi、DeepSeek 的结果。
-- [2026.10] - **[ReMe Studio Playground](https://reme.agentscope.io/studio/?lang=zh) 上线**：无需安装或启动后端，
-  即可在浏览器中浏览示例记忆文件、编辑 Markdown、探索记忆关联图谱。欢迎大家[来体验](https://reme.agentscope.io/studio/?lang=zh)！
-
-  <p align="center">
-    <a href="https://reme.agentscope.io/studio/?lang=zh">
-      <img src="https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/studio-overview.png" alt="ReMe Studio 工作区预览，点击体验 Playground" width="480" style="margin: 0 auto;">
-    </a>
-  </p>
-
 - [2026.09] - **[给记忆加上“标签”](https://reme.agentscope.io/zh/blog_20260920)发布**：介绍基于 Markdown 的实体标签、
   可重建 Tag Index 与标签过滤检索。
 
@@ -115,7 +108,7 @@ pip install "reme-ai[core]"
 ```bash
 git clone https://github.com/agentscope-ai/ReMe.git
 cd ReMe
-pip install -e reme_studio -e ".[core]"
+pip install -e reme_studio/web/python -e ".[core]"
 cd reme_studio
 npm ci
 npm run build:static
@@ -224,9 +217,9 @@ ReMe 会把 Agent 记忆保存为可读的 Markdown。
 
 ### ReMe Studio（可选）
 
-上面的 `core` 安装已包含 Studio。启动 ReMe 后，打开 <http://127.0.0.1:2333/> 即可浏览、编辑和搜索 workspace。
+上面的 `core` 安装已包含 Studio。运行 `reme start config=proactive` 后，打开 <http://127.0.0.1:2333/> 使用 Remy、主动智能、随记和知识库。
 如需为基础安装单独添加 Studio，可使用 `pip install "reme-ai[web]"`。源码构建、配置和开发说明见
-[ReMe Studio 指南](https://reme.agentscope.io/zh/workspace/studio)。
+[ReMe Studio 指南](https://github.com/agentscope-ai/ReMe/blob/main/reme_studio/README_ZH.md)。
 
 ## 🤝 将 ReMe 接入你的 Agent
 
@@ -396,7 +389,7 @@ ReMe 通过 Agent 多轮搜索与读取的方式，评测多会话和超长上�
 | [Auto Dream](https://reme.agentscope.io/zh/auto_dream) 与 [Auto Link](https://reme.agentscope.io/zh/auto_link) | 将 daily 记忆整理为持续演化的 digest 节点和可读 wikilink 关系。        |
 | [记忆检索](https://reme.agentscope.io/zh/memory_search)                                     | 使用 BM25、可选向量、RRF 融合、行号范围召回和渐进式链接扩展。          |
 | [Proactive 主题读取](https://reme.agentscope.io/zh/proactive)                               | 安全读取兴趣主题，并将其接入宿主 Agent 的决策流程。                    |
-| [Proactive Agent](https://reme.agentscope.io/zh/proactive_runtime)                          | 了解持续任务如何接收信息、保存进展、发送提醒，并通过 Personal Runtime 与用户对话。 |
+| [主动智能运行时](https://reme.agentscope.io/zh/proactive_runtime)                          | 了解如何利用长期记忆持续跟进任务，并通过 Remy 查看进展与提醒。 |
 | [应用场景](https://reme.agentscope.io/zh/reme_scene)                                        | 查看金融研究、研发记忆和个人知识库的完整使用示例。                     |
 | [框架说明](https://reme.agentscope.io/zh/framework)                                         | 理解 Application、Job、Step、Component、service、配置和生命周期边界。  |
 | [Agent 集成](https://reme.agentscope.io/zh/integrations)                                    | 选择接口，并将 DSH、Claude Code、Codex、Qoder、OpenClaw、Hermes 或其他 Agent 接入 ReMe。 |

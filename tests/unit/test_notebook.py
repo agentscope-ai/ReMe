@@ -136,6 +136,37 @@ async def test_filters_pagination_and_optional_fields(jobs):
     assert (await call(jobs, "todo", action="list", offset=100))["items"] == []
 
 
+@pytest.mark.asyncio
+async def test_list_projects_counts_both_collections_by_scope(jobs, notebook_path):
+    """Project discovery includes Idea-only and archive-only projects and respects scope."""
+    assert await call(jobs, "todo", action="list_projects") == {"items": [], "total": 0}
+    assert not notebook_path.exists()
+    await call(jobs, "todo", action="create", project="ReMe", text="待办")
+    await call(jobs, "todo", action="create", project="Archive", text="已完成待办", status="done")
+    await call(jobs, "todo", action="create", text="随手记下的待办")
+    await call(jobs, "idea", action="create", project="Ideas", text="想法")
+    idea = await call(jobs, "idea", action="create", project="ReMe", text="待办的来源")
+    await call(jobs, "idea", action="archive", id=idea["id"])
+
+    archive_project = {"project": "Archive", "todo_count": 1, "idea_count": 0}
+    idea_project = {"project": "Ideas", "todo_count": 0, "idea_count": 1}
+    notes_project = {"project": "随笔", "todo_count": 1, "idea_count": 0}
+    projects = {
+        "items": [archive_project, idea_project, {"project": "ReMe", "todo_count": 1, "idea_count": 1}, notes_project],
+        "total": 4,
+    }
+    assert await call(jobs, "todo", action="list_projects") == projects
+    assert await call(jobs, "todo", action="list_projects", scope="all") == projects
+    assert await call(jobs, "todo", action="list_projects", scope="active") == {
+        "items": [idea_project, {"project": "ReMe", "todo_count": 1, "idea_count": 0}, notes_project],
+        "total": 3,
+    }
+    assert await call(jobs, "todo", action="list_projects", scope="archive") == {
+        "items": [archive_project, {"project": "ReMe", "todo_count": 0, "idea_count": 1}],
+        "total": 2,
+    }
+
+
 @pytest.mark.parametrize("name", ["todo", "idea"])
 @pytest.mark.asyncio
 async def test_project_defaults_filtering_and_existing_empty_records(jobs, notebook_path, name):
@@ -349,6 +380,10 @@ async def test_custom_notebook_directory_contains_linked_records_and_archives(jo
     assert read(directory / "todos.json") == read(directory / "ideas.json") == []
     assert read(directory / "archive/todos.json")[0]["source_idea"] == idea["id"]
     assert read(directory / "archive/ideas.json")[0]["id"] == idea["id"]
+    assert await call(jobs, "todo", action="list_projects", **allowed) == {
+        "items": [{"project": "随笔", "todo_count": 1, "idea_count": 1}],
+        "total": 1,
+    }
     assert set(tmp_path.iterdir()) == {tmp_path / "planning"}
 
 
@@ -359,6 +394,7 @@ async def test_custom_notebook_directory_contains_linked_records_and_archives(jo
         (TodoRequest, {"action": "create"}),
         (TodoRequest, {"action": "list", "progress_text": "无效"}),
         (TodoRequest, {"action": "list", "limit": 101}),
+        (TodoRequest, {"action": "list_projects", "project": "ReMe"}),
         (TodoRequest, {"action": "get"}),
         (TodoRequest, {"action": "update", "id": "t1"}),
         (TodoRequest, {"action": "update", "id": "t1", "text": None}),
@@ -372,6 +408,7 @@ async def test_custom_notebook_directory_contains_linked_records_and_archives(jo
         (IdeaRequest, {"action": "archive"}),
         (IdeaRequest, {"action": "create", "text": " "}),
         (IdeaRequest, {"action": "list", "status": "open"}),
+        (IdeaRequest, {"action": "list_projects"}),
         (IdeaRequest, {"action": "restore", "id": "i1", "text": "不能忽略"}),
     ],
 )
@@ -413,8 +450,14 @@ async def test_http_and_mcp_expose_both_jobs_and_preserve_unset_fields(jobs):
         )
         assert response.json()["success"]
         assert "due_date" not in response.json()["answer"] and "source_idea" not in response.json()["answer"]
+        await call(jobs, "idea", action="archive", id=idea["id"])
+        projects = {"items": [{"project": "随笔", "todo_count": 1, "idea_count": 1}], "total": 1}
+        response = await client.post("/todo", json={"action": "list_projects"})
+        assert response.json()["success"] and response.json()["answer"] == projects
     async with Client(service.mcp_server) as client:
         assert {tool.name for tool in await client.list_tools()} == {"todo", "idea"}
+        result = await client.call_tool("todo", {"action": "list_projects"})
+        assert result.structured_content == projects
         await client.call_tool("todo", {"action": "create", "text": "MCP 任务", "due_date": "2026-11-20"})
         task = (await call(jobs, "todo", action="list"))["items"][0]
         assert task["project"] == "随笔"

@@ -12,6 +12,8 @@
 启动 ReMe 服务 → 安装 ReMe 插件 → 在 Claude Code 中使用记忆
 ```
 
+宿主集成为已有对话接入 ReMe 的长期记忆。[主动智能运行时](https://reme.agentscope.io/zh/proactive_runtime) 也可以选择该 Agent 作为执行后端，在各任务自己的会话中处理输入。
+
 ## 环境要求
 
 - 宿主环境中有 Python 3.11+，可通过 `python3` 执行；可选 stdio 模式还需要 `fastmcp>=4.1.4,<5`。
