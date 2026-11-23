@@ -2,28 +2,11 @@
 
 [English version](./README.md)
 
-LongMemEval 是一个面向**多轮多会话历史的长期记忆能力**的评测基准。每个条目提供一组按时间
-顺序排列的用户与助手之间的会话，以及一个只能通过推理用户自有记忆才能回答的探测问题。ReMe
-将会话摄入按条目隔离的工作区，以 agentic（ReAct）模式回答问题，最后由 LLM-as-judge 打分。
+LongMemEval 是一个面向**多轮多会话历史的长期记忆能力**的评测基准。每个条目提供一组按时间顺序排列的用户与助手之间的会话，以及一个只能通过推理用户自有记忆才能回答的探测问题。
+
+## 1. 数据准备
 
 题型包括单会话（user / assistant / preference）、多会话推理、知识更新与时间推理等。
-
-在仓库根目录以 editable 模式安装 ReMe 和 LongMemEval 插件：
-
-```bash
-python -m pip install -e ".[as]"
-reme plugins install ./plugins/lme --editable
-reme plugins install ./plugins/lme-judge --editable
-reme plugins validate lme
-```
-
-runner 显式启用已安装的 `lme` 插件，并将插件默认配置与 ReMe 内置的 `benchmark` 配置组合。
-editable 安装会让 [`plugins/lme`](../../plugins/lme/README_ZH.md) 下的源码修改直接生效，无需重复安装。
-本目录继续保留评测参数、数据集及输出。自定义完整应用配置路径仍可通过 `reme.config` 指定，
-并可使用 `extends: benchmark`。
-模型凭据通过公共 benchmark 配置中声明的环境变量设置。
-
-## 1. 获取数据集
 
 ReMe 仅使用 **cleaned-S** 版本，数据托管在 HuggingFace：
 [agentscope-ai/ReMe_longmemeval_clean_s_v2](https://huggingface.co/datasets/agentscope-ai/ReMe_longmemeval_clean_s_v2)。
@@ -37,28 +20,31 @@ python download.py            # 保存为 dataset/longmemeval_s_reme_cleaned.jso
 
 ground truth 已内嵌在数据文件中。
 
-## 2. 运行
+## 2. 使用 LME 插件
 
-在仓库根目录执行：
+### 2.1 简介
+
+LME 插件加载内嵌 ground truth 的数据集，为每个条目创建独立工作区并按时间顺序摄入会话，再以 agentic（ReAct）模式回答探测问题，通过 LLM-as-judge 的 `answer_judge` 任务做二元（yes/no）评判并输出各类型准确率。若自定义应用配置启用了 `auto_dream`，会在相邻会话跨越配置时刻（默认 23:00）时触发；插件预设保持关闭。
+
+### 2.2 如何使用
+
+#### 安装与环境配置
+
+在仓库根目录以 editable 模式安装 ReMe 和 LongMemEval 插件：
 
 ```bash
-python benchmark/longmemeval/run.py
-python benchmark/longmemeval/run.py --config benchmark/longmemeval/config.yaml
-python benchmark/longmemeval/run.py -q                        # 安静模式：仅评测级日志
-python benchmark/longmemeval/run.py --log-level WARNING       # 降低评测 runner 日志
-python benchmark/longmemeval/run.py --reme-log-level WARNING  # 降低 reme 内部日志
-python benchmark/longmemeval/run.py --eval_only               # 复用已有工作区，仅执行查询 + 评判
+python -m pip install -e ".[as]"
+reme plugins install ./plugins/lme --editable
+reme plugins install ./plugins/lme-judge --editable
+reme plugins validate lme
 ```
 
-## 3. 流程
+runner 显式启用已安装的 `lme` 插件，并将插件默认配置与 ReMe 内置的 `benchmark` 配置组合。
+editable 安装会让 [`plugins/lme`](../../plugins/lme/README_ZH.md) 下的源码修改直接生效，无需重复安装。
+自定义完整应用配置路径可通过 `reme.config` 指定，并可使用 `extends: benchmark`。
+模型凭据通过公共 benchmark 配置中声明的环境变量设置。
 
-1. 加载数据集（ground truth 已内嵌在数据文件中）。
-2. 为每个条目创建独立工作区，按时间顺序摄入会话。
-3. 若自定义应用配置启用了 `auto_dream`，在相邻会话跨越配置时刻（默认 23:00）时触发；插件预设保持关闭。
-4. 以 agentic（ReAct）模式回答每个问题。
-5. 通过 `answer_judge` 任务对答案做二元（yes/no）评判，并输出各类型准确率。
-
-## 4. 关键配置 —— `benchmark/longmemeval/config.yaml`
+#### 关键配置 — `benchmark/longmemeval/config.yaml`
 
 | 配置项 | 含义 |
 | --- | --- |
@@ -72,20 +58,28 @@ python benchmark/longmemeval/run.py --eval_only               # 复用已有工�
 | `reme.dream_trigger_hour` / `dream_scan_days` / `dream_max_units` | dream 触发行为。 |
 | `output.dir` | 结果目录（`benchmark/longmemeval/results`）。 |
 
-## 5. 输出
+#### 运行评测
+
+在仓库根目录执行：
+
+```bash
+python benchmark/longmemeval/run.py
+python benchmark/longmemeval/run.py --config benchmark/longmemeval/config.yaml
+python benchmark/longmemeval/run.py -q                        # 安静模式：仅评测级日志
+python benchmark/longmemeval/run.py --log-level WARNING       # 降低评测 runner 日志
+python benchmark/longmemeval/run.py --reme-log-level WARNING  # 降低 reme 内部日志
+python benchmark/longmemeval/run.py --eval_only               # 复用已有工作区，仅执行查询 + 评判
+```
+
+### 2.3 结果
 
 结果以 JSON 文件写入 `output.dir`，文件名为 `results_<timestamp>.json`，
 同时控制台会打印含各类型准确率的汇总。日志约定在各基准间通用，见
 [总说明](../README_ZH.md#输出与日志)。
 
-## 6. 参考结果
+**参考结果**
 
-### cleaned-s
-
-**基础设置**
-
-1. 使用修改后的 auto-memory prompt，关闭 auto-dream 机制
-2. reme-memory 中的全部 session 的时间一定早于 question 的时间
+#### cleaned-s
 
 **结果**
 
@@ -94,23 +88,28 @@ agentscope==2.0.4.post1, conda reme env, 32 workers, eval-only（复用预构建
 
 | 类型 | Agentic | input tok/q | output tok/q | total tok/q | tool calls/q |
 |---|---|---|---|---|---|
-| knowledge-update | 0.910 | 31,581 | 589 | 32,169 | 2.90 |
-| multi-session | 0.842 | 52,837 | 1,474 | 54,311 | 4.21 |
-| single-session-assistant | 1.000 | 15,596 | 279 | 15,875 | 1.89 |
-| single-session-preference | 0.633 | 36,802 | 818 | 37,620 | 3.60 |
-| single-session-user | 0.986 | 27,433 | 359 | 27,792 | 2.60 |
-| temporal-reasoning | 0.902 | 62,674 | 985 | 63,659 | 4.97 |
-| **OVERALL** | **0.894** | **43,448** | **876** | **44,324** | **3.69** |
+| **总体** | **0.894** | **43.4K** | **0.9K** | **44.3K** | **3.69** |
+| knowledge-update | 0.910 | 31.6K | 0.6K | 32.2K | 2.90 |
+| multi-session | 0.842 | 52.8K | 1.5K | 54.3K | 4.21 |
+| single-session-assistant | 1.000 | 15.6K | 0.3K | 15.9K | 1.89 |
+| single-session-preference | 0.633 | 36.8K | 0.8K | 37.6K | 3.60 |
+| single-session-user | 0.986 | 27.4K | 0.4K | 27.8K | 2.60 |
+| temporal-reasoning | 0.902 | 62.7K | 1.0K | 63.7K | 4.97 |
 
+## 3. 使用 HoMe 优化插件
 
-## 7. HoMe
+### 3.1 简介
 
-### 实验准备
+HoMe 从数据集和指定的 Git 版本准备实验工作区，评测基线后迭代优化 LME 插件代码，并返回候选版本的 `commit_sha`；随后可用该版本在配置的评测集上进行独立评测。
+
+### 3.2 如何使用
+
+#### 实验准备
 
 按上文获取数据集，并参照 [HoMe 运行指南](../../plugins/home/README.md#4-run-a-benchmark-experiment) 完成安装。
 [config_home.yaml](config_home.yaml) 默认在 `benchmark/longmemeval/workspaces/home-groups-1-5` 使用
-**group_1–group_5 的 250 个 case** 进行优化。训练 ID 和[独立审阅的证据标注](home_evidence_sessions.jsonl)的来源见
-[英文说明](README.md#experiment-setup)。
+**group_1–group_5 的 250 个 case** 进行优化。训练 ID 和[独立审阅的证据标注](home_evidence_sessions.jsonl)来自
+`dev_meta` 提交 `b53048e44833937df80a52fccceea78d054790e8`。原始划分使用 seed 42，按问题类型分层抽样。
 
 [config_home_eval.yaml](config_home_eval.yaml) 默认使用 `benchmark/longmemeval/workspaces/home-test-held-out`，
 排除来源实验实际使用的训练 ID。使用默认训练集时，评测 **group_6–group_10 的 250 个 case**。
@@ -122,7 +121,7 @@ agentscope==2.0.4.post1, conda reme env, 32 workers, eval-only（复用预构建
 python benchmark/longmemeval/run_home.py
 ```
 
-### 实验运行
+#### 实验运行
 
 运行本地一次性优化：
 
@@ -138,7 +137,7 @@ python benchmark/longmemeval/run_home_eval.py --commit "$CANDIDATE_SHA"
 
 服务方式见 [HoMe 评测指南](../../plugins/home/README.md#evaluate-through-the-service)。
 
-### 实验结果
+### 3.3 结果
 
 HoMe 在 LongMemEval-S 的 250 个训练 case 上优化。ReMe 基线和 HoMe 均在同一组 250 个留出 case 上评测。
 Token 用量和 LLM 调用次数均为问答阶段的每题平均值。
