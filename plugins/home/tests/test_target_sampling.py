@@ -2,13 +2,15 @@
 
 # pylint: disable=missing-function-docstring,redefined-outer-name,unused-argument,protected-access
 
+import asyncio
 import copy
 from pathlib import Path
+from threading import Event
 
 import pytest
 
 from reme_home import sampling
-from reme_home.agent.optimizer import verify_evaluation
+from reme_home.agent.optimizer import OptimizationResult, verify_evaluation, verify_final
 from reme_home.evaluation import reuse
 from reme_home.evaluation.artifacts import read_json, write_json
 from reme_home.evaluation.history import rebuild_sampling_state, read_state
@@ -32,6 +34,73 @@ def cases():
         )
         for index in range(1, 5)
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mutation", [None, "archive", "checkout", "legacy"])
+async def test_archived_source_final_check_uses_copy_without_locking_workspace(
+    app,
+    prepared,
+    allow_reuse,
+    monkeypatch,
+    tmp_path,
+    mutation,
+):
+    baseline = await app.run_job("home_evaluate")
+    assert baseline.success, baseline.answer
+    commit_candidate(prepared)
+    response = await app.run_job("home_evaluate", sampling=True, target_queries={"1": None})
+    assert response.success, response.answer
+    run = Path(response.answer["result_dir"])
+    manifest = read_json(run / "manifest.json")
+    assert manifest["construction_sources"]
+    if mutation == "legacy":
+        for case_id in manifest["construction_sources"]:
+            path = run / f"cases/{case_id}/memory_construction/result.json"
+            result = read_json(path)
+            result.pop("source_workspace_sha256")
+            write_json(path, result)
+        verify_evaluation(prepared, run, manifest["commit_sha"])
+    Path(baseline.answer["result_dir"]).rename(tmp_path / "archived-baseline")
+    selection = OptimizationResult(
+        branch_name=manifest["branch_name"],
+        commit_sha=manifest["commit_sha"],
+        evaluation_path=str(run),
+        report="Select verified copied evidence",
+    )
+    entered, resume = asyncio.Event(), Event()
+    loop = asyncio.get_running_loop()
+    validate = reuse.validate_snapshot
+
+    def pause(source, case_id, limit):
+        assert source == run
+        loop.call_soon_threadsafe(entered.set)
+        assert resume.wait(10)
+        return validate(source, case_id, limit)
+
+    monkeypatch.setattr(reuse, "validate_snapshot", pause)
+    if mutation == "legacy":
+        with pytest.raises((ValueError, OSError)):
+            verify_final(prepared, selection)
+        return
+    task = asyncio.create_task(asyncio.to_thread(verify_final, prepared, selection))
+    try:
+        await asyncio.wait_for(entered.wait(), 10)
+        status = await app.run_job("home_code_status")
+        assert status.success, status.answer
+        if mutation == "archive":
+            case_id = next(iter(manifest["construction_sources"]))
+            (run / f"cases/{case_id}/memory_construction/reme_workspace.tar.gz").write_bytes(b"broken")
+        elif mutation == "checkout":
+            switched = await app.run_job("home_create_candidate_branch", branch_name="during-final-check")
+            assert switched.success, switched.answer
+    finally:
+        resume.set()
+    if mutation:
+        with pytest.raises(ValueError):
+            await task
+    else:
+        assert await task == str(run)
 
 
 def test_reuse_scan_filters_manifest_first_and_caches_distance(tmp_path, monkeypatch):
@@ -189,6 +258,7 @@ def allow_reuse(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_partial_reuse_preserves_targets_and_recovers_frozen_plan(app, prepared, allow_reuse, monkeypatch):
+    commit_candidate(prepared)
     baseline = await app.run_job("home_evaluate", case_ids=["1"])
     assert baseline.success
     commit_candidate(prepared)
@@ -254,6 +324,7 @@ async def test_partial_reuse_preserves_targets_and_recovers_frozen_plan(app, pre
 
 @pytest.mark.asyncio
 async def test_multiple_sources_reuse_every_available_selected_case(app, prepared, allow_reuse):
+    commit_candidate(prepared)
     first = await app.run_job("home_evaluate", case_ids=["1"])
     assert first.success
     commit_candidate(prepared)
@@ -435,7 +506,9 @@ async def test_init_source_does_not_replace_the_direct_parent_check(app, prepare
 async def test_init_child_sampling_can_select_an_uncovered_case(app, prepared, allow_reuse, monkeypatch):
     from reme_home.evaluation import component
 
-    assert (await app.run_job("home_evaluate", case_ids=["1"])).success
+    monkeypatch.setattr(FakeFactory, "fail_build", "2")
+    assert (await app.run_job("home_evaluate")).success
+    monkeypatch.setattr(FakeFactory, "fail_build", None)
     commit_candidate(prepared)
     sample = component.create_sampling_plan
 
@@ -574,6 +647,7 @@ async def test_target_sampling_limits_review_and_uncovered_cases_rebuild(
     monkeypatch,
     target_id,
 ):
+    commit_candidate(prepared)
     from reme_home.evaluation import component
 
     assert (await app.run_job("home_evaluate", case_ids=["1"])).success

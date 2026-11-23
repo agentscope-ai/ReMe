@@ -376,6 +376,7 @@ async def test_history_and_observations_rebuild_without_touching_artifacts(app, 
 
 @pytest.mark.asyncio
 async def test_call_policy_merges_component_defaults_without_mutating_them(app, prepared):
+    commit_candidate(prepared)
     evaluator = app.context.components["home.evaluation"]["default"]
     evaluator.sampling_policy = SamplingPolicy(max_cases=2, max_queries=2, temperature=0.7, ewma_alpha=0.6)
     response = await app.run_job("home_evaluate", sampling=True, sampling_policy={"max_cases": 1})
@@ -411,6 +412,7 @@ async def test_call_policy_merges_component_defaults_without_mutating_them(app, 
 
 @pytest.mark.asyncio
 async def test_job_defaults_and_hidden_agent_injection_use_one_job(app, prepared):
+    commit_candidate(prepared)
     job = app.context.jobs["home_evaluate"]
     assert "home_validate" not in app.context.jobs
     job.kwargs.update(sampling=True, sampling_policy={"max_cases": 1})
@@ -561,6 +563,7 @@ async def test_history_job_defaults_and_agent_injection_are_enforced(app, prepar
 
 @pytest.mark.asyncio
 async def test_legacy_cache_rebuild_and_explicit_null_query_budget(app, prepared):
+    commit_candidate(prepared)
     evaluator = app.context.components["home.evaluation"]["default"]
     evaluator.sampling_policy = SamplingPolicy(max_cases=2, max_queries=1)
     result = await app.run_job("home_evaluate", sampling=True, sampling_policy={"max_queries": None})

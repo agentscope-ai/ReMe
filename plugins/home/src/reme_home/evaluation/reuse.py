@@ -11,7 +11,7 @@ from ..code.repository import current_branch, validate_candidate, validate_repos
 from ..code.snapshot import tree
 from ..preparation.code import git
 from ..preparation.data.models import fingerprint
-from .artifacts import contained, file_sha256, read_json
+from .artifacts import contained, read_json
 from .inputs import (
     EvaluationSpec,
     load_reuse_source,
@@ -228,7 +228,7 @@ def case_reuse_inputs(home, spec, cases, fingerprints, sources):
     return resolved, archives
 
 
-def verify_case_reuse(home, run, manifest, commit, cases):
+def verify_case_reuse(home, run, manifest, commit):
     """Accept mixed evidence only when every reused case has host-reviewed provenance."""
     sources = manifest["construction_sources"]
     selected = manifest.get("case_ids", [])
@@ -267,8 +267,6 @@ def verify_case_reuse(home, run, manifest, commit, cases):
         ):
             raise ValueError(f"Case {case_id} lacks matching construction-equivalence evidence")
     spec = EvaluationSpec.model_validate(manifest.get("options", {}))
-    cases = [case for case in cases if case.case_id in sources]
-    _, archives = case_reuse_inputs(home, spec, cases, manifest["fingerprints"], sources)
     for case_id in selected:
         folder = contained(run, f"cases/{case_id}/memory_construction", directory=True)
         result = read_json(folder / "result.json")
@@ -276,14 +274,21 @@ def verify_case_reuse(home, run, manifest, commit, cases):
             if result.get("status") == "reused":
                 raise ValueError(f"Case {case_id} has an undeclared reused snapshot")
             continue
+        expected_sha = result.get("source_workspace_sha256")
+        if expected_sha is None:
+            # Older runs still need their original source evidence.
+            source, source_manifest = load_reuse_source(home, sources[case_id]["result_dir"], manifest["fingerprints"])
+            if source_manifest["commit_sha"] != sources[case_id]["commit_sha"]:
+                raise ValueError("Construction source commit changed")
+            _, expected_sha = validate_snapshot(source, case_id, spec.max_artifact_bytes)
         if (
             result.get("success") is not True
             or result.get("status") != "reused"
             or result.get("source") != sources[case_id]
-            or result.get("workspace_sha256") != archives[case_id][1]
-            or file_sha256(folder / "reme_workspace.tar.gz") != archives[case_id][1]
+            or result.get("workspace_sha256") != expected_sha
         ):
             raise ValueError(f"Case {case_id} has mismatched construction snapshot provenance")
+        validate_snapshot(run, case_id, spec.max_artifact_bytes)
 
 
 def changed_auto_memory_files(home, context):

@@ -213,6 +213,8 @@ async def test_prestart_failure_never_counts(app, prepared, monkeypatch, failure
 
 @pytest.mark.asyncio
 async def test_started_infrastructure_failure_is_not_a_quality_zero(app, prepared, monkeypatch):
+    commit_candidate(prepared)
+
     async def fail(*args, **kwargs):
         raise ConnectionError("construction provider unavailable")
 
@@ -227,6 +229,7 @@ async def test_started_infrastructure_failure_is_not_a_quality_zero(app, prepare
 
 @pytest.mark.asyncio
 async def test_started_candidate_failure_does_not_fabricate_a_score(app, prepared, monkeypatch):
+    commit_candidate(prepared)
     factory = FakeFactory.create_cases
 
     async def create(self, *args, **kwargs):
@@ -253,6 +256,7 @@ async def test_started_candidate_failure_does_not_fabricate_a_score(app, prepare
 
 @pytest.mark.asyncio
 async def test_started_cancellation_retains_round_but_no_partial_quality(app, prepared, monkeypatch):
+    commit_candidate(prepared)
     monkeypatch.setattr(FakeFactory, "block", asyncio.Event())
     task = asyncio.create_task(app.run_job("home_evaluate", sampling=True, concurrency=1))
     for _ in range(200):
@@ -275,6 +279,7 @@ async def test_started_cancellation_retains_round_but_no_partial_quality(app, pr
 
 @pytest.mark.asyncio
 async def test_replay_sampling_is_limited_to_donor_cases(app, prepared, monkeypatch):
+    commit_candidate(prepared)
     from reme_home.evaluation import inputs
 
     baseline = await app.run_job("home_evaluate", case_ids=["1"])
@@ -325,6 +330,7 @@ async def test_sampling_cache_rebuild_and_new_round_after_reopen(app, prepared):
 
 @pytest.mark.asyncio
 async def test_fail_fast_started_round_without_summary_is_not_quality_feedback(app, prepared):
+    commit_candidate(prepared)
     app.context.components["agent_wrapper"]["judge"].reply.return_value = {
         "result": "invalid judge output",
         "status": "completed",
@@ -342,6 +348,7 @@ async def test_fail_fast_started_round_without_summary_is_not_quality_feedback(a
 
 @pytest.mark.asyncio
 async def test_partial_pool_start_failure_counts_started_round(app, prepared, monkeypatch):
+    commit_candidate(prepared)
     original = FakeFactory.create_cases
 
     async def fail_after_first_start(factory, *args, **kwargs):
@@ -358,6 +365,7 @@ async def test_partial_pool_start_failure_counts_started_round(app, prepared, mo
 
 @pytest.mark.asyncio
 async def test_started_callback_is_idempotent(app, prepared):
+    commit_candidate(prepared)
     response = await app.run_job("home_evaluate", sampling=True)
     assert response.success
     run = Path(response.answer["result_dir"])
@@ -537,6 +545,7 @@ async def test_query_budget_and_draw_order_reach_actual_execution(app, inputs, m
         path.write_text(json.dumps(payload))
     prepared = await app.run_job("home_prepare", spec=inputs[0])
     assert prepared.success
+    commit_candidate(Path(app.config.workspace_dir) / "home")
     monkeypatch.setattr("reme_home.evaluation.component.DockerReMeSandboxFactory", FakeFactory)
     monkeypatch.setattr(
         app.context.components["agent_wrapper"]["judge"],

@@ -391,6 +391,7 @@ async def test_exhausted_evaluation_hint_is_once_even_after_failure(monkeypatch,
     job = AsyncMock(return_value=Response(success=success, answer={"status": "completed" if success else "failed"}))
     monkeypatch.setattr(optimizer_module, "required_job", lambda *_args: job)
     monkeypatch.setattr(optimizer_module, "read_state", lambda _home: {"started_validations": []})
+    monkeypatch.setattr(optimizer_module, "sampled_checkout", lambda _home: True)
     monkeypatch.setattr(optimizer_module, "validation_budget_status", lambda *_args: {"remaining_validations": 0})
     timer = optimizer_module.ValidationCycleTimer(30) if with_timer else None
     state = AgentState()

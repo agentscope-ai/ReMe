@@ -31,7 +31,7 @@ def _mapping(value):
     return value
 
 
-def _load(home, path):
+def _headers(home, path):
     run = _run_path(home, path)
     manifest = _object(run, "manifest.json", required=True)
     summary = _object(run, "summary.json", required=True)
@@ -50,6 +50,11 @@ def _load(home, path):
     judge = _mapping(manifest.get("judge", {}))
     if not fingerprints.get("dataset") or not judge.get("fingerprint"):
         raise ValueError("Paired comparisons require dataset and judge identity")
+    return run, manifest, summary
+
+
+def _load(home, path, *, headers=None):
+    run, manifest, summary = _headers(home, path) if headers is None else headers
     queries, snapshots = {}, {}
     for case_id, ids in _mapping(manifest["query_ids"]).items():
         if not isinstance(ids, list):
@@ -125,10 +130,9 @@ def compare_validations(home, base_path, candidate_path):
     return _compare_loaded(_load(home, base_path), _load(home, candidate_path))
 
 
-def _compare_loaded(base_evidence, candidate_evidence):
-    """Compare validated artifacts without changing their selection or metrics."""
-    base_run, base, base_summary, before, base_snapshots = base_evidence
-    candidate_run, candidate, summary, after, snapshots = candidate_evidence
+def _check_compatible(base_headers, candidate_headers):
+    _, base, base_summary = base_headers
+    _, candidate, summary = candidate_headers
     if (
         base["fingerprints"]["dataset"] != candidate["fingerprints"]["dataset"]
         or base.get("dataset_kind") != candidate.get("dataset_kind")
@@ -136,6 +140,13 @@ def _compare_loaded(base_evidence, candidate_evidence):
         or base_summary.get("scoring_policy") != summary.get("scoring_policy")
     ):
         raise ValueError("Cannot compare different datasets, dataset kinds or scoring policies")
+
+
+def _compare_loaded(base_evidence, candidate_evidence):
+    """Compare validated artifacts without changing their selection or metrics."""
+    _check_compatible(base_evidence[:3], candidate_evidence[:3])
+    base_run, base, _base_summary, before, base_snapshots = base_evidence
+    candidate_run, candidate, _summary, after, snapshots = candidate_evidence
     shared = sorted(before.keys() & after.keys())
     rows = []
     for case_id, query_id in shared:
@@ -228,15 +239,20 @@ def publish_comparisons(home, run):
     """Automatically save a derived table against prior compatible completed runs."""
     table, skipped = [], 0
     candidate = None
+    candidate_headers = None
     for manifest_path in sorted((home / "evaluations").glob("*/*/*/manifest.json")):
         other = manifest_path.parent
         if other == run:
             continue
         try:
-            base = _load(home, other)
+            base_headers = _headers(home, other)
+            if candidate_headers is None:
+                candidate_headers = _headers(home, run)
+            _check_compatible(base_headers, candidate_headers)
+            base = _load(home, other, headers=base_headers)
             # Load lazily after valid history; failed loads still retry on the next run.
             if candidate is None:
-                candidate = _load(home, run)
+                candidate = _load(home, run, headers=candidate_headers)
             comparison = compact_comparison(_compare_loaded(base, candidate), home)
             comparison.pop("candidate_validation_path")
             table.append(comparison)

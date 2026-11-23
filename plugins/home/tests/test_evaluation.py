@@ -230,6 +230,7 @@ async def prepared_home(app, inputs, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_case_and_query_selection_are_host_injected(app, prepared):
+    commit_candidate(prepared)
     from reme.components.agent_wrapper import AsAgentWrapper
 
     job = app.context.jobs["home_evaluate"]
@@ -278,7 +279,7 @@ async def test_all_cases_and_artifacts_via_real_job(app, prepared):
         events = [event[1] for event in factory.events if event[0] == case_id]
         assert events.index("snapshot") < events.index("answer")
     assert all(worker.closed for worker in factory.workers)
-    second = await app.run_job("home_evaluate", case_ids=["1"])
+    second = await app.run_job("home_evaluate")
     assert not second.success and "already been evaluated" in str(second.answer)
     assert len(FakeFactory.instances) == 1
 
@@ -309,6 +310,7 @@ async def test_reuse_tar_runs_current_candidate_without_building(app, prepared):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mutation", ["missing", "corrupt", "failure", "escape"])
 async def test_reuse_preflight_rejects_entire_request(app, prepared, mutation):
+    commit_candidate(prepared)
     baseline = await app.run_job("home_evaluate", case_ids=["1"])
     assert baseline.success, baseline.answer
     run = Path(baseline.answer["result_dir"])
@@ -380,6 +382,7 @@ async def test_build_failure_retains_diagnostics_and_other_cases(app, prepared, 
 
 @pytest.mark.asyncio
 async def test_judge_failure_preserves_answers_and_fail_fast_result(app, prepared, monkeypatch):
+    commit_candidate(prepared)
     monkeypatch.setattr(
         app.context.components["agent_wrapper"]["judge"],
         "reply",
@@ -416,6 +419,7 @@ async def test_cancellation_closes_pool_and_retains_partial_run(app, prepared, m
 
 @pytest.mark.asyncio
 async def test_debug_skips_judge_and_invalid_export_keeps_answer(app, prepared, monkeypatch):
+    commit_candidate(prepared)
     response = await app.run_job("home_evaluate", debug=True)
     assert response.success, response.answer
     assert app.context.components["agent_wrapper"]["judge"].reply.await_count == 0
@@ -761,6 +765,7 @@ async def test_invalid_lme_judge_is_infra_error_after_one_retry(app, prepared):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("raw", ["nonsense", '{"score": 2}', '{"score": 0.2}', '{"score": NaN}'])
 async def test_invalid_beam_judge_is_infra_error(app, prepared, raw):
+    commit_candidate(prepared)
     app.context.components["agent_wrapper"]["judge"].reply.return_value = {
         "result": raw,
         "status": "completed",
@@ -902,7 +907,9 @@ async def test_startup_rejects_disabled_or_replaced_judge_job(app, tmp_path, ove
     ],
 )
 async def test_real_job_errors_reach_worker_and_home_summary(app, prepared, monkeypatch, phase, kind):
+    commit_candidate(prepared)
     from types import SimpleNamespace
+
     import httpx
     from deploy.benchmark_docker.worker import _run_job_on_app
     from reme.components.job.base_job import BaseJob
@@ -1011,6 +1018,7 @@ async def test_real_job_errors_reach_worker_and_home_summary(app, prepared, monk
 @pytest.mark.parametrize("phase", ["construction", "answer"])
 @pytest.mark.parametrize("kind", ["http_503", "wrapped_http_503", "wrapped_timeout", "code"])
 async def test_pool_exceptions_preserve_classification_and_retry_policy(app, prepared, monkeypatch, phase, kind):
+    commit_candidate(prepared)
     import httpx
 
     async def fail(worker, inputs):
@@ -1071,6 +1079,7 @@ async def test_top_level_answer_failure_preserves_classification_and_retry_polic
     monkeypatch,
     infrastructure,
 ):
+    commit_candidate(prepared)
     exception = {
         "type": "APIConnectionError" if infrastructure else "ValueError",
         "module": "openai" if infrastructure else "builtins",
@@ -1105,6 +1114,8 @@ async def test_top_level_answer_failure_preserves_classification_and_retry_polic
 
 @pytest.mark.asyncio
 async def test_late_cleanup_failure_survives_without_duplicate_execution_record(app, prepared, monkeypatch):
+    commit_candidate(prepared)
+
     async def close(worker):
         worker.closed = True
         raise RuntimeError("late cleanup failure")

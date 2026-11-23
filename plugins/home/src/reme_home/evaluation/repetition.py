@@ -59,12 +59,13 @@ def retryable_result(run: Path) -> bool:
     )
 
 
-def previous_candidate_result(home: Path, commit: str) -> Path | None:
+def previous_candidate_result(home: Path, commit: str, *, required_queries: dict | None = None) -> Path | None:
     """Check every scored training attempt under the formal validation lock.
 
     Match Git trees across branches and empty commits. Only the exact failed
     commit can retry; an identical tree under another commit remains unchanged.
     Read source artifacts directly, including attempts excluded from history.
+    A full init baseline only considers initial evidence with matching coverage.
     """
     repository = contained(home, "code/repo", directory=True)
     revision = f"{commit}^{{tree}}"
@@ -80,6 +81,18 @@ def previous_candidate_result(home: Path, commit: str) -> Path | None:
         previous_commit = manifest.get("commit_sha")
         if not previous_commit:
             continue
+        if required_queries is not None:
+            queries = manifest.get("query_ids")
+            if not isinstance(queries, dict) or any(not isinstance(ids, list) for ids in queries.values()):
+                continue
+            if (
+                previous_commit != commit
+                or manifest.get("branch_name") != "init"
+                or set(manifest.get("case_ids") or []) != set(required_queries)
+                or {key: set(ids) for key, ids in queries.items()} != required_queries
+            ):
+                # Legacy subset runs cannot block or narrow a complete initial baseline.
+                continue
         revision = f"{previous_commit}^{{tree}}"
         if revision not in trees:
             trees[revision] = git(repository, "rev-parse", "--verify", "--end-of-options", revision)

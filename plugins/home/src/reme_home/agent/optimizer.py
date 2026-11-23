@@ -321,7 +321,7 @@ def verify_evaluation(home, path, commit, *, baseline=False):
         if set(row.get("queries", {})) != set(queries[key]) and row.get("construction", {}).get("status") != "failure":
             raise ValueError(f"Evaluation summary has incomplete query coverage: {key}")
     if reused:
-        verify_case_reuse(home, run, manifest, commit, cases)
+        verify_case_reuse(home, run, manifest, commit)
     return {"evaluation_path": str(run), "manifest": manifest, "summary": summary}
 
 
@@ -361,8 +361,8 @@ def baseline_state(home, *, evaluation_path=None):
         return None
 
 
-def verify_final(home, result):
-    """Check the actual checkout and evidence; never repair or discard agent edits."""
+def _verify_final_checkout(home, result):
+    """Resolve and validate the final checkout while holding the workspace lock."""
     _validate_directory(home, home / "metadata")
     with _initialization_lock(home / "metadata/workspace.lock"):
         repo, record = validate_repository(home)
@@ -373,10 +373,16 @@ def verify_final(home, result):
         result.branch_name = selection_branch(repo, result.branch_name)
         if current["current_branch"] != result.branch_name or current["commit_sha"] != result.commit_sha:
             raise ValueError("Final branch/commit does not match the checked-out HEAD")
-        evidence = verify_evaluation(home, result.evaluation_path, result.commit_sha)
-        if result.branch_name not in {evidence["manifest"]["branch_name"], EVALUATED_PREFIX + result.commit_sha}:
-            raise ValueError("Final evaluation belongs to a different branch")
-        return evidence["evaluation_path"]
+
+
+def verify_final(home, result):
+    """Scan immutable evidence outside the lock, then recheck the actual checkout."""
+    _verify_final_checkout(home, result)
+    evidence = verify_evaluation(home, result.evaluation_path, result.commit_sha)
+    if result.branch_name not in {evidence["manifest"]["branch_name"], EVALUATED_PREFIX + result.commit_sha}:
+        raise ValueError("Final evaluation belongs to a different branch")
+    _verify_final_checkout(home, result)
+    return evidence["evaluation_path"]
 
 
 def validation_budget_tool(home, max_evaluations):
@@ -399,6 +405,14 @@ def validation_budget_tool(home, max_evaluations):
     )
 
 
+def sampled_checkout(home):
+    """Host-owned baseline retries remain full evaluations on init."""
+    with _initialization_lock(home / "metadata/workspace.lock"):
+        repo, record = validate_repository(home)
+        current = status(repo, record)
+        return current["current_branch"] != "init" and current["commit_sha"] != record["code"]["initial_commit"]
+
+
 def evaluation_tool(wrapper, options, *, home, timer=None, max_evaluations=10, budget_exhausted=False):
     """Expose optional formal targets; execution limits and construction replay remain host-owned."""
     job = required_job(wrapper, "home_evaluate")
@@ -419,11 +433,16 @@ def evaluation_tool(wrapper, options, *, home, timer=None, max_evaluations=10, b
         if not isinstance(state, AgentState):
             raise TypeError("Cycle reminders require the host-injected AgentState")
         started_before = await blocking(lambda: set(read_state(home)["started_validations"])) if not debug else set()
+        sampling = not debug and await blocking(sampled_checkout, home)
+        if target_queries and not debug and not sampling:
+            raise ValueError(
+                "Targeted evaluation requires a candidate branch; init retries cover the full training set",
+            )
         response = await job(
             **options,
             **({"max_evaluations": max_evaluations} if not debug else {}),
             debug=debug,
-            sampling=not debug,
+            sampling=sampling,
             record_history=True,
             case_ids=None,
             query_ids=None,

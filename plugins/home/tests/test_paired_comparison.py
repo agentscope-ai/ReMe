@@ -181,10 +181,10 @@ def test_table_reuses_valid_current_evidence_without_changing_results(
     load = comparison._load
     current_loads = []
 
-    def tracked_load(home, path):
+    def tracked_load(home, path, **kwargs):
         if path == candidate:
             current_loads.append(path)
-        return load(home, path)
+        return load(home, path, **kwargs)
 
     monkeypatch.setattr(comparison, "_load", tracked_load)
     published = publish_comparisons(tmp_path, candidate)
@@ -192,7 +192,7 @@ def test_table_reuses_valid_current_evidence_without_changing_results(
     assert table["rows"] == expected
     assert published["comparison_count"] == len(expected)
     assert table["skipped_count"] == published["skipped_count"] == history_count - len(expected)
-    assert len(current_loads) == (min(1, history_count) if valid_current else history_count)
+    assert len(current_loads) == (min(1, history_count) if valid_current else 0)
 
 
 def test_table_retries_current_evidence_after_transient_read_failure(tmp_path, monkeypatch):
@@ -202,12 +202,12 @@ def test_table_retries_current_evidence_after_transient_read_failure(tmp_path, m
     load = comparison._load
     failed = False
 
-    def flaky_load(home, path):
+    def flaky_load(home, path, **kwargs):
         nonlocal failed
         if path == candidate and not failed:
             failed = True
             raise OSError("Transient read failure")
-        return load(home, path)
+        return load(home, path, **kwargs)
 
     monkeypatch.setattr(comparison, "_load", flaky_load)
     published = publish_comparisons(tmp_path, candidate)
@@ -215,6 +215,29 @@ def test_table_retries_current_evidence_after_transient_read_failure(tmp_path, m
     assert published["comparison_count"] == published["skipped_count"] == 1
     assert table["rows"][0]["base_validation_path"] == base.relative_to(tmp_path).as_posix()
     assert table["rows"][0]["score"]["delta"] == -0.5
+
+
+def test_incompatible_history_skips_detailed_evidence_reads(tmp_path, monkeypatch):
+    other = save_run(tmp_path, "other", {"a": query(1, 100)}, judge="different")
+    candidate = save_run(tmp_path, "candidate", {"a": query(0.5, 60)})
+    original = comparison._object
+
+    def read(folder, relative, **kwargs):
+        if folder.is_relative_to(other / "cases"):
+            pytest.fail("Incompatible history must be filtered before detailed reads")
+        return original(folder, relative, **kwargs)
+
+    monkeypatch.setattr(comparison, "_object", read)
+    result = publish_comparisons(tmp_path, candidate)
+    assert result["comparison_count"] == 0 and result["skipped_count"] == 1
+
+
+def test_zero_token_observations_remain_unknown_without_changing_scores(tmp_path):
+    base = save_run(tmp_path, "base", {"a": query(1, 100)})
+    candidate = save_run(tmp_path, "candidate", {"a": query(1, 0)})
+    result = compact_comparison(compare_validations(tmp_path, base, candidate), tmp_path)
+    assert result["score"]["delta"] == 0
+    assert result["tokens_by_model"]["model"] == {"pairs": 0, "base": None, "candidate": None, "delta": None}
 
 
 def test_compact_evidence_keeps_decision_metrics_without_redundant_coverage(tmp_path):

@@ -26,7 +26,7 @@ from .artifacts import (
     answer_exception,
     failure_kind,
 )
-from .inputs import EvaluationSpec, load_inputs, replay_sampling_inputs, reuse_inputs, snapshot_code
+from .inputs import EvaluationSpec, load_inputs, replay_sampling_inputs, reuse_inputs, select_cases, snapshot_code
 from .compaction import compact_construction, compact_query
 from ..judge import HomeJudge
 from ..workspace import HomeWorkspace, _initialization_lock, _validate_directory
@@ -204,8 +204,23 @@ class HomeEvaluation(BaseComponent):
         previous_manifest = None
         _validate_directory(self.workspace_path.resolve(), self.workspace.state_path)
         with _initialization_lock(self.workspace.state_path / "workspace.lock"):
-            record, dataset, cases = load_inputs(home, spec)
+            record, dataset, loaded_cases = load_inputs(
+                home,
+                spec.model_copy(update={"case_ids": None, "query_ids": None}),
+            )
+            all_cases = {case.case_id: case for case in loaded_cases}
+            cases = select_cases(all_cases, spec.case_ids, spec.query_ids)
             snapshot, commit, branch, checkout_branch = snapshot_code(home, record)
+            initial_baseline = not spec.debug and branch == "init"
+            if initial_baseline and (
+                spec.sampling
+                or spec.reuse_construction_from is not None
+                or len(cases) != dataset.case_count
+                or sum(len(case.queries) for case in cases) != dataset.query_count
+            ):
+                raise ValueError(
+                    "Formal evaluation on init requires all training cases and queries without sampling or reuse",
+                )
             if admission_checkout is not None and (commit, branch) != (
                 admission_checkout.commit,
                 admission_checkout.branch,
@@ -217,7 +232,15 @@ class HomeEvaluation(BaseComponent):
                 previous = (
                     admission_checkout.previous_result
                     if admission_checkout is not None and commit != record["code"]["initial_commit"]
-                    else previous_candidate_result(home, commit)
+                    else previous_candidate_result(
+                        home,
+                        commit,
+                        required_queries=(
+                            {case.case_id: {query.query_id for query in case.queries} for case in cases}
+                            if initial_baseline
+                            else None
+                        ),
+                    )
                 )
             if previous is not None:
                 manifest = read_json(contained(home, previous / "manifest.json"))
@@ -239,7 +262,7 @@ class HomeEvaluation(BaseComponent):
                     raise ValueError("Recovery requires saved case IDs and query IDs for every case")
                 # Validate saved IDs against the prepared dataset, including queries
                 # outside the caller's new selection. Never silently drop a case.
-                record, dataset, cases = load_inputs(home, recovery_spec)
+                cases = select_cases(all_cases, recovery_spec.case_ids, recovery_spec.query_ids)
                 recovery_plan = {
                     "mode": "explicit",
                     "case_ids": manifest["case_ids"],
@@ -538,6 +561,7 @@ class HomeEvaluation(BaseComponent):
                             "success": True,
                             "status": "reused",
                             "source": source,
+                            "source_workspace_sha256": expected_sha,
                             "workspace_sha256": actual_sha,
                             "jobs": [],
                         },

@@ -19,6 +19,11 @@ from reme_home.evaluation.history import rebuild_sampling_state
 from test_bounded_agent import RecordingModel
 
 
+@pytest.fixture(autouse=True)
+def candidate_checkout(monkeypatch):
+    monkeypatch.setattr(optimizer, "sampled_checkout", lambda _home: True)
+
+
 def make_agent(timer, model=None):
     return optimizer.OptimizerAgent(
         name="optimizer",

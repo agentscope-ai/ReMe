@@ -9,6 +9,11 @@ You can run the optimization agent or edit and evaluate candidates yourself.
 HoMe experiment you want to run again. Keep the old workspace to consult
 previous evaluation results.
 
+New evaluations retain the verified source hash and review evidence alongside
+each reused snapshot. Final validation checks this retained copy even after the
+source evaluation is archived. Older evaluations without the retained source
+hash still require their original source artifacts for validation.
+
 ## 1. Install and configure
 
 HoMe requires ReMe 0.4.2.4 or newer. From the ReMe repository root, in the
@@ -90,6 +95,11 @@ how long the client waits, in seconds. Adjust it for long experiments.
 
 Start with a clean `init` checkout. Run a baseline, create a candidate branch,
 and edit the allowed files in `<workspace>/home/code/repo`:
+
+Formal evaluations on `init` must cover every training case and query without
+sampling or construction reuse. Create and commit a candidate before evaluating
+a subset. Debug evaluations remain available on `init`. Optimizer retries of an
+initial baseline also use the full training set.
 
 ```bash
 reme home_evaluate
