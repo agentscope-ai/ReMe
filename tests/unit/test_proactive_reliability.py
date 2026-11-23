@@ -283,22 +283,17 @@ async def test_canonical_acknowledgement_rebuilds_reference_views(tmp_path):
         await runtime.outbox.sync()
         ref = next(iter(runtime.notifications.pending))
         path = runtime.files.path(ref)
-        document = frontmatter.loads(runtime.files.read(path))
-        document["read_at"] = runtime.now().isoformat()
-        runtime.files.write(path, frontmatter.dumps(document))
+        original = path.read_bytes()
+        await runtime.notifications.consume([ref])
         await runtime.outbox.sync()
         assert not runtime.notifications.pending
         document = frontmatter.loads(runtime.files.read(runtime.files.path(ref)))
         assert ref.endswith(".md")
         assert document.content == "Experiment results"
         assert document["reminder_priority"] == "P0" and document["reminder_message"] == "Experiment finished"
-        assert set(document.metadata) == {
-            "reminder_priority",
-            "reminder_message",
-            "delivered_at",
-            "read_at",
-        }
-        assert document["read_at"] and document["delivered_at"]
+        assert path.read_bytes() == original
+        item = await runtime.outbox.read("monitor", ref)
+        assert item["read_at"] and item["delivered_at"]
         assert not inbox_path(runtime).exists()
         assert not inbox_path(runtime, True).exists()
         await runtime.outbox.sync()
@@ -316,9 +311,10 @@ async def test_watcher_observes_external_acknowledgements(tmp_path):
                 await asyncio.sleep(0.02)
         ref = next(iter(runtime.notifications.pending))
         path = runtime.files.path(ref)
-        document = frontmatter.loads(runtime.files.read(path))
-        document["read_at"] = runtime.now().isoformat()
-        runtime.files.write(path, frontmatter.dumps(document))
+        state_path = runtime.outbox.storage.state_path("monitor", path)
+        state = runtime.files.read_json(state_path, {})
+        state["read_at"] = runtime.now().isoformat()
+        runtime.files.write_json(state_path, state)
         async with asyncio.timeout(5):
             while runtime.notifications.pending:
                 await asyncio.sleep(0.02)
@@ -338,14 +334,14 @@ async def test_publication_isolates_reminders_removed_during_delivery(tmp_path, 
             await runtime.run("other", AsyncMock(return_value=second))
         first_ref = first[0].id
         second_ref = second[0].id
-        write = runtime.outbox._write
+        write = runtime.outbox.storage.write
 
-        def remove_during_delivery(path, item, **kwargs):
+        def remove_during_delivery(agent, path, item):
             if path == runtime.files.path(first_ref):
                 runtime.files.path(second_ref).unlink()
-            write(path, item, **kwargs)
+            write(agent, path, item)
 
-        monkeypatch.setattr(runtime.outbox, "_write", remove_during_delivery)
+        monkeypatch.setattr(runtime.outbox.storage, "write", remove_during_delivery)
         await runtime.outbox.sync()
         assert first_ref in runtime.outbox.records and second_ref in runtime.outbox.issues
         assert set(runtime.outbox.records) == set(runtime.outbox.owners)

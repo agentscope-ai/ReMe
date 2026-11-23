@@ -181,14 +181,10 @@ class ProactiveAgentStep(BaseAgentStep):
         metadata, body = split_record(text)
         decision = ProactiveRecordDecision.model_validate(metadata)
         self._warn_local_links(path, body)
-        if decision.reminder_priority == "skip":
-            return None
-        self._warn_local_links(path, decision.reminder_message)
-        return AgentReminder(
-            priority=decision.reminder_priority,
-            message=decision.reminder_message,
-            id=path.relative_to(files.workspace).as_posix(),
-        )
+        reminder = decision.reminder(path.relative_to(files.workspace).as_posix())
+        if reminder is not None:
+            self._warn_local_links(path, reminder.message)
+        return reminder
 
     async def execute(self):
         arguments = self.parameters()

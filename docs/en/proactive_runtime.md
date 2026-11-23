@@ -31,13 +31,17 @@ The task can specify its own delivery conditions and priority. The agent checks 
 ### Commit and delivery
 
 After a completed turn, ReMe can correct invalid frontmatter with one read-only follow-up in the same session.
-ReMe applies the validated correction only if the draft version still matches and preserves the Markdown body.
+ReMe applies the validated correction only if the record version still matches and preserves the Markdown body.
 
-ReMe holds the workspace file lock while checking the record version, committing the input receipt, and marking
-initial delivery. A valid record can commit after a model error or timeout. If execution fails before the receipt
-is durable, ReMe removes only the unchanged draft. Once the receipt is durable, delivery can resume independently.
+ReMe holds the file lock while checking the record, acknowledging its inputs, and registering any reminder in the
+task outbox. A valid record can complete after a model error or timeout. If acknowledgement fails before the receipt
+is durable, the Markdown stays in place and the inputs remain pending. Once the receipt is durable, ReMe can resume
+registration after a restart.
 
-The workspace-relative record path is the reminder ID. Outbox writes `delivered_at` into the record. Remy adds `read_at` when it processes the reminder and `chat_message_ids` when it links a Chat message. Remy selects reminders by priority and delivery time within the configured limits. The notification window controls automatic Chat processing. Users can browse committed reminders at any time. A Chat decision rechecks the current reminder under the file write lock so an edit can invalidate a stale decision.
+The workspace-relative record path is the reminder ID. The task outbox stores `delivered_at`, `read_at`, and linked
+Chat message IDs. Remy's inbox reads the same registrations and loads the reminder text from the original daily record.
+Remy selects reminders by priority and delivery time within the configured limits and notification window. A Chat decision
+rechecks the current reminder under the file write lock so an edit can invalidate a stale decision.
 
 Earlier native sessions remain available as history. Task questions use a temporary read-only fork of the latest task session, including while a run is in progress. The built-in Codex configuration sets `project_doc_max_bytes=0` and disables automatic skill injection for task runs. Global instructions under `CODEX_HOME` load independently.
 
@@ -70,7 +74,7 @@ The observation cooldown starts after the last successful run. A scheduled trigg
 
 Each task owns a directory under `reme_agent_dir`. Deleting a task stops its execution and preserves its files. Temporary query sessions are recorded as independent branches.
 
-Remy's Inbox reads delivered reminders from the daily records. It holds the active batch in memory and applies the configured count and byte limits. Task input inboxes use durable claim, acknowledgement and retry.
+Remy's inbox holds the active batch in memory and applies the configured count and byte limits. Task input inboxes use durable claim, acknowledgement and retry.
 
 `list_agent_inbox` returns input events for background tasks and reminder records for Remy. Remy's reminder records have the same fields as `list_task_reminders`, including the source path as `id` and the current `state`. Remy's inbox also reports `processing` for reminders in an active batch.
 

@@ -94,7 +94,7 @@ async def test_fork_sends_only_explicit_content_and_consumes_decisions(tmp_path,
 
 @pytest.mark.parametrize("content", ["", "New experiment progress"])
 @pytest.mark.asyncio
-async def test_chat_decision_updates_only_record_frontmatter(tmp_path, monkeypatch, content):
+async def test_chat_decision_updates_outbox_without_rewriting_markdown(tmp_path, monkeypatch, content):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         now = runtime.now()
@@ -104,7 +104,7 @@ async def test_chat_decision_updates_only_record_frontmatter(tmp_path, monkeypat
         install_round(runtime, wrapper, monkeypatch, paths)
         await step(agent_name="monitor")
         path = paths["record_path"]
-        saved = frontmatter.loads(path.read_text())
+        saved = path.read_bytes()
         await runtime.outbox.sync()
         identifiers = list(runtime.notifications.pending)
         runtime.notifications.last_activity_at -= timedelta(seconds=2000)
@@ -120,10 +120,8 @@ async def test_chat_decision_updates_only_record_frontmatter(tmp_path, monkeypat
 
         assert response.answer == {"sent": bool(content)}
         assert not runtime.notifications.pending
-        latest = frontmatter.loads(path.read_text())
-        assert latest.content == saved.content
-        assert latest["reminder_message"] == saved["reminder_message"]
-        assert latest["read_at"]
+        assert path.read_bytes() == saved
+        assert (await runtime.outbox.read("monitor", identifiers[0]))["read_at"]
         if content:
             wrapper.append_session.assert_awaited_once()
         else:

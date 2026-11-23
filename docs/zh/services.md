@@ -71,11 +71,11 @@ curl -N http://127.0.0.1:2333/chat \
 
 `proactive_runtime` 组件协调任务收件箱、调度和提醒投递，通过 `AgentWrapper` 把模型执行、工具和原生会话交给 Codex 等执行后端。组件通过 `components.proactive_runtime.default` 配置。
 工作区相对目录 `reme_agent_dir` 默认为 `reme_agents`。每个任务目录包含 `config.json`、`TASK.md`、
-`sessions.jsonl` 和 `inbox/`。`Remy/` 保存 `MEMORY.md` 和自己的 `sessions.jsonl`。任务结果和提醒保存在共享的 `daily_dir`。
+`sessions.jsonl`、`inbox/` 和提醒状态目录 `outbox/`。`Remy/` 保存 `MEMORY.md` 和自己的 `sessions.jsonl`。
+任务结果和提醒正文保存在共享的 `daily_dir`。
 服务启动时从这些文件恢复运行状态。
 会话登记保留追加中断前的完整记录；读取时忽略不完整尾行，下次追加时清理尾行，完整记录损坏时明确报错。
-先保存校验通过的提醒，再提交事件消费回执，Outbox 独立重试投递；未提交就中断的轮次允许重新执行。
-消费回执关联提醒引用，在接收方完成交接前保留对应确认记录。
+ReMe 校验记录后确认输入，在回执中保留提醒路径，直到发件箱登记成功。确认前中断时保留 Markdown，输入可以重新执行。
 
 下图概览 Chat、临时 Reminder fork、共享 Inbox 与后台任务如何通过工作区协作；生活任务为接入示例。
 
@@ -164,18 +164,17 @@ reme append_task_events agent_name=experiment_watch \
 临时 `query` 分支使用后端的只读模式。`notify_window={start,end}` 限制 Chat 自动评估和发消息的时段。任务结果提交后立即入箱，窗口外仍可主动查看。删除任务会停止执行并保留源文件和历史。重启后从下一次未来时间恢复 cron，已入队事件继续处理，不补跑停机期间未入队的触发；
 Chat 空闲计时和失败重试计时在内存中重新开始。
 任务把进展和提醒决定写入同一个 `daily/YYYY-MM-DD/{agent_name}_HHMMSS.md`，同秒重名追加数字后缀。
-正文保存增量信息，frontmatter 的 `reminder_priority` 和 `reminder_message` 保存投递决定，框架在同一文件回写
-投递和处理时间。提醒 ID 使用记录的工作区相对路径。
+正文保存增量信息，frontmatter 的 `reminder_priority` 和 `reminder_message` 保存投递决定。提醒 ID 使用记录的工作区相对路径。
+框架在发送方的 `outbox/` 下按源记录路径保存 JSON，记录投递和处理状态。
 
 `components.agent_inbox.default` 使用 `event` 后端（`AgentEventInbox`），继承通用的本地 Inbox 实现；
 `components.proactive_runtime.default.inbox` 引用该组件。每个任务的待处理输入保存在
 `inbox/inbox_unread.jsonl`，已处理批次保存在 `inbox/inbox_read.jsonl`，批次字段为 `items`、`consume_ts`、`metadata`。
 领取可以指定消息 ID，执行成功后提交消费回执。观察与定时触发均使用 `Event`，已处理输入默认保留最近
-1000 条。Remy 收件箱从每日记录中的已投递提醒生成视图，按优先级和投递时间选择一批符合条件
+1000 条。Remy 收件箱与任务发件箱读取同一份提醒登记，按优先级和投递时间选择一批符合条件
 的提醒，应用配置的条数和字节上限。文件监听器和定期扫描处理文件编辑与中断交接。
 
-单个提醒缺失或损坏时保留原文件和事件回执、
-报告具体路径并隔离故障，不阻断其他提醒或应用启动；修复原文件后自动恢复。
+单个提醒缺失或损坏时会报告并隔离。修复源文件后可继续处理。
 
 P0 在 Chat 会话允许 fork 时立即处理，延迟由 `components.proactive_runtime.default.notifications.p0_delay_seconds` 配置，默认 0。
 P1 等待连续空闲 10 秒，P2 等待 1800 秒，分别由 `notifications.p1_idle_seconds`、`notifications.p2_idle_seconds` 配置，
@@ -204,8 +203,8 @@ Codex、Claude Code 和 AgentScope 使用统一会话契约：fork 复制最新�
 fork 的普通回复不会发送给主人。桌面端从这些已标记的消息生成提醒列表。
 `list_agent_inbox agent_name=<name>` 分页查看后台任务的输入事件。指定 `agent_name=Remy` 或省略该字段时查看 Chat 收到的提醒。
 查询支持待处理、处理中和已处理状态，不会领取或消费输入。`list_task_reminders agent_name=<name>` 查询任务产出的提醒。
-两个提醒列表均返回来自每日记录的提醒和当前状态。`read_agent_reminder message_id=<相对路径>` 读取原始提醒。
-`read_agent_reminder agent_name=Remy` 也接受合并后的 Chat 消息 ID，返回 `{id,items}`。原始提醒通过 frontmatter 的 `chat_message_ids` 关联这条消息。
+两个提醒列表均返回提醒正文和当前发件箱状态。`read_agent_reminder message_id=<相对路径>` 读取这条提醒。
+`read_agent_reminder agent_name=Remy` 也接受合并后的 Chat 消息 ID，返回 `{id,items}`。发件箱通过 `chat_message_ids` 关联这条消息。
 
 单个后台 `proactive_loop` 调度任务执行和 Chat 提醒判断，各自保留独立 worker 与重试。
 

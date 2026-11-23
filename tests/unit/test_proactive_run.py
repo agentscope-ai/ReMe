@@ -143,8 +143,8 @@ async def test_round_publishes_and_acknowledges_the_same_note(
         saved = path.read_text()
         assert saved.endswith(f"---{body}")
         metadata = frontmatter.loads(saved).metadata
-        assert set(metadata) == {"reminder_priority", "reminder_message", "delivered_at", "read_at"}
-        assert metadata["delivered_at"] == item["delivered_at"] and metadata["read_at"]
+        assert set(metadata) == {"reminder_priority", "reminder_message"}
+        assert (await runtime.outbox.read("monitor", ref))["read_at"]
 
     async with running_runtime(tmp_path) as (runtime, _, _):
         item = await runtime.outbox.read("monitor", ref)
@@ -262,7 +262,37 @@ async def test_delivery_recovers_from_a_committed_input_receipt(tmp_path, monkey
         assert runtime.notifications.pending == {ref}
         assert (await runtime.status("monitor"))["pending_events"] == 0
         document = frontmatter.loads(path.read_text())
-        assert document["delivered_at"] and document.content == "Draft body"
+        assert runtime.outbox.records[ref].delivered_at and document.content == "Draft body"
+        assert path.read_text() == draft
+
+
+@pytest.mark.asyncio
+async def test_failed_record_with_delivery_frontmatter_never_enters_the_inbox(tmp_path, monkeypatch):
+    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+        await create_agent(runtime)
+        now = runtime.now()
+        monkeypatch.setattr(runtime, "now", lambda: now)
+        step = ProactiveAgentStep(app_context=context)
+        paths = step._paths(await runtime.definition("monitor"), now)
+        text = REMIND.format(priority="P0", body="\nCopied result\n")
+        text = text.replace("---\n", f"---\ndelivered_at: '{now.isoformat()}'\n", 1)
+        install_round(runtime, wrapper, monkeypatch, paths, text=text, failed=True)
+        reply_stream = wrapper.reply_stream
+
+        async def generate(query, **options):
+            async for chunk in reply_stream(query, **options):
+                assert not (await runtime.list_inputs("Remy"))["items"]
+                yield chunk
+
+        monkeypatch.setattr(wrapper, "reply_stream", generate)
+        with pytest.raises(RuntimeError, match="Model failed"):
+            await step(agent_name="monitor")
+        assert paths["record_path"].read_text() == text
+        snapshot = await runtime.inbox.snapshot("monitor")
+        assert snapshot["pending_count"] == 1 and snapshot["receipt"] is None
+
+    async with running_runtime(tmp_path) as (runtime, _, _):
+        assert not (await runtime.list_inputs("Remy"))["items"]
 
 
 @pytest.mark.asyncio
@@ -570,7 +600,8 @@ async def test_timeout_accepts_a_valid_record(tmp_path, monkeypatch):
         response = await step(agent_name="monitor")
         assert response.success
         document = frontmatter.loads(runtime.files.read(paths["record_path"]))
-        assert document["reminder_priority"] == "P1" and document["delivered_at"]
+        assert document["reminder_priority"] == "P1"
+        assert "delivered_at" not in document
         snapshot = await runtime.inbox.snapshot("monitor")
         assert snapshot["pending_count"] == 0 and snapshot["in_flight_count"] == 0
         await runtime.outbox.sync()

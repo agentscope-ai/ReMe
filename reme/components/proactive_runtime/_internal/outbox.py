@@ -1,4 +1,4 @@
-"""Canonical Markdown reminders keyed by workspace-relative filename."""
+"""Registered reminders keyed by their workspace-relative source path."""
 
 import asyncio
 from contextlib import AsyncExitStack, asynccontextmanager, nullcontext
@@ -15,12 +15,12 @@ _FILE_ERRORS = (OSError, RuntimeError, TypeError, ValueError, yaml.YAMLError)
 
 
 class ReminderOutbox:
-    """Deliver committed reminders and rebuild the inbox from their files."""
+    """Register committed reminders and expose their sender and receiver views."""
 
     def __init__(self, runtime, daily_dir):
         self.runtime = runtime
         self.files = runtime.files
-        self.storage = ReminderFiles(self.files, daily_dir)
+        self.storage = ReminderFiles(self.files, daily_dir, runtime.agents.directory)
         self.lock = asyncio.Lock()
         self.sync_lock = asyncio.Lock()
         self.records: dict[str, AgentReminder] = {}
@@ -31,14 +31,20 @@ class ReminderOutbox:
     def _scan(self):
         records, owners, cache, issues = {}, {}, {}, {}
         for agent in self.runtime.agents.load(include_deleted=True).values():
-            for path in self.storage.paths(agent.agent_name):
+            for path, state in self.storage.paths(agent.agent_name):
                 ref = path.relative_to(self.files.workspace).as_posix()
                 try:
-                    self.files.checked(path)
-                    stat = path.stat()
-                    signature = (stat.st_ino, stat.st_size, stat.st_mtime_ns)
+                    stats = (self.files.checked(candidate).stat() for candidate in (path, state))
+                    signature = tuple((stat.st_ino, stat.st_size, stat.st_mtime_ns) for stat in stats)
                     previous = self.cache.get(path)
-                    item = previous[1] if previous and previous[0] == signature else self.storage.read(path)
+                    item = (
+                        previous[1]
+                        if previous and previous[0] == signature
+                        else self.storage.read(
+                            agent.agent_name,
+                            path,
+                        )
+                    )
                 except _FILE_ERRORS as exc:
                     issues[ref] = str(exc)
                     continue
@@ -49,7 +55,7 @@ class ReminderOutbox:
         return records, owners, cache, issues
 
     def _write(self, path, item):
-        self.files.write(path, self.storage.serialize(path, item))
+        self.storage.write(self.owners[item.id], path, item)
 
     def _report(self, ref, error):
         if self.issues.get(ref) != error:
@@ -82,8 +88,8 @@ class ReminderOutbox:
                     if self.storage.owns(ref, agent) and ref not in self.records:
                         path = self.files.workspace / ref
                         async with await get_path_lock(path):
-                            await self._deliver_locked(agent, ref, path)
-                        if ref not in self.records:
+                            registered = await self._deliver_locked(agent, ref, path)
+                        if not registered:
                             retained.extend(receipt.item_ids)
                             continue
                     released.extend(receipt.item_ids)
@@ -102,7 +108,7 @@ class ReminderOutbox:
 
     @asynccontextmanager
     async def handoff(self, agent_name, reminder, record):
-        """Hold the record's write lock from validation through the receipt and initial delivery."""
+        """Hold the file lock from validation through input acknowledgement and registration."""
         ref = None
         path = record.path if record is not None else None
         if reminder is not None:
@@ -114,10 +120,11 @@ class ReminderOutbox:
             if record is not None:
                 await asyncio.to_thread(record.check_version, path)
             if ref is not None:
-                draft = await asyncio.to_thread(self.storage.read, path, draft=True)
-                if draft.delivered_at is not None:
+                state = self.storage.state_path(agent_name, path)
+                if await asyncio.to_thread(state.exists):
                     raise ValueError(f"cannot overwrite a delivered reminder: {path}")
-                if (draft.priority, draft.message) != (reminder.priority, reminder.message):
+                decision = await asyncio.to_thread(self.storage.decision, path)
+                if decision.reminder(ref) != reminder:
                     raise ValueError(f"reminder decision changed: {path}")
             yield ref
             if ref is not None:
@@ -125,18 +132,25 @@ class ReminderOutbox:
 
     async def _deliver_locked(self, agent, ref, path):
         try:
-            item = await asyncio.to_thread(self.storage.read, path, draft=True)
-            if item.delivered_at is None:
-                item = item.model_copy(update={"delivered_at": self.runtime.now()})
-                await complete_in_thread(self._write, path, item)
+            state = self.storage.state_path(agent, path)
+            if await asyncio.to_thread(state.is_file):
+                return True
+            decision = await asyncio.to_thread(self.storage.decision, path)
+            item = decision.reminder(ref)
+            if item is None:
+                raise ValueError(f"Committed record no longer requests a reminder: {path}")
+            item = item.model_copy(update={"delivered_at": self.runtime.now()})
+            await complete_in_thread(self.storage.write, agent, path, item)
             async with self.lock:
                 self.records[ref] = item
                 self.owners[ref] = agent
                 self.cache.pop(path, None)
                 self.issues.pop(ref, None)
+            return True
         except _FILE_ERRORS as exc:
             async with self.lock:
                 self._report(ref, str(exc))
+            return False
 
     async def update(self, ref, **changes):
         """Update Chat receipts under the workspace's file lock."""
@@ -151,7 +165,9 @@ class ReminderOutbox:
             for path in sorted(paths.values()):
                 await stack.enter_async_context(await get_path_lock(path))
             for expected in items:
-                latest = await asyncio.to_thread(self.storage.read, paths[expected["id"]])
+                ref = expected["id"]
+                owner = self.owners.get(ref)
+                latest = await asyncio.to_thread(self.storage.read, owner, paths[ref]) if owner is not None else None
                 if (
                     latest is None
                     or latest.read_at is not None
@@ -163,7 +179,8 @@ class ReminderOutbox:
     async def _update_locked(self, ref, *, read_at=None, chat_message_ids=()):
         async with self.lock:
             path = self.files.path(ref)
-            item = await asyncio.to_thread(self.storage.read, path)
+            owner = self.owners.get(ref)
+            item = await asyncio.to_thread(self.storage.read, owner, path) if owner is not None else None
             if item is None:
                 raise ValueError(f"reminder is missing or undelivered: {ref}")
             updated = AgentReminder.model_validate(

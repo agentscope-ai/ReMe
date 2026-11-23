@@ -197,9 +197,10 @@ async def test_editor_cannot_save_between_native_delivery_and_acknowledgement(tm
                 release.set()
                 await asyncio.wait_for(decision, 2)
             response = await asyncio.wait_for(edit, 2)
-            assert not response.success and response.metadata["code"] == "file_conflict"
+            assert response.success
+            assert frontmatter.loads(path.read_text()).content == "New user content"
         assert not runtime.notifications.pending
-        assert frontmatter.loads(path.read_text())["read_at"] is not None
+        assert (await runtime.outbox.read("monitor", ref))["read_at"] is not None
 
 
 @pytest.mark.asyncio

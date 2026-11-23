@@ -223,7 +223,7 @@
       <text x="1196" y="883" font-size="15" class="muted">Search past records and write this run's result</text>
       <text x="1196" y="923" class="file">daily/{date}/work_HHMMSS.md</text>
       <text x="1196" y="962" font-size="13" class="muted">Body holds new findings and sources</text>
-      <text x="1196" y="989" font-size="13" class="muted">Frontmatter holds the reminder and its delivery state</text>
+      <text x="1196" y="989" font-size="13" class="muted">Frontmatter holds the reminder decision</text>
     </g>
   </g>
   <text x="64" y="1050" font-size="12" class="muted">Paths are relative to the workspace root (default: .reme/). Directory settings may be overridden.</text>

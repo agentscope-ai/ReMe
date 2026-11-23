@@ -64,13 +64,14 @@ MCP does not expose Stream Jobs. Studio integration is separate from this backen
 
 The `proactive_runtime` component coordinates task inboxes, scheduling, and reminders. It delegates model execution, tools, and native sessions to an agent runtime through the configured `AgentWrapper`.
 Configure it through `components.proactive_runtime.default`. The workspace-relative `reme_agent_dir` defaults to
-`reme_agents`. Each task directory contains `config.json`, `TASK.md`, `sessions.jsonl`, and `inbox/`. `Remy/`
-owns `MEMORY.md` and its own `sessions.jsonl`. The shared `daily_dir` stores task results and reminders.
+`reme_agents`. Each task directory contains `config.json`, `TASK.md`, `sessions.jsonl`, `inbox/`, and reminder
+state under `outbox/`. `Remy/` owns `MEMORY.md` and its own `sessions.jsonl`. The shared `daily_dir` stores task
+results and reminder text.
 Startup reconstructs runtime state from these files.
 Session registries preserve complete records across an interrupted append; an incomplete tail is ignored on read
 and removed by the next append. Corrupt complete records fail explicitly.
-Validated reminders are saved before input consumption is committed; the outbox retries delivery independently.
-An interrupted, uncommitted round may run again. Consumption receipts retain reminder references until handoff.
+ReMe acknowledges the inputs after validating the record. The receipt retains the reminder path until the outbox has
+registered it. A round interrupted before acknowledgement preserves the Markdown and can run again.
 
 Proactive Runtime connects Chat, its temporary Reminder fork, a shared Inbox and background tasks through workspace files.
 The Life task is an illustrative integration.
@@ -173,21 +174,21 @@ Temporary `query` forks use the backend's read-only mode.
 Tasks remain in their stable directories until explicitly deleted; deletion retains source files and history. On restart cron schedules the next future trigger; queued events still run, but missed offline triggers are not backfilled.
 Chat idle and retry timers restart in memory. Tasks save progress and their reminder decision together in
 `daily/YYYY-MM-DD/{agent_name}_HHMMSS.md`. Same-second collisions add a numeric suffix. The body holds new information,
-and `reminder_priority` and `reminder_message` describe the delivery decision in the frontmatter. ReMe writes delivery and
-processing timestamps to the same frontmatter. The workspace-relative record path is the reminder ID.
+and `reminder_priority` and `reminder_message` describe the delivery decision in the frontmatter. The workspace-relative
+record path is the reminder ID. The sender's `outbox/` mirrors the source path with a JSON file for delivery and
+processing state.
 
 `components.agent_inbox.default` uses the `event` backend (`AgentEventInbox`), inheriting the generic local
 inbox implementation. `components.proactive_runtime.default.inbox` selects that component. Each task stores pending
 inputs in `inbox/inbox_unread.jsonl` and processed batches in `inbox/inbox_read.jsonl`; each batch contains `items`,
 `consume_ts` and `metadata`. Claims reserve selected IDs without consuming them; successful execution commits a receipt.
 The tasks receive `Event` records for observations and cron triggers. The processed history limit defaults to
-1,000 events. Remy's inbox view is derived from daily records with delivered reminders. The
+1,000 events. Remy's inbox view reads the same reminder registrations as the task outboxes. The
 runtime selects one eligible batch at a time by priority and delivery time, subject to the configured inbox item
 and byte limits. A file watcher and periodic scans reconcile edits and interrupted handoffs.
 
-Missing or corrupt individual reminders
-retain their source files and event receipts, report their paths, and are isolated without blocking other reminders
-or application startup. Restoring the original file automatically restores processing.
+Missing or corrupt reminders are reported and isolated without blocking other reminders. Restoring the original
+file restores processing.
 
 P0 forks Chat as soon as its session is available, after `components.proactive_runtime.default.notifications.p0_delay_seconds`
 (default 0). P1 waits for 10 continuous idle seconds, P2 for 1800, controlled by `notifications.p1_idle_seconds` and
@@ -221,7 +222,7 @@ Chat session or a new foreground turn rejects the old fork's decision. The ordin
 Desktop derives its reminder list from these marked messages. `list_agent_inbox agent_name=<name>` pages a task's input
 events. Set `agent_name=Remy` or omit it to view Chat's incoming reminders. The query shows pending, processing, and
 processed entries without claiming them. `list_task_reminders agent_name=<name>` pages a task's delivered reminders.
-Both reminder lists return daily records with their current state. `read_agent_reminder message_id=<relative-path>`
+Both reminder lists return reminder text and its current outbox state. `read_agent_reminder message_id=<relative-path>`
 reads the source reminder.
 
 `read_agent_session` and `watch_agent_session` expose the selected Chat session's history and the latest native turn of
@@ -232,7 +233,8 @@ current session; task questions fork the latest task session read-only without c
 
 `proactive_agent_step` defaults to a 1200-second total timeout. Native automatic compaction inherits the global Codex App Server settings.
 
-`read_agent_reminder agent_name=Remy` also accepts a combined Chat message ID and returns `{id,items}`. The source reminders link to that message through `chat_message_ids` in their frontmatter.
+`read_agent_reminder agent_name=Remy` also accepts a combined Chat message ID and returns `{id,items}`. The outbox
+links the source reminders to that message through `chat_message_ids`.
 
 One background `proactive_loop` schedules task execution and Chat reminder decisions with independent workers and retries.
 

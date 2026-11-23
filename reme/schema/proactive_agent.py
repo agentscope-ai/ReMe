@@ -16,7 +16,7 @@ from pydantic import (
 from ..constants import CHAT_AGENT_NAME
 from .agent_message import ClientModel
 from .event import Event
-from .proactive_runtime import AgentName, InboxPriority
+from .proactive_runtime import AgentName, AgentReminder, InboxPriority
 
 CRON_EVENT_SOURCE = "cron"
 
@@ -131,6 +131,12 @@ class ProactiveRecordDecision(BaseModel):
         if not value.strip():
             raise ValueError("reminder_message must not be blank")
         return value
+
+    def reminder(self, path: str) -> AgentReminder | None:
+        """Build the reminder identified by its source daily record."""
+        if self.reminder_priority == "skip":
+            return None
+        return AgentReminder(priority=self.reminder_priority, message=self.reminder_message, id=path)
 
 
 class ManageProactiveAgentRequest(TaskSettings):

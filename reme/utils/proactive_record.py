@@ -30,14 +30,6 @@ def is_date_directory(path):
         return False
 
 
-def round_paths(directory, agent_name):
-    """Discover this agent's round records in dated directories."""
-    for day in directory.glob("????-??-??"):
-        if day.is_symlink() or not day.is_dir() or not is_date_directory(day):
-            continue
-        yield from (path for path in day.glob(f"{agent_name}_*.md") if is_round_record(path, agent_name))
-
-
 def _split_frontmatter(text):
     text = text.removeprefix("\ufeff")
     if match := _FRONTMATTER.match(text):
@@ -93,7 +85,7 @@ class RoundRecord:
             raise RuntimeError(f"Agent output changed outside this round: {path}")
 
     def replace_frontmatter(self, metadata):
-        """Replace an unchanged draft's frontmatter under its file lock."""
+        """Replace the record's frontmatter only if its version still matches."""
         self.check_version(self.path)
         header, body = _split_frontmatter(self.files.read(self.path))
         if header is None:

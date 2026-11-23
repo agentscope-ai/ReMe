@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1780" height="1120" viewBox="0 0 1780 1120" role="img" aria-labelledby="title desc">
   <title id="title">Proactive Runtime</title>
-  <desc id="desc">Remy manages named tasks through manage_proactive_agent. Each task owns its description, settings and session references. Remy's Inbox derives its state from delivered reminders and acknowledgement fields in daily records. A read-only fork reads the selected batch and its evidence, then submits a decision. A text decision appends an assistant message to Chat. An empty decision acknowledges the batch silently. The workspace cards show personal memory, session references, the derived Chat Inbox, task files and daily records.</desc>
+  <desc id="desc">Remy manages named tasks through manage_proactive_agent. Each task owns its description, settings and session references. Remy's Inbox uses task outbox registrations and reads reminder text from daily records. A read-only fork reads the selected batch and its evidence, then submits a decision. A text decision appends an assistant message to Chat. An empty decision acknowledges the batch silently. The workspace cards show personal memory, session references, the derived Chat Inbox, task files and daily records.</desc>
   <metadata>Source: reme/schema/proactive_agent.py; reme/config/proactive.yaml; reme/components/agent_inbox/; reme/components/proactive_runtime/_internal/registry.py; reme/components/proactive_runtime/_internal/sessions.py; reme/components/proactive_runtime/_internal/outbox.py; reme/components/proactive_runtime/_internal/notifications.py; reme/steps/proactive/agent/proactive.py; reme/steps/proactive/agent/inbox.py; reme/steps/proactive/agent/inbox.yaml; reme/steps/proactive/tools/manage_proactive_agent.py; reme/steps/proactive/tools/inbox.py. Drawn from the current working tree. Paths are relative to the configured workspace root; {date} is an application-local calendar date. Permanent task paths shown.</metadata>
   <defs>
     <style>
@@ -195,7 +195,7 @@
     <g data-role="inbox-files" data-box="900,816,398,208" data-path="daily/">
       <rect x="900" y="816" width="398" height="208" rx="14" fill="#FFFFFF" stroke="#E2DBEC" />
       <text x="920" y="860" font-size="22" font-weight="650">Chat Inbox</text>
-      <text x="920" y="904" class="file"><tspan x="920">Daily records + delivery state</tspan><tspan x="920" dy="22">Derived receiver view</tspan><tspan x="920" dy="22">One in-memory batch</tspan></text>
+      <text x="920" y="904" class="file"><tspan x="920">Task outbox registrations</tspan><tspan x="920" dy="22">Derived receiver view</tspan><tspan x="920" dy="22">One in-memory batch</tspan></text>
       <text x="920" y="988" font-size="13" class="muted">Reminder content stays in the daily record</text>
     </g>
     <g data-role="task-files" data-box="1318,816,398,208" data-path="reme_agents/{agent_name}/TASK.md" data-daily-path="daily/{date}/{agent_name}_HHMMSS.md">

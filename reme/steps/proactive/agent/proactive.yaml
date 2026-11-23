@@ -116,13 +116,13 @@ task_query_zh: |
 
 repair_record_query: |
   Read the YAML frontmatter in `{record_path}` and return the corrected reminder priority and message.
-  Preserve the intended meaning. ReMe will apply the correction to the draft.
+  Preserve the intended meaning. ReMe will apply the correction to the record.
 
   Use this validation error to locate the problem.
   {error}
 
 repair_record_query_zh: |
-  阅读 `{record_path}` 的 YAML 文件头，返回修正后的提醒等级和正文，保留原意。ReMe 会把修正写回草稿。
+  阅读 `{record_path}` 的 YAML 文件头，返回修正后的提醒等级和正文，保留原意。ReMe 会把修正写回原记录。
 
   根据下面的校验错误定位问题。
   {error}

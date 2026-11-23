@@ -6,7 +6,6 @@ import asyncio
 from datetime import timedelta
 from unittest.mock import AsyncMock
 
-import frontmatter
 import pytest
 
 from reme.core.context import RuntimeContext
@@ -279,10 +278,7 @@ async def test_combined_chat_message_preserves_source_links_across_restart(tmp_p
     async with running_runtime(tmp_path) as (runtime, _, _):
         result = await runtime.outbox.read("Remy", message_id)
         assert {item["id"] for item in result["items"]} == set(refs)
-        assert all(
-            frontmatter.loads(runtime.files.read(runtime.files.path(ref)))["chat_message_ids"] == [message_id]
-            for ref in refs
-        )
+        assert all(item["chat_message_ids"] == [message_id] for item in result["items"])
 
 
 @pytest.mark.asyncio

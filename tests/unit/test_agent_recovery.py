@@ -20,7 +20,7 @@ from .test_proactive_run import REMIND, SKIP, install_round
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("filename", ["inbox_read.jsonl", "inbox_unread.jsonl"])
-async def test_real_receipt_write_failure_removes_only_an_uncommitted_record(tmp_path, monkeypatch, filename):
+async def test_real_receipt_write_failure_preserves_markdown_and_recovers_delivery(tmp_path, monkeypatch, filename):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         now = runtime.now()
@@ -41,11 +41,12 @@ async def test_real_receipt_write_failure_removes_only_an_uncommitted_record(tmp
                 await step(agent_name="monitor")
         committed = filename == "inbox_unread.jsonl"
         assert runtime.inbox._failed and "monitor" not in runtime.workers
-        assert paths["record_path"].exists() is committed
+        assert paths["record_path"].read_text() == REMIND.format(priority="P1", body="\nNew progress\n")
     async with running_runtime(tmp_path) as (runtime, _, _):
         snapshot = await runtime.inbox.snapshot("monitor")
         assert snapshot["pending_count"] == (0 if committed else 1)
         assert (snapshot["receipt"] is not None) is committed
+        assert bool(runtime.notifications.pending) is committed
 
 
 @pytest.mark.asyncio
@@ -276,7 +277,7 @@ async def test_round_keeps_the_record_locked_until_delivery(tmp_path, monkeypatc
         async def edit_record():
             async with lock:
                 document = frontmatter.loads(path.read_text())
-                assert "delivered_at" in document
+                assert runtime.outbox.records[path.relative_to(tmp_path).as_posix()].delivered_at
                 document["reminder_priority"] = "P0"
                 document.content = "User edited record"
                 runtime.files.write(path, frontmatter.dumps(document))
