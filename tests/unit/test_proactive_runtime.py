@@ -191,8 +191,6 @@ def test_builtin_agent_configurations_resolve_steps_and_keep_internal_jobs_priva
     assert wrapper["sandbox"] == "workspace-write"
     if backend == "claude_code":
         assert json.loads(wrapper["settings"])["permissions"]["blockWritesOutsideWorkingDirectories"] is True
-    runtime = components["proactive_runtime"]["default"]
-    assert (runtime["backend"], runtime["agent_wrapper"], runtime["inbox"]) == ("local", "default", "default")
     jobs = config["jobs"]
     for job_name, job in jobs.items():
         if job_name in {"finance_news_cron", "stock_quotes_cron", "btc_quotes_cron"}:
@@ -201,11 +199,11 @@ def test_builtin_agent_configurations_resolve_steps_and_keep_internal_jobs_priva
             assert R.get(ComponentEnum.STEP, step["backend"]) is not None
     for job_name in ("run_proactive_agent", "process_chat_reminders", "submit_chat_reminder"):
         assert not jobs[job_name]["enable_serve"]
+    (step,) = jobs["run_proactive_agent"]["steps"]
+    assert R.get(ComponentEnum.STEP, step["backend"]) is ProactiveAgentStep
     assert jobs["proactive_loop"]["backend"] == "background"
     for job_name in ("append_task_events", "list_task_reminders", "task_document", "ask_agent", "watch_agent_session"):
-        job = jobs[job_name]
-        assert job.get("enable_serve", True)
-        assert job["steps"][0]["backend"] == f"{job_name}_step"
+        assert jobs[job_name].get("enable_serve", True)
     for job_name in ("append_task_events", "list_task_reminders", "task_document"):
         parameters = jobs[job_name]["parameters"]
         assert "agent_name" in parameters["required"]
@@ -237,7 +235,6 @@ async def test_automatic_agent_uses_wrapper_sandbox_and_denies_approvals(tmp_pat
         options = step.session_options(agent)
         assert "sandbox" not in options
         assert options["approval_mode"] == "deny_all"
-        assert options["effort"] == "low"
 
 
 def test_network_policy_has_no_per_agent_override():

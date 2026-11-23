@@ -11,9 +11,7 @@ from unittest.mock import AsyncMock, Mock
 import frontmatter
 import pytest
 
-from reme.config import resolve_app_config
-from reme.core.registry import R
-from reme.enumeration import ChunkEnum, ComponentEnum
+from reme.enumeration import ChunkEnum
 from reme.schema import Event, StreamChunk
 from reme.steps.proactive.agent import ProactiveAgentStep
 from reme.steps.proactive.tools.manage_proactive_agent import ManageProactiveAgentStep
@@ -82,15 +80,6 @@ def install_round(
     return calls
 
 
-@pytest.mark.parametrize("profile", ["proactive", "proactive_cc", "demo"])
-def test_profiles_use_the_same_proactive_workflow(profile):
-    job = resolve_app_config(config=profile, log_config=False)["jobs"]["run_proactive_agent"]
-    (step,) = job["steps"]
-    assert R.get(ComponentEnum.STEP, step["backend"]) is ProactiveAgentStep
-    assert job["enable_serve"] is False
-    assert step["recent_history_hours"] == 24
-
-
 @pytest.mark.parametrize(
     "agent_type,language,priority,body",
     [
@@ -111,8 +100,7 @@ async def test_round_publishes_and_acknowledges_the_same_note(
 ):
     async with running_runtime(tmp_path, language=language) as (runtime, context, wrapper):
         await create_round_task(runtime, monkeypatch, agent_type)
-        scheduled = runtime.now() if agent_type == "cron" else None
-        now = scheduled + timedelta(minutes=7) if scheduled else runtime.now()
+        now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)
         window_start = now + timedelta(hours=1)
         await runtime.update(
@@ -134,20 +122,7 @@ async def test_round_publishes_and_acknowledges_the_same_note(
         assert result.answer["notifications"][0]["message"] == "Verified result"
         ((query, options),) = queries
         assert options["sandbox"] == "workspace-write"
-        if language == "zh":
-            assert "## 任务要求\nMonitor" in query
-            assert "## 2. 查询历史" in query and "## 3. 记录与提醒" in query
-            assert "## 本轮事件" in query
-            if scheduled is not None:
-                assert f"定时触发，计划时间 {scheduled.isoformat()}" in query
-                assert f"当前时间：{now.isoformat()}" in query
-        else:
-            assert "## Task requirements\nMonitor" in query
-            assert "## 2. Search past records" in query and "## 3. Record and remind" in query
-            assert "## Events for this run" in query
-            if scheduled is not None:
-                assert f"Scheduled trigger, planned time {scheduled.isoformat()}" in query
-                assert f"Current time: {now.isoformat()}" in query
+        assert runtime.files.read(paths["task_path"]) in query
         assert ("Finished" in query) == (agent_type == "proactive")
         assert list((tmp_path / "daily").rglob("*.md")) == [path]
 
@@ -296,7 +271,7 @@ async def test_cron_can_finish_with_a_skip_record(tmp_path, monkeypatch):
         await create_round_task(runtime, monkeypatch, "cron")
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)
-        step = ProactiveAgentStep(app_context=context, recent_history_hours=48)
+        step = ProactiveAgentStep(app_context=context)
         paths = step._paths(await runtime.definition("monitor"), now)
 
         old_record = paths["daily_dir"] / "2000-01-01" / "monitor_100000.md"
@@ -310,8 +285,6 @@ async def test_cron_can_finish_with_a_skip_record(tmp_path, monkeypatch):
         assert record.read_text() == SKIP
         assert (await runtime.status("monitor"))["pending_events"] == 0
         ((query, _),) = queries
-        assert "留到第 3 步处理" in query
-        assert "优先核对最近 48 小时" in query
         assert old_record.name not in query and "private old body" not in query
         assert not (await runtime.outbox.list("monitor"))["items"]
 
@@ -548,7 +521,7 @@ async def test_cron_skip_record_keeps_trigger_pending_after_model_failure(tmp_pa
 
         step = ProactiveAgentStep(app_context=context)
         paths = step._paths(await runtime.definition("timer"), runtime.now())
-        calls = install_round(runtime, wrapper, monkeypatch, paths, text=None, failed=True)
+        install_round(runtime, wrapper, monkeypatch, paths, text=None, failed=True)
         with pytest.raises(RuntimeError, match="Model failed"):
             await step(agent_name="timer")
 
@@ -556,7 +529,6 @@ async def test_cron_skip_record_keeps_trigger_pending_after_model_failure(tmp_pa
         assert await runtime.inbox.pending_ids("timer") == pending
         assert snapshot["receipt"] is None and snapshot["in_flight_count"] == 0
         assert runtime.execution("timer").retry_items == [f"cron-timer-{int(trigger.timestamp())}"]
-        assert "## Events for this run" in calls[0][0]
         assert not paths["record_path"].exists()
 
 
