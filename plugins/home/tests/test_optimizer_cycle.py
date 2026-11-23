@@ -21,7 +21,11 @@ from test_bounded_agent import RecordingModel
 
 @pytest.fixture(autouse=True)
 def candidate_checkout(monkeypatch):
-    monkeypatch.setattr(optimizer, "sampled_checkout", lambda _home: True)
+    monkeypatch.setattr(
+        optimizer,
+        "evaluation_checkout",
+        lambda _home: {"sampling": True, "expected_commit": "candidate-sha", "expected_branch": "candidate"},
+    )
 
 
 def make_agent(timer, model=None):
@@ -70,6 +74,10 @@ async def test_evaluation_tool_forwards_formal_targets_and_ignores_debug_targets
     if not debug:
         assert calls[0]["target_queries"] == targets
         assert calls[0]["sampling"] is True
+        assert calls[0]["expected_commit"] == "candidate-sha"
+        assert calls[0]["expected_branch"] == "candidate"
+    else:
+        assert "expected_commit" not in calls[0] and "expected_branch" not in calls[0]
 
 
 @pytest.mark.asyncio

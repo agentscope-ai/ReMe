@@ -1,14 +1,18 @@
 """Tree-based repetition checks through real Jobs with fake Docker/model boundaries."""
 
 # pylint: disable=missing-function-docstring,redefined-outer-name,unused-argument
+# pylint: disable=protected-access
 
 import asyncio
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from agentscope.state import AgentState
 
+from reme_home.agent import optimizer
 from reme_home.evaluation import repetition
 from reme_home.evaluation.artifacts import write_json
 from reme_home.evaluation.repetition import retryable_result
@@ -19,11 +23,100 @@ from test_evaluation import (  # noqa: F401  # pylint: disable=unused-import
     home_application,
     preparation_inputs,
     prepared_home,
+    rebuild_review,
 )
 
 
 def artifacts(home):
     return {path.relative_to(home): path.read_bytes() for path in home.rglob("*") if path.is_file()}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["init_to_candidate", "candidate_to_init", "branch", "commit"])
+async def test_optimizer_rejects_checkout_changes_before_admission(app, prepared, monkeypatch, change):
+    from reme_home.agent import candidate_gate
+
+    repo = prepared / "code/repo"
+    if change != "init_to_candidate":
+        commit_candidate(prepared)
+    expected = optimizer.evaluation_checkout(prepared)
+    review = AsyncMock(side_effect=AssertionError("Stale requests must not invoke an admission model"))
+    monkeypatch.setattr(candidate_gate, "review_candidate", review)
+    evaluate_job = app.context.jobs["home_evaluate"]
+
+    class SwitchingJob:
+        """Switch after the optimizer binds its request, before the real Job starts."""
+
+        enabled = is_started = True
+
+        async def __call__(self, **kwargs):
+            assert kwargs["expected_commit"] == expected["expected_commit"]
+            assert kwargs["expected_branch"] == expected["expected_branch"]
+            assert kwargs["sampling"] == expected["sampling"]
+            if change in {"init_to_candidate", "commit"}:
+                commit_candidate(prepared)
+            else:
+                if change == "candidate_to_init":
+                    command(repo, "switch", "init")
+                else:
+                    command(repo, "switch", "-c", "other")
+            return await evaluate_job(**kwargs)
+
+    wrapper = SimpleNamespace(app_context=SimpleNamespace(jobs={"home_evaluate": SwitchingJob()}))
+    tool = optimizer.evaluation_tool(
+        wrapper,
+        {"sampling_policy": {"max_cases": 1}},
+        home=prepared,
+    )
+    response = await tool._func(_agent_state=AgentState())
+    assert not response["success"]
+    assert "Checkout changed before evaluation" in str(response["answer"])
+    review.assert_not_called()
+    assert not FakeFactory.instances
+    assert not list((prepared / "evaluations").glob("*/*/*/manifest.json"))
+
+
+@pytest.mark.asyncio
+async def test_bound_checkout_is_rechecked_when_snapshot_is_fixed(app, prepared, monkeypatch):
+    from reme_home.evaluation import component
+
+    expected = optimizer.evaluation_checkout(prepared)
+    original = component.snapshot_code
+
+    def switch_before_snapshot(*args, **kwargs):
+        # The early check passed; simulate a switch before the snapshot lock was acquired.
+        commit_candidate(prepared)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(component, "snapshot_code", switch_before_snapshot)
+    response = await app.run_job("home_evaluate", **expected, max_evaluations=10)
+    assert not response.success
+    assert "Checkout changed before evaluation" in str(response.answer)
+    assert not FakeFactory.instances
+
+
+@pytest.mark.parametrize("binding", [{"expected_commit": "abc"}, {"expected_branch": "init"}])
+def test_checkout_binding_requires_both_commit_and_branch(binding):
+    from reme_home.evaluation.inputs import EvaluationSpec
+
+    with pytest.raises(ValueError, match="must be supplied together"):
+        EvaluationSpec(**binding)
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("rebuild_review")
+async def test_bound_checkout_preserves_init_full_and_candidate_sampled(app, prepared):
+    initial = optimizer.evaluation_checkout(prepared)
+    assert not initial["sampling"] and initial["expected_branch"] == "init"
+    response = await app.run_job("home_evaluate", **initial, sampling_policy={"max_cases": 1})
+    assert response.success, response.answer
+    assert len(json.loads((Path(response.answer["result_dir"]) / "manifest.json").read_text())["case_ids"]) == 2
+    commit_candidate(prepared)
+    candidate = optimizer.evaluation_checkout(prepared)
+    assert candidate["sampling"]
+    response = await app.run_job("home_evaluate", **candidate, sampling_policy={"max_cases": 1})
+    assert response.success, response.answer
+    assert len(json.loads((Path(response.answer["result_dir"]) / "manifest.json").read_text())["case_ids"]) == 1
 
 
 @pytest.mark.asyncio

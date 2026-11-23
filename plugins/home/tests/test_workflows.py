@@ -391,7 +391,7 @@ async def test_exhausted_evaluation_hint_is_once_even_after_failure(monkeypatch,
     job = AsyncMock(return_value=Response(success=success, answer={"status": "completed" if success else "failed"}))
     monkeypatch.setattr(optimizer_module, "required_job", lambda *_args: job)
     monkeypatch.setattr(optimizer_module, "read_state", lambda _home: {"started_validations": []})
-    monkeypatch.setattr(optimizer_module, "sampled_checkout", lambda _home: True)
+    monkeypatch.setattr(optimizer_module, "evaluation_checkout", lambda _home: {"sampling": True})
     monkeypatch.setattr(optimizer_module, "validation_budget_status", lambda *_args: {"remaining_validations": 0})
     timer = optimizer_module.ValidationCycleTimer(30) if with_timer else None
     state = AgentState()
@@ -555,15 +555,13 @@ async def test_new_baseline_rejects_concurrent_candidate_changes(app, prepared, 
     required_job = optimizer_module.required_job
     wrapper = app.context.components["agent_wrapper"]["home_optimizer"]
     evaluate_job = required_job(wrapper, "home_evaluate")
-    evaluated = []
 
     async def evaluate(**kwargs):
         # Pause after baseline preflight but before evaluation snapshots HEAD.
         entered.set()
         await release.wait()
         response = await evaluate_job(**kwargs)
-        assert response.success, response.answer
-        evaluated.append(response.answer["result_dir"])
+        assert not response.success, response.answer
         if change == "restore_init":
             switched = await app.run_job("home_switch_candidate_branch", branch_name="init")
             assert switched.success, switched.answer
@@ -574,7 +572,7 @@ async def test_new_baseline_rejects_concurrent_candidate_changes(app, prepared, 
         "required_job",
         lambda wrapper, name: evaluate if name == "home_evaluate" else required_job(wrapper, name),
     )
-    model = ScriptedModel(final=lambda: final_report(prepared, branch="concurrent", path=evaluated[0]))
+    model = ScriptedModel()
     set_model(app, "home_optimizer", model)
     repo = prepared / "code/repo"
     initial = git(repo, "rev-parse", "HEAD")
@@ -600,15 +598,8 @@ async def test_new_baseline_rejects_concurrent_candidate_changes(app, prepared, 
     assert not response.success, response.answer
     assert not model.calls and not sandbox
     assert not list((prepared / "logs/optimization-reports").glob("*.json"))
-    expected = (
-        "Initial baseline evidence must match the init branch and initial commit"
-        if change == "restore_init"
-        else "requires clean init at the initial commit"
-    )
-    assert expected in str(response.answer)
-    manifest = read_json(Path(evaluated[0]) / "manifest.json")
-    assert manifest["status"] == "completed" and manifest["commit_sha"] == candidate
-    assert manifest["branch_name"] == ("init" if change == "branch" else "concurrent")
+    assert "Checkout changed before evaluation" in str(response.answer)
+    assert not list((prepared / "evaluations").glob("*/*/*/manifest.json"))
     expected_branch = "init" if change == "restore_init" else "concurrent"
     assert git(repo, "branch", "--show-current") == expected_branch
     assert git(repo, "rev-parse", "concurrent") == candidate

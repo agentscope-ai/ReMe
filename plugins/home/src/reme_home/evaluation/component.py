@@ -26,7 +26,15 @@ from .artifacts import (
     answer_exception,
     failure_kind,
 )
-from .inputs import EvaluationSpec, load_inputs, replay_sampling_inputs, reuse_inputs, select_cases, snapshot_code
+from .inputs import (
+    EvaluationSpec,
+    evaluation_head,
+    load_inputs,
+    replay_sampling_inputs,
+    reuse_inputs,
+    select_cases,
+    snapshot_code,
+)
 from .compaction import compact_construction, compact_query
 from ..judge import HomeJudge
 from ..workspace import HomeWorkspace, _initialization_lock, _validate_directory
@@ -171,6 +179,15 @@ class HomeEvaluation(BaseComponent):
                 from ..agent.candidate_gate import admission_context, review_candidate
 
                 with _initialization_lock(self.workspace.state_path / "workspace.lock"):
+                    if spec.expected_commit is not None:
+                        # Reject stale requests before the admission model sees another checkout.
+                        repository, _ = await blocking(validate_repository, self.workspace.home_path)
+                        await blocking(
+                            evaluation_head,
+                            repository,
+                            expected_commit=spec.expected_commit,
+                            expected_branch=spec.expected_branch,
+                        )
                     admission_checkout, context = await blocking(admission_context, self.workspace.home_path)
                 if context is not None:
                     admission = await review_candidate(
@@ -210,7 +227,12 @@ class HomeEvaluation(BaseComponent):
             )
             all_cases = {case.case_id: case for case in loaded_cases}
             cases = select_cases(all_cases, spec.case_ids, spec.query_ids)
-            snapshot, commit, branch, checkout_branch = snapshot_code(home, record)
+            snapshot, commit, branch, checkout_branch = snapshot_code(
+                home,
+                record,
+                expected_commit=spec.expected_commit,
+                expected_branch=spec.expected_branch,
+            )
             initial_baseline = not spec.debug and branch == "init"
             if initial_baseline and (
                 spec.sampling
@@ -522,6 +544,8 @@ class HomeEvaluation(BaseComponent):
                         "reuse_construction_from",
                         "debug",
                         "sampling_policy",
+                        "expected_commit",
+                        "expected_branch",
                     },
                 ),
                 "judge": self.judge.identity(dataset.dataset),
