@@ -2,7 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { errorText, translator } from "../../../client/src/i18n.ts";
 import type { StudioState } from "../../../client/src/protocol.ts";
-import type { TaskDocument, TaskSettings } from "../../../client/src/tasks.ts";
+import type {
+  TaskDocument,
+  ProactiveRuntimeSettings,
+} from "../../../client/src/tasks.ts";
 import { formatDate, useResource } from "../resources.ts";
 import TaskSettingsFields from "./settings.tsx";
 import {
@@ -38,7 +41,7 @@ export default function TaskDialog({
   const [content, setContent] = useState("");
   const [document, setDocument] = useState<TaskDocument>();
   const [baseline, setBaseline] = useState(() => agent && taskSettings(agent));
-  const [settings, setSettings] = useState<TaskSettings>(
+  const [settings, setSettings] = useState<ProactiveRuntimeSettings>(
     () =>
       baseline ?? {
         enabled: true,

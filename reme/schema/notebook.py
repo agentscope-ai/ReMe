@@ -17,6 +17,8 @@ class _RecordRequest(BaseModel):
     """Share pagination and reject arguments that an action would ignore."""
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    event_id: str | None = Field(default=None, min_length=1)
+
     action_fields: ClassVar[dict[str, set[str]]]
 
     action: str
@@ -41,7 +43,7 @@ class _RecordRequest(BaseModel):
             raise ValueError("text cannot be null")
         if self.action == "create" and self.text is None and not getattr(self, "source_idea", None):
             raise ValueError("text is required unless source_idea supplies it")
-        if self.action == "update" and not supplied - {"id"}:
+        if self.action == "update" and not supplied - {"id", "event_id"}:
             raise ValueError("update requires at least one changed field")
         return self
 
@@ -54,7 +56,17 @@ class TodoRequest(_RecordRequest):
         "list": {"project", "status", "source_idea", "scope", "query", "offset", "limit"},
         "list_projects": {"scope"},
         "get": {"id"},
-        "update": {"id", "project", "text", "status", "due_date", "source_idea", "progress_text", "progress_time"},
+        "update": {
+            "id",
+            "project",
+            "text",
+            "status",
+            "due_date",
+            "source_idea",
+            "progress_text",
+            "progress_time",
+            "event_id",
+        },
     }
 
     action: Literal["create", "list", "list_projects", "get", "update"]
@@ -81,7 +93,7 @@ class IdeaRequest(_RecordRequest):
         "create": {"project", "text"},
         "list": {"project", "scope", "query", "offset", "limit"},
         "get": {"id"},
-        "update": {"id", "project", "text"},
+        "update": {"id", "project", "text", "event_id"},
         "archive": {"id"},
         "restore": {"id"},
     }

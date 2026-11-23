@@ -26,20 +26,21 @@ class AgentSessions:
         validate_agent_name(agent_name)
         return self.locks.setdefault(agent_name, asyncio.Lock())
 
-    def _records(self, agent_name):
-        for value in self.files.iter_jsonl(self.path(agent_name), incomplete_ok=True):
+    def _records(self, path):
+        for value in self.files.iter_jsonl(path, incomplete_ok=True):
             yield AgentSession.model_validate(value)
 
-    def _latest(self, agent_name):
+    def _latest(self, agent_name, directory):
+        path = self.path(agent_name) if directory is None else self.files.checked(directory / "sessions.jsonl")
         current = None
-        for record in self._records(agent_name):
+        for record in self._records(path):
             if not record.temporary:
                 current = record
         return current
 
-    async def current(self, agent_name):
+    async def current(self, agent_name, *, directory=None):
         """Read the last primary reference without creating or restoring a native thread."""
-        return await asyncio.to_thread(self._latest, agent_name)
+        return await asyncio.to_thread(self._latest, agent_name, directory)
 
     async def list(self, agent_name, offset=0, limit=10):
         """Return newest-first history; pagination never prunes or activates sessions."""
@@ -49,7 +50,7 @@ class AgentSessions:
         def read():
             records = deque(maxlen=offset + limit)
             total = 0
-            for record in self._records(agent_name):
+            for record in self._records(self.path(agent_name)):
                 records.append(record)
                 total += 1
             items = list(reversed(records))[offset : offset + limit]
@@ -63,8 +64,9 @@ class AgentSessions:
         return await asyncio.to_thread(read)
 
     def _record(self, agent_name, record):
-        if not any(previous.session_id == record.session_id for previous in self._records(agent_name)):
-            self.files.append_jsonl(self.path(agent_name), record.model_dump(mode="json"))
+        path = self.path(agent_name)
+        if not any(previous.session_id == record.session_id for previous in self._records(path)):
+            self.files.append_jsonl(path, record.model_dump(mode="json"))
 
     async def record(self, agent_name, session_id, now, *, temporary=False):
         """Retain temporary forks for audit without making them the next execution source."""

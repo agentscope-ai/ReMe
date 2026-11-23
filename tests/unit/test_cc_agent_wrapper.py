@@ -132,6 +132,29 @@ def test_configured_skills_use_latest_sdk_allowlist(tmp_path):
         assert not (root / "two").exists()
 
 
+@pytest.mark.parametrize("scope", ["user", "project"])
+def test_builtin_skill_uses_active_claude_discovery_directory(tmp_path, scope):
+    """The active Claude settings source decides where ReMe publishes built-ins."""
+    workspace = tmp_path / "workspace"
+    config_dir = tmp_path / "configured"
+    wrapper = _wrapper(workspace)
+    name = "manage-proactive-agent"
+
+    opts = wrapper._build_options(
+        "hello",
+        skills=[name],
+        env={"CLAUDE_CONFIG_DIR": str(config_dir)},
+        setting_sources=[scope],
+    )
+
+    root = {"user": config_dir, "project": workspace / ".claude"}[scope]
+    path = root / "skills" / name / "SKILL.md"
+    assert opts.skills == [name]
+    assert f"name: {name}" in path.read_text(encoding="utf-8")
+    assert not path.parent.is_symlink()
+    assert not (workspace / "mem_session" / "claude_config" / "skills").exists()
+
+
 def test_configured_project_path_sources_skills_outside_workspace(tmp_path):
     """Claude Code links project skills while keeping sessions in the workspace."""
     project = tmp_path / "project"

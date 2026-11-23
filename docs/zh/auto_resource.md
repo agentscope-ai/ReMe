@@ -63,11 +63,10 @@ workspace/
 
 `config=proactive` 默认启用 `screen_capture_cron`，按应用时区每 5 分钟采集截图，启动时不立即采集。
 截图独立投递给 `work` 任务，与 Codex 对话采集互不依赖。可用 `jobs.screen_capture_cron.enabled=false` 关闭，
-或通过 `jobs.screen_capture_cron.agent_name` 指定另一个已有后台任务。目标任务也可配置自己的 `cron`。
+或在 `screen_capture_step` 中设置 `task_names`，指定接收截图的事件驱动任务。
 
-`BaseConnectorStep` 将资料直接写入资源目录，最后原子写入 `metadata.json`；`ScreenCaptureStep` 为每个显示器保留一张原尺寸 PNG。
-随后 `ResourceEventStep` 向指定 Agent 投递带稳定 ID 的观察事件，包含资源描述、manifest 与全部文件的
-工作区相对路径。采集器在写入完成后决定投递事件，重复投递同一包不会重复入队。
+截图步骤为每个显示器保存一张原尺寸 PNG，并在发布 `metadata.json` 前保存接收任务。
+观察事件列出全部 PNG 的工作区相对路径，投递中断后沿用已保存的目标和事件 ID。
 
 ```text
 resource/screenshot/YYYY-MM-DD/hhmmss_<uuid4前六位>/
@@ -92,12 +91,13 @@ manifest 使用 `ResourceMetadata`：带时区的创建/更新时间、source、
 
 ## 定时 Codex 对话采集
 
-`codex_dialogue_cron` 启动时先通过 `init_steps` 执行 `codex_dialogue_init_step`，建立初始读取基线，不导入旧历史。
-初始化成功后，每 5 分钟读取
-`${CODEX_HOME:-~/.codex}/sessions` 中新增的用户消息和最终回答，以 `codex_dialogue` 为来源投递给同一个 `work` Agent。
-它不截图，也不采集进度消息、推理、工具输出、子 Agent 或 ReMe 自己的会话。
+`codex_dialogue_cron` 启动时先执行 `codex_dialogue_init_step`，建立初始读取基线。从基线起，每 5 分钟读取
+`${CODEX_HOME:-~/.codex}/sessions` 中新增的用户消息、发给用户的进度文字和最终回答，以 `codex_dialogue` 事件投递。
+推理、工具调用和结果、子 Agent 会话以及 ReMe 自己的会话均不采集。
 
-每批对话保存在 `resource/codex_dialogue/YYYY-MM-DD/HHMMSS_<suffix>/`，包含 `dialogue.jsonl` 和 `metadata.json`。
+每批对话保存在 `resource/codex_dialogue/YYYY-MM-DD/HHMMSS_<suffix>/`。事件提供 `dialogue.md` 和图片附件路径。
+Markdown 按项目、会话和轮次列出用户消息、进度文字和最终回答，并保留各条消息的 ID。同一轮插入的用户消息各占一节，
+图片链接跟在对应的消息后面。随记把对话正文放进提示词，再用 `todo` 和 `idea` 核对项目和条目 ID。
 `resource/codex_dialogue/progress.jsonl` 保存已提交的读取位置和消息 ID；`pending.json` 固定未完成的批次，
 先重试投递，再读取后续变化。这些采集状态文件不放入事件路径。重启后沿用已保存的进度，不重复投递已完成对话。
 空闲扫描不追加进度记录；只有工具记录变化时仍推进偏移，但不产生对话事件。
@@ -116,8 +116,9 @@ BTC 使用滚动 24 小时涨跌幅，保存统计窗口和采集时间；USDT �
 股票休市或采集失败不会阻止 BTC 采集。
 价格和 24 小时基准价不变时，不生成新资源或事件；仅采集时间或统计窗口推进不算新增信息，时间倒退的统计窗口会被跳过。
 
-采集器将 `news.jsonl`、`quotes.jsonl` 或 `btc.jsonl` 保存到 `resource/<source>/YYYY-MM-DD/hhmmss_<suffix>/`，
-随后调用 `append_task_events` 投递给 `finance` 任务。采集不调用 LLM；无新增时不创建文件或事件。
+每批新增新闻在 `resource/<source>/YYYY-MM-DD/hhmmss_<suffix>/` 保存一份 `news.md`，包含标题、发布时间、来源链接
+和正文。标题与正文完全相同时只显示一次。`news.jsonl` 用于按新闻 ID 去重。股票和 BTC 分别保存 `quotes.jsonl`
+和 `btc.jsonl`。`finance` 的提示列出 `news.md` 或行情文件路径。采集不调用 LLM，无新增时不创建资源包或事件。
 新闻首次回看最近 24 小时，按保留新闻文件中的 ID 去重；成功拉取后保存来源进度，后续从上次检查时间向前重叠十分钟拉取，
 最多回看 24 小时。删除进度文件后恢复完整回看，保留的新闻 ID 仍防止重复；超过回看窗口的停机可能留下缺口。
 已落盘但缺少投递回执的批次会在采集新数据前补投，股票批次还受交易时段限制；

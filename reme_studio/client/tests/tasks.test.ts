@@ -6,10 +6,10 @@ import {
   changedTaskSettings,
   taskPayload,
   type TaskRequest,
-  type TaskSettings,
+  type ProactiveRuntimeSettings,
 } from "../src/tasks.ts";
 
-const settings: TaskSettings = {
+const settings: ProactiveRuntimeSettings = {
   enabled: false,
   cron: "0 8 * * *",
   min_trigger_interval_seconds: 0,

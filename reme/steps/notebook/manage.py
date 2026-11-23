@@ -16,17 +16,35 @@ class _RecordStep(BaseStep):
 
     kind = ""
     request_model = None
+    automatic_fields = frozenset()
 
     async def execute(self):
         arguments = {
             key: value
             for key, value in self.context.data.items()
-            if key not in {"metadata", "_allowed_paths", "_agent_name", "_inbox_turn"}
+            if key not in {"metadata", "_allowed_paths", "_agent_name", "_inbox_turn", "_proactive_event_ids"}
         }
         request = self.request_model.model_validate(arguments)
+        self._check_automatic_request(request)
         async with await get_path_lock(self.workspace_path.resolve() / ".notebook.lock"):
             self.context.response.answer = await self.handle_request(request)
         return self.context.response
+
+    def _check_automatic_request(self, request):
+        events = self.context.get("_proactive_event_ids")
+        if events is None:
+            if "event_id" in request.model_fields_set:
+                raise ValueError("event_id is reserved for automatic proactive updates")
+            return
+        if request.action in {"list", "list_projects", "get"}:
+            return
+        fields = request.model_fields_set - {"action", "id", "event_id"}
+        if request.action != "update" or not fields <= self.automatic_fields or request.event_id not in events:
+            raise PermissionError("Automatic notebook tools can only update supported fields with a current event_id")
+        if isinstance(request, TodoRequest) and (
+            not request.progress_text or request.status not in {"open", "partial"}
+        ):
+            raise PermissionError("Automatic Todo updates can only append progress to an active Todo")
 
     async def handle_request(self, request):
         """Run the shared record actions under the notebook lock."""
@@ -36,6 +54,15 @@ class _RecordStep(BaseStep):
             return self.list_records(store, request)
         if request.action == "get":
             return store.get(request.id).model_dump(mode="json", exclude_none=True)
+        if request.event_id is not None:
+            original = store.get(request.id)
+            if original.closed_at is not None:
+                raise PermissionError("Automatic notebook updates require an active record")
+            event_ids = (
+                [note.event_id for note in original.progress] if isinstance(original, Todo) else original.event_ids
+            )
+            if request.event_id in (event_ids or ()):
+                return original.model_dump(mode="json", exclude_none=True)
         record = await self.change_record(store, request)
         await store.put(record)
         return record.model_dump(mode="json", exclude_none=True)
@@ -74,8 +101,8 @@ class _RecordStep(BaseStep):
                 continue
             value = record.model_dump(mode="json", exclude_none=True)
             if isinstance(record, Todo):
+                value["progress_count"] = len(value["progress"])
                 value["progress"] = value["progress"][-1:]
-                value["progress_count"] = len(record.progress)
             items.append(value)
         return {
             "items": items[request.offset : request.offset + request.limit],
@@ -95,6 +122,7 @@ class TodoStep(_RecordStep):
 
     kind = "todos"
     request_model = TodoRequest
+    automatic_fields = frozenset({"progress_text", "progress_time", "status"})
 
     async def handle_request(self, request):
         """Aggregate project counts across both record collections."""
@@ -128,7 +156,7 @@ class TodoStep(_RecordStep):
         if request.action == "update":
             record = Todo.model_validate({**record.model_dump(), **changes})
         if request.progress_text:
-            note = {"text": request.progress_text}
+            note = {"text": request.progress_text, "event_id": request.event_id}
             if request.progress_time is not None:
                 note["time"] = request.progress_time
             record.progress.append(TodoProgress(**note))
@@ -145,6 +173,7 @@ class IdeaStep(_RecordStep):
 
     kind = "ideas"
     request_model = IdeaRequest
+    automatic_fields = frozenset({"text"})
 
     async def change_record(self, store, request):
         changes = request.model_dump(include={"project", "text"}, exclude_unset=True)
@@ -153,6 +182,8 @@ class IdeaStep(_RecordStep):
         record = store.get(request.id).model_copy(deep=True)
         if request.action == "update":
             record = Idea.model_validate({**record.model_dump(), **changes})
+            if request.event_id is not None:
+                record.event_ids = [*(record.event_ids or ()), request.event_id]
         elif request.action == "archive":
             record.closed_at = record.closed_at or datetime.now(timezone.utc)
         elif request.action == "restore":

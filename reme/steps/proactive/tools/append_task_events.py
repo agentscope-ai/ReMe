@@ -1,4 +1,4 @@
-"""Append observations to a background task's input queue."""
+"""Append the same observations to one or more background task inboxes."""
 
 from ..agent import BaseAgentStep
 from ....core.registry import R
@@ -11,9 +11,11 @@ class AppendTaskEventsStep(BaseAgentStep):
 
     async def execute(self):
         request = AppendTaskEventsRequest.model_validate(self.parameters())
-        runtime = self.proactive_runtime
-        self.require_paths(runtime.agents.directory)
+        manager = self.proactive_manager
+        self.require_paths(manager.registry.directory)
         for event in request.events:
-            self.require_paths(*(runtime.files.path(path) for path in event.paths))
-        self.context.response.answer = await runtime.append_events(request.agent_name, request.events)
+            self.require_paths(*(manager.files.path(path) for path in event.paths))
+        result = await manager.deliver_events(request.task_names, request.events)
+        self.context.response.answer = result
+        self.context.response.success = not (result["rejected"] or result["errors"])
         return self.context.response

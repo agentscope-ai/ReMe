@@ -70,13 +70,12 @@ Permanent material should remain in user-controlled workspace paths.
 
 `config=proactive` enables `screen_capture_cron` every five minutes in the application timezone, without a startup capture.
 It publishes screenshots to the `work` task, independently of Codex dialogue collection. Set
-`jobs.screen_capture_cron.enabled=false` to disable it or use `jobs.screen_capture_cron.agent_name` to select another
-existing background task. The receiving task can also have its own `cron` schedule.
+`jobs.screen_capture_cron.enabled=false` to disable it. To change recipients, set `task_names` on
+`screen_capture_step` and name the event-driven tasks that should receive screenshots.
 
-`BaseConnectorStep` writes payloads directly to their resource directory and atomically writes `metadata.json` last;
-`ScreenCaptureStep` saves one original-size PNG per display. `ResourceEventStep` then appends a stable-ID observation
-to the configured agent. The event contains the package description and workspace-relative paths to its manifest and
-all payloads. Retrying publication is idempotent. The collector decides when to send the event after writing completes.
+`ScreenCaptureStep` saves one original-size PNG per display and records the recipients before publishing
+`metadata.json`. The observation lists the workspace-relative PNG paths. If delivery is interrupted, the collector
+resumes with the saved recipients and event ID.
 
 ```text
 resource/screenshot/YYYY-MM-DD/hhmmss_<uuid4-first-6>/
@@ -105,14 +104,17 @@ Filtering screenshots does not prevent delivery of new Codex dialogue.
 
 ## Scheduled Codex Dialogue Collection
 
-`codex_dialogue_cron` first runs `codex_dialogue_init_step` through its `init_steps` to establish the reading baseline
-at startup without importing old history. Only after successful initialization does it collect new user messages and
-final answers every five minutes from
-`${CODEX_HOME:-~/.codex}/sessions`, publishing them to the same `work` Agent with source `codex_dialogue`.
-It does not capture screens; progress messages, reasoning, tool outputs, subagents and ReMe's own sessions are excluded.
+`codex_dialogue_cron` first runs `codex_dialogue_init_step` to establish the reading baseline at startup. It then reads
+new user messages, visible progress messages and final answers from `${CODEX_HOME:-~/.codex}/sessions` every five
+minutes and delivers them as `codex_dialogue` events. Reasoning, tool calls and results, subagent sessions and ReMe's
+own sessions are excluded.
 
-Dialogue packages live under `resource/codex_dialogue/YYYY-MM-DD/HHMMSS_<suffix>/`, with `dialogue.jsonl` and
-`metadata.json`. `resource/codex_dialogue/progress.jsonl` retains committed reading offsets and message IDs.
+Dialogue packages live under `resource/codex_dialogue/YYYY-MM-DD/HHMMSS_<suffix>/`. Events give agents `dialogue.md`
+and paths to its image attachments. The Markdown shows the project, session, turn and message IDs, and lists each
+user message, progress update and final answer in order. A follow-up in an active turn has its own message ID under
+the same turn. Images are linked next to their messages. The notebook runtime includes the dialogue in its prompt
+and checks existing records by project and ID through `todo` and `idea`.
+`resource/codex_dialogue/progress.jsonl` retains committed reading offsets and message IDs.
 `pending.json` freezes an unfinished batch so delivery can be retried before reading further changes. These collector
 files are not included in event paths. Restarting resumes the saved progress without replaying delivered dialogue.
 An idle scan writes no new progress record; tool-only changes still advance offsets without producing dialogue events.
@@ -134,9 +136,11 @@ its USDT prices and percentage basis are distinct from stock quotes. Stock holid
 Unchanged prices and 24-hour opening prices produce no new resource or event; advancing collection or window times
 alone does not count as new information. Older statistics windows are ignored.
 
-The collectors save `news.jsonl`, `quotes.jsonl` or `btc.jsonl` under `resource/<source>/YYYY-MM-DD/hhmmss_<suffix>/`, then call
-`append_task_events` for the `finance` task. Collection does not use an LLM. Empty batches produce
-no files or events. News uses a rolling 24-hour lookback and retained news IDs for deduplication; outages longer than
+Under `resource/<source>/YYYY-MM-DD/hhmmss_<suffix>/`, every news batch saves new items in `news.md` and retains
+`news.jsonl` for ID deduplication. `news.md` shows titles, publication times, source links and full text. If the title
+equals the body, it appears once. Stock and BTC batches save `quotes.jsonl` and `btc.jsonl`, respectively. The `finance`
+agent prompt lists `news.md` or the quote file. Collection does not use an LLM. Empty batches produce no files or events.
+News uses a rolling 24-hour lookback and retained news IDs for deduplication; outages longer than
 the lookback can leave gaps. After a successful fetch, a source-owned progress file narrows subsequent requests to
 the last checked time with a ten-minute overlap, bounded by the 24-hour lookback. Removing this progress file restores
 the full lookback; retained news IDs still prevent duplicates. Saved batches without a delivery receipt are retried

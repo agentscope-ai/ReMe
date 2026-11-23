@@ -43,15 +43,14 @@ workspace so the Chat Agent can answer follow-up questions and bring back releva
 
 ![ReMe5 roadmap showing how the Chat Agent manages event-driven, scheduled, and custom agents, what executes them, and where the runtime integrates](../figure/reme5-proactive-runtime-overview.svg)
 
-Presets cover common tasks. From the same conversation you can connect an observation source and add a cron schedule to
-the same task. The roadmap includes a standalone desktop preview and extends the runtime into
-existing agent tools through host integrations.
+Presets cover common tasks. From Chat, you can connect an observation source to an event-driven task or set a cron
+schedule for a scheduled task. The roadmap includes a standalone desktop preview and host integrations.
 
 ## How the runtime works
 
-The runtime coordinates named background tasks. **Observations** can come from a completed conversation, a new log entry,
-or a paper from a configured feed. An **optional schedule** appends a trigger to the same inbox at an agreed time, such as
-for a daily briefing or nightly memory consolidation. Each task waits between runs without continuously calling the model.
+The Proactive Manager coordinates named runtimes. An event-driven task receives observations such as new dialogue or
+logs. A scheduled task receives cron triggers, for example for a daily briefing or nightly memory consolidation.
+Each task has its own inbox and calls the model when it has work.
 
 ![Proactive Runtime showing how observations reach the Work agent and become daily records with sources and reminder decisions](../figure/proactive-runtime.svg)
 
@@ -118,7 +117,7 @@ interface and background task summaries that we can build on.
 The Chat Agent uses the `manage-proactive-agent` skill to create custom agents and manage both predefined and custom
 tasks. From chat, you can check a task’s status or progress, revise its instructions and runtime settings, or pause
 and resume it.
-[Task management skill](https://github.com/agentscope-ai/ReMe/blob/main/skills/manage-proactive-agent/SKILL.md)
+[Task management skill](https://github.com/agentscope-ai/ReMe/blob/main/reme/skills/manage-proactive-agent/SKILL.md)
 
 For a cron-driven task, you might say, “Every Friday, summarize the week’s experiment results and link to the
 reports.” For an event-driven task, you might ask the Chat Agent to follow an experiment’s log feed and tell you

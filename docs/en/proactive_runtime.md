@@ -5,13 +5,13 @@ description: How ReMe follows ongoing tasks, saves progress, and brings useful r
 
 # Proactive Runtime
 
-ReMe gives agents local, file-native long-term memory. Its Proactive Runtime brings that memory into ongoing tasks. It accepts new information or schedules a run, delegates execution to an agent runtime such as Codex through an `AgentWrapper`, saves the results, and lets the user know when their attention is needed. One Proactive Runtime coordinates multiple tasks and Remy's conversation.
+ReMe gives agents local, file-native long-term memory. Its Proactive Runtime brings that memory into ongoing tasks. It accepts new information or schedules a run, delegates execution to an agent runtime such as Codex through an `AgentWrapper`, saves the results, and lets the user know when their attention is needed. Each ongoing task has a named Proactive Runtime. The application’s Proactive Manager loads them from the workspace, routes events, and connects reminders to Remy.
 
 The [full illustrated guide is available in Chinese](../zh/proactive_runtime.md).
 
 ## How a task keeps running
 
-Start ReMe with `reme start config=proactive`. Outside collectors can send observations through `append_task_events(agent_name, events)`. An optional `cron` schedule appends a trigger to the same task inbox. For example, one task can check new experiment logs as they arrive and summarize progress every day at 18:00.
+Start ReMe with `reme start config=proactive`. Collectors send observations to event-driven tasks through `append_task_events(task_names, events)`. A task with `cron` receives scheduled triggers from the runtime. Use an event-driven task to check new experiment logs and a separate scheduled task to summarize progress every day at 18:00.
 
 Each run opens a fresh native session and reads `TASK.md`. Consecutive observations can be processed together. Each scheduled trigger gets its own run in queue order. The prompt shows both the planned time of a scheduled trigger in **Events for this run** and the actual start time in **Background**. A trigger planned for 08:00 and processed at 08:07 shows both times.
 
@@ -57,8 +57,9 @@ User feedback can update the relevant task description or configuration for late
 
 ## Current work observations
 
-`codex_dialogue_cron` collects new Codex user messages and final answers. `screen_capture_cron` independently captures
-all displays. Both run every five minutes and send observations to the `work` Agent. The dialogue Job first runs its
+[`codex_dialogue_cron`](./auto_resource.md#scheduled-codex-dialogue-collection) collects new Codex dialogue and
+attachments. `screen_capture_cron` independently captures all displays. Both run every five minutes and send
+observations to the `work` Agent. The dialogue Job first runs its
 `init_steps` at startup to establish the reading baseline without importing old history. Claude Code and fuller tool
 execution trajectories require additional connectors. Collected observations must distinguish requested work, attempted
 actions, and verified results.
@@ -68,7 +69,7 @@ See [Services and Deployment](./services.md#proactive-runtime) for configuration
 
 ## Task storage
 
-Tasks can receive observations with or without a schedule. Set the optional `cron` field to add scheduled triggers and set it to `null` to stop producing new ones. Agent views derive the display field `agent_type` from the presence of a schedule.
+Set `cron` to receive scheduled triggers, or `cron=null` to receive external observations. Agent views derive the display field `agent_type` from the configured trigger.
 Queued inputs keep their original trigger type after a schedule change. The runtime processes each scheduled trigger in its own round and batches consecutive observations separately.
 The observation cooldown starts after the last successful run. A scheduled trigger at the front of the queue can run during that cooldown. A trigger behind waiting observations keeps its place in the queue.
 

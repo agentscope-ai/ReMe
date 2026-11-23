@@ -113,9 +113,11 @@ jobs:
         codex_home: &codex_home ${CODEX_HOME:-~/.codex}
     steps:
       - backend: codex_dialogue_step
-        agent_name: work
+        task_names: [work, proactive_notebook]
         codex_home: *codex_home
 ```
+
+Set `task_names` on the collector Step. Pending deliveries retain the recipients saved with each batch.
 
 Only `steps` run at each scheduled time, using the application's timezone. Initialization and each trigger get fresh
 Step instances and separate runtime contexts and execution records. Share durable progress through workspace files
@@ -311,7 +313,7 @@ components:
 
 Rebuild the embedding index after changing the model or dimensions.
 
-Configure the Inbox, execution wrapper, Remy's initial memory, background tasks, and reminder delays through `components.proactive_runtime.default`. See [Proactive Runtime](./services.md#proactive-runtime).
+Configure the Inbox, execution wrapper, Remy's initial memory, background tasks, and reminder delays through `components.proactive_manager.default`. See [Proactive Runtime](./services.md#proactive-runtime).
 
 ## Service and Jobs
 

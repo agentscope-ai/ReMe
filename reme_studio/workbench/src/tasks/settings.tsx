@@ -1,7 +1,7 @@
 import type { Language } from "../../../client/src/i18n.ts";
 import { useState } from "react";
 import { translator } from "../../../client/src/i18n.ts";
-import type { TaskSettings } from "../../../client/src/tasks.ts";
+import type { ProactiveRuntimeSettings } from "../../../client/src/tasks.ts";
 import { Switch } from "../ui.tsx";
 
 export default function TaskSettingsFields({
@@ -10,13 +10,13 @@ export default function TaskSettingsFields({
   timezone,
   language,
 }: {
-  value: TaskSettings;
-  onChange: (value: TaskSettings) => void;
+  value: ProactiveRuntimeSettings;
+  onChange: (value: ProactiveRuntimeSettings) => void;
   timezone: string | null;
   language: Language;
 }) {
   const t = translator(language);
-  const patch = (settings: Partial<TaskSettings>) =>
+  const patch = (settings: Partial<ProactiveRuntimeSettings>) =>
     onChange({ ...value, ...settings });
   const parts = value.cron?.split(/\s+/) ?? [];
   const [kind, setKind] = useState(() =>
@@ -43,7 +43,7 @@ export default function TaskSettingsFields({
           }}
         >
           <option value="events">{t("taskObserve")}</option>
-          <option value="scheduled">{t("taskObserveAndSchedule")}</option>
+          <option value="scheduled">{t("taskScheduled")}</option>
         </select>
       </label>
       {value.cron !== null && (
@@ -103,7 +103,9 @@ export default function TaskSettingsFields({
           </small>
         </div>
       )}
-      <p className="task-hint">{t("taskEventsHint")}</p>
+      {value.cron === null && (
+        <p className="task-hint">{t("taskEventsHint")}</p>
+      )}
       <label className="task-switch">
         <span>{t("taskEnabled")}</span>
         <Switch

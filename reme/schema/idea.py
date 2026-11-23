@@ -16,3 +16,4 @@ class Idea(BaseModel):
     project: NotebookProject = DEFAULT_PROJECT
     text: str = Field(min_length=1)
     closed_at: AwareDatetime | None = None
+    event_ids: list[str] | None = None

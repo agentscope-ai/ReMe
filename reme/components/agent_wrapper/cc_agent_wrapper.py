@@ -14,7 +14,7 @@ from typing import Any, Literal, TYPE_CHECKING
 from uuid import uuid4
 
 from ...constants import PROACTIVE_MESSAGE_ID_PREFIX, REME_IPV4_LOOPBACK_HOST
-from .base_agent_wrapper import BaseAgentWrapper
+from .base_agent_wrapper import BUILTIN_SKILLS_ROOT, BaseAgentWrapper
 from .cc_sessions import AppendRecord, CcSessions, SessionData, input_frame, native_id
 from . import cc_session_history
 from .session_append import check_guard, check_identity, validate_append
@@ -411,9 +411,24 @@ class CcAgentWrapper(BaseAgentWrapper):
                 runtime.appends.resolve(message)
                 self.logger.info(f"Claude append session={session_id} message={message.id} result=persisted")
 
-    def _ensure_claude_skill_dir(self, config_dir: Path, skills: list[str] | str) -> None:
-        """Add selected project skills to Claude Code discovery locations."""
-        sources = self._resolve_project_skills(skills)
+    def _ensure_claude_skill_dir(
+        self,
+        config_dir: Path,
+        skills: list[str] | str,
+        *,
+        cwd: str | Path | None = None,
+        setting_sources: list[str] | None = None,
+    ) -> None:
+        """Publish built-ins to one enabled scope and preserve existing project skill links."""
+        sources = self._resolve_skill_sources(skills)
+        for name, source in list(sources.items()):
+            if source.parent != BUILTIN_SKILLS_ROOT:
+                continue
+            if setting_sources is None or "user" in setting_sources:
+                self._publish_builtin_skill(config_dir, "skills", source)
+            elif "project" in setting_sources:
+                self._publish_builtin_skill(Path(cwd or self.cwd), ".claude/skills", source)
+            del sources[name]
         if not sources:
             return
 
@@ -566,8 +581,14 @@ class CcAgentWrapper(BaseAgentWrapper):
         opts.cwd = opts.cwd or self.cwd
         claude_config_dir = self.session_path / "claude_config"
         opts.env.setdefault("CLAUDE_CONFIG_DIR", str(claude_config_dir))
-        if selected_skills is not None:
-            self._ensure_claude_skill_dir(claude_config_dir, selected_skills)
+        if selected_skills is not None and not opts.resume:
+            location = self._sessions.location(opts)
+            self._ensure_claude_skill_dir(
+                Path(location.config_dir),
+                selected_skills,
+                cwd=location.cwd,
+                setting_sources=opts.setting_sources,
+            )
 
         job_tools: list[str] = kwargs.get("job_tools", [])
         resolved_jobs = self._resolve_job_tools(job_tools)
@@ -861,6 +882,13 @@ class CcAgentWrapper(BaseAgentWrapper):
                         if "cwd" in kwargs and Path(options.cwd).resolve() != Path(data.cwd).resolve():
                             raise ValueError("resuming a Claude session requires its original cwd")
                         options.cwd = data.cwd
+                        if options.skills is not None:
+                            self._ensure_claude_skill_dir(
+                                Path(data.config_dir),
+                                options.skills,
+                                cwd=data.cwd,
+                                setting_sources=options.setting_sources,
+                            )
                     runtime.input = SessionMessage(id=turn_id, role="user", content=inputs, turn_id=turn_id)
                     await self._sessions.save(session_id, data)
                 async with aclosing(self._stream_reply(inputs, options, turn_id)) as stream:

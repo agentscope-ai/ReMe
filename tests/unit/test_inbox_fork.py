@@ -13,7 +13,7 @@ from reme.core.context import RuntimeContext
 from reme.schema import Event, SessionMessage
 from reme.steps.proactive.agent import AskAgentStep, AgentNewSessionStep, ProcessChatRemindersStep, ProactiveAgentStep
 from reme.steps.proactive.tools.chat_reminders import SubmitChatReminderStep
-from .test_proactive_runtime import completed_result, create_agent, running_runtime
+from .test_proactive_runtime import completed_result, create_agent, running_manager
 from .test_proactive_run import install_round
 
 
@@ -21,7 +21,7 @@ async def prepare(runtime, context, priority="P1"):
     await AgentNewSessionStep(app_context=context)()
     await create_agent(runtime)
     result, session = completed_result(runtime, priority=priority)
-    await runtime.run("monitor", AsyncMock(return_value=(result, session)))
+    await runtime.run_round("monitor", AsyncMock(return_value=(result, session)))
     await runtime.outbox.sync()
     runtime.notifications.last_activity_at -= timedelta(seconds=2000)
     return {"priority": priority, "msg_ids": list(runtime.notifications.pending)}
@@ -42,7 +42,7 @@ def append_message(session_id, content, *, message_id, **kwargs):
 @pytest.mark.parametrize("content", ["有新的进展，实验已经完成。", "", "   "])
 @pytest.mark.asyncio
 async def test_fork_sends_only_explicit_content_and_consumes_decisions(tmp_path, content, language):
-    async with running_runtime(tmp_path, language=language) as (runtime, context, wrapper):
+    async with running_manager(tmp_path, language=language) as (runtime, context, wrapper):
         arguments = await prepare(runtime, context)
         source = (await runtime.sessions.current("Remy")).session_id
         activity = runtime.notifications.last_activity_at
@@ -95,7 +95,7 @@ async def test_fork_sends_only_explicit_content_and_consumes_decisions(tmp_path,
 @pytest.mark.parametrize("content", ["", "New experiment progress"])
 @pytest.mark.asyncio
 async def test_chat_decision_updates_outbox_without_rewriting_markdown(tmp_path, monkeypatch, content):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)
@@ -130,11 +130,11 @@ async def test_chat_decision_updates_outbox_without_rewriting_markdown(tmp_path,
 
 @pytest.mark.asyncio
 async def test_inbox_markdown_contains_source_path_without_consuming_the_batch(tmp_path):
-    async with running_runtime(tmp_path) as (runtime, context, _):
+    async with running_manager(tmp_path) as (runtime, context, _):
         await AgentNewSessionStep(app_context=context)()
         await create_agent(runtime)
         reminder, session = completed_result(runtime)
-        await runtime.run("monitor", AsyncMock(return_value=(reminder, session)))
+        await runtime.run_round("monitor", AsyncMock(return_value=(reminder, session)))
         await runtime.outbox.sync()
         ids = list(runtime.notifications.pending)
         session_id = (await runtime.sessions.current("Remy")).session_id
@@ -152,7 +152,7 @@ async def test_inbox_markdown_contains_source_path_without_consuming_the_batch(t
 @pytest.mark.parametrize("content", ["", "Old reminder"])
 @pytest.mark.asyncio
 async def test_native_content_changes_leave_stale_reminder_decisions_pending(tmp_path, content):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         arguments = await prepare(runtime, context)
         snapshot = await wrapper.read_session((await runtime.sessions.current("Remy")).session_id)
 
@@ -177,7 +177,7 @@ async def test_native_content_changes_leave_stale_reminder_decisions_pending(tmp
 @pytest.mark.parametrize("stage", ["inbox_load", "fork", "plain_reply", "append_failure"])
 @pytest.mark.asyncio
 async def test_failed_or_missing_decisions_preserve_messages_for_retry(tmp_path, monkeypatch, stage):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         arguments = await prepare(runtime, context)
         wrapper.append_session = AsyncMock(side_effect=OSError("append failed"))
         if stage == "inbox_load":
@@ -202,7 +202,7 @@ async def test_failed_or_missing_decisions_preserve_messages_for_retry(tmp_path,
 
 @pytest.mark.asyncio
 async def test_fork_allows_foreground_chat_and_rejects_a_rotated_session(tmp_path):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         arguments = await prepare(runtime, context)
         wrapper.append_session = AsyncMock(side_effect=append_message)
 
@@ -226,7 +226,7 @@ async def test_fork_allows_foreground_chat_and_rejects_a_rotated_session(tmp_pat
 
 @pytest.mark.asyncio
 async def test_failed_session_read_releases_selected_inbox_claim(tmp_path):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         arguments = await prepare(runtime, context)
         session = (await runtime.sessions.current("Remy")).session_id
         wrapper.read_session = AsyncMock(side_effect=OSError("native session unavailable"))
@@ -241,7 +241,7 @@ async def test_failed_session_read_releases_selected_inbox_claim(tmp_path):
 @pytest.mark.parametrize("method", ["read_session", "get_session_status", "session_exists"])
 @pytest.mark.asyncio
 async def test_inbox_timeout_covers_native_session_setup_and_releases_claim(tmp_path, method):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         arguments = await prepare(runtime, context)
 
         async def unavailable(_session_id):
@@ -259,7 +259,7 @@ async def test_inbox_timeout_covers_native_session_setup_and_releases_claim(tmp_
 
 @pytest.mark.asyncio
 async def test_priority_wakeup_can_overtake_older_low_priority_reminders(tmp_path):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         low = await prepare(runtime, context, "P2")
         await runtime.create(
             {"agent_name": "urgent", "task_description": "Urgent observations"},
@@ -269,7 +269,7 @@ async def test_priority_wakeup_can_overtake_older_low_priority_reminders(tmp_pat
             [Event(id="urgent", event_ts=runtime.now(), source="test", description="Urgent")],
         )
         result, session = completed_result(runtime, "urgent")
-        await runtime.run("urgent", AsyncMock(return_value=(result, session)))
+        await runtime.run_round("urgent", AsyncMock(return_value=(result, session)))
         await runtime.outbox.sync()
         urgent = [identifier for identifier in runtime.notifications.pending if identifier not in low["msg_ids"]]
 
@@ -290,7 +290,7 @@ async def test_priority_wakeup_can_overtake_older_low_priority_reminders(tmp_pat
 
 @pytest.mark.asyncio
 async def test_chat_read_rechecks_message_size_after_selection(tmp_path, monkeypatch):
-    async with running_runtime(tmp_path) as (runtime, context, _):
+    async with running_manager(tmp_path) as (runtime, context, _):
         arguments = await prepare(runtime, context)
         monkeypatch.setattr(runtime.inbox, "claim_max_bytes", 320)
         (ref,) = arguments["msg_ids"]
@@ -309,7 +309,7 @@ async def test_chat_read_rechecks_message_size_after_selection(tmp_path, monkeyp
 @pytest.mark.asyncio
 async def test_oversized_p0_reminder_does_not_block_a_fitting_reminder(tmp_path, monkeypatch, priority):
 
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         monkeypatch.setattr(runtime.inbox, "claim_max_bytes", 320)
         monkeypatch.setattr(runtime.inbox, "max_item_bytes", 320)
         now = runtime.now()
@@ -318,7 +318,7 @@ async def test_oversized_p0_reminder_does_not_block_a_fitting_reminder(tmp_path,
         await runtime.create({"agent_name": oversized, "task_description": "Observe"})
         await runtime.append_events(oversized, [Event(event_ts=now, source="test", description="Finished")])
         execute = AsyncMock(return_value=completed_result(runtime, oversized, message="提醒" * 100))
-        assert (await runtime.run(oversized, execute))["processed"] == 1
+        assert (await runtime.run_round(oversized, execute))["processed"] == 1
         await runtime.outbox.sync()
         oversized_id = next(iter(runtime.notifications.pending))
 
@@ -348,7 +348,7 @@ async def test_oversized_p0_reminder_does_not_block_a_fitting_reminder(tmp_path,
 
 @pytest.mark.asyncio
 async def test_cancelled_fork_releases_scope_and_preserves_uncommitted_messages(tmp_path):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         arguments = await prepare(runtime, context)
         reading = asyncio.Event()
         released = asyncio.Event()
@@ -377,7 +377,7 @@ async def test_cancelled_fork_releases_scope_and_preserves_uncommitted_messages(
 @pytest.mark.parametrize("priority, threshold", [("P0", 0), ("P1", 10), ("P2", 1800)])
 @pytest.mark.asyncio
 async def test_priority_idle_thresholds_and_busy_chat(tmp_path, priority, threshold):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         arguments = await prepare(runtime, context, priority)
         now = runtime.now()
         runtime.now = lambda: now
@@ -402,7 +402,7 @@ async def test_priority_idle_thresholds_and_busy_chat(tmp_path, priority, thresh
 
 @pytest.mark.asyncio
 async def test_reminder_decision_does_not_consume_later_arrivals(tmp_path):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         arguments = await prepare(runtime, context)
         wrapper.append_session = AsyncMock(side_effect=append_message)
 
@@ -415,7 +415,7 @@ async def test_reminder_decision_does_not_consume_later_arrivals(tmp_path):
                 "other",
                 [Event(id="new", event_ts=runtime.now(), source="test", description="New")],
             )
-            await runtime.run("other", AsyncMock(return_value=completed_result(runtime, "other")))
+            await runtime.run_round("other", AsyncMock(return_value=completed_result(runtime, "other")))
             await runtime.outbox.sync()
             await SubmitChatReminderStep(app_context=context)(content="", **bound)
             with pytest.raises(ValueError, match="already been submitted"):
@@ -432,7 +432,7 @@ async def test_reminder_decision_does_not_consume_later_arrivals(tmp_path):
 @pytest.mark.parametrize("change", ["disabled", "window_closed"])
 @pytest.mark.asyncio
 async def test_delivery_rechecks_sender_settings_after_the_fork_starts(tmp_path, change):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         arguments = await prepare(runtime, context)
         wrapper.append_session = AsyncMock(side_effect=append_message)
 
@@ -456,7 +456,7 @@ async def test_delivery_rechecks_sender_settings_after_the_fork_starts(tmp_path,
 
 @pytest.mark.asyncio
 async def test_cancelling_delivery_waiting_for_foreground_chat_does_not_hang(tmp_path):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         arguments = await prepare(runtime, context)
         sending = asyncio.Event()
         lock_held = asyncio.Event()
@@ -519,7 +519,7 @@ async def test_codex_ephemeral_fork_matches_the_native_sdk_contract(monkeypatch)
 @pytest.mark.asyncio
 @pytest.mark.parametrize("content", ["Outdated update", ""])
 async def test_fork_rechecks_original_reminders_before_sending_or_consuming(tmp_path, content):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         arguments = await prepare(runtime, context)
         wrapper.append_session = AsyncMock(side_effect=append_message)
 

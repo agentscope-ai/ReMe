@@ -48,22 +48,22 @@ class ProactiveAgentStep(BaseAgentStep):
         self.recent_history_hours = recent_history_hours
 
     def _paths(self, agent, now: datetime, receipt_paths: frozenset[str] = frozenset()) -> dict[str, Path]:
-        runtime = self.proactive_runtime
-        daily = runtime.files.path(self.config_value("daily_dir"))
+        manager = self.proactive_manager
+        daily = manager.files.path(self.config_value("daily_dir"))
         day = daily / now.date().isoformat()
         stem = f"{agent.agent_name}_{now:%H%M%S}"
-        record = runtime.files.checked(day / f"{stem}.md")
+        record = manager.files.checked(day / f"{stem}.md")
         collision = 0
         while (
-            record.relative_to(runtime.files.workspace).as_posix() in receipt_paths
+            record.relative_to(manager.files.workspace).as_posix() in receipt_paths
             or record.exists()
-            or runtime.outbox.has_registration(agent.agent_name, record)
+            or manager.outbox.has_registration(agent.agent_name, record)
         ):
             collision += 1
-            record = runtime.files.checked(day / f"{stem}_{collision}.md")
-        return {"daily_dir": daily, "task_path": runtime.agents.task_path(agent), "record_path": record}
+            record = manager.files.checked(day / f"{stem}_{collision}.md")
+        return {"daily_dir": daily, "task_path": manager.registry.task_path(agent), "record_path": record}
 
-    def session_options(self, agent):
+    def session_options(self, agent, _events):
         """Build tool bindings and permissions for an automatic run."""
         options = {
             "config": {"skills.include_instructions": False},
@@ -79,7 +79,7 @@ class ProactiveAgentStep(BaseAgentStep):
 
     def _query(self, events, paths, now, task_content, *, is_cron):
         """Build the round prompt from the task snapshot and claimed events."""
-        files = self.proactive_runtime.files
+        files = self.proactive_manager.files
         event_sections = []
         for number, event in enumerate(events, 1):
             if is_cron:
@@ -90,6 +90,7 @@ class ProactiveAgentStep(BaseAgentStep):
                 self.prompt_format(
                     "event_input",
                     number=number,
+                    event_id=event["id"],
                     event_ts=event["event_ts"],
                     source=event["source"],
                     description=event["description"],
@@ -153,7 +154,7 @@ class ProactiveAgentStep(BaseAgentStep):
 
     def _warn_local_links(self, path, content):
         """Check Markdown links relative to their source without blocking submission."""
-        files = self.proactive_runtime.files
+        files = self.proactive_manager.files
         directory = path.parent.relative_to(files.workspace).as_posix()
         try:
             targets = markdown_link_targets(content)
@@ -175,7 +176,7 @@ class ProactiveAgentStep(BaseAgentStep):
 
     def _read_record(self, path: Path, reply_text: str | None, *, is_cron: bool) -> AgentReminder | None:
         """Validate the round record or an explicit event skip."""
-        files = self.proactive_runtime.files
+        files = self.proactive_manager.files
         try:
             text = files.read(path)
         except FileNotFoundError:
@@ -195,11 +196,11 @@ class ProactiveAgentStep(BaseAgentStep):
         if set(arguments) != {"agent_name"}:
             raise ValueError("proactive_agent_step requires only agent_name")
         self.require_paths(self.workspace_path)
-        record = RoundRecord(self.proactive_runtime.files)
+        record = RoundRecord(self.proactive_manager.files)
         self.context.response.metadata.pop("reme.agent_run", None)
         started, outcome = monotonic(), "failed"
         try:
-            self.context.response.answer = await self.proactive_runtime.run(
+            self.context.response.answer = await self.proactive_manager.run_round(
                 arguments["agent_name"],
                 partial(self._execute, record=record),
                 record=record,
@@ -228,6 +229,19 @@ class ProactiveAgentStep(BaseAgentStep):
                 )
         return self.context.response
 
+    def _validate_output(self, record, reply, *, is_cron, repairing):
+        """Validate the saved record or replace its invalid frontmatter."""
+        if repairing:
+            decision = ProactiveRecordDecision.model_validate(reply["structured_output"])
+            record.replace_frontmatter(decision.model_dump())
+        else:
+            record.check_version(record.path)
+        return self._read_record(
+            record.path,
+            reply["result"] if reply is not None and not repairing else None,
+            is_cron=is_cron,
+        )
+
     async def _execute(self, agent, events, *, record):
         """Run the workflow and allow one follow-up to repair the saved record."""
         is_cron = events[0]["source"] == CRON_EVENT_SOURCE
@@ -243,19 +257,20 @@ class ProactiveAgentStep(BaseAgentStep):
             "max_local_search_calls": self.max_local_search_calls,
         }
         self.context.response.metadata["reme.agent_run"] = stats
-        runtime = self.proactive_runtime
-        now = runtime.now()
+        manager = self.proactive_manager
+        now = manager.now()
         paths = await asyncio.to_thread(
             self._paths,
             agent,
             now,
-            receipt_paths=await runtime.outbox.receipt_record_paths(agent.agent_name),
+            receipt_paths=await manager.outbox.receipt_record_paths(agent.agent_name),
         )
         await record.prepare(paths["record_path"])
-        task_content = await asyncio.to_thread(runtime.files.read, paths["task_path"])
+        task_content = await asyncio.to_thread(manager.files.read, paths["task_path"])
         if not task_content.strip():
             raise ValueError("TASK.md must not be blank")
-        options = self.session_options(agent)
+        options = self.session_options(agent, events)
+        writes_record = "output_schema" not in options
         query = await asyncio.to_thread(
             self._query,
             events,
@@ -325,23 +340,23 @@ class ProactiveAgentStep(BaseAgentStep):
                 try:
                     async with asyncio.timeout_at(deadline):
                         if attempt == 0:
-                            session_id = await runtime.sessions.ensure(
+                            session_id = await manager.sessions.ensure(
                                 agent.agent_name,
-                                runtime.agent_wrapper,
+                                manager.agent_wrapper,
                                 options,
                                 now,
                                 new=True,
                             )
                             label += f" session={session_id}"
                             self.logger.info(f"{label} result=started path={record.path}")
-                        with runtime.live_turns.observe(agent.agent_name, session_id, query) as publish:
+                        with manager.live_turns.observe(agent.agent_name, session_id, query) as publish:
                             try:
                                 reply = await collect_reply(
-                                    runtime.agent_wrapper.reply_stream(query, resume=session_id, **options),
+                                    manager.agent_wrapper.reply_stream(query, resume=session_id, **options),
                                     on_chunk=partial(observe, attempt=attempt, publish=publish),
                                 )
                             finally:
-                                if attempt == 0:
+                                if attempt == 0 and writes_record:
                                     async with await get_path_lock(record.path):
                                         await complete_in_thread(record.capture)
                         if reply["status"] != "completed":
@@ -353,23 +368,19 @@ class ProactiveAgentStep(BaseAgentStep):
                     raise model_error
                 try:
                     async with await get_path_lock(record.path):
-                        if attempt:
-                            decision = ProactiveRecordDecision.model_validate(reply["structured_output"])
-                            await complete_in_thread(record.replace_frontmatter, decision.model_dump())
-                        else:
-                            await asyncio.to_thread(record.check_version, record.path)
-                        reminder = await asyncio.to_thread(
-                            self._read_record,
-                            record.path,
-                            reply["result"] if attempt == 0 and model_error is None else None,
+                        reminder = await complete_in_thread(
+                            self._validate_output,
+                            record,
+                            reply if model_error is None else None,
                             is_cron=is_cron,
+                            repairing=bool(attempt),
                         )
                 except Exception as validation_error:
                     if model_error is not None:
                         raise model_error from validation_error
                     if attempt or not isinstance(validation_error, (yaml.YAMLError, ValidationError)):
                         raise
-                    record_path = record.path.relative_to(runtime.workspace_path).as_posix()
+                    record_path = record.path.relative_to(manager.workspace_path).as_posix()
                     query = self.prompt_format(
                         "repair_record_query",
                         record_path=record_path,
@@ -378,8 +389,7 @@ class ProactiveAgentStep(BaseAgentStep):
                     options = {
                         **options,
                         "sandbox": "read-only",
-                        "job_tools": [],
-                        "output_schema": ProactiveRecordDecision.model_json_schema(),
+                        "output_schema": options.get("output_schema") or ProactiveRecordDecision.model_json_schema(),
                     }
                     self.logger.info(f"{label} result=repairing_record path={record.path}")
                 else:
@@ -405,7 +415,7 @@ class ProactiveAgentStep(BaseAgentStep):
                         # An unfiltered native read would include both turns and count calls twice.
                         continue
                     try:
-                        saved = await runtime.agent_wrapper.get_tool_calls(session_id, turn_id)
+                        saved = await manager.agent_wrapper.get_tool_calls(session_id, turn_id)
                         if saved is not None:
                             for call in saved:
                                 key = (attempt, call["id"])

@@ -129,6 +129,7 @@ repair_record_query_zh: |
 
 event_input: |
   ### Event {number}
+  - ID: `{event_id}`
   - Time: {event_ts}
   - Source: {source}
   - Description: {description}
@@ -138,6 +139,7 @@ event_input: |
 
 event_input_zh: |
   ### 事件 {number}
+  - ID：`{event_id}`
   - 时间：{event_ts}
   - 来源：{source}
   - 描述：{description}

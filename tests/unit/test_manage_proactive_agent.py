@@ -9,7 +9,7 @@ import pytest
 
 from reme.schema.proactive_agent import ManageProactiveAgentRequest
 from reme.steps.proactive.tools.manage_proactive_agent import ManageProactiveAgentStep
-from .test_proactive_runtime import running_runtime
+from .test_proactive_runtime import running_manager
 
 
 @pytest.mark.parametrize(
@@ -58,7 +58,7 @@ def test_action_arguments_reject_legacy_and_irrelevant_fields(arguments):
 
 @pytest.mark.asyncio
 async def test_all_actions_expose_only_their_results_and_keep_task_files(tmp_path, monkeypatch):
-    async with running_runtime(tmp_path) as (runtime, context, _):
+    async with running_manager(tmp_path) as (runtime, context, _):
         now = datetime.fromisoformat("2026-11-17T07:00:00+08:00")
         monkeypatch.setattr(runtime, "now", lambda: now)
         tool = ManageProactiveAgentStep(app_context=context)
@@ -74,7 +74,7 @@ async def test_all_actions_expose_only_their_results_and_keep_task_files(tmp_pat
         assert created["next_trigger_at"] == "2026-11-17T08:00:00+08:00"
         task_file = tmp_path / created["task_path"]
         assert task_file.read_text() == arguments["task_description"]
-        assert runtime.execution("tech_news").schedule is None
+        assert runtime.runtimes["tech_news"].schedule is None
         assert (await tool(action="list")).answer == {"items": [created], "total": 1}
         assert (await tool(action="status", agent_name="tech_news")).answer == created
         updated = (await tool(action="update", agent_name="tech_news", cron="0 9 * * *")).answer
@@ -100,7 +100,7 @@ async def test_all_actions_expose_only_their_results_and_keep_task_files(tmp_pat
 
 @pytest.mark.asyncio
 async def test_schedule_and_observation_interval_can_be_updated_independently(tmp_path):
-    async with running_runtime(tmp_path) as (runtime, context, _):
+    async with running_manager(tmp_path) as (runtime, context, _):
         tool = ManageProactiveAgentStep(app_context=context)
         await tool(
             action="create",
@@ -132,7 +132,7 @@ async def test_schedule_and_observation_interval_can_be_updated_independently(tm
 
 @pytest.mark.asyncio
 async def test_query_errors_remain_failed_tool_results(tmp_path, monkeypatch):
-    async with running_runtime(tmp_path) as (_, context, _):
+    async with running_manager(tmp_path) as (_, context, _):
         tool = ManageProactiveAgentStep(app_context=context)
         monkeypatch.setattr(
             tool,

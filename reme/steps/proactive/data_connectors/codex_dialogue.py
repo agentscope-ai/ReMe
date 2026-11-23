@@ -1,9 +1,9 @@
-"""Collect new Codex dialogue and deliver a retryable observation to a named Agent."""
+"""Collect new Codex dialogue and deliver retryable observations to background tasks."""
 
 import asyncio
 from contextlib import suppress
 from datetime import datetime
-from hashlib import sha256
+from itertools import groupby
 import os
 from pathlib import Path
 import shutil
@@ -13,25 +13,54 @@ from zoneinfo import ZoneInfo
 from ....schema.resource_metadata import RESOURCE_METADATA_FILENAME
 from ._codex_dialogue import CodexDialogueIndex
 from .base_connector import resource_package_id
+from .resource_delivery import resource_event
 from ..agent import BaseAgentStep
 from ....utils.files.path_lock import get_path_lock
 from ....core.registry import R
 from ....utils.files.workspace_files import WorkspaceFiles
-from ....schema import Event, ResourceMetadata
-from ....schema.proactive_runtime import validate_agent_name
+from ....schema import ResourceMetadata
+from ....schema.proactive_agent import validate_task_names
 from ....utils.async_utils import finish_cleanup
-from ....utils.files.file_sync import sync_directory
+from ....utils.files.file_sync import sync_directory, sync_file
+
+
+def dialogue_markdown(messages, now, language):
+    """Render messages for reading, keeping stable identifiers for evidence references."""
+    chinese = language.lower().startswith("zh")
+    title, session, turn, user, progress, final = (
+        ("Codex 对话", "会话", "轮次", "用户", "Codex 进度", "Codex 最终回答")
+        if chinese
+        else ("Codex dialogue", "Session", "Turn", "User", "Codex progress", "Codex final answer")
+    )
+    sections = [f"# {title}"]
+    for (cwd, session_id), session_messages in groupby(messages, key=lambda row: (row["cwd"], row["session_id"])):
+        sections.append(f"## `{cwd}`\n\n{session} `{session_id}`")
+        for turn_id, turn_messages in groupby(session_messages, key=lambda row: row["turn_id"]):
+            sections.append(f"### {turn} `{turn_id}`")
+            for row in turn_messages:
+                timestamp = datetime.fromisoformat(row["timestamp"]).astimezone(now.tzinfo)
+                role = {None: user, "commentary": progress, "final_answer": final}[row.get("phase")]
+                sections.append(f"#### {role} · {timestamp:%Y-%m-%d %H:%M:%S %z} · `{row['message_id']}`")
+                if row["content"]:
+                    sections.append(row["content"].rstrip("\n"))
+                images = row.get("image_paths", ())
+                for filename in images:
+                    number = Path(filename).stem.rsplit("-", 1)[-1]
+                    sections.append(f"![Image #{number}]({filename})")
+                if missing := row["image_attachments"] - len(images):
+                    sections.append(f"{missing} 张图片无法读取。" if chinese else f"Unavailable images: {missing}.")
+    return "\n\n".join(sections) + "\n"
 
 
 class _CodexDialogueBase(BaseAgentStep):
     """Own cancellation and serialize source progress without a permanent watcher."""
 
-    def __init__(self, codex_home=None, agent_name="work", max_scan_bytes=32 * 1024 * 1024, **kwargs):
+    def __init__(self, codex_home=None, task_names=None, max_scan_bytes=32 * 1024 * 1024, **kwargs):
         super().__init__(**kwargs)
         if type(max_scan_bytes) is not int or max_scan_bytes < 1:
             raise ValueError("max_scan_bytes must be a positive integer")
         self.codex_home = Path(codex_home or os.environ.get("CODEX_HOME") or Path.home() / ".codex")
-        self.agent_name = validate_agent_name(agent_name)
+        self.task_names = validate_task_names(["work"] if task_names is None else task_names)
         self.max_scan_bytes = max_scan_bytes
         self.cancelled = ThreadEvent()
 
@@ -86,8 +115,8 @@ class CodexDialogueStep(_CodexDialogueBase):
     """Commit reading progress only after a frozen dialogue package has been delivered."""
 
     description = (
-        "New Codex user inputs and final answers, grouped by project and turn. "
-        "Read dialogue.jsonl for original message times and text; unfinished turns are not completed work."
+        "New Codex user messages, progress updates and final answers. "
+        "Image links are relative to the dialogue file. Progress updates alone do not establish completed work."
     )
 
     def _prepare(self):
@@ -100,7 +129,8 @@ class CodexDialogueStep(_CodexDialogueBase):
         scan = index.scan(state, self.max_scan_bytes, self.max_file_bytes())
         batch = {
             "id": resource_package_id(now),
-            "agent_name": self.agent_name,
+            "task_names": self.task_names,
+            "delivered_to": [],
             "resource": None,
             **{key: scan[key] for key in ("updates", "message_ids", "next_path", "scanned_bytes", "errors")},
         }
@@ -112,7 +142,19 @@ class CodexDialogueStep(_CodexDialogueBase):
                 index.files.checked(target.parent).mkdir(parents=True, exist_ok=True)
                 index.files.checked(target).mkdir()
                 directory = target
+                index.files.write(directory / "dialogue.md", dialogue_markdown(scan["messages"], now, self.language))
                 index.files.write_jsonl(directory / "dialogue.jsonl", scan["messages"])
+                for name, data in scan["images"].items():
+                    self._check_stopped()
+                    path = index.files.checked(directory / name)
+                    self.require_paths(path)
+                    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                    with os.fdopen(descriptor, "wb") as handle:
+                        handle.write(data)
+                        handle.flush()
+                        sync_file(handle.fileno())
+                if scan["images"]:
+                    sync_directory(directory)
                 sync_directory(directory.parent)
                 metadata = ResourceMetadata(
                     dataclass=type(self).__name__,
@@ -120,7 +162,7 @@ class CodexDialogueStep(_CodexDialogueBase):
                     description=self.description,
                     created_at=now,
                     modified_at=now,
-                    files=[{"path": "dialogue.jsonl"}],
+                    files=[{"path": name} for name in ("dialogue.md", "dialogue.jsonl", *scan["images"])],
                 )
                 batch["resource"] = {
                     "path": directory.relative_to(index.files.workspace).as_posix(),
@@ -135,8 +177,6 @@ class CodexDialogueStep(_CodexDialogueBase):
 
     def _publish(self, batch):
         index = self._index()
-        if batch["agent_name"] != self.agent_name:
-            raise ValueError("Pending Codex dialogue does not match its Agent")
         resource = batch["resource"]
         if resource is None:
             return []
@@ -157,14 +197,9 @@ class CodexDialogueStep(_CodexDialogueBase):
         self._check_stopped()
         if saved is None:
             index.files.write_json(manifest, resource["metadata"])
-        event = Event(
-            id=f"resource-{sha256(resource['path'].encode()).hexdigest()}",
-            event_ts=metadata.created_at,
-            source=metadata.source,
-            description=metadata.description,
-            paths=[path.relative_to(index.files.workspace).as_posix() for path in paths],
-        )
-        return [event.model_dump(mode="json")]
+        payloads = [path for path in paths[1:] if path.name != "dialogue.jsonl"]
+        event = resource_event(index.files.workspace, directory, metadata, payloads)
+        return [event]
 
     def _commit(self, batch):
         index = self._index()
@@ -173,27 +208,33 @@ class CodexDialogueStep(_CodexDialogueBase):
 
     async def execute(self):
         directory = self._authorize()
-        if self.get_job("append_task_events") is None:
-            raise RuntimeError("Codex dialogue requires the append_task_events Job")
-        await self.proactive_runtime.definition(self.agent_name)
         async with await get_path_lock(directory):
             batch = await self._offload(self._prepare)
             events = await self._offload(self._publish, batch)
-            if events:
-                response = await self.run_job(
-                    "append_task_events",
-                    agent_name=self.agent_name,
-                    events=events,
-                    _allowed_paths=self.context.get("_allowed_paths"),
-                )
-                if not response.success:
-                    raise RuntimeError(f"Codex dialogue delivery failed: {response.answer}")
+            targets = validate_task_names(batch["task_names"])
+            rejected = batch.get("rejected", {})
+            pending = [name for name in targets if name not in batch.get("delivered_to", ()) and name not in rejected]
+            if events and pending:
+                result = await self.proactive_manager.deliver_events(task_names=pending, events=events)
+                delivered, skipped = result["deliveries"], result["rejected"]
+                if skipped:
+                    self.logger.warning(f"Codex dialogue batch {batch['id']} rejected by tasks: {skipped}")
+                    rejected.update(skipped)
+                    batch["rejected"] = rejected
+                if delivered or skipped:
+                    batch.setdefault("delivered_to", []).extend(delivered)
+                    index = self._index()
+                    await self._offload(index.files.write_json, index.pending_path, batch)
+                if result["errors"]:
+                    raise RuntimeError(f"Codex dialogue delivery failed: {result['errors']}")
             await self._offload(self._commit, batch)
         self.context.response.success = not batch["errors"]
         self.context.response.answer = {
-            "event_ids": [event["id"] for event in events],
+            "event_ids": [event.id for event in events],
             "dialogue_messages": len(batch["message_ids"]),
             "scanned_bytes": batch["scanned_bytes"],
             "errors": batch["errors"],
         }
+        if rejected:
+            self.context.response.answer["rejected"] = rejected
         return self.context.response

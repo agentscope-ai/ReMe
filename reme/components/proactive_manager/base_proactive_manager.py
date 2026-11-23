@@ -1,14 +1,16 @@
-"""Coordinate proactive tasks and reminder delivery through an Agent wrapper."""
+"""Shared management, event routing and Remy services for Proactive Runtimes."""
 
 from __future__ import annotations
 
 from abc import abstractmethod
+from asyncio import CancelledError, gather
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import TYPE_CHECKING
 
 from ..base import BaseComponent
+from ..agent_inbox.base_agent_inbox import InvalidInboxBatchError
 from ...enumeration import ComponentEnum
 
 if TYPE_CHECKING:
@@ -18,23 +20,31 @@ if TYPE_CHECKING:
     from ...utils.proactive_record import RoundRecord
     from ._internal.notifications import ChatNotifications
     from ._internal.outbox import ReminderOutbox
-    from ._internal.registry import AgentRegistry
+    from ._internal.registry import RuntimeRegistry
     from ._internal.sessions import AgentSessions
     from ._internal.live_turn import LiveTurns
     from ..agent_wrapper import BaseAgentWrapper
     from ..agent_inbox import BaseAgentInbox
-    from ...schema.proactive_agent import ProactiveAgent
+    from ...schema.proactive_agent import ProactiveRuntimeDefinition
     from ...schema.agent_activity import AgentActivity
     from ...schema.event import Event
 
 
-class BaseProactiveRuntime(BaseComponent):
+class TaskNotFoundError(ValueError):
+    """A named task is missing or deleted."""
+
+
+class ScheduledTaskDeliveryError(ValueError):
+    """A scheduled task cannot receive external observations."""
+
+
+class BaseProactiveManager(BaseComponent):
     """Expose owned Agent resources and operations independently of the local backend."""
 
-    component_type = ComponentEnum.PROACTIVE_RUNTIME
+    component_type = ComponentEnum.PROACTIVE_MANAGER
     agent_wrapper: BaseAgentWrapper
     files: WorkspaceFiles
-    agents: AgentRegistry
+    registry: RuntimeRegistry
     sessions: AgentSessions
     live_turns: LiveTurns
     inbox: BaseAgentInbox
@@ -43,7 +53,6 @@ class BaseProactiveRuntime(BaseComponent):
     chat_lock: asyncio.Lock
     chat_tasks: set[asyncio.Task]
     workers: dict[str, asyncio.Task]
-    agent_tasks: dict[asyncio.Task, str]
     activities: dict[str, AgentActivity]
     changed: asyncio.Event
     closed: bool
@@ -54,7 +63,7 @@ class BaseProactiveRuntime(BaseComponent):
         """Read time in the application timezone."""
 
     @abstractmethod
-    async def definition(self, agent_name: str) -> ProactiveAgent:
+    async def definition(self, agent_name: str) -> ProactiveRuntimeDefinition:
         """Read the latest task definition."""
 
     @abstractmethod
@@ -71,15 +80,28 @@ class BaseProactiveRuntime(BaseComponent):
 
     @abstractmethod
     async def append_events(self, agent_name: str, events: list[Event]) -> dict:
-        """Persist external observations for a background task."""
+        """Persist external observations for an event-driven task."""
+
+    async def deliver_events(self, task_names: list[str], events: list[Event]) -> dict:
+        """Deliver independently and distinguish rejected targets from retryable failures."""
+        results = await gather(*(self.append_events(name, events) for name in task_names), return_exceptions=True)
+        deliveries, rejected, errors = {}, {}, {}
+        for name, result in zip(task_names, results, strict=True):
+            if isinstance(result, (TaskNotFoundError, ScheduledTaskDeliveryError, InvalidInboxBatchError)):
+                rejected[name] = str(result)
+            elif isinstance(result, CancelledError):
+                errors[name] = "Delivery interrupted"
+            elif isinstance(result, Exception):
+                errors[name] = str(result)
+            elif isinstance(result, BaseException):
+                raise result
+            else:
+                deliveries[name] = result["event_ids"]
+        return {"deliveries": deliveries, "rejected": rejected, "errors": errors}
 
     @abstractmethod
     async def status(self, agent_name: str) -> dict:
         """Return execution settings, status, and the task document path."""
-
-    @abstractmethod
-    async def list_agents(self) -> dict:
-        """List task settings, current status, and document paths."""
 
     @asynccontextmanager
     @abstractmethod
@@ -98,7 +120,7 @@ class BaseProactiveRuntime(BaseComponent):
         """Read all foreground and task identities with current session state."""
 
     @abstractmethod
-    async def view_agent(self, agent_name: str) -> dict:
+    async def view_agent(self, agent_name: str, *, status: dict | None = None) -> dict:
         """Read one Agent's public settings and state without loading its transcript."""
 
     @abstractmethod
@@ -119,7 +141,7 @@ class BaseProactiveRuntime(BaseComponent):
         """Inspect the Chat Agent's retained session references."""
 
     @abstractmethod
-    async def run(
+    async def run_round(
         self,
         agent_name: str,
         execute: Callable,
@@ -129,13 +151,5 @@ class BaseProactiveRuntime(BaseComponent):
         """Execute one serial input batch and commit its optional round record."""
 
     @abstractmethod
-    async def tick(self, run_job: Callable) -> None:
-        """Schedule task and Chat work."""
-
-    @abstractmethod
-    async def stop_workers(self) -> None:
-        """Stop the owned scheduler workers and notification task."""
-
-    @abstractmethod
-    async def wait(self, stop: asyncio.Event, seconds=1) -> None:
-        """Wait for input, configuration changes or shutdown."""
+    async def run(self, stop: asyncio.Event, run_job: Callable) -> None:
+        """Drive the Runtime and Remy workers until the background Job stops."""

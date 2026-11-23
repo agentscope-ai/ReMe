@@ -6,7 +6,6 @@ from stat import S_ISREG
 
 from .base_connector import BaseConnectorStep
 from ...file_io import check_path_permission
-from ....utils.files.path_lock import get_path_lock
 from ....core.registry import R
 from ....utils.files.workspace_files import WorkspaceFiles
 from ....schema import ResourceMetadata
@@ -18,22 +17,13 @@ class ScreenCaptureStep(BaseConnectorStep):
     """Collect one PNG per display; a failed display aborts the whole package."""
 
     source = "screenshot"
-    description = (
-        "Screenshots of all displays from one collection. Read every listed image together to understand "
-        "the user's activity at the recorded time. Display IDs are enumeration numbers for this collection. "
-        "These are historical observations, not the current live desktop."
-    )
 
     def __init__(self, similarity_threshold=0.99, **kwargs):
         super().__init__(**kwargs)
         if type(similarity_threshold) not in (int, float) or not 0 <= similarity_threshold <= 1:
             raise ValueError("similarity_threshold must be a number between 0 and 1")
         self.similarity_threshold = similarity_threshold
-
-    async def execute(self):
-        target, _ = self.resource_target()
-        async with await get_path_lock(target.parent.parent):
-            return await super().execute()
+        self.description = self.get_prompt("description")
 
     def _image(self, folder, entry):
         from PIL import Image

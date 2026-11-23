@@ -16,6 +16,7 @@ class TodoProgress(BaseModel):
 
     time: AwareDatetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     text: str = Field(min_length=1)
+    event_id: str | None = None
 
 
 class Todo(BaseModel):

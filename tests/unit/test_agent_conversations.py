@@ -10,9 +10,9 @@ import pytest
 from reme.core.context import RuntimeContext
 from reme.enumeration import ChunkEnum
 from reme.schema import SessionMessage, SessionSnapshot, SessionStatus, StreamChunk
-from reme.components.proactive_runtime._internal.views import AgentViews
+from reme.components.proactive_manager._internal.views import AgentViews
 from reme.steps.proactive.agent import AskAgentStep
-from .test_proactive_runtime import create_agent, running_runtime
+from .test_proactive_runtime import create_agent, running_manager
 
 
 @pytest.mark.parametrize("agent_name", ["Remy", "monitor"])
@@ -28,7 +28,7 @@ async def test_conversation_streams_preserve_outcomes_metadata_and_caller_inputs
     status,
     stream_error,
 ):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         if agent_name != "Remy":
             await runtime.sessions.ensure(agent_name, wrapper, {}, runtime.now())
@@ -81,7 +81,7 @@ async def test_conversation_streams_preserve_outcomes_metadata_and_caller_inputs
         assert "native" not in str(emitted[-1].chunk)
 
         assert request.get("agent_name") == agent_name
-        assert not runtime.chat_lock.locked() and not runtime.agent_tasks
+        assert not runtime.chat_lock.locked() and not runtime.runtimes["monitor"].tasks
         assert (await runtime.status("monitor"))["pending_events"] == 1
         if agent_name == "Remy":
             activity = runtime.activities[agent_name]
@@ -94,7 +94,7 @@ async def test_conversation_streams_preserve_outcomes_metadata_and_caller_inputs
 
 @pytest.mark.asyncio
 async def test_subscription_reports_portable_tool_activity_and_cancellation(tmp_path, monkeypatch):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         entered = asyncio.Event()
 
         async def stream(_query, **_options):
@@ -146,7 +146,7 @@ async def test_subscription_reports_portable_tool_activity_and_cancellation(tmp_
 @pytest.mark.parametrize("completed", [True, False])
 @pytest.mark.asyncio
 async def test_task_views_keep_only_latest_turn_without_mutating_native_history(tmp_path, agent_name, completed):
-    async with running_runtime(tmp_path) as (runtime, _, wrapper):
+    async with running_manager(tmp_path) as (runtime, _, wrapper):
         await create_agent(runtime)
         await runtime.create(
             {"agent_name": "timer", "task_description": "Daily report", "cron": "0 8 * * *"},
@@ -190,7 +190,7 @@ async def test_task_views_keep_only_latest_turn_without_mutating_native_history(
 @pytest.mark.parametrize("agent_type", ["proactive", "cron"])
 @pytest.mark.asyncio
 async def test_task_subscription_atomically_replaces_turns_and_reconnects_without_old_messages(tmp_path, agent_type):
-    async with running_runtime(tmp_path) as (runtime, _, wrapper):
+    async with running_manager(tmp_path) as (runtime, _, wrapper):
         await runtime.create(
             {
                 "agent_name": "monitor",

@@ -1,4 +1,4 @@
-# LocalProactiveRuntime with Chat and Proactive Agent steps.
+# Proactive Manager with Chat and named Proactive Runtimes.
 # Start with LLM_API_KEY, LLM_BASE_URL and optionally REME_MODEL_NAME.
 # reme start config=proactive
 # Studio jobs and their runtime dependencies. Examples live in demo.yaml.
@@ -37,6 +37,7 @@ jobs:
         due_date: {type: [string, "null"], format: date, description: "Optional deadline. Update with null to clear; omit to retain."}
         source_idea: {type: [string, "null"], minLength: 1, description: "Idea ID to link or filter by; null removes the link on update."}
         progress_text: {type: string, minLength: 1, description: "Append one progress note; create/update only."}
+        event_id: &notebook_event_id {type: string, minLength: 1, description: "Automatic update only. ID of a current proactive event."}
         progress_time: {type: [string, "null"], format: date-time, description: "Optional explicit progress time with timezone; requires progress_text."}
         scope: {type: string, enum: [active, archive, all], description: "Defaults to active for list and all for list_projects."}
         query: &record_query {type: string, description: "List only; case-insensitive substring search."}
@@ -61,6 +62,7 @@ jobs:
         id: *record_id
         project: *record_project
         text: *record_text
+        event_id: *notebook_event_id
         scope: {type: string, enum: [active, archive, all], description: "List only; defaults to active."}
         query: *record_query
         offset: *record_offset
@@ -109,11 +111,10 @@ jobs:
     backend: cron
     enabled: true
     cron: "*/5 * * * *"
-    agent_name: work
     steps:
       - backend: screen_capture_step
         similarity_threshold: 0.99
-      - backend: resource_event_step
+        task_names: [work]
 
   codex_dialogue_cron:
     backend: cron
@@ -124,7 +125,7 @@ jobs:
         codex_home: &codex_home ${CODEX_HOME:-~/.codex}
     steps:
       - backend: codex_dialogue_step
-        agent_name: work
+        task_names: [work, proactive_notebook]
         codex_home: *codex_home
 
   finance_news_cron:
@@ -132,7 +133,7 @@ jobs:
     cron: "*/5 * * * *"
     steps:
       - backend: finance_news_step
-        agent_name: finance
+        task_names: [finance]
 
   stock_quotes_cron:
     backend: cron
@@ -140,7 +141,7 @@ jobs:
     # The collector checks each market's trading calendar and skips closed sessions.
     steps:
       - backend: stock_quotes_step
-        agent_name: finance
+        task_names: [finance]
 
   btc_quotes_cron:
     backend: cron
@@ -148,13 +149,13 @@ jobs:
     # BTC trades continuously; stock trading calendars do not apply.
     steps:
       - backend: btc_quotes_step
-        agent_name: finance
+        task_names: [finance]
 
   manage_proactive_agent:
     backend: base
     description: >-
       Manage background tasks: list/create/status/update/delete/query. All parameters are top-level.
-      Create requires agent_name and task_description. Set cron to add automatic time-based triggers.
+      Create requires agent_name and task_description. Set cron to run on a schedule; scheduled tasks cannot receive observations.
       Other actions except list require agent_name; query also requires question and an existing queryable task session.
       Update changes execution settings; edit task requirements in TASK.md at the returned task_path.
       Follow the manage-proactive-agent skill for workflows and examples.
@@ -175,7 +176,7 @@ jobs:
           maxLength: 100000
           description: "Create only: task description written verbatim to TASK.md."
         enabled: {type: boolean}
-        cron: {type: [string, "null"], description: "Optional cron expression in the application timezone. Null disables automatic triggers."}
+        cron: {type: [string, "null"], description: "Optional cron expression in the application timezone. Null selects event-driven execution."}
         min_trigger_interval_seconds: {type: number, minimum: 0, description: "Minimum interval before processing observations, in seconds."}
         notify_window:
           type: [object, "null"]
@@ -192,12 +193,16 @@ jobs:
 
   append_task_events:
     backend: base
-    description: "Append observations to the input queue of an existing background task."
+    description: "Append observations to existing event-driven tasks. Each recipient is handled independently."
     parameters:
       type: object
       additionalProperties: false
       properties:
-        agent_name: &task_agent_name {<<: *agent_name, description: "Name of an existing background task."}
+        task_names:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: &task_agent_name {<<: *agent_name, description: "Name of an existing background task."}
         events:
           type: array
           minItems: 1
@@ -212,7 +217,7 @@ jobs:
               metadata: {type: object}
             required: [event_ts, source, description]
             additionalProperties: false
-      required: [agent_name, events]
+      required: [task_names, events]
     steps:
       - backend: append_task_events_step
 
@@ -234,7 +239,7 @@ jobs:
     enable_serve: false
     track_execution: true
     steps:
-      - backend: proactive_agent_step
+      - backend: run_proactive_agent_step
         effort: low  # Scheduled and event-driven runs.
         timeout_seconds: 1200
         max_local_search_calls: 10
@@ -572,7 +577,7 @@ components:
   agent_inbox:
     default:
       backend: event
-  proactive_runtime:
+  proactive_manager:
     default:
       backend: local
       agent_wrapper: default
@@ -581,7 +586,7 @@ components:
         initial_memory: |
           主人关注 AI 相关的大新闻，以及当前项目的进度、进展、难点和待讨论问题。
       # Initial descriptions are written verbatim to TASK.md when creating tasks.
-      agents:
+      runtimes:
         - agent_name: finance
           enabled: true
           min_trigger_interval_seconds: 10
@@ -595,6 +600,13 @@ components:
           enabled: true
           task_description: |
             帮我梳理目前在做的项目，跟进各个项目的进展和难点，整理需要进一步讨论的问题。
+        - agent_name: proactive_notebook
+          step_backend: proactive_notebook_step
+          enabled: true
+          max_batch_events: 2
+          task_description: |
+            我负责帮主人更新 Todo 和 Idea。我把有明确依据的进展补进已有 Todo，修正有明确依据的 Idea。
+            能改的用工具改完。要新增、关闭、改关联或继续执行的事，我一项一条写成 Markdown 交给 Remy。
         - agent_name: tech_news
           enabled: true
           cron: "0 8 * * *"
@@ -689,7 +701,7 @@ components:
     default:
       backend: codex
       app_server: default
-      project_path: ..  # Resolve repository skills from the default <project>/.reme workspace.
+      project_path: ..  # Keep project skills separate from the default .reme workspace.
       cwd: .
       skills: [manage-proactive-agent, manage-todos-ideas]
       model: ${REME_MODEL_NAME:-qwen4-max}

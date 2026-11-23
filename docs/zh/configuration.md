@@ -117,9 +117,11 @@ jobs:
         codex_home: &codex_home ${CODEX_HOME:-~/.codex}
     steps:
       - backend: codex_dialogue_step
-        agent_name: work
+        task_names: [work, proactive_notebook]
         codex_home: *codex_home
 ```
+
+在采集 Step 中设置 `task_names`。待投递批次恢复时沿用已保存的目标。
 
 每次按应用时区到达定时时间时，只执行 `steps`。初始化和每次定时执行各自创建新的 Step 实例、运行上下文和执行记录；
 跨轮次进度通过工作区文件或 Component 保存，不依赖初始化的输出。等待调度不创建执行记录。
@@ -306,7 +308,7 @@ components:
 
 修改 embedding 模型或维度后，应重新构建 embedding 索引。
 
-配置 `components.proactive_runtime.default` 可选择 Inbox、执行 Wrapper、Remy 初始记忆、后台任务和提醒延迟。参见[主动智能运行时](./services.md#proactive-runtime)。
+配置 `components.proactive_manager.default` 可选择 Inbox、执行 Wrapper、Remy 初始记忆、后台任务和提醒延迟。参见[主动智能运行时](./services.md#proactive-runtime)。
 
 ## Service 和 Job
 

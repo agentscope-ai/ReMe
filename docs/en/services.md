@@ -62,8 +62,8 @@ MCP does not expose Stream Jobs. Studio integration is separate from this backen
 
 ## Proactive Runtime
 
-The `proactive_runtime` component coordinates task inboxes, scheduling, and reminders. It delegates model execution, tools, and native sessions to an agent runtime through the configured `AgentWrapper`.
-Configure it through `components.proactive_runtime.default`. The workspace-relative `reme_agent_dir` defaults to
+The `proactive_manager` component discovers named Proactive Runtimes in the workspace, routes their events, and coordinates Remy and reminders. Each Runtime owns its inbox, schedule, serial execution, and retries. The `proactive_loop` background Job runs the Manager. The configured `AgentWrapper` provides model execution, tools, and native sessions.
+Configure it through `components.proactive_manager.default`. The workspace-relative `reme_agent_dir` defaults to
 `reme_agents`. Each task directory contains `config.json`, `TASK.md`, `sessions.jsonl`, `inbox/`, and reminder
 state under `outbox/`. `Remy/` owns `MEMORY.md` and its own `sessions.jsonl`. The shared `daily_dir` stores task
 results and reminder text.
@@ -73,7 +73,7 @@ and removed by the next append. Corrupt complete records fail explicitly.
 ReMe acknowledges the inputs after validating the record. The receipt retains the reminder path until the outbox has
 registered it. A round interrupted before acknowledgement preserves the Markdown and can run again.
 
-Proactive Runtime connects Chat, its temporary Reminder fork, a shared Inbox and background tasks through workspace files.
+The Proactive Manager connects Remy, its temporary Reminder fork, and the named runtimes through workspace files.
 The Life task is an illustrative integration.
 
 <p align="center">
@@ -113,9 +113,10 @@ reme task_document action=read agent_name=experiment_watch
 
 `manage_proactive_agent` supports `list/create/status/update/delete/query` with top-level parameters and a task `agent_name`.
 Prefer simple lowercase English words joined by underscores. `Remy` is reserved. Creation requires
-`task_description`. Set `cron` to add scheduled triggers to the same task. Send changed execution settings to `update`.
+`task_description`. Set `cron` for scheduled execution, or omit it for event-driven execution. Send changed execution settings to `update`.
 `query` takes a `question` and answers from a temporary read-only fork of a queryable task session.
-See `skills/manage-proactive-agent/SKILL.md` for all six actions.
+See `reme/skills/manage-proactive-agent/SKILL.md` for all six actions. The `proactive` and `proactive_cc` presets
+load their built-in skills from the installed ReMe package, including when launched outside a source checkout.
 
 Creation writes `task_description` verbatim when `TASK.md` is absent. Create, status and update return an Agent view
 with its workspace-relative `task_path`. List wraps those views in `{items,total}`.
@@ -125,7 +126,7 @@ update that text as well. Changes apply to subsequent rounds. Deletion stops own
 and retains history. Stop external collectors separately. Recreating a deleted task reuses its task description and history. Check the description against the new request.
 `reme_agent_dir` selects the workspace-relative Agent directory and defaults to `reme_agents`.
 
-Set Chat's initial personal memory with `components.proactive_runtime.default.chat.initial_memory`. Runtime startup creates
+Set Chat's initial personal memory with `components.proactive_manager.default.chat.initial_memory`. Manager startup creates
 Remy's `MEMORY.md` if it is absent. Personal memory survives restarts and session changes. Select Chat's `job_tools` in
 its Step configuration.
 
@@ -133,18 +134,19 @@ The fixed Chat Agent uses `agent_name=Remy` and `agent_type=chat`. Agent names a
 API requests, responses, workspace directories and Desktop use the same name. Its files live under
 `{reme_agent_dir}/Remy/`. Task names must be unique regardless of case.
 
-Declare initial tasks under `components.proactive_runtime.default.agents` in the proactive preset using the same creation
+Declare initial Runtimes under `components.proactive_manager.default.runtimes` in the proactive preset using the same creation
 fields, including `task_description`. Startup creates missing identities and preserves existing descriptions, settings
-and deletions. In the default preset, `finance` analyzes collected news and quotes, and `work` tracks the user's
+and deletions. An invalid Runtime definition is reported separately so other runtimes can continue. In the default preset, `finance` analyzes collected news and quotes, and `work` tracks the user's
 current projects, progress, difficulties and discussion points from
-incoming observations. `codex_dialogue_cron` collects new Codex user messages and final answers;
-`screen_capture_cron` separately captures all displays. Both are enabled every five minutes and deliver to `work`.
+incoming observations. `codex_dialogue_cron` collects new Codex dialogue and image attachments;
+`screen_capture_cron` separately captures all displays. Both run every five minutes and deliver to `work`.
+The dialogue collector also delivers to `proactive_notebook`, which tracks progress on existing notebook items.
 The dialogue Job's `init_steps` establish the startup reading baseline without importing existing dialogue before
 periodic collection begins.
 The default scheduled task `tech_news` also runs daily at 08:00 in the application timezone, summarizes important
 technology news from the past 24 hours and sends a reminder when ready.
 
-The Proactive Runtime consumes events for each task, reconstructs context from workspace files and delivers saved reminders
+Each Runtime consumes events and reconstructs context from workspace files. The Manager delivers saved reminders
 through the Outbox to the Chat Inbox. The work example below illustrates possible issues and TODOs;
 Claude Code trajectories can be submitted through the event API.
 
@@ -152,19 +154,22 @@ Claude Code trajectories can be submitted through the event API.
   <img src="../figure/proactive-runtime.svg" alt="Work Proactive Runtime: Codex and Claude Code trajectories, screenshots, timestamped events, reminders and workspace file paths" width="100%">
 </p>
 
-Every task accepts observations through `append_task_events(agent_name, events)`. Use a named background task as the
-target. Each observation has `event_ts`, `source`, and `description`, with optional workspace-relative `paths`, `id`,
-and `metadata`. Submit a nonempty `events` array. Save referenced files before sending the observation. When retrying,
-reuse the same event ID and payload. The response returns the accepted IDs. Check task status for execution progress.
+Use `append_task_events(task_names, events)` to send a batch to one or more event-driven Proactive Runtimes.
+Both arguments are nonempty arrays. Each event has `event_ts`, `source`, and `description`, with optional workspace-relative
+`paths`, `id`, and `metadata`. Save referenced files first. The response reports accepted event IDs by task in
+`answer.deliveries`. `answer.rejected` reports missing, deleted, or scheduled targets and invalid batches, such as conflicting event IDs.
+The response succeeds when all targets receive the events. Retry targets in `answer.errors`, such as a full inbox,
+using the original event IDs and payload.
 
 ```bash
-reme append_task_events agent_name=experiment_watch \
+reme append_task_events task_names='["experiment_watch"]' \
   'events=[{"id":"experiment-log-1","event_ts":"2026-11-22T10:30:00+08:00","source":"experiment_log","description":"A new milestone was recorded."}]'
 ```
 
-The optional `cron` expression appends a trigger to the same inbox in the application timezone. The runtime reserves
-`source=cron` for its scheduler. Set `cron=null` to stop new scheduled triggers. The server derives `agent_type` for display.
-Each task executes serially. A batch contains consecutive observations, up to `max_batch_events` (20 by default), or one
+The `cron` expression selects scheduled execution in the application timezone. The runtime reserves `source=cron` for its
+scheduler. Set `cron=null` to switch to external observations. Queued inputs keep their original trigger type. The server
+derives `agent_type` for display. The Notebook preset uses external observations.
+Each Runtime has its own pending inbox capacity and executes serially. A batch contains consecutive observations, up to `max_batch_events` (20 by default), or one
 scheduled trigger. In-process retries keep the original batch. `min_trigger_interval_seconds` delays observations from
 the previous successful completion. A scheduled trigger at the front of the queue can run during this interval.
 
@@ -179,7 +184,7 @@ record path is the reminder ID. The sender's `outbox/` mirrors the source path w
 processing state.
 
 `components.agent_inbox.default` uses the `event` backend (`AgentEventInbox`), inheriting the generic local
-inbox implementation. `components.proactive_runtime.default.inbox` selects that component. Each task stores pending
+inbox implementation. `components.proactive_manager.default.inbox` selects that component. Each task stores pending
 inputs in `inbox/inbox_unread.jsonl` and processed batches in `inbox/inbox_read.jsonl`; each batch contains `items`,
 `consume_ts` and `metadata`. Claims reserve selected IDs without consuming them; successful execution commits a receipt.
 The tasks receive `Event` records for observations and cron triggers. The processed history limit defaults to
@@ -190,7 +195,7 @@ and byte limits. A file watcher and periodic scans reconcile edits and interrupt
 Missing or corrupt reminders are reported and isolated without blocking other reminders. Restoring the original
 file restores processing.
 
-P0 forks Chat as soon as its session is available, after `components.proactive_runtime.default.notifications.p0_delay_seconds`
+P0 forks Chat as soon as its session is available, after `components.proactive_manager.default.notifications.p0_delay_seconds`
 (default 0). P1 waits for 10 continuous idle seconds, P2 for 1800, controlled by `notifications.p1_idle_seconds` and
 `notifications.p2_idle_seconds`. Notification windows still apply. Only foreground Chat turns reset the idle clock.
 The temporary fork inherits the current conversation, runs in the backend's read-only mode, and is disposed of after execution,
@@ -303,6 +308,11 @@ reme idea action=list project=ReMe scope=all
 with `project`, `todo_count`, and `idea_count` in each item. The default `scope=all` includes active and archived
 records. Set `scope=active` or `scope=archive` to count records in that scope. Use the returned project name to list
 its Todo or Idea records.
+
+The `proactive_notebook` runtime receives the same new Codex dialogue as `work`. It loads `manage-todos-ideas`
+and uses the shared tools to append verified progress to existing Todos or correct existing Ideas. Updates cite
+the current event ID, which makes replay safe. Remy handles creation, closure, link changes, and other follow-up
+through the standard reminder inbox. Each follow-up is one plain-language Markdown bullet with the record, evidence, and next step.
 
 ## One-shot Jobs
 

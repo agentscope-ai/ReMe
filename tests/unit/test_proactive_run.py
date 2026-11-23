@@ -15,17 +15,17 @@ from reme.enumeration import ChunkEnum
 from reme.schema import Event, StreamChunk
 from reme.steps.proactive.agent import ProactiveAgentStep
 from reme.steps.proactive.tools.manage_proactive_agent import ManageProactiveAgentStep
-from .test_proactive_runtime import create_agent, running_runtime
+from .test_proactive_runtime import create_agent, running_manager
 
 
 async def queue_cron_trigger(runtime, name, monkeypatch):
     agent = await runtime.definition(name)
-    execution = runtime.execution(name)
+    execution = runtime.runtimes[name]
     if execution.schedule is None:
-        await runtime._schedule_cron(agent)
+        await runtime.runtimes[agent.agent_name]._schedule_cron(agent)
     trigger = execution.schedule[1]
     monkeypatch.setattr(runtime, "now", lambda: trigger)
-    await runtime._schedule_cron(agent)
+    await runtime.runtimes[agent.agent_name]._schedule_cron(agent)
     return trigger
 
 
@@ -98,7 +98,7 @@ async def test_round_publishes_and_acknowledges_the_same_note(
     priority,
     body,
 ):
-    async with running_runtime(tmp_path, language=language) as (runtime, context, wrapper):
+    async with running_manager(tmp_path, language=language) as (runtime, context, wrapper):
         await create_round_task(runtime, monkeypatch, agent_type)
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)
@@ -126,7 +126,7 @@ async def test_round_publishes_and_acknowledges_the_same_note(
         assert ("Finished" in query) == (agent_type == "proactive")
         assert list((tmp_path / "daily").rglob("*.md")) == [path]
 
-        (ref,) = runtime.outbox.records
+        (ref,) = runtime.outbox.entries
         related = [path.relative_to(tmp_path).as_posix()]
         item = runtime.outbox.message(ref)
         assert item["message"] == "Verified result"
@@ -146,7 +146,7 @@ async def test_round_publishes_and_acknowledges_the_same_note(
         assert set(metadata) == {"reminder_priority", "reminder_message"}
         assert (await runtime.outbox.read("monitor", ref))["read_at"]
 
-    async with running_runtime(tmp_path) as (runtime, _, _):
+    async with running_manager(tmp_path) as (runtime, _, _):
         item = await runtime.outbox.read("monitor", ref)
         assert [item["id"]] == related and item["read_at"]
 
@@ -169,7 +169,7 @@ async def test_record_format_is_repaired_in_the_same_session(
     error,
     edit_during_repair,
 ):
-    async with running_runtime(tmp_path, language=language) as (runtime, context, wrapper):
+    async with running_manager(tmp_path, language=language) as (runtime, context, wrapper):
         await create_round_task(runtime, monkeypatch, agent_type)
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)
@@ -193,7 +193,7 @@ async def test_record_format_is_repaired_in_the_same_session(
         async def stream(query, **options):
             attempt = len(calls)
             assert (await runtime.inbox.snapshot("monitor"))["receipt"] is None
-            assert not runtime.outbox.records
+            assert not runtime.outbox.entries
             if attempt and edit_during_repair:
                 runtime.files.write(path, user_edit)
             yield StreamChunk(
@@ -214,13 +214,13 @@ async def test_record_format_is_repaired_in_the_same_session(
                 await step(agent_name="monitor")
             assert path.read_text() == user_edit
             assert (await runtime.status("monitor"))["pending_events"] == 1
-            assert not runtime.outbox.records
+            assert not runtime.outbox.entries
             return
         result = await step(agent_name="monitor")
 
         assert result.success and result.answer["processed"] == 1
         assert result.answer["notifications"][0]["message"] == "Palette #20774D"
-        assert len(runtime.outbox.records) == len(wrapper.created) == 1
+        assert len(runtime.outbox.entries) == len(wrapper.created) == 1
         assert (await runtime.status("monitor"))["pending_events"] == 0
         assert path.read_text().endswith(f"---{body}")
         (_, initial), (repair, followup) = calls
@@ -236,7 +236,7 @@ async def test_record_format_is_repaired_in_the_same_session(
 @pytest.mark.parametrize("error", [OSError("interrupted after commit"), asyncio.CancelledError()])
 @pytest.mark.asyncio
 async def test_delivery_recovers_from_a_committed_input_receipt(tmp_path, monkeypatch, error):
-    async with running_runtime(tmp_path, language="zh") as (runtime, context, wrapper):
+    async with running_manager(tmp_path, language="zh") as (runtime, context, wrapper):
         await create_agent(runtime)
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)
@@ -257,18 +257,18 @@ async def test_delivery_recovers_from_a_committed_input_receipt(tmp_path, monkey
         assert path.read_text() == draft
         assert not runtime.notifications.pending
 
-    async with running_runtime(tmp_path) as (runtime, _, _):
+    async with running_manager(tmp_path) as (runtime, _, _):
         ref = path.relative_to(tmp_path).as_posix()
         assert runtime.notifications.pending == {ref}
         assert (await runtime.status("monitor"))["pending_events"] == 0
         document = frontmatter.loads(path.read_text())
-        assert runtime.outbox.records[ref].delivered_at and document.content == "Draft body"
+        assert runtime.outbox.entries[ref].reminder.delivered_at and document.content == "Draft body"
         assert path.read_text() == draft
 
 
 @pytest.mark.asyncio
 async def test_failed_record_with_delivery_frontmatter_never_enters_the_inbox(tmp_path, monkeypatch):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)
@@ -291,13 +291,13 @@ async def test_failed_record_with_delivery_frontmatter_never_enters_the_inbox(tm
         snapshot = await runtime.inbox.snapshot("monitor")
         assert snapshot["pending_count"] == 1 and snapshot["receipt"] is None
 
-    async with running_runtime(tmp_path) as (runtime, _, _):
+    async with running_manager(tmp_path) as (runtime, _, _):
         assert not (await runtime.list_inputs("Remy"))["items"]
 
 
 @pytest.mark.asyncio
 async def test_cron_can_finish_with_a_skip_record(tmp_path, monkeypatch):
-    async with running_runtime(tmp_path, language="zh") as (runtime, context, wrapper):
+    async with running_manager(tmp_path, language="zh") as (runtime, context, wrapper):
         await create_round_task(runtime, monkeypatch, "cron")
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)
@@ -330,7 +330,7 @@ async def test_cron_can_finish_with_a_skip_record(tmp_path, monkeypatch):
 )
 @pytest.mark.asyncio
 async def test_failed_round_keeps_the_input_and_record(tmp_path, monkeypatch, draft, error):
-    async with running_runtime(tmp_path, language="zh") as (runtime, context, wrapper):
+    async with running_manager(tmp_path, language="zh") as (runtime, context, wrapper):
         await create_agent(runtime)
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)
@@ -354,14 +354,14 @@ async def test_failed_round_keeps_the_input_and_record(tmp_path, monkeypatch, dr
             await step(agent_name="monitor")
         assert len(queries) == (1 if error is OSError else 2)
         assert path.read_text() == expected
-        assert not runtime.outbox.records
+        assert not runtime.outbox.entries
         assert (await runtime.status("monitor"))["pending_events"] == 1
 
 
 @pytest.mark.parametrize("draft", [None, SKIP, SKIP + "Normal progress"])
 @pytest.mark.asyncio
 async def test_event_round_can_finish_without_an_inbox_message(tmp_path, monkeypatch, draft):
-    async with running_runtime(tmp_path, language="zh") as (runtime, context, wrapper):
+    async with running_manager(tmp_path, language="zh") as (runtime, context, wrapper):
         await create_agent(runtime)
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)
@@ -401,7 +401,7 @@ async def test_missing_record_requires_an_explicit_successful_event_skip(
     model_error,
     expected_error,
 ):
-    async with running_runtime(tmp_path, language="zh") as (runtime, context, wrapper):
+    async with running_manager(tmp_path, language="zh") as (runtime, context, wrapper):
         await create_round_task(runtime, monkeypatch, agent_type)
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)
@@ -418,7 +418,7 @@ async def test_missing_record_requires_an_explicit_successful_event_skip(
 @pytest.mark.asyncio
 async def test_broken_local_links_warn_without_rejecting_the_record(tmp_path, monkeypatch, field):
     workspace = tmp_path / "workspace"
-    async with running_runtime(workspace) as (runtime, context, wrapper):
+    async with running_manager(workspace) as (runtime, context, wrapper):
         await create_agent(runtime)
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)
@@ -474,7 +474,7 @@ async def test_broken_local_links_warn_without_rejecting_the_record(tmp_path, mo
 
 @pytest.mark.asyncio
 async def test_queued_observations_run_before_cron_trigger_after_switch(tmp_path, monkeypatch):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         attachment = "resource/alert.txt"
         runtime.files.write(runtime.files.path(attachment), "Evidence")
@@ -510,7 +510,7 @@ async def test_queued_observations_run_before_cron_trigger_after_switch(tmp_path
 @pytest.mark.parametrize("language", ["en", "zh"])
 @pytest.mark.asyncio
 async def test_backlogged_cron_processes_each_trigger_with_current_time(tmp_path, monkeypatch, language):
-    async with running_runtime(tmp_path, language=language) as (runtime, context, wrapper):
+    async with running_manager(tmp_path, language=language) as (runtime, context, wrapper):
         await runtime.create({"agent_name": "timer", "task_description": "Summarize prior hour", "cron": "0 * * * *"})
         first = await queue_cron_trigger(runtime, "timer", monkeypatch)
         second = await queue_cron_trigger(runtime, "timer", monkeypatch)
@@ -537,7 +537,7 @@ async def test_backlogged_cron_processes_each_trigger_with_current_time(tmp_path
 @pytest.mark.parametrize("switch_to_event", [False, True])
 @pytest.mark.asyncio
 async def test_cron_skip_record_keeps_trigger_pending_after_model_failure(tmp_path, monkeypatch, switch_to_event):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         await runtime.create({"agent_name": "timer", "task_description": "Save progress", "cron": "* * * * *"})
         trigger = await queue_cron_trigger(runtime, "timer", monkeypatch)
         if switch_to_event:
@@ -558,13 +558,13 @@ async def test_cron_skip_record_keeps_trigger_pending_after_model_failure(tmp_pa
         snapshot = await runtime.inbox.snapshot("timer")
         assert await runtime.inbox.pending_ids("timer") == pending
         assert snapshot["receipt"] is None and snapshot["in_flight_count"] == 0
-        assert runtime.execution("timer").retry_items == [f"cron-timer-{int(trigger.timestamp())}"]
+        assert runtime.runtimes["timer"].retry_items == [f"cron-timer-{int(trigger.timestamp())}"]
         assert not paths["record_path"].exists()
 
 
 @pytest.mark.asyncio
 async def test_failed_turn_accepts_a_valid_record(tmp_path, monkeypatch):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)
@@ -577,12 +577,12 @@ async def test_failed_turn_accepts_a_valid_record(tmp_path, monkeypatch):
         assert len(calls) == 1 and paths["record_path"].exists()
         assert (await runtime.status("monitor"))["pending_events"] == 0
         await runtime.outbox.sync()
-        assert len(runtime.outbox.records) == 1
+        assert len(runtime.outbox.entries) == 1
 
 
 @pytest.mark.asyncio
 async def test_timeout_accepts_a_valid_record(tmp_path, monkeypatch):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)
@@ -605,12 +605,12 @@ async def test_timeout_accepts_a_valid_record(tmp_path, monkeypatch):
         snapshot = await runtime.inbox.snapshot("monitor")
         assert snapshot["pending_count"] == 0 and snapshot["in_flight_count"] == 0
         await runtime.outbox.sync()
-        assert len(runtime.outbox.records) == 1
+        assert len(runtime.outbox.entries) == 1
 
 
 @pytest.mark.asyncio
 async def test_cancelled_round_preserves_its_record_and_pending_input(tmp_path, monkeypatch):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)
@@ -645,7 +645,7 @@ async def test_cancelled_round_preserves_its_record_and_pending_input(tmp_path, 
 
 @pytest.mark.asyncio
 async def test_same_second_records_get_unique_paths(tmp_path):
-    async with running_runtime(tmp_path) as (runtime, context, _):
+    async with running_manager(tmp_path) as (runtime, context, _):
         await create_agent(runtime)
         agent = await runtime.definition("monitor")
         step = ProactiveAgentStep(app_context=context)
@@ -660,7 +660,7 @@ async def test_same_second_records_get_unique_paths(tmp_path):
 
 @pytest.mark.asyncio
 async def test_same_second_round_skips_registered_path_after_record_is_moved(tmp_path, monkeypatch):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)

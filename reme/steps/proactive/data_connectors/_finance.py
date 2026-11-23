@@ -1,20 +1,14 @@
-"""File-backed collection and retryable delivery through the existing append_task_events Job."""
+"""File-backed collection and retryable delivery to named runtimes."""
 
-import asyncio
 from datetime import datetime
-from hashlib import sha256
 import math
 from pathlib import Path
 
 import httpx
 
 from .base_connector import BaseConnectorStep
-from ...file_io import check_path_permission
-from ....utils.files.path_lock import get_path_lock
 from ....utils.files.workspace_files import WorkspaceFiles
-from ....schema import Event, ResourceMetadata
-from ....schema.proactive_runtime import validate_agent_name
-from ....utils.async_utils import complete_in_thread
+from ....schema import ResourceMetadata
 
 
 class FinanceCollectorStep(BaseConnectorStep):
@@ -24,9 +18,8 @@ class FinanceCollectorStep(BaseConnectorStep):
     files: WorkspaceFiles
     resource_root: Path
 
-    def __init__(self, agent_name="finance", max_retries=3, request_timeout=20, request_interval=1, **kwargs):
-        super().__init__(**kwargs)
-        self.agent_name = validate_agent_name(agent_name)
+    def __init__(self, task_names=None, max_retries=3, request_timeout=20, request_interval=1, **kwargs):
+        super().__init__(task_names=["finance"] if task_names is None else task_names, **kwargs)
         if type(max_retries) is not int or max_retries < 1:
             raise ValueError("max_retries must be a positive integer")
         for name, value in (("request_timeout", request_timeout), ("request_interval", request_interval)):
@@ -40,27 +33,9 @@ class FinanceCollectorStep(BaseConnectorStep):
 
     def resource_target(self):
         target, self.collected_at = super().resource_target()
-        return target, self.collected_at
-
-    async def execute(self):
-        target, _ = self.resource_target()
         self.files = WorkspaceFiles(self.workspace_path)
         self.resource_root = self.files.checked(target.parent.parent)
-        self.require_path(self.resource_root)
-        self.require_path(self.files.path(self.config_value("reme_agent_dir")))
-        if self.get_job("append_task_events") is None:
-            raise RuntimeError("Finance collectors require the append_task_events Job")
-        async with await get_path_lock(self.resource_root):
-            await self._deliver_pending()
-            await super().execute()
-            await self._deliver_pending()
-        return self.context.response
-
-    def require_path(self, path: Path):
-        """Authorize history and receipt access before network or file I/O."""
-        self.files.checked(path)
-        if not check_path_permission(self.workspace_path, path, self.context.get("_allowed_paths")):
-            raise PermissionError("no permission to access finance collector files")
+        return target, self.collected_at
 
     def manifests(self):
         """Published manifests are recoverable collection evidence, including unsent batches."""
@@ -88,50 +63,6 @@ class FinanceCollectorStep(BaseConnectorStep):
             for value in self.files.iter_jsonl(path):
                 self.check_stopped()
                 yield model.model_validate(value)
-
-    def delivery_ready(self, _path: Path, _metadata: ResourceMetadata) -> bool:
-        """Sources may defer a saved batch until their delivery window opens."""
-        return True
-
-    async def _deliver_pending(self):
-        manifests = await asyncio.to_thread(lambda: list(self.manifests()))
-        for path in manifests:
-            receipt = path.parent / f"delivery-{self.agent_name}.json"
-            self.require_path(receipt)
-            relative = path.parent.relative_to(self.workspace_path).as_posix()
-            event_id = f"resource-{sha256(relative.encode()).hexdigest()}"
-            expected = {"agent_name": self.agent_name, "event_id": event_id}
-            saved = await asyncio.to_thread(self.files.read_json, receipt, None)
-            if saved is not None:
-                if saved != expected:
-                    raise ValueError(f"Invalid finance delivery receipt: {receipt}")
-                continue
-            metadata = ResourceMetadata.model_validate_json(await asyncio.to_thread(self.files.read, path))
-            if metadata.source != self.source:
-                raise ValueError(f"Unexpected finance source: {metadata.source}")
-            payloads = [path, *(path.parent / item.path for item in metadata.files)]
-            for payload in payloads:
-                self.require_path(payload)
-                if not payload.is_file():
-                    raise ValueError(f"Missing finance resource: {payload}")
-            if not await asyncio.to_thread(self.delivery_ready, path, metadata):
-                continue
-            event = Event(
-                id=event_id,
-                event_ts=metadata.created_at,
-                source=self.source,
-                description=metadata.description,
-                paths=[item.relative_to(self.workspace_path).as_posix() for item in payloads],
-            )
-            response = await self.run_job(
-                "append_task_events",
-                agent_name=self.agent_name,
-                events=[event.model_dump(mode="json")],
-                _allowed_paths=self.context.get("_allowed_paths"),
-            )
-            if not response.success:
-                raise RuntimeError(f"Finance event delivery failed: {response.answer}")
-            await complete_in_thread(self.files.write_json, receipt, expected)
 
     def check_stopped(self):
         """Interrupt pagination and retry delays when the owning Job is stopped."""

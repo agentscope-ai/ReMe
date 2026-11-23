@@ -36,12 +36,13 @@ ReMe 现有的记忆流程是这个能力的基础。Auto Memory 把对话提炼
 
 ![ReMe5 方案总览，展示 Chat Agent 如何管理事件驱动、定时和自定义 Agent，以及运行它们的后端和计划接入的宿主](../figure/reme5-proactive-runtime-overview.svg)
 
-常见任务可以从预设开始。你也可以在同一个对话里创建任务，为它接入观察来源并按需添加 Cron 日程。
+常见任务可以从预设开始。你可以在对话里为事件驱动任务接入观察来源，或为定时任务设置 Cron 日程。
 这套运行时会在 ReMe 自己的桌面预览中提供，也计划接入已有的 Agent 工具。
 
 ## 运行时如何工作
 
-运行时按名称管理后台任务。**观察事件** 可以来自一轮对话、一条日志或订阅源发布的论文。**可选日程** 会在约定时间向同一收件箱追加触发事件，例如每天启动简报任务，或在夜间触发记忆整理。等待下一轮时无需持续调用模型。
+Proactive Manager 管理具名 Runtime。事件驱动任务接收新增对话或日志等观察，定时任务按 Cron 触发，例如每天整理简报或在夜间整理记忆。
+每个任务用自己的收件箱，有待处理输入时才调用模型。
 
 ![Proactive Runtime 如何把新观察交给 Work Agent，并将进展、来源和提醒决定写入同一记录](../figure/proactive-runtime.svg)
 
@@ -100,7 +101,7 @@ ReMe5 计划提供一组预设，用于跟进持续进行的工作、定时整�
 
 Chat Agent 通过 `manage-proactive-agent` skill 创建自定义 Agent，并管理预定义和自定义任务。你可以在对话中查看任务状态、追问进展，
 修改任务要求和运行设置，也可以暂停或恢复任务。
-[任务管理 skill](https://github.com/agentscope-ai/ReMe/blob/main/skills/manage-proactive-agent/SKILL.md)
+[任务管理 skill](https://github.com/agentscope-ai/ReMe/blob/main/reme/skills/manage-proactive-agent/SKILL.md)
 
 要创建定时任务，你可以说「每周五总结这周的实验结果，附上报告链接」。要创建事件驱动任务，你可以让 Chat Agent 跟进实验日志，
 完成或失败时告诉你。事件驱动任务需要接入能提供相应信息的来源。

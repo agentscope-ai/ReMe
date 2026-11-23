@@ -8,10 +8,10 @@ from ..constants import CHAT_AGENT_NAME
 from .proactive_runtime import AgentName, AgentType
 from .agent_activity import ActivityPhase
 from .agent_message import AgentMessage, ClientModel
-from .proactive_agent import TaskSettings
+from .proactive_agent import ProactiveRuntimeSettings
 
 
-class AgentView(TaskSettings):
+class AgentView(ProactiveRuntimeSettings):
     """A visible identity; paths refer to original workspace files, never copies."""
 
     model_config = ConfigDict(extra="forbid")

@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from ...base_step import BaseStep, Ref
 from ...file_io import check_path_permission
-from ....components.proactive_runtime import BaseProactiveRuntime
+from ....components.proactive_manager import BaseProactiveManager
 from ....enumeration import ComponentEnum
 from ....schema import AgentActivity, Response, collect_reply
 from ._activity import ActivityTracker
@@ -14,19 +14,19 @@ from ._activity import ActivityTracker
 class BaseAgentStep(BaseStep):
     """Keep request handlers stateless; the application component owns the runtime."""
 
-    proactive_runtime: BaseProactiveRuntime = Ref(BaseProactiveRuntime, ComponentEnum.PROACTIVE_RUNTIME)
+    proactive_manager: BaseProactiveManager = Ref(BaseProactiveManager, ComponentEnum.PROACTIVE_MANAGER)
 
     async def query_reply(self, agent_name, query, *, on_chunk=None):
         """Ask a disposable fork while retaining the selected task session."""
-        runtime = self.proactive_runtime
+        manager = self.proactive_manager
         options = {"job_tools": [], "sandbox": "read-only", "approval_mode": "deny_all"}
-        async with runtime.query_session(agent_name, options) as session_id:
+        async with manager.query_session(agent_name, options) as session_id:
 
             async def observe(chunk):
                 await on_chunk(chunk.model_copy(update={"session_id": chunk.session_id or session_id}))
 
             return await collect_reply(
-                runtime.agent_wrapper.reply_stream(
+                manager.agent_wrapper.reply_stream(
                     query,
                     resume=session_id,
                     **options,
@@ -36,17 +36,17 @@ class BaseAgentStep(BaseStep):
 
     async def stream_reply(self, query: str, *, session_id: str, agent_name: str, on_chunk, **options) -> Response:
         """Relay a formal conversation and preserve its terminal outcome and native metadata."""
-        runtime = self.proactive_runtime
+        manager = self.proactive_manager
         tracker = ActivityTracker(
             AgentActivity(
                 session_id=session_id,
                 execution_session_id=session_id,
                 turn_id=uuid4().hex,
                 phase="thinking",
-                started_at=runtime.now(),
+                started_at=manager.now(),
             ),
         )
-        runtime.activities[agent_name] = tracker.activity
+        manager.activities[agent_name] = tracker.activity
 
         async def observe(chunk):
             if chunk.turn_id:
@@ -56,19 +56,19 @@ class BaseAgentStep(BaseStep):
                         "execution_session_id": chunk.session_id or session_id,
                     },
                 )
-            runtime.activities[agent_name] = tracker.update(chunk)
+            manager.activities[agent_name] = tracker.update(chunk)
             publish(chunk)
             await on_chunk(chunk.model_copy(update={"session_id": chunk.session_id or session_id}))
 
         try:
-            with runtime.live_turns.observe(agent_name, session_id, query) as publish:
+            with manager.live_turns.observe(agent_name, session_id, query) as publish:
                 result = await collect_reply(
-                    runtime.agent_wrapper.reply_stream(query, resume=session_id, **options),
+                    manager.agent_wrapper.reply_stream(query, resume=session_id, **options),
                     on_chunk=observe,
                 )
         except BaseException as exc:
             phase = "interrupted" if isinstance(exc, asyncio.CancelledError) else "failed"
-            runtime.activities[agent_name] = tracker.activity.model_copy(update={"phase": phase, "tool": None})
+            manager.activities[agent_name] = tracker.activity.model_copy(update={"phase": phase, "tool": None})
             raise
         response = self.context.response
         response.success = result["status"] == "completed" and self.context.stream_error is None

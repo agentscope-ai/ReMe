@@ -20,14 +20,14 @@ from ....schema.agent_session import SessionSnapshot, SessionStatus
 class AgentViews:
     """Subscriptions own no generation tasks and never create or select sessions."""
 
-    def __init__(self, runtime):
-        self.runtime = runtime
+    def __init__(self, manager):
+        self.manager = manager
 
-    async def view(self, agent_name):
+    async def view(self, agent_name, *, task_status=None):
         """Read identity, native activity and original file references."""
-        runtime = self.runtime
+        manager = self.manager
         if agent_name == CHAT_AGENT_NAME:
-            inbox = runtime.notifications
+            inbox = manager.notifications
             config, facts, agent_type = (
                 {},
                 {
@@ -38,29 +38,31 @@ class AgentViews:
                 },
                 "chat",
             )
-            directory = runtime.agents.path(CHAT_AGENT_NAME).relative_to(runtime.workspace_path).as_posix()
-            document = {"memory_path": runtime.agents.chat_memory_path().relative_to(runtime.workspace_path).as_posix()}
-            running = runtime.chat_lock.locked() or inbox.worker is not None
+            directory = manager.registry.path(CHAT_AGENT_NAME)
+            document = {
+                "memory_path": manager.registry.chat_memory_path().relative_to(manager.workspace_path).as_posix(),
+            }
+            running = manager.chat_lock.locked() or inbox.worker is not None
         else:
-            facts = await runtime.status(agent_name)
+            facts = await manager.status(agent_name) if task_status is None else task_status
             config = facts["config"]
             agent_type = "cron" if config.get("cron") is not None else "proactive"
-            directory = PurePosixPath(facts["task_path"]).parent.as_posix()
+            directory = manager.files.path(PurePosixPath(facts["task_path"]).parent.as_posix())
             document = {"task_path": facts["task_path"]}
             running = facts["running"]
-        session = await runtime.sessions.current(agent_name)
+        session = await manager.sessions.current(agent_name, directory=directory)
         status, error = "idle", facts.get("error")
         problems = [
             f"{path}: {message}"
-            for path, message in runtime.outbox.issues.items()
-            if agent_name == CHAT_AGENT_NAME or runtime.outbox.storage.owns(path, agent_name)
+            for path, message in manager.outbox.issues.items()
+            if agent_name == CHAT_AGENT_NAME or manager.outbox.storage.owns(path, agent_name)
         ]
         if problems:
             error = "; ".join(filter(None, [error, *problems]))[:2000]
         if session:
             try:
-                if await runtime.agent_wrapper.session_exists(session.session_id):
-                    status = (await runtime.agent_wrapper.get_session_status(session.session_id)).status
+                if await manager.agent_wrapper.session_exists(session.session_id):
+                    status = (await manager.agent_wrapper.get_session_status(session.session_id)).status
                 else:
                     status = "not_loaded"
             except Exception as exc:  # A missing native thread must not hide the Agent's files.
@@ -78,7 +80,7 @@ class AgentViews:
             notify_window=config.get("notify_window"),
             status=status,
             session_id=session.session_id if session else None,
-            directory=directory,
+            directory=directory.relative_to(manager.workspace_path).as_posix(),
             pending_events=facts.get("pending_events", 0),
             in_flight_events=facts.get("in_flight_events", 0),
             last_started_at=facts.get("last_started_at"),
@@ -90,8 +92,10 @@ class AgentViews:
 
     async def list(self):
         """Include the fixed chat identity before named tasks."""
-        agents = await asyncio.to_thread(self.runtime.agents.load)
-        items = [await self.view(agent_name) for agent_name in [CHAT_AGENT_NAME, *agents]]
+        statuses = await self.manager.task_statuses()
+        items = [await self.view(CHAT_AGENT_NAME)]
+        for name, status in statuses.items():
+            items.append(await self.view(name, task_status=status))
         return {
             "items": [item.model_dump(mode="json") for item in items],
             "total": len(items),
@@ -102,8 +106,8 @@ class AgentViews:
         agent = await self.view(agent_name)
         snapshot = None
         if agent.session_id is not None:
-            if await self.runtime.agent_wrapper.session_exists(agent.session_id):
-                snapshot = await self.runtime.agent_wrapper.read_session(agent.session_id)
+            if await self.manager.agent_wrapper.session_exists(agent.session_id):
+                snapshot = await self.manager.agent_wrapper.read_session(agent.session_id)
                 if agent.agent_type != "chat":
                     snapshot = snapshot.model_copy(
                         update={
@@ -129,10 +133,10 @@ class AgentViews:
 
     def project(self, agent_name, value):
         """Keep native reconciliation internal; publish only canonical display messages."""
-        current = self.runtime.live_turns.overlay(agent_name, value)
+        current = self.manager.live_turns.overlay(agent_name, value)
         activities = {}
-        for name, activity in self.runtime.activities.items():
-            if name != agent_name and (agent_name != CHAT_AGENT_NAME or name not in self.runtime.workers):
+        for name, activity in self.manager.activities.items():
+            if name != agent_name and (agent_name != CHAT_AGENT_NAME or name not in self.manager.workers):
                 continue
             if name == agent_name and activity.session_id != current["session_id"]:
                 continue
@@ -164,16 +168,16 @@ class AgentViews:
         Only the main subscription carries the global Agent roster and background activities.
         """
         wake = asyncio.Event()
-        self.runtime.live_turns.listeners.add(wake)
+        self.manager.live_turns.listeners.add(wake)
         try:
             previous: dict = {}
             last_emit, next_poll, polled_epoch = monotonic(), 0, -1
             value: dict = {}
             agents = None
-            while not self.runtime.closed:
+            while not self.manager.closed:
                 wake.clear()
-                live = self.runtime.live_turns.turns.get(agent_name)
-                epoch = self.runtime.live_turns.epoch
+                live = self.manager.live_turns.turns.get(agent_name)
+                epoch = self.manager.live_turns.epoch
                 if (
                     not value
                     or monotonic() >= next_poll
@@ -182,7 +186,7 @@ class AgentViews:
                 ):
                     value = await self.native(agent_name)
                     agents = (await self.list())["items"] if agent_name == CHAT_AGENT_NAME else None
-                    if epoch != self.runtime.live_turns.epoch:
+                    if epoch != self.manager.live_turns.epoch:
                         continue
                     polled_epoch, next_poll = epoch, monotonic() + interval
                 current = {**self.project(agent_name, value), "agents": agents}
@@ -210,4 +214,4 @@ class AgentViews:
                 except TimeoutError:
                     pass
         finally:
-            self.runtime.live_turns.listeners.discard(wake)
+            self.manager.live_turns.listeners.discard(wake)

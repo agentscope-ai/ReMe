@@ -136,7 +136,46 @@ def test_agent_wrappers_share_project_skill_resolution(tmp_path, wrapper_class):
         kwargs["as_llm"] = ""
     wrapper = wrapper_class(**kwargs)
 
-    assert wrapper._resolve_project_skills(["one", "one"]) == {"one": skill}  # pylint: disable=protected-access
+    assert wrapper._resolve_skill_sources(["one", "one"]) == {"one": skill}  # pylint: disable=protected-access
+
+
+def test_explicit_builtins_are_available_without_changing_project_selection(tmp_path):
+    """Built-ins are opt-in by name and a same-named project skill retains precedence."""
+    # pylint: disable=protected-access
+    wrapper = _VersionedAgentWrapper(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
+    name = "manage-proactive-agent"
+    project = tmp_path / "skills"
+    project.mkdir()
+    custom = project / name
+    custom.mkdir()
+    assert wrapper._resolve_skill_sources([name]) == {name: base_agent_wrapper.BUILTIN_SKILLS_ROOT / name}
+    assert not wrapper._resolve_skill_sources("all")
+    (custom / "SKILL.md").write_text("Custom skill", encoding="utf-8")
+    assert wrapper._resolve_skill_sources([name]) == {name: custom}
+
+
+def test_builtin_copy_updates_only_untouched_reme_copies(tmp_path):
+    """An upgrade refreshes a generated copy and leaves user edits intact."""
+    # pylint: disable=protected-access
+    wrapper = _VersionedAgentWrapper()
+    source = tmp_path / "package" / "example"
+    source.mkdir(parents=True)
+    original = source / "SKILL.md"
+    workspace = tmp_path / "workspace"
+    original.write_text("Version one", encoding="utf-8")
+    wrapper._publish_builtin_skill(workspace, ".agents/skills", source)
+    copy = workspace / ".agents" / "skills" / "example" / "SKILL.md"
+    assert copy.read_text(encoding="utf-8") == "Version one"
+    assert not copy.is_symlink()
+
+    original.write_text("Version two", encoding="utf-8")
+    wrapper._publish_builtin_skill(workspace, ".agents/skills", source)
+    assert copy.read_text(encoding="utf-8") == "Version two"
+
+    copy.write_text("User version", encoding="utf-8")
+    original.write_text("Version three", encoding="utf-8")
+    wrapper._publish_builtin_skill(workspace, ".agents/skills", source)
+    assert copy.read_text(encoding="utf-8") == "User version"
 
 
 @pytest.mark.asyncio

@@ -1499,6 +1499,19 @@ def test_codex_skills_add_all_without_deleting_existing_content(tmp_path):
         assert target.resolve() == (tmp_path / "skills" / name).resolve()
 
 
+def test_codex_builtin_skill_works_without_a_source_checkout(tmp_path):
+    workspace = tmp_path / "workspace"
+    wrapper, _job = _wrapper(workspace, project_path="..", cwd=".")
+    name = "manage-todos-ideas"
+
+    wrapper._ensure_skills([name])  # pylint: disable=protected-access
+
+    manifest = workspace / ".agents" / "skills" / name / "SKILL.md"
+    assert f"name: {name}" in manifest.read_text(encoding="utf-8")
+    assert not manifest.parent.is_symlink()
+    assert not (tmp_path / ".agents").exists()
+
+
 def test_codex_skills_support_single_name_and_are_idempotent(tmp_path):
     wrapper, _job = _wrapper(tmp_path)
     source = tmp_path / "skills" / "one"

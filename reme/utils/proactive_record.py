@@ -84,6 +84,16 @@ class RoundRecord:
         if path != self.path or self._version(path) != self.written:
             raise RuntimeError(f"Agent output changed outside this round: {path}")
 
+    def _save_version(self, result):
+        _, self.written = result
+
+    def create(self, metadata, body):
+        """Publish structured output only to this round's unused destination."""
+        self.check_version(self.path)
+        content = f"---\n{yaml.safe_dump(metadata, allow_unicode=True)}---\n\n{body.strip()}\n"
+        self.files.write(self.path, content, create_only=True, on_write=self._save_version)
+        self.check_version(self.path)
+
     def replace_frontmatter(self, metadata):
         """Replace the record's frontmatter only if its version still matches."""
         self.check_version(self.path)
@@ -91,8 +101,5 @@ class RoundRecord:
         if header is None:
             raise ValueError("The round record must have delimited YAML frontmatter")
 
-        def save_version(result):
-            _, self.written = result
-
         content = f"---\n{yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False)}---{body}"
-        self.files.write(self.path, content, on_write=save_version)
+        self.files.write(self.path, content, on_write=self._save_version)

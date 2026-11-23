@@ -2,6 +2,7 @@
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from hashlib import sha256
 from importlib import metadata
 from pathlib import Path
 from typing import Any, ClassVar, Literal, TYPE_CHECKING
@@ -14,9 +15,13 @@ from ...enumeration import ChunkEnum, ComponentEnum
 from ...schema import AgentReply, SessionMessage, SessionSnapshot, SessionStatus, StreamChunk, TokenUsage
 from ...schema.agent_reply import AgentReplyStatus, collect_reply
 from ...utils.counter import global_counter_add_many
+from ...utils.files.workspace_files import WorkspaceFiles
 
 if TYPE_CHECKING:
     from ..job.base_job import BaseJob
+
+
+BUILTIN_SKILLS_ROOT = Path(__file__).resolve().parents[2] / "skills"
 
 
 class BaseAgentWrapper(BaseComponent):
@@ -114,8 +119,8 @@ class BaseAgentWrapper(BaseComponent):
         """Project-level skills directory shared by agent backends."""
         return self.project_path / "skills"
 
-    def _resolve_project_skills(self, skills: list[str] | str | None) -> dict[str, Path]:
-        """Resolve selected skill names to validated project directories."""
+    def _resolve_skill_sources(self, skills: list[str] | str | None) -> dict[str, Path]:
+        """Resolve named skills, falling back to the package when the project has no override."""
         if skills is None:
             return {}
         if skills == "all":
@@ -135,12 +140,45 @@ class BaseAgentWrapper(BaseComponent):
             if not name or Path(name).name != name or name in {".", ".."}:
                 raise ValueError(f"Invalid skill name: {name!r}")
             source = self.project_skills_root / name
+            builtin = BUILTIN_SKILLS_ROOT / name
+            if not (source / "SKILL.md").is_file() and (builtin / "SKILL.md").is_file():
+                source = builtin
             if not source.is_dir():
                 raise FileNotFoundError(f"Skill directory not found: {source}")
             if not (source / "SKILL.md").is_file():
                 raise FileNotFoundError(f"Skill '{name}' is missing SKILL.md: {source}")
             sources[name] = source
         return sources
+
+    def _publish_builtin_skill(self, owner: Path, directory: str, source: Path) -> None:
+        """Publish a regular skill file, updating only copies still owned by ReMe."""
+        files = WorkspaceFiles(owner)
+        root = files.workspace / directory
+        target = root / source.name
+        if root.resolve() != root or target.is_symlink() or (target.exists() and not target.is_dir()):
+            return
+        manifest = target / "SKILL.md"
+        receipt = target / ".reme-skill"
+        if manifest.is_symlink() or receipt.is_symlink():
+            return
+
+        content = (source / "SKILL.md").read_text(encoding="utf-8")
+        digest = sha256(content.encode("utf-8")).hexdigest()
+        if manifest.exists():
+            if not manifest.is_file() or not receipt.is_file():
+                return
+            current = files.read(manifest)
+            if current == content:
+                return
+            previous = sha256(current.encode("utf-8")).hexdigest()
+            if previous not in files.read(receipt).splitlines():
+                return
+            # A retry can recognize either version if publication stops after writing the receipt.
+            files.write(receipt, f"{previous}\n{digest}\n")
+            files.write(manifest, content)
+        else:
+            files.write(receipt, f"{digest}\n")
+            files.write(manifest, content, create_only=True)
 
     @property
     def subprocess_environment(self) -> dict[str, str]:

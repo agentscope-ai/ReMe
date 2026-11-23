@@ -12,6 +12,10 @@ from ...enumeration import ComponentEnum
 from ...schema.agent_inbox import InboxReceipt
 
 
+class InvalidInboxBatchError(ValueError):
+    """The submitted items cannot be stored unchanged, even when capacity is available."""
+
+
 class BaseAgentInbox(BaseComponent):
     """Keep input receipt and asynchronous-result retention backend-independent."""
 

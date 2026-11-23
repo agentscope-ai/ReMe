@@ -1,5 +1,5 @@
-import type { AgentView, TaskSettings } from "./wire.ts";
-export type { TaskSettings } from "./wire.ts";
+import type { AgentView, ProactiveRuntimeSettings } from "./wire.ts";
+export type { ProactiveRuntimeSettings } from "./wire.ts";
 
 export interface TaskDocument {
   path: string;
@@ -7,7 +7,7 @@ export interface TaskDocument {
   mtime: string;
 }
 
-export function taskSettings(status: AgentView): TaskSettings {
+export function taskSettings(status: AgentView): ProactiveRuntimeSettings {
   return {
     enabled: status.enabled,
     cron: status.cron,
@@ -17,14 +17,14 @@ export function taskSettings(status: AgentView): TaskSettings {
 }
 
 export function changedTaskSettings(
-  before: TaskSettings,
-  after: TaskSettings,
-): Partial<TaskSettings> {
+  before: ProactiveRuntimeSettings,
+  after: ProactiveRuntimeSettings,
+): Partial<ProactiveRuntimeSettings> {
   return Object.fromEntries(
     Object.entries(after).filter(
       ([key, value]) =>
         JSON.stringify(value) !==
-        JSON.stringify(before[key as keyof TaskSettings]),
+        JSON.stringify(before[key as keyof ProactiveRuntimeSettings]),
     ),
   );
 }
@@ -34,10 +34,14 @@ export type TaskRequest = { type: "task" } & (
       action: "create";
       agent_name: string;
       task_description: string;
-      settings: TaskSettings;
+      settings: ProactiveRuntimeSettings;
     }
   | { action: "delete" | "read"; agent_name: string }
-  | { action: "update"; agent_name: string; settings: Partial<TaskSettings> }
+  | {
+      action: "update";
+      agent_name: string;
+      settings: Partial<ProactiveRuntimeSettings>;
+    }
   | {
       action: "save";
       agent_name: string;

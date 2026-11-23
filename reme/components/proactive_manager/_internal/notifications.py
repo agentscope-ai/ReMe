@@ -45,11 +45,11 @@ class InboxTurn:
 class ChatNotifications:
     """Coordinate Chat wakeups while daily records hold reminders and acknowledgements."""
 
-    def __init__(self, runtime, config: NotificationConfig):
-        self.runtime = runtime
+    def __init__(self, manager, config: NotificationConfig):
+        self.manager = manager
         self.config = config
         self.lock = asyncio.Lock()
-        self.last_activity_at = self.runtime.now()
+        self.last_activity_at = self.manager.now()
         self.worker = None
         self.retry_at = None
         self.active_turn: InboxTurn | None = None
@@ -63,7 +63,7 @@ class ChatNotifications:
 
     def reset(self):
         """Restart idle and retry timers after owned work has stopped."""
-        self.last_activity_at = self.runtime.now()
+        self.last_activity_at = self.manager.now()
         self.retry_at = self.error = None
         self.failures = 0
         self.blocked = False
@@ -71,16 +71,16 @@ class ChatNotifications:
     @property
     def pending(self):
         """Project unread reminders without duplicating queue state."""
-        return {ref for ref, item in self.runtime.outbox.records.items() if item.read_at is None}
+        return {ref for ref, entry in self.manager.outbox.entries.items() if entry.reminder.read_at is None}
 
     @property
     def read_refs(self):
         """Keep the same bounded reference horizon as the inbox component."""
-        return set(self.runtime.outbox.processed_refs())
+        return set(self.manager.outbox.processed_refs())
 
     def activity(self):
         """Restart idle timing after every foreground or internally requested Chat turn."""
-        self.last_activity_at = self.runtime.now()
+        self.last_activity_at = self.manager.now()
 
     def foreground(self):
         """Invalidate an older reminder decision as soon as a user turn is queued."""
@@ -89,7 +89,7 @@ class ChatNotifications:
     async def consume(self, msg_ids):
         """Acknowledge the messages covered by a committed decision."""
         async with self.lock:
-            await self._consume(msg_ids, self.runtime.outbox.update)
+            await self._consume(msg_ids, self.manager.outbox.update)
 
     async def _consume(self, msg_ids, update):
         identifiers = dict.fromkeys(msg_ids)
@@ -98,7 +98,7 @@ class ChatNotifications:
 
         async def save():
             for identifier in identifiers:
-                await update(identifier, read_at=self.runtime.now())
+                await update(identifier, read_at=self.manager.now())
 
         await finish_cleanup(save())
 
@@ -108,7 +108,7 @@ class ChatNotifications:
 
     def _bounded(self, refs):
         """Bound one inference batch using the configured inbox count and byte budgets."""
-        inbox = self.runtime.inbox
+        inbox = self.manager.inbox
         limit = min(20, inbox.claim_max_items, inbox.max_read_items, inbox.max_pending_items)
         byte_limit = min(inbox.claim_max_bytes, inbox.max_pending_bytes)
         separator_size = len(_INBOX_SEPARATOR.encode("utf-8"))
@@ -117,11 +117,11 @@ class ChatNotifications:
         for ref in refs:
             if len(selected) >= limit:
                 break
-            size = len(self._inbox_item(self.runtime.outbox.message(ref)).encode("utf-8"))
+            size = len(self._inbox_item(self.manager.outbox.message(ref)).encode("utf-8"))
             if size > byte_limit:
                 if ref not in self._reported_oversized:
                     self._reported_oversized.add(ref)
-                    self.runtime.logger.warning(
+                    self.manager.logger.warning(
                         f"Chat reminder {ref} remains pending: content is {size} bytes "
                         f"and does not fit the {byte_limit}-byte batch limit",
                     )
@@ -142,7 +142,7 @@ class ChatNotifications:
             refs = [
                 identifier
                 for identifier in dict.fromkeys(msg_ids)
-                if identifier in pending and self.runtime.outbox.records[identifier].priority == priority
+                if identifier in pending and self.manager.outbox.entries[identifier].reminder.priority == priority
             ]
             selected = self._bounded(refs)
             if not selected:
@@ -150,17 +150,17 @@ class ChatNotifications:
             turn = InboxTurn(session_id, priority, selected, chat_revision=self.chat_revision)
             self.active_turn = turn
         try:
-            snapshot = await self.runtime.agent_wrapper.read_session(session_id)
+            snapshot = await self.manager.agent_wrapper.read_session(session_id)
             turn.session_revision = snapshot.revision
             turn.session_turn_id = snapshot.last_turn_id
             turn.active_delivery = priority == "P0" and snapshot.state.status == "active"
             messages = {message.id: message for message in snapshot.messages if message.role == "assistant"}
             recovered = {}
             for identifier in selected:
-                item = self.runtime.outbox.records.get(identifier)
-                if item is None:
+                entry = self.manager.outbox.entries.get(identifier)
+                if entry is None:
                     continue
-                for message_id in item.chat_message_ids:
+                for message_id in entry.reminder.chat_message_ids:
                     if message_id in messages:
                         recovered[identifier] = messages[message_id]
                         break
@@ -188,11 +188,13 @@ class ChatNotifications:
         async with turn.lock:
             self.current_turn(turn.id)
             if turn.items is None:
-                outbox = self.runtime.outbox
+                outbox = self.manager.outbox
                 await outbox.refresh()
                 async with self.lock:
                     refs = sorted(self.pending.intersection(turn.msg_ids), key=outbox.order)
-                    turn.msg_ids = self._bounded(ref for ref in refs if outbox.records[ref].priority == turn.priority)
+                    turn.msg_ids = self._bounded(
+                        ref for ref in refs if outbox.entries[ref].reminder.priority == turn.priority
+                    )
                     turn.items = [outbox.message(ref) for ref in turn.msg_ids]
             return _INBOX_SEPARATOR.join(self._inbox_item(item) for item in turn.items)
 
@@ -209,13 +211,13 @@ class ChatNotifications:
                 raise ValueError("the reminder decision has already been submitted")
             turn.content = content
             if not turn.done:
-                async with nullcontext() if turn.active_delivery else self.runtime.chat_lock:
-                    current = await self.runtime.sessions.current(CHAT_AGENT_NAME)
-                    if self.runtime.closed or current is None or current.session_id != turn.session_id:
+                async with nullcontext() if turn.active_delivery else self.manager.chat_lock:
+                    current = await self.manager.sessions.current(CHAT_AGENT_NAME)
+                    if self.manager.closed or current is None or current.session_id != turn.session_id:
                         raise RuntimeError("Chat session changed; retry the reminders in the current conversation")
                     if self.chat_revision != turn.chat_revision:
                         raise RuntimeError("Chat conversation changed; reassess reminders after the latest user turn")
-                    await self.runtime.outbox.refresh()
+                    await self.manager.outbox.refresh()
 
                     async def commit(update):
                         if content and turn.message is None:
@@ -225,7 +227,7 @@ class ChatNotifications:
                                     item["id"],
                                     chat_message_ids=[f"{PROACTIVE_MESSAGE_ID_PREFIX}{message_id}"],
                                 )
-                            turn.message = await self.runtime.agent_wrapper.append_session(
+                            turn.message = await self.manager.agent_wrapper.append_session(
                                 turn.session_id,
                                 content,
                                 message_id=message_id,
@@ -234,7 +236,7 @@ class ChatNotifications:
                                 expected_revision=(None if turn.active_delivery else turn.session_revision),
                                 delivery=("immediate" if turn.priority == "P0" else "idle"),
                             )
-                        current = await self.runtime.sessions.current(CHAT_AGENT_NAME)
+                        current = await self.manager.sessions.current(CHAT_AGENT_NAME)
                         if (
                             current is None
                             or current.session_id != turn.session_id
@@ -245,7 +247,7 @@ class ChatNotifications:
                         turn.done = True
 
                     guard = (
-                        self.runtime.agent_wrapper.session_guard(
+                        self.manager.agent_wrapper.session_guard(
                             turn.session_id,
                             expected_revision=turn.session_revision,
                         )
@@ -255,12 +257,12 @@ class ChatNotifications:
                     async with (
                         guard,
                         self.lock,
-                        self.runtime.outbox.decision(turn.items) as update,
+                        self.manager.outbox.decision(turn.items) as update,
                     ):
-                        agents = await asyncio.to_thread(self.runtime.agents.load)
+                        agents = await asyncio.to_thread(self.manager.registry.load)
                         pending = self.pending
                         if not all(
-                            item["id"] in pending and self.runtime.outbox.allows(item["id"], agents, self.runtime.now())
+                            item["id"] in pending and self.manager.outbox.allows(item["id"], agents, self.manager.now())
                             for item in turn.items
                         ):
                             raise RuntimeError("reminders are no longer eligible for delivery")
@@ -272,26 +274,25 @@ class ChatNotifications:
 
     async def tick(self, run_job):
         """Coalesce eligible messages into one lifecycle-owned Chat wakeup."""
-        if self.worker is not None or self.runtime.closed:
+        if self.worker is not None or self.manager.closed:
             return
-        await self.runtime.outbox.sync()
         if self.blocked:
             return
-        now = self.runtime.now()
+        now = self.manager.now()
         if self.retry_at is not None and now < self.retry_at:
             return
-        agents = await asyncio.to_thread(self.runtime.agents.load)
+        agents = await asyncio.to_thread(self.manager.registry.load)
         async with self.lock:
-            if self.worker is not None or self.runtime.closed:
+            if self.worker is not None or self.manager.closed:
                 return
             idle = max(0, now.timestamp() - self.last_activity_at.timestamp())
-            busy = bool(self.runtime.chat_tasks) or self.runtime.chat_lock.locked()
+            busy = bool(self.manager.chat_tasks) or self.manager.chat_lock.locked()
             pending = self.pending
             self._reported_oversized.intersection_update(pending)
             candidates = defaultdict(list)
             for ref in pending:
-                item = self.runtime.outbox.records[ref]
-                if not self.runtime.outbox.allows(ref, agents, now):
+                item = self.manager.outbox.entries[ref].reminder
+                if not self.manager.outbox.allows(ref, agents, now):
                     continue
                 if item.priority == "P0":
                     if (now - item.delivered_at).total_seconds() < self.config.p0_delay_seconds:
@@ -300,7 +301,7 @@ class ChatNotifications:
                     continue
                 candidates[item.priority].append(ref)
             for priority, refs in sorted(candidates.items()):
-                refs.sort(key=self.runtime.outbox.order)
+                refs.sort(key=self.manager.outbox.order)
                 identifiers = self._bounded(refs)
                 if not identifiers:
                     continue
@@ -312,7 +313,7 @@ class ChatNotifications:
 
     async def _wake(self, run_job, priority, identifiers):
         permanent = False
-        self.last_started_at = self.runtime.now()
+        self.last_started_at = self.manager.now()
         try:
             response = await run_job("process_chat_reminders", priority=priority, msg_ids=identifiers)
             if not response.success:
@@ -321,19 +322,19 @@ class ChatNotifications:
                 raise RuntimeError(str(response.answer))
             if isinstance(response.answer, dict) and response.answer.get("skipped"):
                 if response.answer["skipped"] == "busy":
-                    self.retry_at = self.runtime.now() + timedelta(seconds=self.runtime.retry_seconds)
+                    self.retry_at = self.manager.now() + timedelta(seconds=self.manager.retry_seconds)
                 return
             self.retry_at = self.error = None
             self.failures = 0
-            self.last_completed_at = self.runtime.now()
+            self.last_completed_at = self.manager.now()
         except Exception as exc:
             self.error = (str(exc).strip() or type(exc).__name__)[:2000]
             self.failures += 1
             self.blocked = permanent or isinstance(exc, (TypeError, ImportError))
-            delay = min(300, max(1, self.runtime.retry_seconds) * 2 ** min(self.failures - 1, 8))
-            self.retry_at = None if self.blocked else self.runtime.now() + timedelta(seconds=delay)
+            delay = min(300, max(1, self.manager.retry_seconds) * 2 ** min(self.failures - 1, 8))
+            self.retry_at = None if self.blocked else self.manager.now() + timedelta(seconds=delay)
             recovery = "repair the environment and restart" if self.blocked else f"retry in {delay:g}s"
-            self.runtime.logger.error(f"Inbox wakeup failed ({recovery}): {self.error}")
+            self.manager.logger.error(f"Inbox wakeup failed ({recovery}): {self.error}")
         finally:
             self.worker = None
 

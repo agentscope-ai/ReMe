@@ -92,19 +92,19 @@ export type NotificationWindow = {
   end: string;
 };
 
+export type ProactiveRuntimeSettings = {
+  enabled: boolean;
+  cron: string | null;
+  min_trigger_interval_seconds: number;
+  notify_window: NotificationWindow | null;
+};
+
 export type SummaryItem = {
   id: string;
   status: "running" | "completed" | "failed" | "interrupted" | "waiting" | "unknown";
   type: "summary";
   text: string;
   kind: "reasoning" | "plan";
-};
-
-export type TaskSettings = {
-  enabled: boolean;
-  cron: string | null;
-  min_trigger_interval_seconds: number;
-  notify_window: NotificationWindow | null;
 };
 
 export type TextItem = {

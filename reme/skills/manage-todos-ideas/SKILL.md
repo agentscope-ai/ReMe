@@ -53,3 +53,10 @@ description: 通过 ReMe 的 todo 和 idea 工具查找项目、记录待办与�
 Todo 默认 `open`。部分完成用 `partial`，完成用 `done`，作废用 `cancelled`。
 `done` 和 `cancelled` 自动记录关闭时间并归档。设回 `open` 或 `partial` 恢复任务并清除关闭时间。
 更新时仅发送需要修改的字段，传 `due_date=null` 可清除期限。
+
+## 后台更新
+
+后台收到一批资料时，用 `list` 或 `get` 核对项目、已有条目和进展。
+通过 `todo update` 给活跃的 Todo 追加有依据的 `progress_text`，通过 `idea update` 修正活跃 Idea 的 `text`。
+每次更新带上本轮事件的 `event_id`。同一事件对同一条目的更新只保存一次。
+需要新增、关闭、改关联或继续执行时，把条目 ID、依据和下一步交给 Remy。

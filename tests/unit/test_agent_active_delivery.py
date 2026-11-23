@@ -12,7 +12,7 @@ from reme.core.context import RuntimeContext
 from reme.steps.proactive.agent import AskAgentStep, ProcessChatRemindersStep
 from reme.steps.proactive.tools.chat_reminders import SubmitChatReminderStep
 from reme.steps.proactive.tools.manage_proactive_agent import ManageProactiveAgentStep
-from .test_proactive_runtime import create_agent, running_runtime
+from .test_proactive_runtime import create_agent, running_manager
 from .test_inbox_fork import append_message, prepare
 
 
@@ -25,10 +25,10 @@ from .test_inbox_fork import append_message, prepare
     ],
 )
 async def test_query_forks_latest_running_session_instead_of_previous_receipt(tmp_path, step_class, arguments):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         previous = await runtime.sessions.ensure("monitor", wrapper, {}, runtime.now())
-        await runtime.run(
+        await runtime.run_round(
             "monitor",
             AsyncMock(return_value=(None, previous)),
         )
@@ -43,7 +43,7 @@ async def test_query_forks_latest_running_session_instead_of_previous_receipt(tm
             await release.wait()
             return None, source
 
-        running = asyncio.create_task(runtime.run("monitor", execute))
+        running = asyncio.create_task(runtime.run_round("monitor", execute))
         try:
             await asyncio.wait_for(entered.wait(), 1)
             response = await asyncio.wait_for(
@@ -68,7 +68,7 @@ async def test_query_forks_latest_running_session_instead_of_previous_receipt(tm
 
 @pytest.mark.asyncio
 async def test_p0_forks_and_appends_while_foreground_chat_keeps_running(tmp_path):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         arguments = await prepare(runtime, context, priority="P0")
         source = (await runtime.sessions.current("Remy")).session_id
         wrapper.get_session_status = AsyncMock(return_value=SessionStatus(session_id=source, status="active"))
@@ -117,7 +117,7 @@ async def test_p0_forks_and_appends_while_foreground_chat_keeps_running(tmp_path
 @pytest.mark.parametrize("priority", ["P1", "P2"])
 @pytest.mark.asyncio
 async def test_nonurgent_forks_keep_waiting_for_chat_idle(tmp_path, priority):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         arguments = await prepare(runtime, context, priority=priority)
         wrapper.reply = AsyncMock()
         async with runtime.chat_lock:
@@ -129,7 +129,7 @@ async def test_nonurgent_forks_keep_waiting_for_chat_idle(tmp_path, priority):
 
 @pytest.mark.asyncio
 async def test_p0_defers_when_a_new_user_turn_is_already_queued(tmp_path):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         arguments = await prepare(runtime, context, priority="P0")
         source = (await runtime.sessions.current("Remy")).session_id
         wrapper.get_session_status = AsyncMock(return_value=SessionStatus(session_id=source, status="active"))

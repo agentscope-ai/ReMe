@@ -1,5 +1,6 @@
 """Read Codex display messages incrementally; all methods run on a worker thread."""
 
+from base64 import b64decode
 from datetime import datetime
 from hashlib import sha256
 import json
@@ -8,10 +9,12 @@ from pathlib import Path
 from stat import S_ISREG
 from typing import Callable
 
+from ...file_io._path import IMAGE_MIME_BY_EXT
 from ....utils.files.workspace_files import WorkspaceFiles
 from ....constants import DEFAULT_MAX_FILE_BYTES
 
 _WINDOW = 4096
+_IMAGE_EXTENSIONS = {mime: extension for extension, mime in IMAGE_MIME_BY_EXT.items()}
 
 
 class CodexDialogueIndex:
@@ -183,7 +186,8 @@ class CodexDialogueIndex:
         item = payload.get("item", {})
         kind = item.get("type")
         is_user = kind == "UserMessage"
-        if not is_user and not (kind == "AgentMessage" and item.get("phase") == "final_answer"):
+        phase = item.get("phase")
+        if not is_user and not (kind == "AgentMessage" and phase in {"commentary", "final_answer"}):
             return None
         timestamp = datetime.fromisoformat(record["timestamp"].replace("Z", "+00:00"))
         if timestamp.tzinfo is None:
@@ -193,10 +197,10 @@ class CodexDialogueIndex:
         parts = item["content"]
         text_type = "text" if is_user else "Text"
         text = "\n".join(part["text"] for part in parts if part["type"] == text_type)
-        attachments = sum(part["type"] in {"image", "local_image"} for part in parts) if is_user else 0
+        attachments = [part for part in parts if part["type"] in {"image", "local_image"}] if is_user else []
         if not text and not attachments:
             return None
-        return {
+        message = {
             "timestamp": timestamp.isoformat(),
             "thread_id": meta["thread_id"],
             "session_id": meta["session_id"],
@@ -205,12 +209,68 @@ class CodexDialogueIndex:
             "cwd": meta["cwd"],
             "role": "user" if is_user else "assistant",
             "content": text,
-            "image_attachments": attachments,
+            "image_attachments": len(attachments),
         }
+        if not is_user:
+            message["phase"] = phase
+        if attachments:
+            message["image_paths"] = []
+        return message, attachments
+
+    @staticmethod
+    def _input_images(record):
+        """Find the model-facing image references without collecting the model-facing text."""
+        payload = record.get("payload", {})
+        if record.get("type") != "response_item" or payload.get("type") != "message" or payload.get("role") != "user":
+            return []
+        return [part for part in payload.get("content", []) if part.get("type") == "input_image"]
+
+    def _previous_input_images(self, handle, message_offset):
+        """Read the preceding complete record without changing the scan position."""
+        end = handle.tell()
+        try:
+            start = self._complete_end(handle, message_offset - 1)
+            length = message_offset - start
+            if length <= DEFAULT_MAX_FILE_BYTES:
+                handle.seek(start)
+                return self._input_images(json.loads(handle.read(length)))
+        except ValueError:
+            pass
+        finally:
+            handle.seek(end)
+        return []
+
+    def _attachment_files(self, handle, message_offset, attachments, key, budget):
+        """Recover local-image bytes from Codex's adjacent user input, including after a scan boundary."""
+        local = any(part["type"] == "local_image" for part in attachments)
+        input_images = self._previous_input_images(handle, message_offset) if local else []
+        use_input = len(input_images) == len(attachments)
+        identity = sha256(key.encode()).hexdigest()
+        files = {}
+        for index, part in enumerate(attachments):
+            self.check_stopped()
+            source = input_images[index] if use_input and part["type"] == "local_image" else part
+            url = source.get("image_url")
+            if not isinstance(url, str):
+                continue
+            header, separator, encoded = url.partition(",")
+            extension = _IMAGE_EXTENSIONS.get(header.removeprefix("data:").removesuffix(";base64"))
+            if not separator or extension is None or not header.startswith("data:") or not header.endswith(";base64"):
+                continue
+            name = f"image-{identity}-{index + 1}{extension}"
+            overhead = len(name) + 4  # Bounds the JSON quotes and separator for this path.
+            try:
+                data = b64decode(encoded, validate=True)
+            except ValueError:
+                continue
+            if data and len(data) + overhead <= budget:
+                files[name] = data
+                budget -= len(data) + overhead
+        return files
 
     def scan(self, state, max_scan_bytes, max_output_bytes):
         """Bound each pass; tool-only records advance cursors without producing events."""
-        updates, messages, message_ids, errors = {}, [], set(), {}
+        updates, messages, images, message_ids, errors = {}, [], {}, set(), {}
         known = state["known_ids"]
         scanned, output_size = 0, 0
         started_at = datetime.fromisoformat(state["started_at"])
@@ -259,7 +319,7 @@ class CodexDialogueIndex:
                     if reset:
                         offset = 0
                     handle.seek(offset)
-                    file_messages, file_ids, file_bytes = [], set(), 0
+                    file_messages, file_images, file_ids, file_bytes = [], {}, set(), 0
                     while handle.tell() < stat.st_size:
                         self.check_stopped()
                         start = handle.tell()
@@ -271,16 +331,29 @@ class CodexDialogueIndex:
                         if scanned + file_bytes and scanned + file_bytes + len(line) > max_scan_bytes:
                             budget_reached = True
                             break
-                        message = self._message(json.loads(line), meta, started_at)
-                        if message is not None:
+                        parsed = self._message(json.loads(line), meta, started_at)
+                        if parsed is not None:
+                            message, attachments = parsed
                             key = f"{message['session_id']}:{message['message_id']}"
                             if key not in message_ids and key not in file_ids and key not in known:
                                 size = len((json.dumps(message, ensure_ascii=False) + "\n").encode())
+                                if size > max_output_bytes:
+                                    raise ValueError("Codex dialogue message exceeds the resource byte limit")
+                                if attachments:
+                                    payloads = self._attachment_files(
+                                        handle,
+                                        start,
+                                        attachments,
+                                        key,
+                                        max_output_bytes - size,
+                                    )
+                                    message["image_paths"] = list(payloads)
+                                    size += sum(len(data) + len(name) + 4 for name, data in payloads.items())
                                 if output_size + size > max_output_bytes:
-                                    if size > max_output_bytes:
-                                        raise ValueError("Codex dialogue message exceeds the resource byte limit")
                                     budget_reached = True
                                     break
+                                if attachments:
+                                    file_images.update(payloads)
                                 file_messages.append(message)
                                 file_ids.add(key)
                                 output_size += size
@@ -288,6 +361,7 @@ class CodexDialogueIndex:
                         file_bytes += len(line)
                     updates[relative] = self._cursor(handle, stat, offset, meta)
                     messages.extend(file_messages)
+                    images.update(file_images)
                     message_ids.update(file_ids)
                     scanned += file_bytes
             except FileNotFoundError:
@@ -302,6 +376,7 @@ class CodexDialogueIndex:
             "updates": updates,
             "message_ids": sorted(message_ids),
             "messages": messages,
+            "images": images,
             "next_path": next_path,
             "errors": errors,
             "scanned_bytes": scanned,

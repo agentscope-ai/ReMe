@@ -689,12 +689,9 @@ else {
         }
       });
 
-      const characterIcon = nativeImage.createFromPath(
-        path.join(directory, "frames/idle/00.png"),
-      );
       app.dock?.setIcon(studioIconPath);
-      const icon = characterIcon.resize({ width: 20, height: 20 });
-      tray = new Tray(icon);
+      const trayIcon = nativeImage.createFromPath(studioIconPath);
+      tray = new Tray(trayIcon.resize({ width: 20, height: 20 }));
       const menu = () =>
         desktopMenu(
           controller!,

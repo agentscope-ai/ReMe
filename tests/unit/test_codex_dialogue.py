@@ -3,6 +3,7 @@
 # pylint: disable=missing-function-docstring,protected-access,redefined-outer-name
 
 import asyncio
+from base64 import b64decode
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 import json
@@ -13,16 +14,15 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from reme.core.context import ApplicationContext, RuntimeContext
-from reme.components import LocalProactiveRuntime
+from reme.components import LocalProactiveManager
 from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.agent_inbox import AgentEventInbox
 from reme.utils.files.workspace_files import WorkspaceFiles
 from reme.components.job import BaseJob, CronJob
 from reme.config import resolve_app_config
-from reme.schema import Response, ResourceMetadata
+from reme.schema import ResourceMetadata
 from reme.steps.proactive.data_connectors import (
     ScreenCaptureStep,
-    ResourceEventStep,
     CodexDialogueInitStep,
     CodexDialogueStep,
 )
@@ -105,24 +105,31 @@ async def runtime(tmp_path):
     context = ApplicationContext(workspace_dir=str(tmp_path / "workspace"), language="zh")
     Path(context.app_config.workspace_dir).mkdir(exist_ok=True)
     inbox = AgentEventInbox(app_context=context)
-    agents = LocalProactiveRuntime(
+    agents = LocalProactiveManager(
         app_context=context,
-        agents=[
+        runtimes=[
             {
                 "agent_name": "work",
                 "task_description": "跟踪项目进展和难点",
             },
+            {"agent_name": "proactive_notebook", "task_description": "跟进随记"},
         ],
     )
     context.components = {
         "agent_inbox": {"default": inbox},
         "agent_wrapper": {"default": Mock(spec=BaseAgentWrapper)},
-        "proactive_runtime": {"default": agents},
+        "proactive_manager": {"default": agents},
     }
-    job = BaseJob(app_context=context, steps=[{"backend": "append_task_events_step"}])
-    delivery = AsyncMock(side_effect=job.__call__)
-    context.jobs["append_task_events"] = delivery
-    async with inbox, agents, job:
+    deliver = agents.deliver_events
+    delivery = AsyncMock(side_effect=deliver)
+
+    async def capture_delivery(task_names, events):
+        if events[0].source == "codex_dialogue":
+            return await delivery(task_names=task_names, events=events)
+        return await deliver(task_names, events)
+
+    agents.deliver_events = capture_delivery
+    async with inbox, agents:
         agents.watcher.cancel()
         await asyncio.gather(agents.watcher, return_exceptions=True)
         agents.watcher = None
@@ -132,8 +139,7 @@ async def runtime(tmp_path):
 async def capture_screen(context, **kwargs):
     job = BaseJob(
         app_context=context,
-        agent_name="work",
-        steps=[{"backend": "screen_capture_step", **kwargs}, {"backend": "resource_event_step"}],
+        steps=[{"backend": "screen_capture_step", "task_names": ["work"], **kwargs}],
     )
     async with job:
         return await job()
@@ -194,24 +200,90 @@ async def test_independent_collectors_deliver_dialogue_and_all_screens_to_work(t
         screen = await capture_screen(context)
         assert screen.success
         response = await CodexDialogueStep(**options(context, home))()
-        assert response.success and response.answer["dialogue_messages"] == 2
+        assert response.success and response.answer["dialogue_messages"] == 3
         assert response.answer["scanned_bytes"] == path.stat().st_size - original_size
-        assert [message["content"] for message in messages(context)] == ["做增量感知", "开发完成"]
+        assert [message["content"] for message in messages(context)] == ["做增量感知", "progress", "开发完成"]
+        assert [message["phase"] for message in messages(context) if message["role"] == "assistant"] == [
+            "commentary",
+            "final_answer",
+        ]
         assert {message["cwd"] for message in messages(context)} == {"/projects/ReMe2"}
         events = (await inbox.claim("work"))["items"]
         assert [event["source"] for event in events] == ["screenshot", "codex_dialogue"]
-        assert len(events[0]["paths"]) == 3
+        assert len(events[0]["paths"]) == 2
         assert delivery.await_count == 1 and len(delivery.await_args.kwargs["events"]) == 1
         for event in events:
-            manifest = workspace(context) / event["paths"][0]
+            first_path = workspace(context) / event["paths"][0]
+            manifest = first_path.with_name("metadata.json")
             assert manifest.parent == workspace(context) / "resource" / event["source"] / "2026-11-15/120000_a8f3c2"
             metadata = ResourceMetadata.model_validate_json(manifest.read_text())
             assert metadata.source == event["source"]
-            expected_files = {"1.png", "2.png"} if event["source"] == "screenshot" else {"dialogue.jsonl"}
+            if event["source"] == "screenshot":
+                expected_files = {"1.png", "2.png"}
+                assert {Path(path).name for path in event["paths"]} == expected_files
+            else:
+                assert event["paths"] == [first_path.relative_to(workspace(context)).as_posix()]
+                assert first_path.name == "dialogue.md"
+                markdown = first_path.read_text()
+                assert markdown.index("做增量感知") < markdown.index("Codex 进度") < markdown.index("开发完成")
+                expected_files = {"dialogue.md", "dialogue.jsonl"}
             assert {entry.path for entry in metadata.files} == expected_files
             assert not {Path(value).name for value in event["paths"]} & {"progress.jsonl", "pending.json"}
             assert all(not Path(value).is_absolute() and "rollout" not in value for value in event["paths"])
         assert not (workspace(context) / "resource/screenshot/pending.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_mid_turn_inputs_keep_order_and_deliver_image_files(tmp_path, source):
+    home, path = source
+    png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a/X8AAAAASUVORK5CYII="
+    url = f"data:image/png;base64,{png}"
+    image_input = {
+        "type": "response_item",
+        "payload": {
+            "type": "message",
+            "role": "user",
+            "content": [{"type": "input_image", "image_url": url}],
+        },
+    }
+    steer = record("UserMessage", "follow-up", "steer")
+    steer["payload"]["item"]["content"] += [{"type": "local_image", "path": "/tmp/gone.png"}]
+    last = record("UserMessage", "", "image-only")
+    last["payload"]["item"]["content"] = [{"type": "image", "image_url": url}]
+    async with runtime(tmp_path) as (context, inbox, _):
+        await CodexDialogueInitStep(**options(context, home))()
+        append(
+            path,
+            record("UserMessage", "start", "first"),
+            record("AgentMessage", "checking", "step", phase="commentary"),
+            image_input,
+        )
+        # Codex can flush the model-facing input before it completes the user item.
+        first = await CodexDialogueStep(**options(context, home))()
+        assert first.success and first.answer["dialogue_messages"] == 2
+        assert [row["message_id"] for row in messages(context)] == ["first", "step"]
+        append(path, steer, last, record("AgentMessage", "done", "final", phase="final_answer"))
+        response = await CodexDialogueStep(**options(context, home, task_names=["work", "proactive_notebook"]))()
+        assert response.success and response.answer["dialogue_messages"] == 3
+        events = (await inbox.claim("proactive_notebook"))["items"]
+        assert len(events) == 1
+        transcript, *images = [workspace(context) / name for name in events[0]["paths"]]
+        assert transcript.name == "dialogue.md"
+        rows = [json.loads(line) for line in transcript.with_suffix(".jsonl").read_text().splitlines()]
+        assert [row["message_id"] for row in rows] == ["steer", "image-only", "final"]
+        assert {row["turn_id"] for row in messages(context)} == {"turn-1"}
+        assert [row["image_paths"] for row in rows[:2]] == [[image.name] for image in images]
+        assert len(images) == 2 and all(image.read_bytes() == b64decode(png) for image in images)
+        markdown = transcript.read_text()
+        assert markdown.count("### 轮次 `turn-1`") == 1
+        assert markdown.index("`steer`") < markdown.index("follow-up") < markdown.index(f"({images[0].name})")
+        assert markdown.index("`image-only`") < markdown.index(f"({images[1].name})") < markdown.index("`final`")
+        manifest = transcript.with_name("metadata.json")
+        assert [entry.path for entry in ResourceMetadata.model_validate_json(manifest.read_text()).files] == [
+            transcript.name,
+            "dialogue.jsonl",
+            *(image.name for image in images),
+        ]
 
 
 @pytest.mark.asyncio
@@ -300,7 +372,7 @@ async def test_filtered_screenshot_keeps_new_dialogue_and_uses_the_configured_th
         result = await CodexDialogueStep(**options(context, home))()
         assert result.success and result.answer["dialogue_messages"] == 1
         assert thresholds == [0.98]
-        assert [event["source"] for event in delivery.await_args.kwargs["events"]] == ["codex_dialogue"]
+        assert [event.source for event in delivery.await_args.kwargs["events"]] == ["codex_dialogue"]
         assert (await inbox.snapshot("work"))["pending_count"] == 1
         assert not list(workspace(context).glob("resource/screenshot/*/*"))
 
@@ -446,18 +518,75 @@ async def test_delivery_failure_reuses_frozen_batch_before_reading_further_chang
         await CodexDialogueInitStep(**options(context, home))()
         append(path, record("UserMessage", "retry me"))
         original = delivery.side_effect
-        delivery.side_effect = [Response(success=False, answer="offline")]
+        delivery.side_effect = [{"deliveries": {}, "rejected": {}, "errors": {"work": "offline"}}]
         with pytest.raises(RuntimeError, match="delivery failed"):
             await CodexDialogueStep(**options(context, home))()
         frozen = delivery.await_args.kwargs["events"]
         append(path, record("UserMessage", "later", "user-2"))
         delivery.side_effect = original
-        await CodexDialogueStep(**options(context, home))()
+        await CodexDialogueStep(**options(context, home, task_names=["proactive_notebook"]))()
         assert devices.call_count == 0 and delivery.await_args.kwargs["events"] == frozen
+        assert delivery.await_args.kwargs["task_names"] == ["work"]
         assert (await inbox.snapshot("work"))["pending_count"] == 1
         assert [value["content"] for value in messages(context)] == ["retry me"]
         await CodexDialogueStep(**options(context, home))()
         assert sorted(value["content"] for value in messages(context)) == ["later", "retry me"]
+
+
+@pytest.mark.asyncio
+async def test_partial_delivery_retries_only_the_pending_recipient(tmp_path, source, monkeypatch):
+    """A saved batch retains its recipients when configuration changes."""
+    home, path = source
+    async with runtime(tmp_path) as (context, inbox, delivery):
+        agents = context.components["proactive_manager"]["default"]
+        original = agents.append_events
+
+        async def write(name, events):
+            if name == "proactive_notebook":
+                raise OSError("inbox unavailable")
+            return await original(name, events)
+
+        await CodexDialogueInitStep(**options(context, home))()
+        append(path, record("UserMessage", "for both"))
+        with monkeypatch.context() as patch:
+            patch.setattr(agents, "append_events", write)
+            with pytest.raises(RuntimeError, match="inbox unavailable"):
+                await CodexDialogueStep(**options(context, home, task_names=["work", "proactive_notebook"]))()
+        assert (await inbox.snapshot("work"))["pending_count"] == 1
+        first = delivery.await_args.kwargs["events"]
+
+        response = await CodexDialogueStep(**options(context, home, task_names=["work"]))()
+        assert response.success
+        assert delivery.await_args.kwargs == {
+            "task_names": ["proactive_notebook"],
+            "events": first,
+        }
+        assert (await inbox.snapshot("work"))["pending_count"] == 1
+        assert (await inbox.snapshot("proactive_notebook"))["pending_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_collectors_finish_a_batch_when_one_target_is_scheduled(tmp_path, source, devices):
+    home, path = source
+    async with runtime(tmp_path) as (context, inbox, _):
+        manager = context.components["proactive_manager"]["default"]
+        await manager.update("work", {"cron": "0 * * * *"})
+        await CodexDialogueInitStep(**options(context, home))()
+        targets = ["work", "proactive_notebook"]
+        for message in ("first", "later"):
+            append(path, record("UserMessage", message, message))
+            result = await CodexDialogueStep(**options(context, home, task_names=targets))()
+            assert result.success and set(result.answer["rejected"]) == {"work"}
+            assert not dialogue_index(context, home).pending_path.exists()
+        assert (await inbox.snapshot("work"))["pending_count"] == 0
+        assert (await inbox.snapshot("proactive_notebook"))["pending_count"] == 2
+
+        screen = await capture_screen(context)
+        assert screen.success
+        receipt = (workspace(context) / screen.answer["path"]).with_name(".delivery.json")
+        assert set(WorkspaceFiles(workspace(context)).read_json(receipt, {})["rejected"]) == {"work"}
+        assert not (workspace(context) / "resource/.pending-resource-events.json").exists()
+        assert devices.call_count == 1
 
 
 @pytest.mark.asyncio
@@ -657,11 +786,15 @@ async def test_interrupted_pending_cleanup_recovers_without_replaying_dialogue(t
 
 
 @pytest.mark.asyncio
-async def test_screenshot_delivery_failure_does_not_block_dialogue_progress(tmp_path, source, devices, monkeypatch):
+async def test_screenshot_delivery_failure_does_not_block_dialogue_progress(
+    tmp_path,
+    source,
+    devices,
+    monkeypatch,
+):
     home, path = source
     async with runtime(tmp_path) as (context, inbox, delivery):
-        proactive_runtime = context.components["proactive_runtime"]["default"]
-        await proactive_runtime.update("work", {"cron": "0 * * * *"})
+        proactive_runtime = context.components["proactive_manager"]["default"]
         await CodexDialogueInitStep(**options(context, home))()
         append(path, record("UserMessage", "first", "first"))
         await CodexDialogueStep(**options(context, home))()
@@ -674,22 +807,24 @@ async def test_screenshot_delivery_failure_does_not_block_dialogue_progress(tmp_
             return await append_events(agent_name, events)
 
         with monkeypatch.context() as patch:
-            patch.setattr(context.components["proactive_runtime"]["default"], "append_events", fail_screenshot)
+            patch.setattr(context.components["proactive_manager"]["default"], "append_events", fail_screenshot)
             screen = await capture_screen(context)
         assert not screen.success and "screen delivery failed" in screen.answer
         assert progress(context).read_bytes() == committed
-        manifest = next(workspace(context).glob("resource/screenshot/*/*/metadata.json"))
+        (journal,) = workspace(context).glob("resource/screenshot/*/*/.delivery.json")
         append(path, record("UserMessage", "later", "later"))
         result = await CodexDialogueStep(**options(context, home))()
         assert result.success and result.answer["dialogue_messages"] == 1
         assert sorted(message["content"] for message in messages(context)) == ["first", "later"]
         assert devices.call_count == 1 and delivery.await_count == 2
         assert (await inbox.snapshot("work"))["pending_count"] == 2
-        await ResourceEventStep(app_context=context)(
-            agent_name="work",
-            resource={"path": manifest.relative_to(workspace(context)).as_posix()},
-        )
+        devices.return_value = []
+        devices.side_effect = None
+        retry = await capture_screen(context, task_names=["proactive_notebook"])
+        assert retry.success and retry.answer == {"skipped": "no_new_data"}
         assert (await inbox.snapshot("work"))["pending_count"] == 3
+        assert (await inbox.snapshot("proactive_notebook"))["pending_count"] == 0
+        assert WorkspaceFiles(workspace(context)).read_json(journal, {})["pending"] == []
 
 
 @pytest.mark.asyncio
@@ -723,7 +858,7 @@ async def test_failed_dialogue_pending_write_preserves_screenshots_and_retries_d
         assert not pending.exists() and progress(context).read_bytes() == before
         assert manifest.read_bytes() == saved and not messages(context)
         await CodexDialogueStep(**options(context, home))()
-        assert [event["source"] for event in delivery.await_args.kwargs["events"]] == ["codex_dialogue"]
+        assert [event.source for event in delivery.await_args.kwargs["events"]] == ["codex_dialogue"]
         assert [message["content"] for message in messages(context)] == ["not lost"]
         await CodexDialogueStep(**options(context, home))()
         assert devices.call_count == 1 and delivery.await_count == 1
@@ -859,3 +994,4 @@ async def test_cron_establishes_baseline_before_first_wait_and_delivers_only_new
         assert [message["message_id"] for message in messages(context)] == ["new-1"]
         delivery.assert_awaited_once()
         assert (await inbox.snapshot("work"))["pending_count"] == 1
+        assert (await inbox.snapshot("proactive_notebook"))["pending_count"] == 1

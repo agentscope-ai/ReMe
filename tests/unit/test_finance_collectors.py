@@ -1,4 +1,4 @@
-"""Finance schedules collect into isolated files and use the real append_task_events Job."""
+"""Finance schedules collect into isolated files and deliver through the Proactive Manager."""
 
 # pylint: disable=protected-access,missing-function-docstring,redefined-outer-name
 
@@ -13,12 +13,11 @@ import httpx
 import pytest
 
 from reme.core.context import ApplicationContext, RuntimeContext
-from reme.components import LocalProactiveRuntime
+from reme.components import LocalProactiveManager
 from reme.utils.files.workspace_files import WorkspaceFiles
 from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.agent_inbox import AgentEventInbox
-from reme.components.job import BaseJob
-from reme.schema import CryptoQuote, FinanceNewsItem, Response, StockQuote
+from reme.schema import CryptoQuote, FinanceNewsItem, StockQuote
 from reme.steps.proactive.data_connectors import BtcQuotesStep, FinanceNewsStep, StockQuotesStep
 from reme.steps.proactive.data_connectors import base_connector, btc_quotes, stock_quotes
 from reme.steps.proactive.data_connectors.stock_quotes import _active_session
@@ -56,19 +55,18 @@ def mock_http(monkeypatch):
 async def collector_runtime(tmp_path):
     context = ApplicationContext(workspace_dir=str(tmp_path), reme_agent_dir="reme_agents", language="zh")
     inbox = AgentEventInbox(app_context=context)
-    runtime = LocalProactiveRuntime(
+    runtime = LocalProactiveManager(
         app_context=context,
-        agents=[{"agent_name": "finance", "task_description": "偏好 AI 相关的财经新闻"}],
+        runtimes=[{"agent_name": "finance", "task_description": "偏好 AI 相关的财经新闻"}],
     )
     context.components = {
         "agent_inbox": {"default": inbox},
         "agent_wrapper": {"default": Mock(spec=BaseAgentWrapper)},
-        "proactive_runtime": {"default": runtime},
+        "proactive_manager": {"default": runtime},
     }
-    job = BaseJob(app_context=context, steps=[{"backend": "append_task_events_step"}])
-    append = AsyncMock(side_effect=job.__call__)
-    context.jobs["append_task_events"] = append
-    async with inbox, runtime, job:
+    append = AsyncMock(side_effect=runtime.deliver_events)
+    runtime.deliver_events = append
+    async with inbox, runtime:
         runtime.watcher.cancel()
         await asyncio.gather(runtime.watcher, return_exceptions=True)
         runtime.watcher = None
@@ -117,13 +115,17 @@ async def test_news_uses_existing_job_and_source_files_deduplicate_after_restart
         assert response.success
         event = (await inbox.claim("finance"))["items"][0]
         assert event["source"] == "finance_news"
-        assert append.await_args.kwargs["agent_name"] == "finance"
-        assert append.await_args.kwargs["events"][0]["id"] == event["id"]
-        manifest, payload = event["paths"]
-        item = FinanceNewsItem.model_validate_json((tmp_path / payload).read_text())
+        assert append.await_args.kwargs["task_names"] == ["finance"]
+        assert append.await_args.kwargs["events"][0].id == event["id"]
+        (markdown_path,) = event["paths"]
+        markdown = tmp_path / markdown_path
+        assert markdown.name == "news.md"
+        assert "[AI 新闻](https://www.cls.cn/detail/2)" in markdown.read_text()
+        assert "AI news full text" in markdown.read_text()
+        item = FinanceNewsItem.model_validate_json(markdown.with_name("news.jsonl").read_text())
         assert item.news_id == "2" and item.content == "AI news full text"
         assert item.url == "https://www.cls.cn/detail/2"
-        assert (tmp_path / manifest).parent.joinpath("delivery-finance.json").is_file()
+        assert WorkspaceFiles(tmp_path).read_json(markdown.with_name(".delivery.json"), {})["pending"] == []
     async with collector_runtime(tmp_path) as (context, inbox, append):
         response = await FinanceNewsStep(app_context=context, request_interval=0)()
         assert response.answer == {"skipped": "no_new_data"}
@@ -146,7 +148,7 @@ async def test_news_paginates_until_window_boundary_and_deduplicates_overlapping
         event = (await inbox.claim("finance"))["items"][0]
         items = [
             FinanceNewsItem.model_validate_json(line)
-            for line in (tmp_path / event["paths"][1]).read_text().splitlines()
+            for line in (tmp_path / event["paths"][0]).with_name("news.jsonl").read_text().splitlines()
         ]
         assert [item.news_id for item in items] == ["2", "3"]
     assert int(requests[1].url.params["last_time"]) == int((now - timedelta(hours=2)).timestamp())
@@ -169,18 +171,36 @@ async def test_no_new_news_creates_no_package_or_event(tmp_path, clock, mock_htt
 async def test_failed_delivery_retries_original_package_before_collecting_again(tmp_path, clock, mock_http):
     mock_http(lambda _: news_response(news_batch(clock)))
     async with collector_runtime(tmp_path) as (context, inbox, append):
-        append.return_value = Response(success=False, answer="queue full")
+        append.return_value = {"deliveries": {}, "rejected": {}, "errors": {"finance": "queue full"}}
         append.side_effect = lambda **_: append.return_value
         with pytest.raises(RuntimeError, match="queue full"):
             await FinanceNewsStep(app_context=context)()
         original = append.await_args.kwargs["events"][0]
         assert (await inbox.snapshot("finance"))["pending_count"] == 0
-        assert not list(tmp_path.glob("resource/**/delivery-finance.json"))
+        (receipt,) = tmp_path.glob("resource/**/.delivery.json")
+        assert WorkspaceFiles(tmp_path).read_json(receipt, {})["pending"] == ["finance"]
     async with collector_runtime(tmp_path) as (context, inbox, append):
-        await FinanceNewsStep(app_context=context)()
+        await FinanceNewsStep(app_context=context, task_names=["another_task"])()
         assert append.await_args.kwargs["events"] == [original]
+        assert append.await_args.kwargs["task_names"] == ["finance"]
         assert (await inbox.snapshot("finance"))["pending_count"] == 1
     assert len(list(tmp_path.glob("resource/**/metadata.json"))) == 1
+
+
+@pytest.mark.asyncio
+async def test_rejected_finance_target_gets_a_terminal_receipt(tmp_path, clock, mock_http):
+    mock_http(lambda _: news_response(news_batch(clock)))
+    async with collector_runtime(tmp_path) as (context, inbox, append):
+        step = FinanceNewsStep(app_context=context, task_names=["finance", "missing"])
+        assert (await step()).success
+        (receipt,) = tmp_path.glob("resource/**/.delivery.json")
+        assert (
+            WorkspaceFiles(tmp_path).read_json(receipt, {})["rejected"]["missing"]
+            == "proactive agent not found: missing"
+        )
+        assert (await inbox.snapshot("finance"))["pending_count"] == 1
+        assert (await step()).success
+        assert append.await_count == 1
 
 
 @pytest.mark.asyncio
@@ -194,7 +214,7 @@ async def test_successful_append_without_delivery_receipt_is_idempotent_after_re
     write = WorkspaceFiles.write_json
 
     def fail_receipt(files, path, value):
-        if path.name == "delivery-finance.json":
+        if path.name == ".delivery.json" and not value["pending"]:
             raise OSError("receipt unavailable")
         return write(files, path, value)
 
@@ -321,7 +341,7 @@ async def test_quote_snapshots_batch_active_market_and_deduplicate_the_same_minu
         batch = await inbox.claim("finance")
         event = batch["items"][0]
         quotes = [
-            StockQuote.model_validate_json(line) for line in (tmp_path / event["paths"][1]).read_text().splitlines()
+            StockQuote.model_validate_json(line) for line in (tmp_path / event["paths"][0]).read_text().splitlines()
         ]
         assert {quote.symbol for quote in quotes} == {"01810.HK", "09988.HK", "00700.HK"}
         assert all(quote.quote_age_seconds == 900 for quote in quotes)
@@ -349,7 +369,7 @@ async def test_quote_freshness_uses_receipt_time_when_prices_update_during_reque
         await StockQuotesStep(app_context=context)()
         event = (await inbox.claim("finance"))["items"][0]
         quotes = [
-            StockQuote.model_validate_json(line) for line in (tmp_path / event["paths"][1]).read_text().splitlines()
+            StockQuote.model_validate_json(line) for line in (tmp_path / event["paths"][0]).read_text().splitlines()
         ]
         assert len(quotes) == 3
         assert all(quote.collected_at == received_at and quote.quote_age_seconds == 1 for quote in quotes)
@@ -364,7 +384,7 @@ async def test_us_quotes_use_new_york_date_even_on_beijing_saturday(tmp_path, cl
         await StockQuotesStep(app_context=context)()
         event = (await inbox.claim("finance"))["items"][0]
         quotes = [
-            StockQuote.model_validate_json(line) for line in (tmp_path / event["paths"][1]).read_text().splitlines()
+            StockQuote.model_validate_json(line) for line in (tmp_path / event["paths"][0]).read_text().splitlines()
         ]
         assert {quote.symbol for quote in quotes} == {"AAPL", "AMZN", "META"}
         assert {quote.trading_date.isoformat() for quote in quotes} == {"2026-11-13"}
@@ -467,7 +487,7 @@ async def test_stock_failed_delivery_waits_for_an_open_market_after_restart(tmp_
     requests = mock_http(tencent_response)
     async with collector_runtime(tmp_path) as (context, _, append):
         append.side_effect = None
-        append.return_value = Response(success=False, answer="queue full")
+        append.return_value = {"deliveries": {}, "rejected": {}, "errors": {"finance": "queue full"}}
         with pytest.raises(RuntimeError, match="queue full"):
             await StockQuotesStep(app_context=context)()
         original = append.await_args.kwargs["events"]
@@ -495,7 +515,7 @@ async def test_stock_pending_hk_batch_is_not_delivered_during_us_hours(tmp_path,
     )
     async with collector_runtime(tmp_path) as (context, _, append):
         append.side_effect = None
-        append.return_value = Response(success=False, answer="queue full")
+        append.return_value = {"deliveries": {}, "rejected": {}, "errors": {"finance": "queue full"}}
         with pytest.raises(RuntimeError, match="queue full"):
             await StockQuotesStep(app_context=context)()
     clock.now.return_value = datetime(2026, 11, 16, 23, 0, tzinfo=_SHANGHAI)
@@ -546,7 +566,7 @@ async def test_btc_collects_on_weekends_and_deduplicates_the_observed_minute(tmp
         await BtcQuotesStep(app_context=context)()
         event = (await inbox.claim("finance"))["items"][0]
         assert event["source"] == "btc_quotes"
-        quote = CryptoQuote.model_validate_json((tmp_path / event["paths"][1]).read_text())
+        quote = CryptoQuote.model_validate_json((tmp_path / event["paths"][0]).read_text())
         assert quote.symbol == "BTCUSDT" and quote.currency == "USDT"
         assert quote.price == 66000 and quote.change_24h_percent == 10
         assert quote.window_end - quote.window_start == timedelta(hours=24)
@@ -580,7 +600,7 @@ async def test_btc_failed_delivery_reuses_the_saved_batch_after_restart(tmp_path
     requests = mock_http(lambda _: httpx.Response(200, json=btc_statistics(clock)))
     async with collector_runtime(tmp_path) as (context, _, append):
         append.side_effect = None
-        append.return_value = Response(success=False, answer="queue full")
+        append.return_value = {"deliveries": {}, "rejected": {}, "errors": {"finance": "queue full"}}
         with pytest.raises(RuntimeError, match="queue full"):
             await BtcQuotesStep(app_context=context)()
         original = append.await_args.kwargs["events"]
@@ -709,8 +729,13 @@ async def test_news_overlap_keeps_late_records_without_repeating_known_ids(tmp_p
     async with collector_runtime(tmp_path) as (context, inbox, append):
         await FinanceNewsStep(app_context=context)()
         clock.now.return_value += timedelta(minutes=5)
-        rows = [news_row(3, start + timedelta(minutes=4)), news_row(4, start - timedelta(minutes=2)), *rows]
+        identical = {**news_row(3, start + timedelta(minutes=4), "新消息"), "title": "新消息"}
+        rows = [identical, news_row(4, start - timedelta(minutes=2)), *rows]
         result = await FinanceNewsStep(app_context=context)()
-        lines = (tmp_path / result.answer["path"]).parent.joinpath("news.jsonl").read_text().splitlines()
+        package = (tmp_path / result.answer["path"]).parent
+        lines = package.joinpath("news.jsonl").read_text().splitlines()
         assert {FinanceNewsItem.model_validate_json(line).news_id for line in lines} == {"3", "4"}
+        markdown = package.joinpath("news.md").read_text()
+        assert markdown.count("新消息") == 1
+        assert "/detail/3)" in markdown and "/detail/4)" in markdown and "/detail/2)" not in markdown
         assert append.await_count == 2 and (await inbox.snapshot("finance"))["pending_count"] == 2
