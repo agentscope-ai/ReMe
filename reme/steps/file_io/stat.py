@@ -51,13 +51,30 @@ class StatStep(BaseStep):
         # side, and directory probing is a supported use of this step.
         # Otherwise fall back to the original when the .md candidate is
         # missing but the original exists (e.g., an extension-less file).
+        #
+        # Honor the request-scoped ``_allowed_paths`` constraint like ``read``
+        # (stat also returns the frontmatter of Markdown files). Candidates
+        # outside the scope are dropped before the precedence above applies,
+        # so an out-of-scope directory or file can neither shadow an
+        # authorized note nor reveal that it exists.
         original_target = target
-        target, _is_md = gate_md(target)
-        if original_target.is_dir() or (not target.exists() and original_target.exists()):
+        md_target, _is_md = gate_md(target)
+        allowed_paths = self.context.get("_allowed_paths")
+
+        def allowed(candidate: Path) -> bool:
+            return check_path_permission(workspace_dir, candidate, allowed_paths)
+
+        if original_target.is_dir() and allowed(original_target):
             target = original_target
-        # Honor the request-scoped ``_allowed_paths`` constraint like ``read``;
-        # stat also returns the frontmatter of Markdown files.
-        if not check_path_permission(workspace_dir, target, self.context.get("_allowed_paths")):
+        elif md_target.exists() and allowed(md_target):
+            target = md_target
+        elif original_target.exists() and allowed(original_target):
+            target = original_target
+        elif allowed(md_target):
+            target = md_target
+        elif allowed(original_target):
+            target = original_target
+        else:
             self.context.response.success = False
             self.context.response.answer = "Error: no permission to access this path"
             self.context.response.metadata.update({"path": path, "error": "no permission to access this path"})

@@ -451,6 +451,49 @@ async def test_read_image_scope_rejects_outside_file():
 
 
 @pytest.mark.asyncio
+async def test_read_image_denial_echoes_the_requested_path():
+    """A denied symlink reports the path that was asked for, not where the link points."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        _seed(Path(tmp), NOTE, "target\n")
+        secret = _seed(Path(tmp), "secrets/photo.png", "s3cr3t\n")
+        (Path(tmp) / "images").mkdir()
+        (Path(tmp) / "images/link.png").symlink_to(secret)
+        store = await _make_store()
+
+        resp = await _run(ReadImageStep, store, path="images/link.png", _allowed_paths=[NOTE])
+        assert resp.success is False
+        assert resp.metadata["path"] == "images/link.png"
+        assert "secrets" not in str(resp.metadata) and "secrets" not in str(resp.answer)
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_stat_out_of_scope_directory_does_not_shadow_authorized_note():
+    """A same-name directory outside the scope must not win over the authorized Markdown note."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        _seed(Path(tmp), NOTE, "target\n")
+        _seed(Path(tmp), NOTE.removesuffix(".md") + "/attachment.txt", "x\n")
+        store = await _make_store()
+        suffixless = NOTE.removesuffix(".md")
+
+        resp = await _run(StatStep, store, path=suffixless, _allowed_paths=[NOTE])
+        assert resp.success is True
+        assert resp.metadata["type"] == "file"
+        assert resp.metadata["resolved_path"].endswith("podcast-habits.md")
+
+        # Without a scope the directory keeps its priority.
+        resp = await _run(StatStep, store, path=suffixless)
+        assert resp.success is True and resp.metadata["type"] == "dir"
+
+        # With neither candidate in scope, the directory's existence is not revealed.
+        resp = await _run(StatStep, store, path=suffixless, _allowed_paths=[OUTSIDE])
+        assert resp.success is False
+        assert "no permission" in str(resp.answer).lower()
+        assert "exists" not in resp.metadata and "type" not in resp.metadata
+        await store.close()
+
+
+@pytest.mark.asyncio
 async def test_stat_scope_rejects_outside_path():
     """StatStep honors the scope and does not reveal outside frontmatter or existence."""
     with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):

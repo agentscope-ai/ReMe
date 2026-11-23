@@ -58,7 +58,9 @@ class ReadImageStep(_FileIOStep):
 
         target, is_image, mime = gate_image(target)
         if not check_path_permission(self.workspace_path, target, self.context.get("_allowed_paths")):
-            self._fail("no permission to access this file", path=str(target))
+            # Echo the request: ``target`` is canonicalized and could reveal
+            # where an out-of-scope symlink points.
+            self._fail("no permission to access this file", path=raw)
             return None
         if not is_image:
             self.logger.info(f"[{self.name}] {NON_IMAGE_WARNING} path={target}")
