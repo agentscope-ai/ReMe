@@ -3,12 +3,18 @@
 import { useEffect, useLayoutEffect, useSyncExternalStore } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserHost } from "../../client/src/browser-host.ts";
-import { HostContext, workbenchHost } from "../../workbench/src/host.ts";
+import { normalizeEndpoint } from "../../client/src/settings.ts";
+import {
+  HostContext,
+  workbenchHost,
+  type WorkbenchHost,
+} from "../../workbench/src/host.ts";
 import {
   iosFetch,
   nativeRequest,
   openNativeRecorder,
   platform,
+  requestLocalNetwork,
 } from "./native-bridge.ts";
 import Workbench from "../../workbench/src/workspace.tsx";
 import "../../workbench/src/style.css";
@@ -32,9 +38,15 @@ const browser = new BrowserHost({
   },
 });
 
-const host = {
-  ...workbenchHost(browser),
+const workbench = workbenchHost(browser);
+const host: WorkbenchHost = {
+  ...workbench,
   openRecorder: openNativeRecorder,
+  async action(action) {
+    if (action.type === "settings.update" && action.endpoint !== undefined)
+      await requestLocalNetwork?.(normalizeEndpoint(action.endpoint));
+    await workbench.action(action);
+  },
 };
 window.remeHandleBack = () => {
   const dialog = [

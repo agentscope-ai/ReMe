@@ -75,6 +75,12 @@ export default function Settings({
   };
   const items = sections.filter(([id]) => desktop || id !== "remy");
   const current = items.find(([id]) => id === section)!;
+  const issue =
+    error !== null
+      ? errorText(error, state.settings.language)
+      : section === "general" && state.connection !== "connected"
+        ? state.connectionError
+        : "";
   return (
     <section className="settings-layout" aria-label={t("desktopSettings")}>
       <SplitPane
@@ -122,9 +128,9 @@ export default function Settings({
             {section !== "about" && (
               <p className="page-description">{t(current[2])}</p>
             )}
-            {error !== null && (
+            {issue && (
               <div className="action-error" role="alert">
-                {errorText(error, state.settings.language)}
+                {issue}
               </div>
             )}
             {section === "general" && (

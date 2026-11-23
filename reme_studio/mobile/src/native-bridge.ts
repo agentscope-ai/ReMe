@@ -49,7 +49,7 @@ declare global {
 const android = window.RemeAndroid;
 const ios = window.webkit?.messageHandlers?.remeStudio;
 type NativeMessage =
-  | { action: "openExternal" | "theme"; value: string }
+  | { action: "openExternal" | "theme" | "network.access"; value: string }
   | {
       action:
         | "recording.start"
@@ -213,6 +213,15 @@ export function nativeRequest(message: NativeMessage): Promise<NativeReply> {
 }
 
 export const platform = ios ? "ios" : "android";
+export const requestLocalNetwork = android
+  ? async (url: string) => {
+      const reply = await nativeRequest({
+        action: "network.access",
+        value: url,
+      });
+      if (!reply.success) throw new UiError("localNetworkDenied");
+    }
+  : undefined;
 export const openNativeRecorder = android ? openAndroidRecorder : undefined;
 if (android) {
   const root = document.documentElement;

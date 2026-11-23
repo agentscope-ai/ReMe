@@ -1080,7 +1080,11 @@ export class ClientController {
     }
     if (this.closed) return;
     this.state.settings = this.storage.settings;
-    if (changedEndpoint) this.restart();
+    if (
+      changedEndpoint ||
+      (update.endpoint !== undefined && this.state.connection !== "connected")
+    )
+      this.restart();
     else {
       this.tick();
       this.emit();

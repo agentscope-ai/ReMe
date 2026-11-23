@@ -320,6 +320,10 @@ export const messages = {
   interfaceLanguage: ["界面语言", "Interface language"],
   serviceConnection: ["服务连接", "Service connection"],
   workspaceLocation: ["工作区位置", "Workspace location"],
+  localNetworkDenied: [
+    "请在 Android 设置中允许 ReMe Studio 访问局域网，然后重试。",
+    "Allow ReMe Studio to access the local network in Android settings, then try again.",
+  ],
   connected: ["已连接", "Connected"],
   reconnecting: ["连接中", "Connecting"],
   showPet: ["显示桌面角色", "Show desktop companion"],

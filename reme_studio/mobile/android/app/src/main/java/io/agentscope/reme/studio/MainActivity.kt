@@ -3,10 +3,15 @@ package io.agentscope.reme.studio
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.net.DnsResolver
+import android.net.InetAddresses
+import android.net.IpPrefix
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceRequest
@@ -19,6 +24,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.RequiresApi
 import androidx.core.graphics.Insets
 import androidx.core.net.toUri
 import androidx.core.view.ViewCompat
@@ -30,6 +36,8 @@ import androidx.webkit.WebViewClientCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import org.json.JSONObject
+import java.net.InetAddress
+import java.net.NetworkInterface
 
 class MainActivity : ComponentActivity() {
     private lateinit var webView: WebView
@@ -37,6 +45,7 @@ class MainActivity : ComponentActivity() {
     private var studioLoaded = false
     private val recorder = AndroidRecorder()
     private var pendingAudio: ((Boolean) -> Unit)? = null
+    private var pendingNetwork: ((Boolean) -> Unit)? = null
     private var safeArea = Insets.NONE
     private var backGestureInset = 0
     private var keyboardVisible = false
@@ -44,6 +53,12 @@ class MainActivity : ComponentActivity() {
     private val microphone = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         val complete = pendingAudio
         pendingAudio = null
+        complete?.invoke(granted)
+    }
+
+    private val localNetwork = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val complete = pendingNetwork
+        pendingNetwork = null
         complete?.invoke(granted)
     }
 
@@ -134,6 +149,7 @@ class MainActivity : ComponentActivity() {
             override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
                 rendererExited = true
                 pendingAudio = null
+                pendingNetwork = null
                 recorder.cancel()
                 disposeWebView(view)
                 recreate()
@@ -186,6 +202,9 @@ class MainActivity : ComponentActivity() {
         }
         when (message.optString("action")) {
             "openExternal" -> complete(openExternal(Uri.parse(message.optString("value"))))
+            "network.access" -> requestNetworkAccess(Uri.parse(message.optString("value")).host) { granted ->
+                complete(granted)
+            }
             "recording.start" -> {
                 val start: (Boolean) -> Unit = { granted ->
                     if (granted) recorder.start { complete(it) }
@@ -249,8 +268,26 @@ class MainActivity : ComponentActivity() {
         super.onStop()
     }
 
+    private fun requestNetworkAccess(host: String?, complete: (Boolean) -> Unit) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.CINNAMON_BUN) return complete(true)
+        val permission = Manifest.permission.ACCESS_LOCAL_NETWORK
+        if (checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED) return complete(true)
+        LocalNetwork.check(host, this) { needsPermission ->
+            if (isDestroyed || rendererExited) return@check
+            if (!needsPermission || checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED) {
+                complete(true)
+            } else if (pendingNetwork == null) {
+                pendingNetwork = complete
+                localNetwork.launch(permission)
+            } else {
+                complete(false)
+            }
+        }
+    }
+
     override fun onDestroy() {
         pendingAudio = null
+        pendingNetwork = null
         recorder.close()
         if (!rendererExited) disposeWebView(webView)
         super.onDestroy()
@@ -261,5 +298,43 @@ class MainActivity : ComponentActivity() {
 
     private companion object {
         const val STUDIO_ORIGIN = "https://appassets.androidplatform.net"
+    }
+
+    @RequiresApi(Build.VERSION_CODES.CINNAMON_BUN)
+    private object LocalNetwork {
+        private val prefixes = listOf(
+            "10.0.0.0" to 8, "100.64.0.0" to 10, "169.254.0.0" to 16,
+            "172.16.0.0" to 12, "192.168.0.0" to 16, "fc00::" to 7, "fe80::" to 10,
+        ).map { (address, bits) -> IpPrefix(InetAddresses.parseNumericAddress(address), bits) }
+
+        fun check(host: String?, context: Context, complete: (Boolean) -> Unit) {
+            val name = host?.trimEnd('.')?.removeSurrounding("[", "]") ?: return complete(false)
+            if (name.equals("localhost", ignoreCase = true)) return complete(false)
+            if (name.endsWith(".local", ignoreCase = true)) return complete(true)
+            if (InetAddresses.isNumericAddress(name)) {
+                return complete(contains(InetAddresses.parseNumericAddress(name)))
+            }
+            DnsResolver(context, context.mainLooper).query(
+                null, name, DnsResolver.FLAG_EMPTY, context.mainExecutor, null,
+                object : DnsResolver.Callback<List<InetAddress>> {
+                    override fun onAnswer(answer: List<InetAddress>, rcode: Int) = complete(answer.any(::contains))
+                    override fun onError(error: DnsResolver.DnsException) = complete(false)
+                },
+            )
+        }
+
+        private fun contains(address: InetAddress): Boolean {
+            if (address.isLoopbackAddress) return false
+            if (prefixes.any { it.contains(address) }) return true
+            // Some Wi-Fi networks use globally scoped addresses on their local subnet.
+            return runCatching {
+                NetworkInterface.getNetworkInterfaces().toList().any { network ->
+                    network.interfaceAddresses.any { link ->
+                        link.networkPrefixLength > 0 &&
+                            IpPrefix(link.address, link.networkPrefixLength.toInt()).contains(address)
+                    }
+                }
+            }.getOrDefault(false)
+        }
     }
 }
