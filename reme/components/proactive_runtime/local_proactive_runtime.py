@@ -449,13 +449,6 @@ class LocalProactiveRuntime(BaseProactiveRuntime):
             except BaseException as exc:
                 phase = "interrupted" if isinstance(exc, asyncio.CancelledError) else "failed"
                 self.activities[agent_name] = self.activities[agent_name].model_copy(update={"phase": phase})
-                if record is not None:
-
-                    async def rollback_uncommitted():
-                        if not await self.inbox.committed(agent_name, [item["id"] for item in batch["items"]]):
-                            await record.rollback()
-
-                    await finish_cleanup(rollback_uncommitted())
                 raise
             finally:
                 try:

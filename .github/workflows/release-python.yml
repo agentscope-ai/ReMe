@@ -2,15 +2,11 @@ name: Release / ReMe
 
 # A published GitHub Release builds all distributions from its tag.
 # Configure PyPI and npm trusted publishers for this workflow.
-run-name: Publish ReMe ${{ github.event.release.tag_name || inputs.tag }}
+run-name: Publish ReMe ${{ github.ref_name }}
 
 on:
   workflow_dispatch:
     inputs:
-      tag:
-        description: Existing Git tag (vX.Y.Z)
-        required: true
-        type: string
       publish_pypi:
         description: Publish reme-ai and reme-studio to PyPI
         default: true
@@ -49,19 +45,21 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ github.event_name == 'release' && github.sha || format('refs/tags/{0}', inputs.tag) }}
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.11'
       - name: Validate source version
         id: version
-        env:
-          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
         run: |
+          if [[ "$GITHUB_REF_TYPE" != tag || "$(git rev-parse HEAD)" != "$GITHUB_SHA" ]]; then
+            echo "::error::Run this workflow from the release tag."
+            exit 1
+          fi
           python -m pip install packaging
-          python scripts/bump_version.py --check --expected-version "$RELEASE_TAG"
-          printf 'tag=%s\nsha=%s\n' "$RELEASE_TAG" "$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          python scripts/bump_version.py --check --expected-version "$GITHUB_REF_NAME"
+          printf 'tag=%s\nsha=%s\n' "$GITHUB_REF_NAME" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
 
   build:
     name: Build and verify distributions

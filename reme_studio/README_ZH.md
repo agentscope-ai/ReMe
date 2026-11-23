@@ -43,13 +43,14 @@ Web 开发服务器将请求转发到 ReMe 的 2333 端口。运行 `npm run bui
 用 `python scripts/bump_version.py X.Y.Z` 更新共用版本。发布 GitHub Release 后，PyPI 包、npm 包、桌面安装包
 和 Docker 镜像都从同一个标签构建并发布。
 
-手动发布时，在 **Actions → Release / ReMe → Run workflow** 中选择 `main`，填入已有标签，再勾选 PyPI、npm、
-桌面或 Docker。四项默认勾选。桌面选项将 Windows、macOS 和 Linux 安装包上传到对应的 Release，必要时会创建 Release。
+手动发布时，从版本标签运行 **Release / ReMe**，例如 `gh workflow run release-python.yml --ref vX.Y.Z`。
+可选择 PyPI、npm、桌面或 Docker，四项默认启用。桌面选项将 Windows、macOS 和 Linux 安装包上传到对应的 Release，
+必要时会创建 Release。
 准备好向桌面端推送更新后，在 GitHub 中将该 Release 标记为 **Latest**。手动发布 Docker 会推送指定版本的镜像。
 Android 和 iOS 发布暂未启用。
 
 PyPI 和 npm 的 Trusted Publishing 绑定到 `release-python.yml`。GitHub 的 `pypi` 和 `npm` 环境需要允许
-`main` 运行手动发布，并允许 `v*` 等版本标签触发自动发布。
+`v*` 等版本标签。
 
 桌面端左侧「设置」上方的「检查更新」读取 GitHub Releases。用户可以下载新版，然后选择「重启安装」。
 本地预览包通过下载页更新。桌面端和 ReMe 服务分别升级。

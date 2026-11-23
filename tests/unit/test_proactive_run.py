@@ -326,7 +326,7 @@ async def test_cron_can_finish_with_a_skip_record(tmp_path, monkeypatch):
     ],
 )
 @pytest.mark.asyncio
-async def test_failed_round_keeps_the_input_and_removes_only_its_draft(tmp_path, monkeypatch, draft, error):
+async def test_failed_round_keeps_the_input_and_record(tmp_path, monkeypatch, draft, error):
     async with running_runtime(tmp_path, language="zh") as (runtime, context, wrapper):
         await create_agent(runtime)
         now = runtime.now()
@@ -335,12 +335,23 @@ async def test_failed_round_keeps_the_input_and_removes_only_its_draft(tmp_path,
         paths = step._paths(await runtime.definition("monitor"), now)
         path = paths["record_path"]
         queries = install_round(runtime, wrapper, monkeypatch, paths, text=draft)
+        expected = draft
         if error is OSError:
+            expected += "User edit while the model is still streaming.\n"
+            reply_stream = wrapper.reply_stream
+
+            async def edit_before_turn_ends(query, **options):
+                async for chunk in reply_stream(query, **options):
+                    runtime.files.write(path, expected)
+                    yield chunk
+
+            monkeypatch.setattr(wrapper, "reply_stream", edit_before_turn_ends)
             monkeypatch.setattr(runtime.inbox, "ack", AsyncMock(side_effect=OSError("receipt unavailable")))
         with pytest.raises(error):
             await step(agent_name="monitor")
         assert len(queries) == (1 if error is OSError else 2)
-        assert not path.exists()
+        assert path.read_text() == expected
+        assert not runtime.outbox.records
         assert (await runtime.status("monitor"))["pending_events"] == 1
 
 
@@ -595,7 +606,7 @@ async def test_timeout_accepts_a_valid_record(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_cancelled_round_removes_only_its_uncommitted_record(tmp_path, monkeypatch):
+async def test_cancelled_round_preserves_its_record_and_pending_input(tmp_path, monkeypatch):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         now = runtime.now()
@@ -624,7 +635,7 @@ async def test_cancelled_round_removes_only_its_uncommitted_record(tmp_path, mon
             if not task.done():
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
-        assert not path.exists()
+        assert path.read_text() == SKIP
         assert earlier.read_text() == SKIP
         assert (await runtime.inbox.snapshot("monitor"))["pending_count"] == 1
 

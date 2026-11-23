@@ -80,7 +80,7 @@ class RoundRecord:
             self.path = path
 
     def capture(self):
-        """Record the version written by the model before validation."""
+        """Capture the version visible after the model turn for validation."""
         try:
             self.written = self._version(self.path)
         except (OSError, ValueError):
@@ -104,16 +104,3 @@ class RoundRecord:
 
         content = f"---\n{yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False)}---{body}"
         self.files.write(self.path, content, on_write=save_version)
-
-    async def rollback(self):
-        """Remove only the uncommitted version written by this round."""
-        if self.written is not None:
-            async with await get_path_lock(self.path):
-                await complete_in_thread(self._rollback)
-
-    def _rollback(self):
-        try:
-            self.check_version(self.path)
-        except (OSError, ValueError, RuntimeError):
-            return
-        self.files.remove(self.path)

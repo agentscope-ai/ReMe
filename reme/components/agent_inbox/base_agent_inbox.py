@@ -84,10 +84,6 @@ class BaseAgentInbox(BaseComponent):
         """Read retained execution receipts grouped by inbox identity."""
 
     @abstractmethod
-    async def committed(self, name: str, item_ids: list[str]) -> bool:
-        """Inspect durable receipts after uncertain I/O, including while the inbox is failed."""
-
-    @abstractmethod
     async def retain(self, name: str, item_ids: list[str], *, release: bool = False) -> None:
         """Protect inputs from history trimming or release completed result handoffs."""
 

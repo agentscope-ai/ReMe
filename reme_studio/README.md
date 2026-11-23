@@ -43,13 +43,14 @@ Run `npm run build:mobile --prefix reme_studio` for the Android web assets and a
 Run `python scripts/bump_version.py X.Y.Z` to update the shared version. Publishing a GitHub Release distributes
 the PyPI packages, the npm package, the desktop installers, and the Docker image from the same tag.
 
-To publish selected outputs, open **Actions → Release / ReMe → Run workflow** on `main`, enter an existing tag, and
-select PyPI, npm, desktop, or Docker. All four are selected by default. Desktop uploads the Windows, macOS, and Linux
-installers to the matching release and creates one if needed. Mark that release as **Latest** in GitHub when it is
+To publish selected outputs, run **Release / ReMe** from the release tag, for example
+`gh workflow run release-python.yml --ref vX.Y.Z`. Select PyPI, npm, desktop, or Docker. All four are selected by
+default. Desktop uploads Windows, macOS, and Linux installers to the matching release and creates one if needed.
+Mark that release as **Latest** in GitHub when it is
 ready for Desktop's update channel. Manual Docker runs publish the versioned tag. Android and iOS releases are disabled.
 
-PyPI and npm Trusted Publishing use `release-python.yml`. The GitHub `pypi` and `npm` environments must allow
-the `main` branch for manual runs and release tags such as `v*` for automatic releases.
+PyPI and npm Trusted Publishing use `release-python.yml`. The GitHub `pypi` and `npm` environments must allow release
+tags such as `v*`.
 
 In Desktop, **Check for updates** sits above Settings. It checks GitHub Releases, lets the user start the download,
 and installs the update when the user chooses **Restart to install**. Local preview builds open the downloads page.

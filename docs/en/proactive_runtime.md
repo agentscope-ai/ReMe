@@ -15,7 +15,7 @@ Start ReMe with `reme start config=proactive`. Outside collectors can send obser
 
 Each run opens a fresh native session and reads `TASK.md`. Consecutive observations can be processed together. Each scheduled trigger gets its own run in queue order. The prompt shows both the planned time of a scheduled trigger in **Events for this run** and the actual start time in **Background**. A trigger planned for 08:00 and processed at 08:07 shows both times.
 
-The agent searches the shared `daily_dir` for earlier findings and reminders. It checks the latest `recent_history_hours` first (24 hours by default) and makes up to `max_local_search_calls` keyword or regex searches per run (10 by default). The search budget is a prompt instruction. If the agent exceeds it, ReMe logs one warning and lets the run finish. Diagnostics under `reme.agent_run` include tool calls, model status, and the run outcome. Failed runs retain their inputs for retry. The retry delay starts at 5 seconds and increases to at most 5 minutes by default.
+The agent searches the shared `daily_dir` for earlier findings and reminders. It checks the latest `recent_history_hours` first (24 hours by default) and makes up to `max_local_search_calls` keyword or regex searches per run (10 by default). The search budget is a prompt instruction. If the agent exceeds it, ReMe logs one warning and lets the run finish. Diagnostics under `reme.agent_run` include tool calls, model status, and the run outcome. Failed rounds preserve written records and retain their inputs for retry. The retry delay starts at 5 seconds and increases to at most 5 minutes by default.
 
 ### One record per run
 

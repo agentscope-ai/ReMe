@@ -7,6 +7,7 @@ import type {
   StudioCommand,
   StudioState,
   Presentation,
+  Receipt,
   Settings,
 } from "./protocol.ts";
 import { defaultSettings, type ClientStorage } from "./settings.ts";
@@ -19,22 +20,44 @@ function read<T>(key: string, fallback: T): T {
   }
 }
 
-class BrowserStorage implements ClientStorage {
+const settingsKey = "reme:settings";
+const presentationsKey = "reme:presentations";
+const defaultReceipt: Receipt = { userRead: false, presented: false };
+
+function applyChanges<T extends object>(
+  stored: Partial<T>,
+  previous: Partial<T>,
+  current: T,
+): boolean {
+  let changed = false;
+  for (const key of Object.keys({ ...previous, ...current }) as (keyof T)[]) {
+    if (Object.is(previous[key], current[key])) continue;
+    if (current[key] === undefined) delete stored[key];
+    else stored[key] = current[key];
+    changed = true;
+  }
+  return changed;
+}
+
+export class BrowserStorage implements ClientStorage {
   settings: Settings;
-  private readonly presentations = new Map(
-    Object.entries(
-      read<Record<string, Presentation>>("reme:presentations", {}),
-    ),
+  private savedPreferences: Omit<Settings, "endpoint">;
+  private savedPresentations = read<Record<string, Presentation>>(
+    presentationsKey,
+    {},
   );
+  private readonly presentations = structuredClone(this.savedPresentations);
   private dirty = false;
 
   constructor(endpoint: string) {
     this.settings = {
       ...defaultSettings,
-      ...read<Partial<Settings>>("reme:settings", {}),
+      ...read<Partial<Settings>>(settingsKey, {}),
       endpoint,
       transparentBackground: false,
     };
+    const { endpoint: _, ...preferences } = this.settings;
+    this.savedPreferences = preferences;
   }
 
   scope(endpoint: string, workspace: string): string {
@@ -42,12 +65,10 @@ class BrowserStorage implements ClientStorage {
   }
 
   presentation(key: string): Presentation {
-    const current = this.presentations.get(key) ?? {
+    return (this.presentations[key] ??= {
       initialized: false,
       receipts: {},
-    };
-    this.presentations.set(key, current);
-    return current;
+    });
   }
 
   changed(): void {
@@ -56,12 +77,46 @@ class BrowserStorage implements ClientStorage {
 
   async flush(): Promise<void> {
     if (!this.dirty) return;
+    const locks = globalThis.navigator?.locks;
+    if (locks) await locks.request("reme:storage", () => this.persist());
+    else this.persist();
+  }
+
+  private persist(): void {
+    if (!this.dirty) return;
     const { endpoint: _, ...preferences } = this.settings;
-    localStorage.setItem("reme:settings", JSON.stringify(preferences));
-    localStorage.setItem(
-      "reme:presentations",
-      JSON.stringify(Object.fromEntries(this.presentations)),
+    const storedPreferences = read<Partial<typeof preferences>>(
+      settingsKey,
+      {},
     );
+    if (applyChanges(storedPreferences, this.savedPreferences, preferences)) {
+      localStorage.setItem(settingsKey, JSON.stringify(storedPreferences));
+      this.savedPreferences = preferences;
+    }
+
+    const stored = read<Record<string, Presentation>>(presentationsKey, {});
+    let changed = false;
+    for (const [key, current] of Object.entries(this.presentations)) {
+      const previous = this.savedPresentations[key];
+      const target = (stored[key] ??= { initialized: false, receipts: {} });
+      if (current.initialized !== (previous?.initialized ?? false)) {
+        target.initialized = current.initialized;
+        changed = true;
+      }
+      for (const [id, receipt] of Object.entries(current.receipts)) {
+        const saved = previous?.receipts[id] ?? defaultReceipt;
+        const existing = target.receipts[id];
+        const merged = existing ?? { ...defaultReceipt };
+        if (applyChanges(merged, saved, receipt) || !existing) {
+          target.receipts[id] = merged;
+          changed = true;
+        }
+      }
+    }
+    if (changed) {
+      localStorage.setItem(presentationsKey, JSON.stringify(stored));
+      this.savedPresentations = structuredClone(this.presentations);
+    }
     this.dirty = false;
   }
 }
