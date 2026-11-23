@@ -106,6 +106,10 @@ class ReminderOutbox:
         agent = agents.get(self.owners.get(ref))
         return agent is not None and agent.enabled and (agent.notify_window is None or agent.notify_window.allows(now))
 
+    def has_registration(self, agent_name, path):
+        """Check whether the outbox reserves this path even if its source is missing."""
+        return self.storage.state_path(agent_name, path).exists()
+
     @asynccontextmanager
     async def handoff(self, agent_name, reminder, record):
         """Hold the file lock from validation through input acknowledgement and registration."""
@@ -120,8 +124,7 @@ class ReminderOutbox:
             if record is not None:
                 await asyncio.to_thread(record.check_version, path)
             if ref is not None:
-                state = self.storage.state_path(agent_name, path)
-                if await asyncio.to_thread(state.exists):
+                if await asyncio.to_thread(self.has_registration, agent_name, path):
                     raise ValueError(f"cannot overwrite a delivered reminder: {path}")
                 decision = await asyncio.to_thread(self.storage.decision, path)
                 if decision.reminder(ref) != reminder:

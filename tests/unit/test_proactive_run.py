@@ -656,3 +656,40 @@ async def test_same_second_records_get_unique_paths(tmp_path):
             assert path == directory / name
             runtime.files.write(path, SKIP)
         assert step._paths(agent, now)["record_path"] == directory / "monitor_000000_2.md"
+
+
+@pytest.mark.asyncio
+async def test_same_second_round_skips_registered_path_after_record_is_moved(tmp_path, monkeypatch):
+    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+        await create_agent(runtime)
+        now = runtime.now()
+        monkeypatch.setattr(runtime, "now", lambda: now)
+        agent = await runtime.definition("monitor")
+
+        first_step = ProactiveAgentStep(app_context=context)
+        first_paths = first_step._paths(agent, now)
+        install_round(runtime, wrapper, monkeypatch, first_paths)
+        (first,) = (await first_step(agent_name="monitor")).answer["notifications"]
+        first_path = first_paths["record_path"]
+        moved = first_path.rename(tmp_path / first_path.name)
+        assert not (await runtime.outbox.list(state="pending"))["items"]
+
+        await runtime.append_events(
+            "monitor",
+            [Event(id="event-2", event_ts=now, source="experiment", description="Another result")],
+        )
+        second_step = ProactiveAgentStep(app_context=context)
+        second_paths = second_step._paths(agent, now)
+        second_text = REMIND.format(priority="P1", body="\n").replace("Verified result", "Another result")
+        install_round(runtime, wrapper, monkeypatch, second_paths, text=second_text)
+        (second,) = (await second_step(agent_name="monitor")).answer["notifications"]
+        assert second_paths["record_path"] == first_path.with_stem(f"{first_path.stem}_1")
+        assert (await runtime.inbox.snapshot("monitor"))["pending_count"] == 0
+        assert not first_path.exists()
+
+        moved.rename(first_path)
+        mailbox = await runtime.outbox.list(state="pending")
+        assert {item["id"]: item["message"] for item in mailbox["items"]} == {
+            first["id"]: "Verified result",
+            second["id"]: "Another result",
+        }

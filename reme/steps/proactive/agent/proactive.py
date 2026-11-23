@@ -54,7 +54,7 @@ class ProactiveAgentStep(BaseAgentStep):
         stem = f"{agent.agent_name}_{now:%H%M%S}"
         record = runtime.files.checked(day / f"{stem}.md")
         collision = 0
-        while record.exists():
+        while record.exists() or runtime.outbox.has_registration(agent.agent_name, record):
             collision += 1
             record = runtime.files.checked(day / f"{stem}_{collision}.md")
         return {"daily_dir": daily, "task_path": runtime.agents.task_path(agent), "record_path": record}
