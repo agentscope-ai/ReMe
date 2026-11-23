@@ -25,12 +25,20 @@
   },
   "devDependencies": {
     "prettier": "3.9.10",
-    "typescript": "~5.9.3"
+    "typescript": "~5.9.3",
+    "@vitejs/plugin-react": "^6.2.1",
+    "vite": "^8.3.8"
   },
   "overrides": {
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "@types/react": "19.2.14",
-    "@types/react-dom": "19.2.3"
+    "@types/react-dom": "19.2.3",
+    "@electron/universal": {
+      "minimatch": "^11.0.9"
+    },
+    "app-builder-lib": {
+      "minimatch": "^11.0.9"
+    }
   }
 }
