@@ -8,6 +8,10 @@ on:
         required: false
         default: ''
         type: string
+      source_ref:
+        description: Release commit to build
+        type: string
+        default: ''
       upload_artifacts:
         description: Upload distributions for later publish jobs
         required: false
@@ -26,6 +30,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.source_ref }}
           persist-credentials: false
 
       - name: Set up Python

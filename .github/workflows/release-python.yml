@@ -2,10 +2,31 @@ name: Release / ReMe
 
 # A published GitHub Release builds all distributions from its tag.
 # Configure PyPI and npm trusted publishers for this workflow.
-run-name: Publish ReMe ${{ github.event.release.tag_name || github.ref_name }}
+run-name: Publish ReMe ${{ github.event.release.tag_name || inputs.tag }}
 
 on:
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing Git tag (vX.Y.Z)
+        required: true
+        type: string
+      publish_pypi:
+        description: Publish reme-ai and reme-studio to PyPI
+        default: true
+        type: boolean
+      publish_npm:
+        description: Publish Studio to npm
+        default: true
+        type: boolean
+      publish_desktop:
+        description: Publish Windows, macOS, and Linux installers to GitHub Releases
+        default: true
+        type: boolean
+      publish_docker:
+        description: Publish the versioned Docker image to GHCR
+        default: true
+        type: boolean
   release:
     types: [published]
 
@@ -17,15 +38,44 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  prepare:
+    name: Verify release tag and version
+    if: github.event_name == 'release' || inputs.publish_pypi || inputs.publish_npm || inputs.publish_desktop || inputs.publish_docker
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      sha: ${{ steps.version.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event_name == 'release' && github.sha || format('refs/tags/{0}', inputs.tag) }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.11'
+      - name: Validate source version
+        id: version
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          python -m pip install packaging
+          python scripts/bump_version.py --check --expected-version "$RELEASE_TAG"
+          printf 'tag=%s\nsha=%s\n' "$RELEASE_TAG" "$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
   build:
     name: Build and verify distributions
+    if: github.event_name == 'release' || inputs.publish_pypi || inputs.publish_npm
+    needs: prepare
     uses: ./.github/workflows/_build-python-packages.yml
     with:
-      expected_version: ${{ github.event.release.tag_name }}
+      expected_version: ${{ needs.prepare.outputs.tag }}
+      source_ref: ${{ needs.prepare.outputs.sha }}
       upload_artifacts: true
 
   publish-reme:
-    needs: [build, publish-studio]
+    if: ${{ !cancelled() && needs.publish-studio.result == 'success' }}
+    needs: publish-studio
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: pypi
@@ -47,6 +97,8 @@ jobs:
 
   desktop:
     name: Package Desktop (${{ matrix.os }})
+    if: github.event_name == 'release' || inputs.publish_desktop
+    needs: prepare
     strategy:
       fail-fast: false
       matrix:
@@ -56,6 +108,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          ref: ${{ needs.prepare.outputs.sha }}
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
@@ -117,6 +170,9 @@ jobs:
           if-no-files-found: error
 
   publish-studio:
+    if: >-
+      !cancelled() && needs.build.result == 'success' &&
+      (inputs.publish_pypi || (github.event_name == 'release' && needs.desktop.result == 'success'))
     needs: [build, desktop]
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -135,7 +191,10 @@ jobs:
           skip-existing: true
 
   publish-studio-npm:
-    needs: publish-reme
+    if: >-
+      !cancelled() && needs.build.result == 'success' &&
+      (inputs.publish_npm || (github.event_name == 'release' && needs.publish-reme.result == 'success'))
+    needs: [build, publish-reme]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: npm
@@ -164,8 +223,10 @@ jobs:
           fi
 
   publish-desktop:
-    if: github.event_name == 'release'
-    needs: publish-studio-npm
+    if: >-
+      !cancelled() && needs.desktop.result == 'success' &&
+      (inputs.publish_desktop || (github.event_name == 'release' && needs.publish-studio-npm.result == 'success'))
+    needs: [prepare, desktop, publish-studio-npm]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -178,12 +239,30 @@ jobs:
           path: dist/desktop
       - env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
         run: |
           shopt -s nullglob
           installers=(dist/desktop/*.dmg dist/desktop/*.zip dist/desktop/*.exe dist/desktop/*.AppImage dist/desktop/*.blockmap)
           manifests=(dist/desktop/latest*.yml)
+          test "${#installers[@]}" -gt 0
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]] &&
+            ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json tagName >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" "${installers[@]}" "${manifests[@]}" \
+              --repo "$GITHUB_REPOSITORY" --verify-tag --latest=false --title "$RELEASE_TAG"
+            exit
+          fi
           gh release upload "$RELEASE_TAG" "${installers[@]}" --repo "$GITHUB_REPOSITORY" --clobber
           if (( ${#manifests[@]} )); then
             gh release upload "$RELEASE_TAG" "${manifests[@]}" --repo "$GITHUB_REPOSITORY" --clobber
           fi
+
+  publish-docker:
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_docker
+    needs: prepare
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/docker.yml
+    with:
+      release_tag: ${{ needs.prepare.outputs.tag }}
+      source_ref: ${{ needs.prepare.outputs.sha }}

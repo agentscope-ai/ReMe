@@ -34,16 +34,27 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: Release tag to publish
+        required: true
+        type: string
+      source_ref:
+        description: Release commit to build
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: docker-${{ inputs.release_tag || github.event.release.tag_name || github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  PUBLISH_IMAGE: ${{ github.event_name == 'release' || (github.event_name != 'pull_request' && github.ref == 'refs/heads/main') }}
+  RELEASE_TAG: ${{ inputs.release_tag || github.event.release.tag_name }}
+  PUBLISH_IMAGE: ${{ inputs.release_tag != '' || github.event_name == 'release' || (github.event_name != 'pull_request' && github.ref == 'refs/heads/main') }}
 
 jobs:
   build:
@@ -64,6 +75,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.source_ref }}
           persist-credentials: false
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -71,12 +83,10 @@ jobs:
           python-version: '3.11'
 
       - name: Validate package version
-        env:
-          RELEASE_VERSION: ${{ github.event.release.tag_name }}
         run: |
           python -m pip install packaging
-          if [ -n "$RELEASE_VERSION" ]; then
-            python scripts/bump_version.py --check --expected-version "$RELEASE_VERSION"
+          if [ -n "$RELEASE_TAG" ]; then
+            python scripts/bump_version.py --check --expected-version "$RELEASE_TAG"
           else
             python scripts/bump_version.py --check
           fi
@@ -95,12 +105,13 @@ jobs:
       - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
         id: metadata
         with:
+          context: ${{ inputs.source_ref && 'git' || 'workflow' }}
           images: ${{ steps.image.outputs.name }}
           flavor: latest=${{ github.event_name == 'release' && !github.event.release.prerelease && 'auto' || 'false' }}
           tags: |
-            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
-            type=pep440,pattern={{version}},value=${{ github.event.release.tag_name }},enable=${{ github.event_name == 'release' }}
-            type=sha
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' && !env.RELEASE_TAG }}
+            type=pep440,pattern={{version}},value=${{ env.RELEASE_TAG }},enable=${{ env.RELEASE_TAG != '' }}
+            type=sha,enable=${{ !inputs.source_ref }}
 
       - name: Build local image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
@@ -156,7 +167,7 @@ jobs:
   manifest:
     name: Publish multi-platform tags
     needs: build
-    if: github.event_name == 'release' || (github.event_name != 'pull_request' && github.ref == 'refs/heads/main')
+    if: inputs.release_tag != '' || github.event_name == 'release' || (github.event_name != 'pull_request' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -189,9 +200,9 @@ jobs:
           images: ${{ steps.image.outputs.name }}
           flavor: latest=${{ github.event_name == 'release' && !github.event.release.prerelease && 'auto' || 'false' }}
           tags: |
-            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
-            type=pep440,pattern={{version}},value=${{ github.event.release.tag_name }},enable=${{ github.event_name == 'release' }}
-            type=sha
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' && !env.RELEASE_TAG }}
+            type=pep440,pattern={{version}},value=${{ env.RELEASE_TAG }},enable=${{ env.RELEASE_TAG != '' }}
+            type=sha,enable=${{ !inputs.source_ref }}
 
       - name: Assemble and verify tags
         env:
