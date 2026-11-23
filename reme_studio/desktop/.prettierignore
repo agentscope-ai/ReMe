@@ -1,0 +1,6 @@
+node_modules/
+out/
+dist/
+reports/
+package-lock.json
+assets/remy/manifest.json

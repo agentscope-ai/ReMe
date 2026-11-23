@@ -66,13 +66,11 @@ The **Proactive Runtime** uses that memory in ongoing tasks. It schedules work f
   [72.49% on MemLens-256K](benchmark/memlens/docs/en/evaluation.md) and
   [60.69% on MobileMem](benchmark/mobilemem/docs/en/evaluation.md) in LLM-Judge accuracy; the reports also cover Kimi
   and DeepSeek.
-- [2026.10] - **[ReMe Studio Playground](https://reme.agentscope.io/studio/?lang=en) is live**: explore example memory
-  files, edit Markdown, and browse linked memory graphs right in your browser—no installation or backend required.
-  Everyone is welcome to [try it out](https://reme.agentscope.io/studio/?lang=en)!
+- [2026.10] - **[ReMe Studio Playground](https://reme.agentscope.io/studio/?lang=en)** lets you try the workbench with sample data in your browser.
 
   <p align="center">
     <a href="https://reme.agentscope.io/studio/?lang=en">
-      <img src="https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/studio-overview.png" alt="ReMe Studio workspace preview — click to try the Playground" width="480" style="margin: 0 auto;">
+      <img src="https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/web/figures/studio-overview.png" alt="ReMe Studio workspace preview — click to try the Playground" width="480" style="margin: 0 auto;">
     </a>
   </p>
 
@@ -129,7 +127,7 @@ Install from source:
 ```bash
 git clone https://github.com/agentscope-ai/ReMe.git
 cd ReMe
-pip install -e reme_studio -e ".[core]"
+pip install -e reme_studio/web/python -e ".[core]"
 cd reme_studio
 npm ci
 npm run build:static
@@ -240,8 +238,8 @@ Related: [[digest/wiki/memory-as-file.md]]
 
 ### ReMe Studio (Optional)
 
-The `core` installation includes Studio. After starting ReMe, open <http://127.0.0.1:2333/> to browse, edit, and search
-the workspace. To add Studio to a base installation, use `pip install "reme-ai[web]"`. See the
+The `core` installation includes Studio. Run `reme start config=proactive`, then open <http://127.0.0.1:2333/> for
+Remy, Proactive AI, Notebook, and Knowledge. To add Studio to a base installation, use `pip install "reme-ai[web]"`. See the
 [ReMe Studio guide](https://reme.agentscope.io/en/workspace/studio) for source builds, configuration, and development.
 
 ## 🤝 Use ReMe with Your Agent

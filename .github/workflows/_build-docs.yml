@@ -45,17 +45,17 @@ jobs:
         run: npm ci
 
       - name: Install Studio dependencies
-        run: npm ci --prefix ../reme_studio
+        run: npm ci --prefix ../reme_studio --ignore-scripts
 
-      - name: Check Studio types and lint
+      - name: Check Studio types
         if: inputs.run_tests
         working-directory: reme_studio
-        run: npm run format:check && npm run lint
+        run: npm run typecheck
 
       - name: Test browser demo behavior
         if: inputs.run_tests
         working-directory: reme_studio
-        run: node --test tests/demo-workspace.test.mjs tests/wikilinks.test.mjs
+        run: npm test -w web
 
       - name: Run tests
         if: inputs.run_tests
@@ -63,11 +63,6 @@ jobs:
 
       - name: Build documentation
         run: npm run build
-
-      - name: Verify browser demo bundle
-        if: inputs.run_tests
-        working-directory: reme_studio
-        run: node --test tests/distribution/demo-build.test.mjs
 
       - name: Configure Pages
         if: inputs.upload_pages_artifact

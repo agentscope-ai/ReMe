@@ -12,7 +12,7 @@ import frontmatter
 from reme.schema import Event, Response, SessionMessage
 from reme.steps.proactive.agent import ProcessChatRemindersStep, ProactiveAgentStep
 from reme.steps.file_io import SaveStep, get_path_lock
-from reme.steps.proactive.tools.chat_reminders import ReadChatRemindersStep, SubmitChatReminderStep
+from reme.steps.proactive.tools.chat_reminders import SubmitChatReminderStep
 from .test_proactive_runtime import completed_result, create_agent, running_runtime
 from .test_inbox_fork import prepare
 from .test_proactive_run import REMIND, SKIP, install_round
@@ -212,7 +212,6 @@ async def test_full_receiver_consumes_both_reminders_without_waiting_for_more_ca
 
         async def decide(_hint, **options):
             bound = options["injected_job_kwargs"]
-            await ReadChatRemindersStep(app_context=context)(**bound)
             await SubmitChatReminderStep(app_context=context)(content="", **bound)
             return {"status": "completed"}
 
@@ -306,7 +305,7 @@ async def test_outbox_operations_share_the_file_jobs_path_lock(tmp_path, operati
     async with running_runtime(tmp_path) as (runtime, _, _):
         await create_agent(runtime)
         result, session = completed_result(runtime)
-        path = runtime.files.path(result.paths[0])
+        path = runtime.files.path(result.id)
         if operation == "update":
             await runtime.run("monitor", AsyncMock(return_value=(result, session)))
             await runtime.outbox.sync()

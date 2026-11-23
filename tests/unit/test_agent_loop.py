@@ -10,7 +10,6 @@ import pytest
 from reme.core.context import RuntimeContext
 from reme.schema import Event, Response
 from reme.steps.proactive.agent import ProactiveLoopStep, ProcessChatRemindersStep
-from reme.steps.proactive.tools.chat_reminders import ReadChatRemindersStep
 from .test_proactive_runtime import running_runtime
 from .test_inbox_fork import prepare
 
@@ -29,8 +28,7 @@ async def test_shared_loop_runs_both_consumers_and_releases_their_claims_on_stop
             task_started.set()
             await asyncio.Event().wait()
 
-        async def reply(_hint, **options):
-            await ReadChatRemindersStep(app_context=context)(**options["injected_job_kwargs"])
+        async def reply(_hint, **_options):
             chat_started.set()
             await asyncio.Event().wait()
 

@@ -181,10 +181,10 @@ HTTP service behavior:
 | `StreamJob`                               | `POST /<job.name>` returning `text/event-stream`. |
 | `enable_serve: false`                     | No endpoint is registered.                        |
 
-After registering Job endpoints, the HTTP service can also mount the ReMe Studio single-page application. The default is
+After registering Job endpoints, the HTTP service can mount ReMe Studio. The `proactive` preset enables it with
 `service.web_enabled=true`. Builds are resolved from `service.web_static_dir`, `REME_WEB_STATIC_DIR`, the optional
 `reme_studio` package installed by the `web` and `core` extras, and source-tree locations such as
-`reme_studio/dist-static`. If no `index.html` is found, only the frontend is skipped and the Job API remains available. The
+`reme_studio/web/dist-static`. If no `index.html` is found, only the frontend is skipped and the Job API remains available. The
 Studio `GET` fallback does not replace existing `POST /<job.name>` routes.
 
 MCP service behavior:
@@ -611,7 +611,7 @@ thread with the current configuration. Rejected or cancelled preparation retains
 `output_schema` applies only to the current invocation; omission uses the calling wrapper's default, and explicit
 `None` disables that default for this invocation.
 
-Proactive reminders are evaluated in a disposable read-only fork with only `read_chat_reminders` and `submit_chat_reminder` tools.
+A disposable read-only fork receives the selected Chat inbox entries in its prompt. It reads relevant source records and submits its decision through `submit_chat_reminder`.
 Only explicitly submitted text is appended to the foreground conversation; fork reasoning and ordinary replies stay
 outside it. Codex stores injected content in its native rollout without a second application-authored message copy.
 `reme_agents/` contains task configuration, event inboxes, personal memory and session references.

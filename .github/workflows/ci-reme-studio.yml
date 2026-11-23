@@ -6,7 +6,7 @@ on:
     paths:
       - "reme_studio/**"
       - ".github/workflows/ci-reme-studio.yml"
-      - ".github/workflows/release-reme-studio.yml"
+      - ".github/workflows/release-python.yml"
       - "scripts/package_studio.py"
       - "tests/unit/test_package_versions.py"
       - "pyproject.toml"
@@ -16,7 +16,7 @@ on:
     paths:
       - "reme_studio/**"
       - ".github/workflows/ci-reme-studio.yml"
-      - ".github/workflows/release-reme-studio.yml"
+      - ".github/workflows/release-python.yml"
       - "scripts/package_studio.py"
       - "tests/unit/test_package_versions.py"
       - "pyproject.toml"
@@ -55,39 +55,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run format check
-        run: npm run format:check
-
-      - name: Run lint
-        run: npm run lint
-
-      - name: Run tests
-        run: npm test
-
-      - name: Verify npm package
+      - name: Check Studio clients
         run: |
-          npm pack --ignore-scripts --pack-destination "${RUNNER_TEMP}"
-          tar -tzf "${RUNNER_TEMP}"/agentscope-ai-reme_studio-*.tgz | grep '^package/dist-static/index.html$'
-
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.11"
-
-      - name: Build and verify Python package
-        working-directory: .
-        run: |
-          python -m pip install build packaging pytest twine
-          PYTHONPATH=. python -m pytest tests/unit/test_package_versions.py -q
-          python scripts/package_studio.py
-          python -m build reme_studio --outdir dist/studio
-          python -m twine check dist/studio/*
-          STUDIO_WHEEL="$(pwd)/$(ls dist/studio/reme_studio-*.whl)"
-          python -m venv "${RUNNER_TEMP}/reme-studio-package-smoke"
-          "${RUNNER_TEMP}/reme-studio-package-smoke/bin/python" -m pip install "${STUDIO_WHEEL}"
-          cd "${RUNNER_TEMP}"
-          "${RUNNER_TEMP}/reme-studio-package-smoke/bin/python" - <<'PY'
-          from reme_studio import static_dir
-
-          assert (static_dir() / "index.html").is_file()
-          PY
+          npm run format:check
+          npm run typecheck
+          npm test
+          npm run build:static
+          npm run build:demo
+          npm run build:desktop
+          npm run build:mobile
+          npm run build:mobile -- --mode ios

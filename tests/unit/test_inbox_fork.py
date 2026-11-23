@@ -12,7 +12,7 @@ import pytest
 from reme.core.context import RuntimeContext
 from reme.schema import Event, SessionMessage
 from reme.steps.proactive.agent import AskAgentStep, AgentNewSessionStep, ProcessChatRemindersStep, ProactiveAgentStep
-from reme.steps.proactive.tools.chat_reminders import ReadChatRemindersStep, SubmitChatReminderStep
+from reme.steps.proactive.tools.chat_reminders import SubmitChatReminderStep
 from .test_proactive_runtime import completed_result, create_agent, running_runtime
 from .test_proactive_run import install_round
 
@@ -38,33 +38,30 @@ def append_message(session_id, content, *, message_id, **kwargs):
     )
 
 
+@pytest.mark.parametrize("language", ["en", "zh"])
 @pytest.mark.parametrize("content", ["有新的进展，实验已经完成。", "", "   "])
 @pytest.mark.asyncio
-async def test_fork_sends_only_explicit_content_and_consumes_decisions(tmp_path, content):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+async def test_fork_sends_only_explicit_content_and_consumes_decisions(tmp_path, content, language):
+    async with running_runtime(tmp_path, language=language) as (runtime, context, wrapper):
         arguments = await prepare(runtime, context)
         source = (await runtime.sessions.current("Remy")).session_id
         activity = runtime.notifications.last_activity_at
         wrapper.append_session = AsyncMock(side_effect=append_message)
         captured = {}
 
-        async def reply(_hint, **options):
+        async def reply(hint, **options):
             captured.update(options)
             assert not runtime.chat_lock.locked()
             bound = options["injected_job_kwargs"]
-            result = await ReadChatRemindersStep(app_context=context)(**bound)
             turn = runtime.notifications.current_turn(bound["_inbox_turn"])
             assert [item["id"] for item in turn.items] == arguments["msg_ids"]
-            assert result.answer == {
-                "items": [
-                    {
-                        "agent_name": "monitor",
-                        "delivered_at": turn.items[0]["delivered_at"],
-                        "message": "Experiment finished",
-                        "paths": arguments["msg_ids"],
-                    },
-                ],
-            }
+            (record,) = arguments["msg_ids"]
+            delivered_at = turn.items[0]["delivered_at"]
+            assert f"### monitor · {delivered_at}\n\nExperiment finished\n\n`{record}`" in hint
+            if language == "zh":
+                assert "# 收件箱信息" in hint and "恢复后问题仍然持续并影响任务时才提醒" in hint
+            else:
+                assert "# Inbox information" in hint and "persists after the computer resumes" in hint
             assert list(runtime.notifications.pending) == arguments["msg_ids"]
             send = SubmitChatReminderStep(app_context=context)
             first = await send(content=content, **bound)
@@ -77,7 +74,7 @@ async def test_fork_sends_only_explicit_content_and_consumes_decisions(tmp_path,
         assert response.answer == {"sent": bool(content.strip())}
         assert captured["resume"] == source
         assert captured["fork_session"] and captured["ephemeral"] and captured["sandbox"] == "read-only"
-        assert captured["job_tools"] == ["read_chat_reminders", "submit_chat_reminder"]
+        assert captured["job_tools"] == ["submit_chat_reminder"]
         assert "config" not in captured
         assert not runtime.notifications.pending
         assert runtime.notifications.active_turn is None
@@ -92,7 +89,7 @@ async def test_fork_sends_only_explicit_content_and_consumes_decisions(tmp_path,
         else:
             wrapper.append_session.assert_not_awaited()
         with pytest.raises(ValueError, match="active reminder fork"):
-            await ReadChatRemindersStep(app_context=context)(**captured["injected_job_kwargs"])
+            await SubmitChatReminderStep(app_context=context)(content="", **captured["injected_job_kwargs"])
 
 
 @pytest.mark.parametrize("content", ["", "New experiment progress"])
@@ -115,7 +112,6 @@ async def test_chat_decision_updates_only_record_frontmatter(tmp_path, monkeypat
 
         async def reply(_hint, **options):
             bound = options["injected_job_kwargs"]
-            await ReadChatRemindersStep(app_context=context)(**bound)
             await SubmitChatReminderStep(app_context=context)(content=content, **bound)
             return {"status": "completed", "result": "Decision submitted"}
 
@@ -135,7 +131,7 @@ async def test_chat_decision_updates_only_record_frontmatter(tmp_path, monkeypat
 
 
 @pytest.mark.asyncio
-async def test_read_inbox_exposes_source_record_without_changing_internal_snapshot(tmp_path):
+async def test_inbox_markdown_contains_source_path_without_consuming_the_batch(tmp_path):
     async with running_runtime(tmp_path) as (runtime, context, _):
         await AgentNewSessionStep(app_context=context)()
         await create_agent(runtime)
@@ -146,15 +142,12 @@ async def test_read_inbox_exposes_source_record_without_changing_internal_snapsh
         session_id = (await runtime.sessions.current("Remy")).session_id
         async with runtime.notifications.turn(session_id, "P0", ids) as turn:
             bound = {"_agent_name": "Remy", "_inbox_turn": turn.id}
-            tool = ReadChatRemindersStep(app_context=context)
-            response = await tool(**bound)
-            assert response.answer["items"][0]["paths"] == reminder.paths
-            assert turn.items[0]["paths"] == reminder.paths
+            with pytest.raises(ValueError, match="inbox batch must be prepared"):
+                await SubmitChatReminderStep(app_context=context)(content="", **bound)
+            markdown = await runtime.notifications.read_turn(turn)
+            assert markdown.endswith(f"{reminder.message}\n\n`{reminder.id}`")
+            assert turn.items[0]["id"] == reminder.id
             assert turn.items[0]["id"] == ids[0] and turn.items[0]["read_at"] is None
-            response.answer["items"][0]["paths"].append("local-only.md")
-            response.answer["items"][0]["message"] = "Local edit"
-            reread = (await tool(**bound)).answer["items"][0]
-            assert reread["paths"] == reminder.paths and reread["message"] == reminder.message
             assert list(runtime.notifications.pending) == ids
 
 
@@ -172,7 +165,6 @@ async def test_native_content_changes_leave_stale_reminder_decisions_pending(tmp
 
         async def reply(_hint, **options):
             bound = options["injected_job_kwargs"]
-            await ReadChatRemindersStep(app_context=context)(**bound)
             snapshot.messages.append(SessionMessage(id="stop", role="user", content="Stop reminders"))
             await SubmitChatReminderStep(app_context=context)(content=content, **bound)
 
@@ -184,20 +176,19 @@ async def test_native_content_changes_leave_stale_reminder_decisions_pending(tmp
         assert list(runtime.notifications.pending) == arguments["msg_ids"]
 
 
-@pytest.mark.parametrize("stage", ["before_read", "after_read", "plain_reply", "append_failure"])
+@pytest.mark.parametrize("stage", ["inbox_load", "fork", "plain_reply", "append_failure"])
 @pytest.mark.asyncio
-async def test_failed_or_missing_decisions_preserve_messages_for_retry(tmp_path, stage):
+async def test_failed_or_missing_decisions_preserve_messages_for_retry(tmp_path, monkeypatch, stage):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         arguments = await prepare(runtime, context)
         wrapper.append_session = AsyncMock(side_effect=OSError("append failed"))
+        if stage == "inbox_load":
+            monkeypatch.setattr(runtime.notifications, "read_turn", AsyncMock(side_effect=OSError("inbox failed")))
 
         async def reply(_hint, **options):
-            if stage == "before_read":
+            if stage == "fork":
                 raise OSError("fork failed")
             bound = options["injected_job_kwargs"]
-            await ReadChatRemindersStep(app_context=context)(**bound)
-            if stage == "after_read":
-                raise OSError("fork failed after reading")
             if stage == "append_failure":
                 await SubmitChatReminderStep(app_context=context)(content="Update", **bound)
             return {"status": "completed", "result": "Ordinary text is not a reminder"}
@@ -219,7 +210,6 @@ async def test_fork_allows_foreground_chat_and_rejects_a_rotated_session(tmp_pat
 
         async def reply(_hint, **options):
             bound = options["injected_job_kwargs"]
-            await ReadChatRemindersStep(app_context=context)(**bound)
             async with asyncio.timeout(1):
                 response = await AskAgentStep(app_context=context)(
                     RuntimeContext(stream_queue=asyncio.Queue()),
@@ -285,10 +275,9 @@ async def test_priority_wakeup_can_overtake_older_low_priority_reminders(tmp_pat
         await runtime.outbox.sync()
         urgent = [identifier for identifier in runtime.notifications.pending if identifier not in low["msg_ids"]]
 
-        async def reply(_hint, **options):
+        async def reply(hint, **options):
             bound = options["injected_job_kwargs"]
-            items = (await ReadChatRemindersStep(app_context=context)(**bound)).answer["items"]
-            assert [item["agent_name"] for item in items] == ["urgent"]
+            assert "### urgent · " in hint and "### monitor · " not in hint
             turn = runtime.notifications.current_turn(bound["_inbox_turn"])
             assert [item["id"] for item in turn.items] == urgent
             await SubmitChatReminderStep(app_context=context)(content="", **bound)
@@ -314,7 +303,7 @@ async def test_chat_read_rechecks_message_size_after_selection(tmp_path, monkeyp
             document["reminder_message"] = "提醒" * 100
             runtime.files.write(path, frontmatter.dumps(document))
             await runtime.outbox.refresh()
-            assert (await runtime.notifications.read_turn(turn)) == {"items": []}
+            assert await runtime.notifications.read_turn(turn) == ""
             assert not turn.msg_ids
         assert runtime.notifications.pending == {ref}
 
@@ -339,10 +328,9 @@ async def test_oversized_p0_reminder_does_not_block_a_fitting_reminder(tmp_path,
         now += timedelta(seconds=1)
         await prepare(runtime, context, priority)
 
-        async def reply(_hint, **options):
+        async def reply(hint, **options):
             bound = options["injected_job_kwargs"]
-            items = (await ReadChatRemindersStep(app_context=context)(**bound)).answer["items"]
-            assert [item["agent_name"] for item in items] == ["monitor"]
+            assert "### monitor · " in hint and "### large · " not in hint
             await SubmitChatReminderStep(app_context=context)(content="", **bound)
             return {"status": "completed"}
 
@@ -368,9 +356,8 @@ async def test_cancelled_fork_releases_scope_and_preserves_uncommitted_messages(
         reading = asyncio.Event()
         released = asyncio.Event()
 
-        async def reply(_hint, **options):
+        async def reply(_hint, **_options):
             try:
-                await ReadChatRemindersStep(app_context=context)(**options["injected_job_kwargs"])
                 reading.set()
                 await asyncio.Event().wait()
             finally:
@@ -407,7 +394,6 @@ async def test_priority_idle_thresholds_and_busy_chat(tmp_path, priority, thresh
 
         async def reply(_hint, **options):
             bound = options["injected_job_kwargs"]
-            await ReadChatRemindersStep(app_context=context)(**bound)
             await SubmitChatReminderStep(app_context=context)(content="Update", **bound)
             return {"status": "completed"}
 
@@ -418,18 +404,13 @@ async def test_priority_idle_thresholds_and_busy_chat(tmp_path, priority, thresh
 
 
 @pytest.mark.asyncio
-async def test_tools_cannot_read_other_priorities_or_consume_later_arrivals(tmp_path):
+async def test_reminder_decision_does_not_consume_later_arrivals(tmp_path):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         arguments = await prepare(runtime, context)
         wrapper.append_session = AsyncMock(side_effect=append_message)
 
         async def reply(_hint, **options):
             bound = options["injected_job_kwargs"]
-            with pytest.raises(ValueError, match="read_chat_reminders"):
-                await SubmitChatReminderStep(app_context=context)(content="Update", **bound)
-            with pytest.raises(ValueError, match="accepts no arguments"):
-                await ReadChatRemindersStep(app_context=context)(priority="P2", **bound)
-            await ReadChatRemindersStep(app_context=context)(**bound)
             await runtime.create(
                 {"agent_name": "other", "task_description": "Other observations"},
             )
@@ -460,7 +441,6 @@ async def test_delivery_rechecks_sender_settings_after_the_fork_starts(tmp_path,
 
         async def reply(_hint, **options):
             bound = options["injected_job_kwargs"]
-            await ReadChatRemindersStep(app_context=context)(**bound)
             if change == "disabled":
                 await runtime.update("monitor", {"enabled": False})
             else:
@@ -492,7 +472,6 @@ async def test_cancelling_delivery_waiting_for_foreground_chat_does_not_hang(tmp
 
         async def reply(_hint, **options):
             bound = options["injected_job_kwargs"]
-            await ReadChatRemindersStep(app_context=context)(**bound)
             await lock_held.wait()
             sending.set()
             await SubmitChatReminderStep(app_context=context)(content="Update", **bound)
@@ -549,7 +528,6 @@ async def test_fork_rechecks_original_reminders_before_sending_or_consuming(tmp_
 
         async def reply(_hint, **options):
             bound = options["injected_job_kwargs"]
-            await ReadChatRemindersStep(app_context=context)(**bound)
             ref = next(iter(runtime.notifications.pending))
             path = runtime.files.path(ref)
             runtime.files.write(path, runtime.files.read(path).replace("Experiment finished", "Experiment cancelled"))

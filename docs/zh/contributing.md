@@ -37,7 +37,7 @@ ReMe 的核心代码位于：
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -e reme_studio -e ".[dev,full]"
+pip install -e reme_studio/web/python -e ".[dev,full]"
 cd reme_studio
 npm ci
 npm run build:static

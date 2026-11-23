@@ -10,7 +10,7 @@ import pytest
 from reme.schema import Event, SessionSnapshot, SessionStatus
 from reme.core.context import RuntimeContext
 from reme.steps.proactive.agent import AskAgentStep, ProcessChatRemindersStep
-from reme.steps.proactive.tools.chat_reminders import ReadChatRemindersStep, SubmitChatReminderStep
+from reme.steps.proactive.tools.chat_reminders import SubmitChatReminderStep
 from reme.steps.proactive.tools.manage_proactive_agent import ManageProactiveAgentStep
 from .test_proactive_runtime import create_agent, running_runtime
 from .test_inbox_fork import append_message, prepare
@@ -99,7 +99,6 @@ async def test_p0_forks_and_appends_while_foreground_chat_keeps_running(tmp_path
         async def reply(_hint, **options):
             assert options["resume"] == source and options["fork_session"]
             bound = options["injected_job_kwargs"]
-            await ReadChatRemindersStep(app_context=context)(**bound)
             await SubmitChatReminderStep(app_context=context)(content="Urgent update", **bound)
             return {"status": "completed", "result": ""}
 

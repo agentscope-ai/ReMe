@@ -1,6 +1,5 @@
 service:
   backend: http
-  web_enabled: true
   mcp_enabled: true
   mcp_path: /mcp
 

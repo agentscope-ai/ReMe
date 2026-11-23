@@ -15,7 +15,7 @@ from .base import BaseAgentStep
 from ....core.registry import R
 from ....enumeration import ChunkEnum
 from ....schema import TokenUsage, collect_reply
-from ....schema.proactive_runtime import AgentNotification
+from ....schema.proactive_runtime import AgentReminder
 from ....schema.proactive_agent import CRON_EVENT_SOURCE, ProactiveRecordDecision
 from ....utils.async_utils import complete_in_thread
 from ....utils.counter import global_counter_add_many
@@ -166,7 +166,7 @@ class ProactiveAgentStep(BaseAgentStep):
                 reason = str(exc)
             self.logger.warning(f"Proactive local link source={path} target={target!r}: {reason}")
 
-    def _read_record(self, path: Path, reply_text: str | None, *, is_cron: bool) -> AgentNotification | None:
+    def _read_record(self, path: Path, reply_text: str | None, *, is_cron: bool) -> AgentReminder | None:
         """Validate the round record or an explicit event skip."""
         files = self.proactive_runtime.files
         try:
@@ -181,10 +181,10 @@ class ProactiveAgentStep(BaseAgentStep):
         if decision.reminder_priority == "skip":
             return None
         self._warn_local_links(path, decision.reminder_message)
-        return AgentNotification(
+        return AgentReminder(
             priority=decision.reminder_priority,
             message=decision.reminder_message,
-            paths=[path.relative_to(files.workspace).as_posix()],
+            id=path.relative_to(files.workspace).as_posix(),
         )
 
     async def execute(self):

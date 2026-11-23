@@ -73,8 +73,7 @@ Work 也可以主动汇报。现在的原型已经用新增 Codex 对话和截�
 现在的 Auto Dream 会把每日记录沉淀为个人、流程经验和 Wiki 知识。我们计划把这三类整理工作交给三个独立的 Agent，
 每个 Agent 采用自己的 Cron 日程和资料整理规则。
 
-现有 `daily/` 和 `digest/` 中的笔记是过渡时的重要背景。迁移里程碑会说明如何继续使用已有工作区和来源链接，
-以及如何把现有的 Auto Memory 和 Auto Dream 配置迁移到新任务。
+定时 Agent 可以从 `daily/` 和 `digest/` 的笔记中获取背景。
 [当前 Auto Dream 的输入输出](./auto_dream.md#输入和输出)
 
 ### 预设 Agent 和工作流
@@ -95,7 +94,7 @@ ReMe5 计划提供一组预设，用于跟进持续进行的工作、定时整�
 原型已有事件驱动的 Finance 示例和定时的科技简报。我们用这些示例测试哪些内容值得记下来，哪些需要及时告诉用户。
 现有桌面原型里的 Todo 界面和后台任务总结也可以作为这些工作流的基础。
 [原型 Agent 配置](https://github.com/agentscope-ai/ReMe/blob/main/reme/config/proactive.yaml) ·
-[桌面原型](https://github.com/agentscope-ai/ReMe/tree/main/reme_desktop)
+[桌面原型](https://github.com/agentscope-ai/ReMe/tree/main/reme_studio/desktop)
 
 ## 在对话中创建和管理 Agent
 
@@ -112,7 +111,7 @@ Chat Agent 通过 `manage-proactive-agent` skill 创建自定义 Agent，并管�
 
 - **ReMe Desktop** 计划发布 **macOS 和 Windows** 的概念验证预览。你可以体验从聊天交办任务到查看输入、进展、知识和提醒的完整流程。
   `main` 上的 Electron 原型已能连接 ReMe 服务，展示主对话和各个后台任务。
-  [桌面源码和启动说明](https://github.com/agentscope-ai/ReMe/tree/main/reme_desktop)
+  [桌面源码和启动说明](https://github.com/agentscope-ai/ReMe/tree/main/reme_studio/desktop)
 - **执行后端** 计划支持 **AgentScope、Codex 和 Claude Code**。目前默认原型使用 Codex，也有独立的 Claude Code 配置。
   我们会验证每个后端的任务执行、会话处理和提醒行为，再在文档中列出各自支持的预览能力。
   [Codex 配置](https://github.com/agentscope-ai/ReMe/blob/main/reme/config/proactive.yaml) ·
@@ -130,14 +129,14 @@ Codex 和 Claude Code 可以同时出现在两种角色中。作为执行后端�
 | --- | --- | --- |
 | **运行时和桌面原型** | 已合入 `main` | Chat Agent、事件驱动和定时任务、在工作区保存任务状态、提醒投递。 |
 | **真实工作流测试** | 进行中 | 测试 Work、Finance 和定时任务，检查能否记录实质变化、来源链接是否有效，以及重试或重复事件下的提醒表现。 |
-| **记忆工作流和预定义任务** | 计划纳入 ReMe5 | 将 Auto Memory 纳入 Work，实现三个定时 Auto Dream Agent，说明如何迁移现有工作区和配置，并开发首批 Research、Todo 和 Daily Summary 工作流。 |
+| **记忆工作流和预定义任务** | 计划纳入 ReMe5 | 将 Auto Memory 纳入 Work，实现三个定时 Auto Dream Agent，并开发首批 Research、Todo 和 Daily Summary 工作流。 |
 | **ReMe5 和桌面预览** | 目标是 2026 年底前 | 发布运行时和 macOS、Windows 概念验证，提供安装指南和已支持的后端、工作流说明。 |
 | **宿主集成** | 分阶段推进 | 接入各宿主可提供的事件来源，验证任务跟进和结果投递。 |
 
 ## 试用原型和分享反馈
 
 源码中已经有桌面原型及配套服务配置。桌面 README 说明了如何在一个终端启动 ReMe 服务，再在另一个终端启动客户端。
-[从源码运行原型](https://github.com/agentscope-ai/ReMe/tree/main/reme_desktop#start)
+[从源码运行原型](https://github.com/agentscope-ai/ReMe/tree/main/reme_studio/desktop#reme-studio-for-desktop)
 
 欢迎告诉我们，你希望 ReMe 跟进哪个 Harness，哪些变化值得记录，什么情况值得发一条提醒。如果你已经在用 Auto Memory 或 Auto Dream，
 也欢迎分享对你最重要的数据来源、记忆文件或任务日程。

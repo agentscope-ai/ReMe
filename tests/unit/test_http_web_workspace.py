@@ -47,7 +47,7 @@ def test_http_service_serves_workspace_without_shadowing_jobs(tmp_path: Path) ->
     """Serve workspace files and preserve explicitly registered job routes."""
     static_dir = _static_build(tmp_path)
     app = _FakeApplication()
-    service = HttpService(web_static_dir=str(static_dir))
+    service = HttpService(web_enabled=True, web_static_dir=str(static_dir))
     service.build_service(app)  # type: ignore[arg-type]
 
     @service.service.post("/status")
@@ -245,7 +245,7 @@ def test_http_service_does_not_serve_symlinks_outside_static_dir(
         pytest.skip(f"Symbolic links are unavailable: {error}")
 
     app = _FakeApplication()
-    service = HttpService(web_static_dir=str(static_dir))
+    service = HttpService(web_enabled=True, web_static_dir=str(static_dir))
     service.build_service(app)  # type: ignore[arg-type]
     service.finalize_service(app)  # type: ignore[arg-type]
 
@@ -279,7 +279,7 @@ def test_static_dir_uses_optional_studio_package(monkeypatch, tmp_path: Path) ->
 def test_static_dir_uses_repository_build_from_another_directory(monkeypatch, tmp_path: Path) -> None:
     """Resolve the source-tree build even when the caller starts outside the repository."""
     repository = tmp_path / "checkout"
-    static_dir = repository / "reme_studio" / "dist-static"
+    static_dir = repository / "reme_studio" / "web" / "dist-static"
     static_dir.mkdir(parents=True)
     (static_dir / "index.html").write_text("<main>Studio</main>", encoding="utf-8")
     monkeypatch.setattr(web_static, "__file__", str(repository / "reme" / "components" / "service" / "web_static.py"))

@@ -61,11 +61,11 @@
   ReMe Image 的 LLM-Judge 得分为 [MemLens-256K 72.49%](benchmark/memlens/docs/zh/evaluation.md)、
   [MobileMem 60.69%](benchmark/mobilemem/docs/zh/evaluation.md)；详情还包含 Kimi、DeepSeek 的结果。
 - [2026.10] - **[ReMe Studio Playground](https://reme.agentscope.io/studio/?lang=zh) 上线**：无需安装或启动后端，
-  即可在浏览器中浏览示例记忆文件、编辑 Markdown、探索记忆关联图谱。欢迎大家[来体验](https://reme.agentscope.io/studio/?lang=zh)！
+  即可在浏览器中查看示例记忆文件并体验工作台。欢迎大家[来体验](https://reme.agentscope.io/studio/?lang=zh)！
 
   <p align="center">
     <a href="https://reme.agentscope.io/studio/?lang=zh">
-      <img src="https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/studio-overview.png" alt="ReMe Studio 工作区预览，点击体验 Playground" width="480" style="margin: 0 auto;">
+      <img src="https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/web/figures/studio-overview.png" alt="ReMe Studio 工作区预览，点击体验 Playground" width="480" style="margin: 0 auto;">
     </a>
   </p>
 
@@ -117,7 +117,7 @@ pip install "reme-ai[core]"
 ```bash
 git clone https://github.com/agentscope-ai/ReMe.git
 cd ReMe
-pip install -e reme_studio -e ".[core]"
+pip install -e reme_studio/web/python -e ".[core]"
 cd reme_studio
 npm ci
 npm run build:static
@@ -226,7 +226,7 @@ ReMe 会把 Agent 记忆保存为可读的 Markdown。
 
 ### ReMe Studio（可选）
 
-上面的 `core` 安装已包含 Studio。启动 ReMe 后，打开 <http://127.0.0.1:2333/> 即可浏览、编辑和搜索 workspace。
+上面的 `core` 安装已包含 Studio。运行 `reme start config=proactive` 后，打开 <http://127.0.0.1:2333/> 使用 Remy、主动智能、随记和知识库。
 如需为基础安装单独添加 Studio，可使用 `pip install "reme-ai[web]"`。源码构建、配置和开发说明见
 [ReMe Studio 指南](https://reme.agentscope.io/zh/workspace/studio)。
 

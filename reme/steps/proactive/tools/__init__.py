@@ -2,11 +2,10 @@
 
 from .manage_proactive_agent import ManageProactiveAgentStep
 from .append_task_events import AppendTaskEventsStep
-from .chat_reminders import ReadChatRemindersStep, SubmitChatReminderStep
+from .chat_reminders import SubmitChatReminderStep
 
 __all__ = [
     "ManageProactiveAgentStep",
     "AppendTaskEventsStep",
-    "ReadChatRemindersStep",
     "SubmitChatReminderStep",
 ]

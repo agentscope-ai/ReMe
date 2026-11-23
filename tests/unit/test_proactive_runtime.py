@@ -18,7 +18,7 @@ from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.agent_inbox import AgentEventInbox
 from reme.config import resolve_app_config
 from reme.enumeration import ChunkEnum, ComponentEnum
-from reme.schema import Event, AgentNotification, SessionSnapshot, SessionStatus, StreamChunk
+from reme.schema import Event, AgentReminder, SessionSnapshot, SessionStatus, StreamChunk
 from reme.schema.proactive_agent import (
     ManageProactiveAgentRequest,
     ProactiveAgentConfig,
@@ -32,7 +32,7 @@ from reme.steps.proactive.agent import (
     ListChatSessionsStep,
     ProactiveAgentStep,
 )
-from reme.steps.proactive.tools.chat_reminders import ReadChatRemindersStep, SubmitChatReminderStep
+from reme.steps.proactive.tools.chat_reminders import SubmitChatReminderStep
 from reme.steps.proactive.tools.manage_proactive_agent import ManageProactiveAgentStep
 
 
@@ -161,10 +161,10 @@ def completed_result(runtime, agent_name="monitor", *, priority="P0", message="E
         frontmatter.dumps(frontmatter.Post("Experiment results", reminder_priority=priority, reminder_message=message)),
     )
     return (
-        AgentNotification(
+        AgentReminder(
             priority=priority,
             message=message,
-            paths=[path.relative_to(runtime.files.workspace).as_posix()],
+            id=path.relative_to(runtime.files.workspace).as_posix(),
         ),
         "session-1",
     )
@@ -199,7 +199,7 @@ def test_builtin_agent_configurations_resolve_steps_and_keep_internal_jobs_priva
             continue
         for step in job.get("steps", []):
             assert R.get(ComponentEnum.STEP, step["backend"]) is not None
-    for job_name in ("run_proactive_agent", "process_chat_reminders", "read_chat_reminders", "submit_chat_reminder"):
+    for job_name in ("run_proactive_agent", "process_chat_reminders", "submit_chat_reminder"):
         assert not jobs[job_name]["enable_serve"]
     assert jobs["proactive_loop"]["backend"] == "background"
     for job_name in ("append_task_events", "list_task_reminders", "task_document", "ask_agent", "watch_agent_session"):
@@ -676,7 +676,6 @@ async def test_chat_rotation_preserves_inbox_and_wakeup_uses_current_session(tmp
 
         async def decide(_hint, **options):
             bound = options["injected_job_kwargs"]
-            await ReadChatRemindersStep(app_context=context)(**bound)
             await SubmitChatReminderStep(app_context=context)(content="", **bound)
             assert options["resume"] == current and options["ephemeral"]
             return {"status": "completed", "result": "Internal final reply"}
@@ -695,13 +694,13 @@ async def test_chat_rotation_preserves_inbox_and_wakeup_uses_current_session(tmp
 @pytest.mark.asyncio
 async def test_agent_tools_preserve_receiver_identity_and_workspace_permissions(tmp_path):
     async with running_runtime(tmp_path) as (_, context, _):
-        tool = ReadChatRemindersStep(app_context=context)
+        tool = SubmitChatReminderStep(app_context=context)
         with pytest.raises(ValueError, match="calling Chat Agent"):
-            await tool(_agent_name="other")
+            await tool(content="", _agent_name="other")
         with pytest.raises(PermissionError, match="agent runtime files"):
-            await tool(RuntimeContext(_allowed_paths=["daily"]), _agent_name="Remy")
+            await tool(RuntimeContext(_allowed_paths=["daily"]), content="", _agent_name="Remy")
         with pytest.raises(ValueError, match="active reminder fork"):
-            await tool(_agent_name="Remy")
+            await tool(content="", _agent_name="Remy")
 
 
 @pytest.mark.asyncio
@@ -727,10 +726,9 @@ async def test_agent_directories_and_reference_only_inbox(tmp_path):
         refs = [item["event"] for item in (await runtime.list_inputs("Remy"))["items"]]
         assert not inbox_path(runtime).exists()
         assert len(refs) == 1 and set(refs[0]) == {"id", "event_ts", "source", "description", "paths", "metadata"}
-        assert refs[0]["paths"][0] == f"daily/{runtime.now():%Y-%m-%d}/monitor_090000.md"
+        assert refs[0]["id"] == f"daily/{runtime.now():%Y-%m-%d}/monitor_090000.md"
         assert refs[0]["source"] == "monitor" and "message" not in refs[0]
         receipt = (await runtime.inbox.snapshot("monitor"))["receipt"]
-        assert refs[0]["id"] == refs[0]["paths"][0]
         assert receipt.metadata["reminder_path"] == refs[0]["id"]
         await AskAgentStep(app_context=context)(RuntimeContext(stream_queue=asyncio.Queue()), query="Hello")
         assert (tmp_path / "reme_agents/Remy/MEMORY.md").is_file()
@@ -877,7 +875,7 @@ async def test_reminder_cannot_reference_a_record_outside_its_task(tmp_path, rel
     async with running_runtime(tmp_path) as (runtime, _, _):
         await create_agent(runtime)
         result, session_id = completed_result(runtime)
-        result = result.model_copy(update={"paths": [relative]})
+        result = result.model_copy(update={"id": relative})
         path = runtime.files.path(relative)
         runtime.files.write(path, "# Original\n")
         with pytest.raises(ValueError, match="task's dated daily record"):
@@ -892,7 +890,7 @@ async def test_outbox_recovery_ignores_receipts_for_another_tasks_record(tmp_pat
         await create_agent(runtime)
         await runtime.create({"agent_name": "other", "task_description": "Publish its own results"})
         reminder, _ = completed_result(runtime, "other")
-        (ref,) = reminder.paths
+        ref = reminder.id
         batch = await runtime.inbox.claim("monitor")
         await runtime.inbox.ack("monitor", batch["token"], metadata={"reminder_path": ref}, retain=True)
 

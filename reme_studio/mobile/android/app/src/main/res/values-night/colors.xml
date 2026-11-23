@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="studio_surface">#181D1A</color>
+    <style name="AppTheme" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/studio_surface</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:colorAccent">#91D3A9</item>
+    </style>
+</resources>

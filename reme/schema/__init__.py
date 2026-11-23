@@ -6,7 +6,6 @@ from .agent_session import SessionMessage, SessionSnapshot, SessionStatus
 from .proactive_runtime import (
     AgentName,
     AgentType,
-    AgentNotification,
     AgentSession,
     ChatAgentConfig,
     NotificationConfig,
@@ -118,7 +117,6 @@ __all__ = [
     "ProactiveAgentConfig",
     "CreateProactiveAgentConfig",
     "AgentReminder",
-    "AgentNotification",
     "AgentName",
     "AgentType",
     "NotificationConfig",

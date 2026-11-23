@@ -150,7 +150,7 @@ test("publishes Studio screenshots with site-safe links", async () => {
   const english = await readFile(path.join(generatedDir, "en/workspace/studio.md"), "utf8");
   const chinese = await readFile(path.join(generatedDir, "zh/workspace/studio.md"), "utf8");
   assert.match(english, /\(\/figures\/studio\/studio-overview\.png\)/);
-  assert.match(chinese, /\(\/figures\/studio\/settings-status\.png\)/);
+  assert.match(chinese, /\(\/figures\/studio\/studio-overview\.png\)/);
   assert.match(english, /\(\/zh\/workspace\/studio\)/);
   assert.match(chinese, /\(\/en\/workspace\/studio\)/);
 });
@@ -179,7 +179,7 @@ test("keeps Studio source READMEs portable for package registries", async () => 
     assert.doesNotMatch(source, /\]\(\.\/figures\//);
     assert.match(
       source,
-      /\]\(https:\/\/raw\.githubusercontent\.com\/agentscope-ai\/ReMe\/main\/reme_studio\/figures\//,
+      /\]\(https:\/\/raw\.githubusercontent\.com\/agentscope-ai\/ReMe\/main\/reme_studio\/web\/figures\//,
     );
   }
 });

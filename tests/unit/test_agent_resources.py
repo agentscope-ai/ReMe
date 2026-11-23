@@ -52,7 +52,7 @@ async def test_inbox_outbox_and_reminder_reads_share_canonical_files(tmp_path):
         outgoing = (await task(agent_name="monitor")).answer["items"]
         assert len(outgoing) == 1 and outgoing[0]["delivered_at"]
         identifier = outgoing[0]["id"]
-        assert identifier == outgoing[0]["paths"][0]
+        assert (tmp_path / identifier).is_file()
         with pytest.raises(ValueError, match="not found"):
             await reminder(agent_name="other", message_id=identifier)
         (incoming,) = (await inbox()).answer["items"]

@@ -118,7 +118,7 @@ class ReminderOutbox:
         ref = None
         path = record.path if record is not None else None
         if reminder is not None:
-            (ref,) = reminder.paths
+            ref = reminder.id
             if not self.storage.owns(ref, agent_name):
                 raise ValueError("a reminder must reference the task's dated daily record")
             path = self.files.path(ref)
@@ -250,7 +250,7 @@ class ReminderOutbox:
 
     def message(self, ref):
         """Render the source path as the reminder ID."""
-        return {"id": ref, **self.records[ref].model_dump(mode="json"), "from_agent_name": self.owners[ref]}
+        return {**self.records[ref].model_dump(mode="json"), "from_agent_name": self.owners[ref]}
 
     async def read(self, agent_name, message_id):
         """Read a task reminder, or find the sources of a combined Chat message."""

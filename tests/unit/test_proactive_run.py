@@ -152,7 +152,7 @@ async def test_round_publishes_and_acknowledges_the_same_note(
         item = runtime.outbox.message(ref)
         assert item["message"] == "Verified result"
         assert item["priority"] == priority
-        assert related == item["paths"]
+        assert related == [item["id"]]
         assert item["delivered_at"] and item["id"] == ref == related[0]
         runtime.notifications.last_activity_at = now - timedelta(hours=1)
         run_job = AsyncMock()
@@ -169,7 +169,7 @@ async def test_round_publishes_and_acknowledges_the_same_note(
 
     async with running_runtime(tmp_path) as (runtime, _, _):
         item = await runtime.outbox.read("monitor", ref)
-        assert item["paths"] == related and item["read_at"]
+        assert [item["id"]] == related and item["read_at"]
 
 
 @pytest.mark.parametrize("error", [OSError("interrupted after commit"), asyncio.CancelledError()])

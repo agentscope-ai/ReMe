@@ -19,31 +19,15 @@ def _packaged_studio_dir() -> Path | None:
 
 def resolve_web_static_dir(configured_dir: str | None = None) -> Path | None:
     """Return the first directory containing a built workspace ``index.html``."""
-    package_dir = Path(__file__).resolve().parents[2]
-    repository_dir = package_dir.parent
-    cwd = Path.cwd()
-    explicit_candidates = [
+    repository = Path(__file__).resolve().parents[3]
+    for candidate in (
         configured_dir,
         os.getenv(REME_WEB_STATIC_DIR),
-    ]
-    for candidate in explicit_candidates:
-        if not candidate:
-            continue
-        path = Path(candidate).expanduser().resolve()
-        if path.is_dir() and (path / "index.html").is_file():
-            return path
-
-    fallback_candidates = [
         _packaged_studio_dir(),
-        package_dir / "web",
-        repository_dir / "reme_studio" / "dist-static",
-        cwd / "reme_studio" / "dist-static",
-        cwd / "web_dist",
-    ]
-    for candidate in fallback_candidates:
-        if not candidate:
-            continue
-        path = Path(candidate).expanduser().resolve()
-        if path.is_dir() and (path / "index.html").is_file():
-            return path
+        repository / "reme_studio" / "web" / "dist-static",
+    ):
+        if candidate:
+            path = Path(candidate).expanduser().resolve()
+            if (path / "index.html").is_file():
+                return path
     return None

@@ -15,7 +15,7 @@ from reme.components.job import CronJob
 from reme.enumeration import ChunkEnum
 from reme.schema import Event, Response, StreamChunk
 from reme.steps.proactive.agent import AskAgentStep, ProcessChatRemindersStep, ProactiveAgentStep
-from reme.steps.proactive.tools.chat_reminders import ReadChatRemindersStep, SubmitChatReminderStep
+from reme.steps.proactive.tools.chat_reminders import SubmitChatReminderStep
 from .test_proactive_runtime import inbox_path, completed_result, create_agent, running_runtime
 from .test_inbox_fork import append_message, prepare
 
@@ -28,7 +28,6 @@ async def test_latest_foreground_instruction_invalidates_same_session_reminder(t
 
         async def reply(_hint, **options):
             bound = options["injected_job_kwargs"]
-            await ReadChatRemindersStep(app_context=context)(**bound)
             before = await runtime.sessions.current("Remy")
             await AskAgentStep(app_context=context)(
                 RuntimeContext(stream_queue=asyncio.Queue()),
@@ -337,8 +336,8 @@ async def test_publication_isolates_reminders_removed_during_delivery(tmp_path, 
             first, second = [completed_result(runtime, name) for name in ("monitor", "other")]
             await runtime.run("monitor", AsyncMock(return_value=first))
             await runtime.run("other", AsyncMock(return_value=second))
-        first_ref = first[0].paths[0]
-        second_ref = second[0].paths[0]
+        first_ref = first[0].id
+        second_ref = second[0].id
         write = runtime.outbox._write
 
         def remove_during_delivery(path, item, **kwargs):

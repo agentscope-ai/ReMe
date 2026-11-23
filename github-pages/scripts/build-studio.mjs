@@ -9,4 +9,4 @@ execFileSync(process.platform === "win32" ? "npm.cmd" : "npm", ["run", "build:de
   stdio: "inherit",
 });
 await rm(destination, { recursive: true, force: true });
-await cp(new URL("../../reme_studio/dist-demo/", import.meta.url), destination, { recursive: true });
+await cp(new URL("../../reme_studio/web/dist-demo/", import.meta.url), destination, { recursive: true });

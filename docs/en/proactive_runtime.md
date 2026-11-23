@@ -42,7 +42,7 @@ Remy brings background tasks and reminders into the main Chat conversation. User
 
 Each Agent has one stable `agent_name`. Background tasks use an optional `cron` schedule, which also determines their display type. `Remy` is reserved for the main Chat Agent. Creation writes `task_description` verbatim when `TASK.md` is absent. Use `task_document action=read/save` to edit requirements and pass the `mtime` returned by read as `expected_mtime` when saving. Use `manage_proactive_agent action=update` to change execution settings.
 
-Committed reminders reach the Chat Inbox. Priority, Chat idle time, and the task's notification window determine when reminders become eligible for processing. A temporary Reminder fork receives the selected batch and uses the current conversation and the backend's read-only mode to decide whether the user still needs to be told. It skips known, duplicate, handled or outdated information without assigning a new priority or adding action requirements. Explicit requests for reminders at a specified time or condition still apply. A silent Chat decision marks the reminder as processed in its source record.
+Committed reminders reach the Chat Inbox. Priority, Chat idle time, and the task's notification window determine when reminders become eligible for processing. A temporary read-only fork receives the selected inbox entries in its prompt. It uses the current conversation to decide which entries warrant reading the source record, and leaves links inside the record unopened. It skips known, duplicate, handled or outdated information without assigning a new priority or adding action requirements. Explicit requests for reminders at a specified time or condition still apply. A silent Chat decision marks the reminder as processed in its source record.
 
 User feedback can update the relevant task description or configuration for later runs. The same record provides the reminder and its processing state.
 
@@ -67,9 +67,9 @@ Each task owns a directory under `reme_agent_dir`. Deleting a task stops its exe
 
 Remy's Inbox reads delivered reminders from the daily records. It holds the active batch in memory and applies the configured count and byte limits. Task input inboxes use durable claim, acknowledgement and retry.
 
-## Desktop protocol
+## Studio protocol
 
-The desktop reads `get_client_info` for workspace settings, served jobs and speech capabilities. Task create, status
+Studio reads `get_client_info` for workspace settings, served jobs and speech capabilities. Task create, status
 and update return the same Agent view as the sidebar; the list action wraps these views in `items` and `total`.
 `status` is authoritative for execution state; clients derive the running indicator from `status=active`.
 
@@ -83,5 +83,5 @@ session subscription carries live message updates and `ask_agent` reports turn b
 questions, `ask_agent` streams complete message upserts in DATA chunks. DONE closes the stream. Native transcripts
 and workspace files remain authoritative.
 
-Python client schemas generate `reme_desktop/src/shared/wire.ts` and an executable serialization fixture. Regenerate
-with `python -m reme_desktop.scripts.client-contract`; `--check` verifies that committed artifacts match the schemas.
+From the repository root, run `python reme_studio/client/scripts/client-contract.py` to regenerate
+`reme_studio/client/src/wire.ts` and the serialization fixture from the Python schemas. Add `--check` to verify them.

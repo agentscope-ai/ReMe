@@ -194,8 +194,8 @@ Codex、Claude Code 和 AgentScope 使用统一会话契约：fork 复制最新�
 
 公共契约见 `reme/components/agent_wrapper/base_agent_wrapper.py`。Claude Code、AgentScope 的分支保留文件历史；释放运行资源不会删除历史。两者的公共只读提示通过限制内置工具实现，原生命令沙箱和网络设置仍由各自 SDK 配置。
 
-只有提醒 fork 绑定 `read_chat_reminders()` 和 `submit_chat_reminder(content=...)`。框架已经选定优先级和批次，
-`read_chat_reminders` 不接受参数，读取范围限定为本轮选中的消息。
+框架选定优先级和批次后，将收件箱条目放进提醒分身的提示词。分身按需读取相关源记录，
+不展开记录里的链接，最后调用 `submit_chat_reminder(content=...)` 提交决定。
 非空内容作为标记 `source="proactive"` 的 assistant 消息注入主会话；空内容表示静默，不追加消息。
 决定成功提交后，框架自动消费本轮读取的消息。失败保留重试，主会话切换或收到新用户轮次后拒绝旧 fork 的结果。
 提醒判断默认限时 120 秒，主动执行默认限时 1200 秒，可在对应 Step 设置 `timeout_seconds`。
@@ -255,7 +255,7 @@ service:
 
 ## ReMe Studio
 
-安装 `reme-ai[web]` 或 `reme-ai[core]` 后，默认 HTTP 地址同时提供 ReMe Studio：
+安装 `reme-ai[core]` 后，运行 `reme start config=proactive` 启用 ReMe Studio：
 
 ```text
 http://127.0.0.1:2333/

@@ -53,8 +53,9 @@ and concise documentation together.
   `documents/` for document parsing and links, and `file_sandbox/` for platform-specific sandboxed execution.
 - `tests/unit/`: primary fast, isolated validation suite.
 - `tests/integration/`: service/model tests that may need credentials or external processes.
-- `reme_studio/`: ReMe Studio frontend source plus the independently published `reme_studio` Python package and
-  `@agentscope-ai/reme_studio` npm static distribution.
+- `reme_studio/`: npm workspace for `desktop/`, `web/`, `mobile/`, the shared React `workbench/`, and `client/`.
+  The Android and iOS native projects live under `mobile/`. The ReMe release publishes the desktop installers and
+  Studio static packages under the version in `reme/_version.py`.
 - `plugins/`: installable ReMe extensions, including Auto Fin and LME/BEAM plugins.
 - `integrations/`: adapters that connect ReMe to external agent hosts, including the independent, self-contained DSH
   and OpenClaw TypeScript plugins plus the Claude Code and Hermes Agent integrations.
@@ -70,7 +71,7 @@ and concise documentation together.
 ReMe requires Python 3.11 or newer. Install the editable development environment with:
 
 ```bash
-pip install -e reme_studio -e ".[dev,core]"
+pip install -e reme_studio/web/python -e ".[dev,core]"
 ```
 
 Before changing behavior, inspect the adjacent implementation, schema, built-in config, and focused tests. Follow
@@ -191,7 +192,7 @@ pre-commit run --all-files
 
 Black and Flake8 use a 120-character line limit and Python 3.11 formatting; Pylint is also run by pre-commit. If
 `reme_studio/` changes, use its Node 22.13+ scripts and run the proportionate checks from that directory, such as
-`npm run format:check`, `npm run lint`, or `npm test`.
+`npm run format:check`, `npm run typecheck`, or `npm test`.
 
 Integration tests may contact real model providers, services, or agent subprocesses and can require credentials. Do not
 run credentialed or externally mutating tests automatically; run them only when the task requires them and the necessary
@@ -208,7 +209,7 @@ reference is generated from `reme/config/default.yaml`; do not edit generated pa
   then call `reme <job-name>` from another. Keep `reme start job=...` in explicitly labeled one-shot CLI sections;
   service-private jobs must retain their documented local execution path.
 - Do not edit generated output when the source can be changed instead. The publish workflow builds
-  `reme_studio/dist-static` and stages it under `reme_studio/src/reme_studio/static`; change `reme_studio/` source for
+  `reme_studio/web/dist-static` and stages it under `reme_studio/web/python/src/reme_studio/static`; change `reme_studio/` source for
   frontend work.
 - Do not silently change CLI flags, configuration keys, workspace layouts, serialized schemas, endpoint shapes,
   streaming termination, or service interfaces. Preserve compatibility where practical and document intentional

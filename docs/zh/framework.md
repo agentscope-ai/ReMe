@@ -176,9 +176,9 @@ HTTP service 行为：
 | `StreamJob`                            | `POST /<job.name>`，返回 `text/event-stream` |
 | `enable_serve: false`                  | 不注册 endpoint                              |
 
-HTTP service 还可以在所有 Job endpoint 注册完成后挂载 ReMe Studio 单页应用。默认 `service.web_enabled=true`；构建产物按
+HTTP service 在注册 Job endpoint 后可以挂载 ReMe Studio。`proactive` 预设通过 `service.web_enabled=true` 启用；构建产物按
 `service.web_static_dir`、`REME_WEB_STATIC_DIR`、由 `web` 或 `core` extra 安装的可选 `reme_studio` 包，以及源码树
-`reme_studio/dist-static` 等候选位置解析。找不到 `index.html` 时只跳过前端，Job API 仍然可用。Studio 的 `GET` fallback 不会覆盖
+`reme_studio/web/dist-static` 等候选位置解析。找不到 `index.html` 时只跳过前端，Job API 仍然可用。Studio 的 `GET` fallback 不会覆盖
 已有的 `POST /<job.name>`。
 
 MCP service 行为：
@@ -585,7 +585,7 @@ Codex wrapper 通过 `app_server: default` 或 `app_server: oauth` 引用共享�
 `create_session()` 在首次查询前保留 `effort` 等进程内 turn 设置。
 `output_schema` 只作用于本次调用；省略时使用调用方 wrapper 的默认值，显式传 `None` 在本次调用关闭该默认值。
 
-主动提醒在临时只读分身中评估，仅绑定 `read_chat_reminders` 和 `submit_chat_reminder`；只有明确提交的文本追加到前台会话，
+临时只读分身从提示词接收选中的收件箱条目，按需阅读源记录并通过 `submit_chat_reminder` 提交决定。只有明确提交的文本追加到前台会话，
 分身推理过程与普通回复留在分身中。Codex 把追加内容保存在原生 rollout，不保存另一份应用消息副本。
 `reme_agents/` 保存任务配置、事件收件箱、个人记忆和会话引用。Remy 收件箱从每日记录中的提醒和确认字段生成，
 对话内容保存在原生会话历史中。

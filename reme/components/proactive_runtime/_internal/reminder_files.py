@@ -40,7 +40,7 @@ class ReminderFiles:
         item = AgentReminder(
             priority=metadata.pop("reminder_priority", None),
             message=metadata.pop("reminder_message", None),
-            paths=[path.relative_to(self.files.workspace).as_posix()],
+            id=path.relative_to(self.files.workspace).as_posix(),
             **metadata,
         )
         if not draft and item.delivered_at is None:
@@ -50,6 +50,6 @@ class ReminderFiles:
     def serialize(self, path, item):
         """Update frontmatter while preserving the exact Markdown body."""
         _, body = split_record(self.files.read(path))
-        state = item.model_dump(mode="json", exclude={"message", "priority", "paths"}, exclude_defaults=True)
+        state = item.model_dump(mode="json", exclude={"message", "priority", "id"}, exclude_defaults=True)
         metadata = {"reminder_priority": item.priority, "reminder_message": item.message, **state}
         return f"---\n{yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False)}---{body}"

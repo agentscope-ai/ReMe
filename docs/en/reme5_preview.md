@@ -89,9 +89,8 @@ new Codex dialogue and screenshots to test that workflow.
 Auto Dream currently consolidates daily memory into personal, procedural, and wiki knowledge. The plan is to give each
 of the three agents its own cron schedule and instructions about which evidence to use.
 
-The existing `daily/` and `digest/` notes are valuable context for this transition. The migration milestone will cover
-how existing workspaces and source links carry forward, and how current users move their Auto Memory and Auto Dream
-configurations to the new tasks. [Current Auto Dream inputs and outputs](./auto_dream.md#inputs-and-outputs)
+The scheduled agents can draw context from `daily/` and `digest/` notes.
+[Current Auto Dream inputs and outputs](./auto_dream.md#inputs-and-outputs)
 
 ### Predefined agents and workflows
 
@@ -112,7 +111,7 @@ The prototype already includes an event-driven Finance example and a scheduled t
 examples to test whether to keep a record, send a notification, or do both. The desktop prototype also has a Todo
 interface and background task summaries that we can build on.
 [Prototype agent definitions](https://github.com/agentscope-ai/ReMe/blob/main/reme/config/proactive.yaml) ·
-[Desktop prototype](https://github.com/agentscope-ai/ReMe/tree/main/reme_desktop)
+[Desktop prototype](https://github.com/agentscope-ai/ReMe/tree/main/reme_studio/desktop)
 
 ## Create and manage agents from chat
 
@@ -133,7 +132,7 @@ conversation when deciding whether to deliver it. [Chat and task management guid
 - **ReMe Desktop.** We plan to publish a proof-of-concept preview for **macOS and Windows**. It will provide a place to
   try the whole workflow, from delegating a task in chat to inspecting its inputs, progress, knowledge, and reminders.
   The Electron prototype on `main` connects to the ReMe service and already has the main chat and named background task
-  views. [Desktop source and setup](https://github.com/agentscope-ai/ReMe/tree/main/reme_desktop)
+  views. [Desktop source and setup](https://github.com/agentscope-ai/ReMe/tree/main/reme_studio/desktop)
 - **Execution backends.** The planned options for running ReMe agents are **AgentScope, Codex, and Claude Code**. The
   main prototype configuration uses Codex and there is a separate Claude Code configuration. We will validate task
   execution, session handling, and notification behavior on each supported backend before documenting its preview support.
@@ -153,7 +152,7 @@ work in an existing Codex or Claude Code session and bring results back into tha
 | --- | --- | --- |
 | **Runtime and desktop prototype** | On `main` | Chat Agent, event-driven and scheduled background agents, workspace-backed task state, and reminder delivery. |
 | **Real-workflow testing** | In progress | Exercise Work, Finance, and scheduled tasks. Check whether records capture real changes, source links hold up, and reminders remain useful across retries and repeated events. |
-| **Memory workflows and presets** | Planned for ReMe5 | Bring Auto Memory into Work, build the three scheduled Auto Dream agents, and document how existing workspaces and configurations carry forward. Develop initial Research, Todo, and Daily Summary workflows. |
+| **Memory workflows and presets** | Planned for ReMe5 | Bring Auto Memory into Work, build the three scheduled Auto Dream agents, and develop initial Research, Todo, and Daily Summary workflows. |
 | **ReMe5 and desktop preview** | Targeting release by the end of 2026 | Publish the runtime and the macOS and Windows proof of concept. Document setup, available execution backends, and the supported preview workflows. |
 | **Host integrations** | Planned in stages | Connect supported host event sources, then validate task follow-up and result delivery within each host. |
 
@@ -161,7 +160,7 @@ work in an existing Codex or Claude Code session and bring results back into tha
 
 The source checkout already contains the desktop prototype and its companion service configuration. The desktop README
 walks through starting the ReMe service in one terminal and the desktop client in another.
-[Run the prototype from source](https://github.com/agentscope-ai/ReMe/tree/main/reme_desktop#start)
+[Run the prototype from source](https://github.com/agentscope-ai/ReMe/tree/main/reme_studio/desktop#reme-studio-for-desktop)
 
 If you try it, tell us which Harness you want ReMe to follow, what useful changes it should record, and what would make
 an update worth interrupting you. If you already use Auto Memory or Auto Dream, we would like to hear which sources,

@@ -39,7 +39,7 @@ dependencies before running them. The demo needs no ReMe service or model creden
 - `docs/`: canonical guides, VitePress configuration, theme, and brand assets
 - `reme/config/default.yaml`: generated callable Job reference
 - `reme_studio/README*.md`: ReMe Studio documentation
-- `reme_studio/demo/`: browser data adapter, bilingual Markdown examples, tags, and scripted conversations
+- `reme_studio/web/demo/`: browser data adapter, bilingual Markdown examples, tags, and scripted conversations
 - `integrations/{dsh,openclaw}/README*.md`: TypeScript host plugins
 - `plugins/*/README*.md`: plugin guides
 - `benchmark/*/README*.md`: benchmark guides

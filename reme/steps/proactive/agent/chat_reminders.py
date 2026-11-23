@@ -59,14 +59,11 @@ class ProcessChatRemindersStep(BaseChatAgentStep):
                 self.context.response.answer = {"skipped": "busy"}
                 return self.context.response
         async with runtime.notifications.turn(session_id, request.priority, request.msg_ids) as turn:
-            if not turn.done:
+            if not turn.done and (inbox_items := await runtime.notifications.read_turn(turn)):
                 reply = await runtime.agent_wrapper.reply(
-                    self.prompt_format(
-                        "hint",
-                        sleep_reminder_rule=self.get_prompt("sleep_reminder_rule"),
-                    ),
+                    self.prompt_format("hint", inbox_items=inbox_items),
                     system_prompt=options["system_prompt"],
-                    job_tools=["read_chat_reminders", "submit_chat_reminder"],
+                    job_tools=["submit_chat_reminder"],
                     resume=session_id,
                     fork_session=True,
                     ephemeral=True,

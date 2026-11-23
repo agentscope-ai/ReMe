@@ -1,13 +1,13 @@
 # LocalProactiveRuntime with Chat and Proactive Agent steps.
 # Start with LLM_API_KEY, LLM_BASE_URL and optionally REME_MODEL_NAME.
 # reme start config=proactive
-# Desktop jobs and their runtime dependencies. Examples live in demo.yaml.
+# Studio jobs and their runtime dependencies. Examples live in demo.yaml.
 language: zh
 reme_agent_dir: reme_agents
 
 service:
   backend: http
-  web_enabled: false
+  web_enabled: true
   mcp_enabled: true
 
 jobs:
@@ -208,19 +208,6 @@ jobs:
       required: [agent_name, events]
     steps:
       - backend: append_task_events_step
-
-  read_chat_reminders:
-    backend: base
-    enable_serve: false
-    description: >-
-      Read the selected reminders as agent_name, delivered_at, message and the source record in paths.
-      Successful submit_chat_reminder decisions consume the batch automatically.
-    parameters:
-      type: object
-      additionalProperties: false
-      properties: {}
-    steps:
-      - backend: read_chat_reminders_step
 
   submit_chat_reminder:
     backend: base
@@ -490,6 +477,10 @@ jobs:
         end_date:
           type: string
           description: optional inclusive end date filter (YYYY-MM-DD); results later than this date are excluded
+        expand_links:
+          type: boolean
+          description: include wikilink neighbors for matching documents
+          default: true
       required:
       - query
     steps:

@@ -207,8 +207,8 @@ Codex, Claude Code and AgentScope share one session contract: a fork snapshots t
 
 See `reme/components/agent_wrapper/base_agent_wrapper.py` for the common contract. Claude Code and AgentScope forks remain file-backed; releasing runtime resources does not delete history. Their shared read-only hint restricts built-in tools; native command sandboxes and network settings remain SDK-specific.
 
-Only the reminder fork receives `read_chat_reminders()` and `submit_chat_reminder(content=...)`.
-The framework selects the priority and batch; `read_chat_reminders` accepts no arguments.
+The framework selects the priority and puts that batch of inbox entries in the reminder fork's prompt. The fork
+reads relevant source records without following their links, then calls `submit_chat_reminder(content=...)`.
 Reminder evaluation has a 120-second timeout and proactive execution a 1200-second timeout, configured with each
 Step's `timeout_seconds`. Transient inbox failures retry with exponential backoff capped at 300 seconds; SDK type
 or import errors stop retries until the environment is repaired and restarted. Chat status exposes inbox failures,
@@ -279,7 +279,7 @@ service:
 
 ## ReMe Studio
 
-After installing `reme-ai[web]` or `reme-ai[core]`, the default HTTP origin also serves Studio:
+Install `reme-ai[core]` and run `reme start config=proactive` to serve Studio:
 
 ```text
 http://127.0.0.1:2333/

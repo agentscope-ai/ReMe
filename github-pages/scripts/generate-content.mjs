@@ -107,13 +107,13 @@ const externalDocumentRewrites = {
     ["(./README_ZH.md)", "(/zh/workspace/studio)"],
     ["(./figures/", "(/figures/studio/"],
     ["(https://github.com/agentscope-ai/ReMe/blob/main/reme_studio/README_ZH.md)", "(/zh/workspace/studio)"],
-    ["(https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/", "(/figures/studio/"],
+    ["(https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/web/figures/", "(/figures/studio/"],
   ],
   "reme_studio/README_ZH.md": [
     ["(./README.md)", "(/en/workspace/studio)"],
     ["(./figures/", "(/figures/studio/"],
     ["(https://github.com/agentscope-ai/ReMe/blob/main/reme_studio/README.md)", "(/en/workspace/studio)"],
-    ["(https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/", "(/figures/studio/"],
+    ["(https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/web/figures/", "(/figures/studio/"],
   ],
 };
 
@@ -309,7 +309,7 @@ await cp(path.join(repoDir, "integrations/openclaw/figures"), path.join(outputDi
 await cp(path.join(repoDir, "integrations/hermes_agent/figures"), path.join(outputDir, "public/figures/hermes"), {
   recursive: true,
 });
-await cp(path.join(repoDir, "reme_studio/figures"), path.join(outputDir, "public/figures/studio"), {
+await cp(path.join(repoDir, "reme_studio/web/figures"), path.join(outputDir, "public/figures/studio"), {
   recursive: true,
 });
 

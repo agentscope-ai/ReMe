@@ -1,7 +1,6 @@
 """Chat reminder scheduling and disposable-fork decisions over daily records."""
 
 import asyncio
-import json
 from collections import defaultdict
 from contextlib import asynccontextmanager, nullcontext
 from dataclasses import dataclass, field
@@ -14,6 +13,8 @@ from ....constants import CHAT_AGENT_NAME, PROACTIVE_MESSAGE_ID_PREFIX
 from ....schema.proactive_runtime import NotificationConfig
 from ....schema.agent_session import SessionMessage
 from ....utils.async_utils import finish_cleanup
+
+_INBOX_SEPARATOR = "\n\n"
 
 
 @dataclass
@@ -102,28 +103,22 @@ class ChatNotifications:
         await finish_cleanup(save())
 
     @staticmethod
-    def _tool_item(item):
-        return {
-            "agent_name": item["from_agent_name"],
-            "delivered_at": item["delivered_at"],
-            "message": item["message"],
-            "paths": item["paths"].copy(),
-        }
+    def _inbox_item(item):
+        return f"### {item['from_agent_name']} · {item['delivered_at']}\n\n" f"{item['message']}\n\n" f"`{item['id']}`"
 
     def _bounded(self, refs):
         """Bound one inference batch using the configured inbox count and byte budgets."""
         inbox = self.runtime.inbox
         limit = min(20, inbox.claim_max_items, inbox.max_read_items, inbox.max_pending_items)
         byte_limit = min(inbox.claim_max_bytes, inbox.max_pending_bytes)
-        item_limit = byte_limit - len(b'{"items":[]}')
-        remaining = item_limit + 1  # The first item has no comma before it.
+        separator_size = len(_INBOX_SEPARATOR.encode("utf-8"))
+        remaining = byte_limit + separator_size  # The first item has no separator before it.
         selected = []
         for ref in refs:
             if len(selected) >= limit:
                 break
-            item = self._tool_item(self.runtime.outbox.message(ref))
-            size = len(json.dumps(item, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
-            if size > item_limit:
+            size = len(self._inbox_item(self.runtime.outbox.message(ref)).encode("utf-8"))
+            if size > byte_limit:
                 if ref not in self._reported_oversized:
                     self._reported_oversized.add(ref)
                     self.runtime.logger.warning(
@@ -131,10 +126,10 @@ class ChatNotifications:
                         f"and does not fit the {byte_limit}-byte batch limit",
                     )
                 continue
-            if size + 1 > remaining:
+            if size + separator_size > remaining:
                 break
             selected.append(ref)
-            remaining -= size + 1
+            remaining -= size + separator_size
         return tuple(selected)
 
     @asynccontextmanager
@@ -189,7 +184,7 @@ class ChatNotifications:
         return self.active_turn
 
     async def read_turn(self, turn):
-        """Expose only this wakeup's batch; later arrivals wait for another fork."""
+        """Snapshot this wakeup's batch and render it for the reminder prompt."""
         async with turn.lock:
             self.current_turn(turn.id)
             if turn.items is None:
@@ -198,7 +193,7 @@ class ChatNotifications:
                     refs = sorted(self.pending.intersection(turn.msg_ids), key=outbox.order)
                     turn.msg_ids = self._bounded(ref for ref in refs if outbox.records[ref].priority == turn.priority)
                     turn.items = [outbox.message(ref) for ref in turn.msg_ids]
-            return {"items": [self._tool_item(item) for item in turn.items]}
+            return _INBOX_SEPARATOR.join(self._inbox_item(item) for item in turn.items)
 
     async def send(self, turn, content):
         """Commit the explicit text or silence, then consume only what the fork read."""
@@ -206,7 +201,7 @@ class ChatNotifications:
         async with turn.lock:
             self.current_turn(turn.id)
             if turn.items is None:
-                raise ValueError("read_chat_reminders must be called before submit_chat_reminder")
+                raise ValueError("inbox batch must be prepared before submitting a reminder decision")
             if content and not turn.items:
                 raise ValueError("no reminders were read")
             if turn.content is not None and content != turn.content:

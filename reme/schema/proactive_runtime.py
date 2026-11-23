@@ -72,14 +72,17 @@ class ChatAgentConfig(BaseModel):
     initial_memory: str = Field(default="", max_length=100000)
 
 
-class AgentNotification(BaseModel):
-    """Notification content shared by agent output and durable inbox messages."""
+class AgentReminder(BaseModel):
+    """A daily record reminder and its delivery and Chat processing state."""
 
     model_config = ConfigDict(extra="forbid")
 
     priority: InboxPriority
     message: str = Field(min_length=1, max_length=100000)
-    paths: list[str] = Field(min_length=1, max_length=1, description="Path to the source daily record.")
+    id: str = Field(description="Workspace-relative path to the source daily record.")
+    delivered_at: AwareDatetime | None = None
+    read_at: AwareDatetime | None = None
+    chat_message_ids: list[ChatMessageId] = Field(default_factory=list)
 
     @field_validator("message")
     @classmethod
@@ -89,19 +92,12 @@ class AgentNotification(BaseModel):
             raise ValueError("reminder message must not be blank")
         return value
 
-    @field_validator("paths")
+    @field_validator("id")
     @classmethod
-    def relative_paths(cls, value: list[str]) -> list[str]:
+    def relative_path(cls, value: str) -> str:
         """Apply the same workspace-relative contract as event inputs."""
-        return Event.validate_paths(value)
-
-
-class AgentReminder(AgentNotification):
-    """Reminder content and its delivery and Chat processing state."""
-
-    delivered_at: AwareDatetime | None = None
-    read_at: AwareDatetime | None = None
-    chat_message_ids: list[ChatMessageId] = Field(default_factory=list)
+        Event.validate_paths([value])
+        return value
 
 
 class ProcessChatRemindersRequest(BaseModel):

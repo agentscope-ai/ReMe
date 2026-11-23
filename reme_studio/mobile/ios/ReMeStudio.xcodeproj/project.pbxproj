@@ -1,0 +1,170 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 60;
+	objects = {
+		A00000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			buildConfigurationList = A00000000000000000000008;
+			compatibilityVersion = "Xcode 15.0";
+			developmentRegion = en;
+			knownRegions = (en, Base);
+			mainGroup = A00000000000000000000002;
+			productRefGroup = A00000000000000000000004;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (A00000000000000000000003, A00000000000000000000026);
+		};
+		A00000000000000000000002 /* Main group */ = {
+			isa = PBXGroup;
+			children = (A00000000000000000000005, A00000000000000000000024, A00000000000000000000015, A00000000000000000000023, A00000000000000000000004);
+			sourceTree = "<group>";
+		};
+		A00000000000000000000003 /* ReMeStudio */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A00000000000000000000009;
+			buildPhases = (A00000000000000000000006, A00000000000000000000007);
+			buildRules = ();
+			dependencies = ();
+			name = ReMeStudio;
+			productName = ReMeStudio;
+			productReference = A00000000000000000000010;
+			productType = "com.apple.product-type.application";
+		};
+		A00000000000000000000004 /* Products */ = {
+			isa = PBXGroup;
+			children = (A00000000000000000000010, A00000000000000000000025);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000005 /* ReMeStudio sources */ = {
+			isa = PBXGroup;
+			children = (A00000000000000000000011, A00000000000000000000012, A00000000000000000000013, A00000000000000000000014);
+			path = ReMeStudio;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000006 /* Bundle Studio */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = ();
+			name = "Bundle Studio";
+			outputPaths = ("$(DERIVED_FILE_DIR)/Studio-Info.plist", "$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Studio");
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "/bin/sh \"$SRCROOT/bundle-studio.sh\"\n";
+		};
+		A00000000000000000000007 /* Swift sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (A00000000000000000000016, A00000000000000000000017, A00000000000000000000018);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A00000000000000000000008 /* Project configurations */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (A00000000000000000000019, A00000000000000000000020);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A00000000000000000000009 /* Target configurations */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (A00000000000000000000021, A00000000000000000000022);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A00000000000000000000010 /* ReMeStudio.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = ReMeStudio.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A00000000000000000000011 /* ReMeStudioApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReMeStudioApp.swift; sourceTree = "<group>"; };
+		A00000000000000000000012 /* StudioViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StudioViewController.swift; sourceTree = "<group>"; };
+		A00000000000000000000013 /* StudioAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StudioAssets.swift; sourceTree = "<group>"; };
+		A00000000000000000000014 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A00000000000000000000015 /* bundle-studio.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "bundle-studio.sh"; sourceTree = "<group>"; };
+		A00000000000000000000016 = {isa = PBXBuildFile; fileRef = A00000000000000000000011; };
+		A00000000000000000000017 = {isa = PBXBuildFile; fileRef = A00000000000000000000012; };
+		A00000000000000000000018 = {isa = PBXBuildFile; fileRef = A00000000000000000000013; };
+		A00000000000000000000019 /* Project Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ENABLE_TESTABILITY = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		A00000000000000000000020 /* Project Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		A00000000000000000000021 /* App Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = A00000000000000000000023;
+			buildSettings = {};
+			name = Debug;
+		};
+		A00000000000000000000022 /* App Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = A00000000000000000000023;
+			buildSettings = {};
+			name = Release;
+		};
+		A00000000000000000000023 /* Studio.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Studio.xcconfig; sourceTree = SOURCE_ROOT; };
+		A00000000000000000000024 /* Simulator tests */ = {isa = PBXGroup; children = (A00000000000000000000028); path = ReMeStudioUITests; sourceTree = "<group>"; };
+		A00000000000000000000025 /* ReMeStudioUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = ReMeStudioUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A00000000000000000000026 /* ReMeStudioUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A00000000000000000000030;
+			buildPhases = (A00000000000000000000027);
+			buildRules = ();
+			dependencies = (A00000000000000000000033);
+			name = ReMeStudioUITests;
+			productName = ReMeStudioUITests;
+			productReference = A00000000000000000000025;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		A00000000000000000000027 /* Test sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (A00000000000000000000029);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A00000000000000000000028 /* LocalServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalServiceTests.swift; sourceTree = "<group>"; };
+		A00000000000000000000029 = {isa = PBXBuildFile; fileRef = A00000000000000000000028; };
+		A00000000000000000000030 /* Test configurations */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (A00000000000000000000031, A00000000000000000000032);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A00000000000000000000031 /* Test Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = A00000000000000000000035;
+			buildSettings = {};
+			name = Debug;
+		};
+		A00000000000000000000032 /* Test Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = A00000000000000000000035;
+			buildSettings = {};
+			name = Release;
+		};
+		A00000000000000000000033 = {isa = PBXTargetDependency; target = A00000000000000000000003; targetProxy = A00000000000000000000034; };
+		A00000000000000000000034 = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A00000000000000000000001;
+			proxyType = 1;
+			remoteGlobalIDString = A00000000000000000000003;
+			remoteInfo = ReMeStudio;
+		};
+		A00000000000000000000035 /* StudioUITests.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = StudioUITests.xcconfig; sourceTree = SOURCE_ROOT; };
+	};
+	rootObject = A00000000000000000000001;
+}

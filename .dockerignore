@@ -29,7 +29,7 @@
 **/logs
 **/*.log
 **/*.tmp
-reme_studio/src/reme_studio/static
+reme_studio/web/python/src/reme_studio/static
 benchmark
 cookbook
 docs
@@ -38,3 +38,7 @@ integrations
 plugins
 skills
 tests
+
+reme_studio/desktop/assets
+reme_studio/desktop/out
+reme_studio/desktop/dist
