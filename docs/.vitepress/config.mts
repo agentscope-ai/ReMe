@@ -205,6 +205,7 @@ function pluginsSidebar(language: "zh" | "en"): DefaultTheme.SidebarItem[] {
       { text: zh ? "插件开发" : "Plugin Development", link: `/${language}/plugin_development` },
       { text: zh ? "每日论文" : "Daily Paper", link: `/${language}/plugins/daily-paper` },
       { text: "Auto Fin", link: `/${language}/plugins/auto-fin` },
+      { text: "HoMe", link: `/${language}/plugins/home` },
       { text: "LME", link: `/${language}/plugins/lme` },
       { text: "BEAM", link: `/${language}/plugins/beam` },
     ],

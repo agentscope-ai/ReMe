@@ -1,0 +1,115 @@
+# HoMe Plugin
+
+HoMe automatically improves ReMe's memory system using evaluation feedback. It examines failed answers and retrieval
+traces, edits code, prompts, or configuration, and evaluates the changes to find better answers with fewer query-time
+tokens. It currently supports BEAM and LongMemEval.
+
+## Workflow
+
+```text
+Prepare the dataset and initial code
+        ↓
+Evaluate the baseline: score and token usage
+        ↓
+Diagnose failures → Edit code, prompts, or config → Debug and evaluate
+        ↑                                               ↓
+        └──────────── Iterate using the results ────────┘
+        ↓
+Select an evaluated candidate and save its code, results, and report
+```
+
+Each candidate has a Git version, and evaluation results stay in the experiment workspace so you can compare changes.
+
+## Quick Start
+
+This example uses BEAM. Run the commands from the ReMe repository root with Python 3.11+, Git, and Docker running.
+
+### 1. Install and configure models
+
+```bash
+pip install -e '.[benchmark-docker]'
+reme plugins install plugins/home
+reme plugins install plugins/beam-judge
+docker build -f deploy/benchmark_docker/Dockerfile.base \
+  -t reme-benchmark-base:agentscope-2.0.11 .
+```
+
+Follow the [model configuration guide](/en/configuration) to set the LLM and embedding environment variables,
+including API keys, base URLs, and model names. Set `JUDGE_MODEL_NAME` to choose the scoring model.
+HoMe's optimization and diagnostic models can be adjusted under `components.as_llm.home_*` in the application config.
+
+### 2. Prepare the configuration
+
+Create `home.yaml` at the repository root with a new workspace for this experiment:
+
+```yaml
+extends: default
+workspace_dir: ./experiments/beam-home
+plugins: [home, beam-judge]
+```
+
+Copy the preparation example into the workspace:
+
+```bash
+mkdir -p experiments/beam-home
+cp plugins/home/examples/prepare.yaml experiments/beam-home/prepare.yaml
+```
+
+Replace the contents of `prepare.yaml` with the following settings, using actual absolute paths:
+
+```yaml
+benchmark:
+  name: beam
+  source: /data/BEAM
+  variant: 100K
+  all_cases: true
+runtime:
+  source_repo: /projects/ReMe
+  source_ref: HEAD
+  config: benchmark.yaml
+  plugins: [beam]
+candidate:
+  paths: [plugins/beam/src]
+```
+
+### 3. Start the service and optimize
+
+```bash
+reme start config=home.yaml
+```
+
+In another terminal, prepare the experiment and start optimization:
+
+```bash
+reme home_prepare spec_path=prepare.yaml
+reme home_optimize instruction="Improve answer quality while reducing query-time tokens"
+```
+
+`home_prepare` prepares data and code from the selected Git commit. `home_optimize` checks or runs the baseline,
+then iterates automatically. To evaluate the current candidate on its own, run `reme home_evaluate`.
+
+## Main Parameters
+
+| Parameter | Purpose |
+| --- | --- |
+| `workspace_dir` | Stores candidate code and evaluation results; use a new directory for each experiment |
+| `benchmark.name` / `source` | Dataset name and path: a BEAM directory for `beam`, or a dataset JSON for `longmemeval` |
+| `benchmark.variant` | BEAM conversation size, such as `100K` or `1M` |
+| `benchmark.all_cases` / `case_ids` | Choose either all cases or a list of case IDs |
+| `runtime.source_repo` / `source_ref` | ReMe source repository and starting Git revision, such as `HEAD` |
+| `runtime.plugins` / `candidate.paths` | Plugins used for evaluation and the code scope to optimize |
+| `instruction` | Optimization goal passed to `home_optimize` |
+
+By default, optimization allows up to 10 formal candidate evaluations. Adjust
+`components.agent_wrapper.home_optimizer.max_evaluations` in the application config to change this budget.
+
+For LongMemEval, install and enable `lme-judge` instead of `beam-judge`, set `benchmark.name` to `longmemeval`,
+point `source` to the dataset JSON, remove `variant`, and use `runtime.plugins: [lme]` with
+`candidate.paths: [plugins/lme/src]`.
+
+## Results
+
+Candidate code lives in `<workspace_dir>/home/code/repo/`, with evaluation results under
+`<workspace_dir>/home/evaluations/`. Optimization returns the selected branch, commit, evaluation path, and a report.
+
+For more options, see the [HoMe README](https://github.com/agentscope-ai/ReMe/tree/main/plugins/home).

@@ -1,0 +1,113 @@
+# HoMe 插件
+
+HoMe 根据评测结果，自动改进 ReMe 的记忆系统。它会分析回答失误和检索过程，修改代码、提示词或配置，
+再运行评测，寻找回答质量更好、query token 消耗更低的方案。目前支持 BEAM 和 LongMemEval。
+
+## 流程
+
+```text
+准备数据集与初始代码
+        ↓
+运行基线评测，记录得分和 token 消耗
+        ↓
+分析失败案例 → 修改代码、提示词或配置 → 小规模调试与正式评测
+        ↑                                      ↓
+        └──────── 根据结果继续迭代 ─────────────┘
+        ↓
+选出已评测的方案，保存代码、结果与优化报告
+```
+
+每个候选方案都有 Git 版本，评测结果保存在实验工作区，方便比较改动前后的表现。
+
+## 快速开始
+
+下面以 BEAM 为例，在 ReMe 仓库根目录操作。需要 Python 3.11+、Git 和运行中的 Docker。
+
+### 1. 安装并配置模型
+
+```bash
+pip install -e '.[benchmark-docker]'
+reme plugins install plugins/home
+reme plugins install plugins/beam-judge
+docker build -f deploy/benchmark_docker/Dockerfile.base \
+  -t reme-benchmark-base:agentscope-2.0.11 .
+```
+
+按照[模型配置说明](/zh/configuration)设置 LLM 与 embedding 的环境变量，
+包括 API key、base URL 和模型名称；评分模型可通过 `JUDGE_MODEL_NAME` 指定。
+HoMe 自身使用的优化与诊断模型可在应用配置的 `components.as_llm.home_*` 中调整。
+
+### 2. 准备配置
+
+在仓库根目录创建 `home.yaml`，为本次实验指定一个新的工作区：
+
+```yaml
+extends: default
+workspace_dir: ./experiments/beam-home
+plugins: [home, beam-judge]
+```
+
+把插件的准备配置复制到工作区：
+
+```bash
+mkdir -p experiments/beam-home
+cp plugins/home/examples/prepare.yaml experiments/beam-home/prepare.yaml
+```
+
+将 `prepare.yaml` 的内容替换为以下配置，并把示例路径改为实际绝对路径：
+
+```yaml
+benchmark:
+  name: beam
+  source: /data/BEAM
+  variant: 100K
+  all_cases: true
+runtime:
+  source_repo: /projects/ReMe
+  source_ref: HEAD
+  config: benchmark.yaml
+  plugins: [beam]
+candidate:
+  paths: [plugins/beam/src]
+```
+
+### 3. 启动并运行优化
+
+```bash
+reme start config=home.yaml
+```
+
+在另一个终端中，先准备实验，再启动优化：
+
+```bash
+reme home_prepare spec_path=prepare.yaml
+reme home_optimize instruction="提高回答质量，同时减少 query token 消耗"
+```
+
+`home_prepare` 从指定的 Git 提交准备数据和代码；`home_optimize` 会先检查或运行基线，再自动迭代。
+如果只想评测当前方案，可以调用 `reme home_evaluate`。
+
+## 主要参数
+
+| 参数 | 作用 |
+| --- | --- |
+| `workspace_dir` | 实验工作区，保存候选代码和评测结果；每次新实验使用新目录 |
+| `benchmark.name` / `source` | 数据集名称与路径：`beam` 使用 BEAM 数据目录，`longmemeval` 使用数据集 JSON |
+| `benchmark.variant` | BEAM 的对话规模，例如 `100K` 或 `1M` |
+| `benchmark.all_cases` / `case_ids` | 使用全部案例，或指定案例 ID 列表，二选一 |
+| `runtime.source_repo` / `source_ref` | ReMe 源码仓库和起始 Git 版本，例如 `HEAD` |
+| `runtime.plugins` / `candidate.paths` | 评测使用的插件，以及允许优化的代码范围 |
+| `instruction` | 调用 `home_optimize` 时传入的优化目标 |
+
+优化默认最多进行 10 次正式候选评测，可通过应用配置中的
+`components.agent_wrapper.home_optimizer.max_evaluations` 调整。
+
+使用 LongMemEval 时，将评分插件改为 `lme-judge`，`benchmark.name` 改为 `longmemeval`，
+`source` 指向数据集 JSON，去掉 `variant`，并使用 `runtime.plugins: [lme]` 和 `candidate.paths: [plugins/lme/src]`。
+
+## 查看结果
+
+候选代码保存在 `<workspace_dir>/home/code/repo/`，评测结果保存在
+`<workspace_dir>/home/evaluations/`。优化完成后会返回选中方案的分支、提交和评测路径，以及优化报告。
+
+更多用法见 [HoMe README](https://github.com/agentscope-ai/ReMe/tree/main/plugins/home)。
