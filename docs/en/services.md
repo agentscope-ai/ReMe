@@ -289,6 +289,21 @@ http://127.0.0.1:2333/
 
 Disable it with `service.web_enabled=false` or select a build with `service.web_static_dir`. Missing static assets do not prevent the Job API from starting.
 
+## Notebook projects
+
+Start the service with `reme start config=proactive`, then run these commands in another terminal.
+
+```bash
+reme todo action=list_projects
+reme todo action=list project=ReMe scope=all
+reme idea action=list project=ReMe scope=all
+```
+
+`todo action=list_projects` lists projects from both Todo and Idea records. The result includes `total` and `items`,
+with `project`, `todo_count`, and `idea_count` in each item. The default `scope=all` includes active and archived
+records. Set `scope=active` or `scope=archive` to count records in that scope. Use the returned project name to list
+its Todo or Idea records.
+
 ## One-shot Jobs
 
 ```bash

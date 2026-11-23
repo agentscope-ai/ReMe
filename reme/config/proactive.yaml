@@ -20,7 +20,8 @@ jobs:
   todo:
     backend: base
     description: >-
-      Manage one-sentence tasks: create/list/get/update. IDs and progress timestamps are generated automatically.
+      Manage one-sentence tasks: create/list/get/update. Use list_projects to count Todo and Idea records per project.
+      IDs and progress timestamps are generated automatically.
       Update appends progress_text; done/cancelled archives the task, open/partial restores it.
       source_idea links an existing idea; create inherits omitted project/text from that idea.
       Follow the manage-todos-ideas skill for workflows and examples.
@@ -28,7 +29,7 @@ jobs:
       type: object
       additionalProperties: false
       properties:
-        action: {type: string, enum: [create, list, get, update]}
+        action: {type: string, enum: [create, list, list_projects, get, update]}
         id: &record_id {type: string, minLength: 1, description: "Existing record ID; never supplied on create."}
         project: &record_project {type: string, description: "Project name. Defaults to 随笔 (Notes in English); blank also means 随笔. Omit on create to inherit the source Idea's project. Omit on update to retain. Exact filter for list; use 随笔 for Notes."}
         text: &record_text {type: string, minLength: 1, description: "One-sentence content; create/update only."}
@@ -37,7 +38,7 @@ jobs:
         source_idea: {type: [string, "null"], minLength: 1, description: "Idea ID to link or filter by; null removes the link on update."}
         progress_text: {type: string, minLength: 1, description: "Append one progress note; create/update only."}
         progress_time: {type: [string, "null"], format: date-time, description: "Optional explicit progress time with timezone; requires progress_text."}
-        scope: &record_scope {type: string, enum: [active, archive, all], description: "List only; defaults to active."}
+        scope: {type: string, enum: [active, archive, all], description: "Defaults to active for list and all for list_projects."}
         query: &record_query {type: string, description: "List only; case-insensitive substring search."}
         offset: &record_offset {type: integer, minimum: 0, description: "List only; defaults to 0."}
         limit: &record_limit {type: integer, minimum: 1, maximum: 100, description: "List only; defaults to 20."}
@@ -60,7 +61,7 @@ jobs:
         id: *record_id
         project: *record_project
         text: *record_text
-        scope: *record_scope
+        scope: {type: string, enum: [active, archive, all], description: "List only; defaults to active."}
         query: *record_query
         offset: *record_offset
         limit: *record_limit

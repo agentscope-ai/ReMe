@@ -269,6 +269,20 @@ service:
 
 静态资源缺失不会阻止 Job API 启动。
 
+## 随记项目
+
+先用 `reme start config=proactive` 启动服务，再在另一个终端查询项目和明细。
+
+```bash
+reme todo action=list_projects
+reme todo action=list project=ReMe scope=all
+reme idea action=list project=ReMe scope=all
+```
+
+`todo action=list_projects` 从 Todo 和 Idea 记录汇总项目，返回项目总数 `total` 和列表 `items`，
+每项包含 `project`、`todo_count` 和 `idea_count`。默认 `scope=all`，包含活跃和归档记录。传入
+`scope=active` 或 `scope=archive` 可按范围统计。使用返回的项目名查询该项目的 Todo 或 Idea 明细。
+
 ## 一次性 Job
 
 需要脚本式执行而不常驻服务时：
