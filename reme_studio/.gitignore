@@ -5,6 +5,5 @@ desktop/out/
 desktop/dist/
 desktop/reports/
 web/dist-static/
-web/dist-demo/
 mobile/dist-android/
 mobile/dist-ios/

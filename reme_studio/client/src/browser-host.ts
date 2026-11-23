@@ -28,16 +28,13 @@ class BrowserStorage implements ClientStorage {
   );
   private dirty = false;
 
-  constructor(endpoint: string, demo: boolean) {
+  constructor(endpoint: string) {
     this.settings = {
       ...defaultSettings,
       ...read<Partial<Settings>>("reme:settings", {}),
       endpoint,
       transparentBackground: false,
     };
-    if (demo)
-      this.settings.language =
-        new URLSearchParams(location.search).get("lang") === "zh" ? "zh" : "en";
   }
 
   scope(endpoint: string, workspace: string): string {
@@ -78,11 +75,9 @@ export class BrowserHost implements StudioApi {
   constructor(
     endpoint: string,
     private readonly openExternal?: (url: string) => Promise<void>,
-    fetchRequest: typeof fetch = fetch.bind(globalThis),
-    demo = false,
   ) {
     this.controller = new ClientController(
-      new BrowserStorage(endpoint, demo),
+      new BrowserStorage(endpoint),
       (state) => {
         this.state = { ...state };
         for (const listener of this.listeners) listener();
@@ -112,7 +107,6 @@ export class BrowserHost implements StudioApi {
       (command) => {
         for (const callback of this.commands) callback(command);
       },
-      fetchRequest,
     );
     this.state = { ...this.controller.state };
   }

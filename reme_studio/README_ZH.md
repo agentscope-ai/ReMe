@@ -1,13 +1,10 @@
 # ReMe Studio
 
-[English](https://github.com/agentscope-ai/ReMe/blob/main/reme_studio/README.md) ·
-[在线体验](https://reme.agentscope.io/studio/?lang=zh)
+[English](README.md)
 
-ReMe Studio 的网页端、桌面端、Android 和 iOS共用一套工作台，包含 Remy、主动智能、随记和知识库。
+ReMe Studio 的网页端、桌面端、Android 和 iOS 共用一套工作台，包含 Remy、主动智能、随记和知识库。
 在主动智能里管理后台任务，在随记里记录待办和想法。
 Desktop 还有桌宠、托盘和系统通知。会话、任务状态和工作区文件由 ReMe 服务管理。
-
-![ReMe Studio 工作台](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/web/figures/studio-overview.png)
 
 ## 启动
 
@@ -17,7 +14,7 @@ Desktop 还有桌宠、托盘和系统通知。会话、任务状态和工作区
 reme start config=proactive
 ```
 
-浏览器打开 <http://127.0.0.1:2333/> 即可使用 Studio。Desktop 默认连接同一个地址。在线体验使用同一套界面和示例数据。
+浏览器打开 <http://127.0.0.1:2333/> 即可使用 Studio。Desktop 默认连接同一个地址。
 
 ## 开发
 
@@ -35,9 +32,9 @@ Web 开发服务器将请求转发到 ReMe 的 2333 端口。运行 `npm run bui
 - `client/` 管理 HTTP/SSE 契约、会话状态和请求。
 - `workbench/` 提供共用的 React 页面和交互。
 - `desktop/` 提供 Windows、macOS 和 Linux 共用的 Electron 应用、IPC、桌面集成和桌宠动画。
-- `web/` 提供浏览器入口、示例数据和静态打包。
+- `web/` 提供浏览器入口和静态打包。
 - `mobile/` 提供共用的移动入口和原生桥接。原生工程的构建与联调见
-  [Android](https://github.com/agentscope-ai/ReMe/tree/main/reme_studio/mobile/android) 和 [iOS](https://github.com/agentscope-ai/ReMe/tree/main/reme_studio/mobile/ios) 开发文档。
+  [Android](mobile/android/README.md) 和 [iOS](mobile/ios/README.md) 开发文档。
 
 用 `npm run build:mobile --prefix reme_studio` 构建 Android 网页资源，加上 `-- --mode ios` 构建 iOS 网页资源。
 

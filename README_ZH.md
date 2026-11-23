@@ -51,7 +51,7 @@
 
 <!-- 最新动态最多展开 5 条；新增条目时，将超出的旧条目移入下方“更多更新”折叠区。 -->
 
-- [2026.11] - **`NEW`** **[ReMe5 前瞻 · Proactive Runtime](docs/zh/reme5_preview.md)**。ReMe 将以文件化记忆为核心，
+- [ROADMAP] - **[ReMe5 前瞻 · Proactive Runtime](docs/zh/reme5_preview.md)**。ReMe 将以文件化记忆为核心，
   支持事件驱动和定时 Agent。你可以把需要持续跟进的事交给 ReMe，有新进展时它会记下来，并在需要时提醒你。
   我们计划在 **2026 年底前**发布 ReMe5，欢迎先看我们的设计方案、开发计划和里程碑。
 - [2026.10] - **[基于决策模型的上下文压缩](docs/zh/context_compaction.md)**：根据下一步任务判断旧工具证据的保留价值，
@@ -60,15 +60,6 @@
   写入记忆并保留图片来源；Auto Resource 将图片资料整理为可检索、可回溯原图的 daily 卡片。Qwen3.8-Max 下，
   ReMe Image 的 LLM-Judge 得分为 [MemLens-256K 72.49%](benchmark/memlens/docs/zh/evaluation.md)、
   [MobileMem 60.69%](benchmark/mobilemem/docs/zh/evaluation.md)；详情还包含 Kimi、DeepSeek 的结果。
-- [2026.10] - **[ReMe Studio Playground](https://reme.agentscope.io/studio/?lang=zh) 上线**：无需安装或启动后端，
-  即可在浏览器中查看示例记忆文件并体验工作台。欢迎大家[来体验](https://reme.agentscope.io/studio/?lang=zh)！
-
-  <p align="center">
-    <a href="https://reme.agentscope.io/studio/?lang=zh">
-      <img src="https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/web/figures/studio-overview.png" alt="ReMe Studio 工作区预览，点击体验 Playground" width="480" style="margin: 0 auto;">
-    </a>
-  </p>
-
 - [2026.09] - **[给记忆加上“标签”](https://reme.agentscope.io/zh/blog_20260920)发布**：介绍基于 Markdown 的实体标签、
   可重建 Tag Index 与标签过滤检索。
 
@@ -228,7 +219,7 @@ ReMe 会把 Agent 记忆保存为可读的 Markdown。
 
 上面的 `core` 安装已包含 Studio。运行 `reme start config=proactive` 后，打开 <http://127.0.0.1:2333/> 使用 Remy、主动智能、随记和知识库。
 如需为基础安装单独添加 Studio，可使用 `pip install "reme-ai[web]"`。源码构建、配置和开发说明见
-[ReMe Studio 指南](https://reme.agentscope.io/zh/workspace/studio)。
+[ReMe Studio 指南](https://github.com/agentscope-ai/ReMe/blob/main/reme_studio/README_ZH.md)。
 
 ## 🤝 将 ReMe 接入你的 Agent
 

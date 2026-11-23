@@ -53,7 +53,7 @@ The **Proactive Runtime** uses that memory in ongoing tasks. It schedules work f
 
 <!-- Keep at most 5 updates expanded; move older entries into the collapsed section below. -->
 
-- [2026.11] - **`NEW`** **[ReMe5 Preview — Proactive Runtime](docs/en/reme5_preview.md)**. ReMe puts file-native memory at
+- [ROADMAP] - **[ReMe5 Preview — Proactive Runtime](docs/en/reme5_preview.md)**. ReMe puts file-native memory at
   the core of its event-driven and scheduled agents. Give ReMe a task to follow, and it will record new developments
   and let you know when your attention is needed. We aim to release ReMe5 **by the end of 2026**. Read the preview
   for the design, development plan, and milestones.
@@ -66,14 +66,6 @@ The **Proactive Runtime** uses that memory in ongoing tasks. It schedules work f
   [72.49% on MemLens-256K](benchmark/memlens/docs/en/evaluation.md) and
   [60.69% on MobileMem](benchmark/mobilemem/docs/en/evaluation.md) in LLM-Judge accuracy; the reports also cover Kimi
   and DeepSeek.
-- [2026.10] - **[ReMe Studio Playground](https://reme.agentscope.io/studio/?lang=en)** lets you try the workbench with sample data in your browser.
-
-  <p align="center">
-    <a href="https://reme.agentscope.io/studio/?lang=en">
-      <img src="https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/web/figures/studio-overview.png" alt="ReMe Studio workspace preview — click to try the Playground" width="480" style="margin: 0 auto;">
-    </a>
-  </p>
-
 - [2026.09] - **[ReMe Memory Tags](https://reme.agentscope.io/en/blog_20260920) published**: an introduction
   to file-native entity tags, rebuildable tag indexes, and tag-filtered memory search.
 
@@ -240,7 +232,7 @@ Related: [[digest/wiki/memory-as-file.md]]
 
 The `core` installation includes Studio. Run `reme start config=proactive`, then open <http://127.0.0.1:2333/> for
 Remy, Proactive AI, Notebook, and Knowledge. To add Studio to a base installation, use `pip install "reme-ai[web]"`. See the
-[ReMe Studio guide](https://reme.agentscope.io/en/workspace/studio) for source builds, configuration, and development.
+[ReMe Studio guide](https://github.com/agentscope-ai/ReMe/blob/main/reme_studio/README.md) for source builds and development.
 
 ## 🤝 Use ReMe with Your Agent
 

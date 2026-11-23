@@ -1,13 +1,10 @@
 # ReMe Studio
 
-[中文](https://github.com/agentscope-ai/ReMe/blob/main/reme_studio/README_ZH.md) ·
-[Try in your browser](https://reme.agentscope.io/studio/?lang=en)
+[中文](README_ZH.md)
 
 ReMe Studio shares one workbench across the web, desktop, Android and iOS, with Remy, Proactive AI, Notebook, and Knowledge.
 Use Proactive AI to manage background tasks and Notebook to capture todos and ideas.
 Desktop adds the Remy companion, tray, and native notifications. ReMe owns the sessions, task state, and workspace files.
-
-![ReMe Studio workbench](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/web/figures/studio-overview.png)
 
 ## Run
 
@@ -17,8 +14,7 @@ Install `reme-ai[core]`, configure the model in the backend environment, and sta
 reme start config=proactive
 ```
 
-Open <http://127.0.0.1:2333/> for Studio. Desktop connects to the same service at that address. The browser demo uses
-sample data in the same interface.
+Open <http://127.0.0.1:2333/> for Studio. Desktop connects to the same service at that address.
 
 ## Develop
 
@@ -36,9 +32,9 @@ to serve directly from ReMe. Run `npm test --prefix reme_studio` to run the shar
 - `client/` owns the HTTP/SSE contract, session state, and request handling.
 - `workbench/` owns the shared React views and interactions.
 - `desktop/` owns the Electron app, IPC, desktop integration and Remy animation for Windows, macOS and Linux.
-- `web/` owns the browser entry point, demo data and static packaging.
+- `web/` owns the browser entry point and static packaging.
 - `mobile/` owns the shared mobile entry point and native bridge. Build and run the native hosts using their
-  [Android](https://github.com/agentscope-ai/ReMe/tree/main/reme_studio/mobile/android) and [iOS](https://github.com/agentscope-ai/ReMe/tree/main/reme_studio/mobile/ios) guides.
+  [Android](mobile/android/README.md) and [iOS](mobile/ios/README.md) guides.
 
 Run `npm run build:mobile --prefix reme_studio` for the Android web assets and add `-- --mode ios` for iOS.
 

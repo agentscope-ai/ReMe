@@ -61,7 +61,6 @@ jobs:
           npm run typecheck
           npm test
           npm run build:static
-          npm run build:demo
           npm run build:desktop
           npm run build:mobile
           npm run build:mobile -- --mode ios

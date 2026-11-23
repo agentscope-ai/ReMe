@@ -12,11 +12,8 @@
   },
   "scripts": {
     "dev": "vite",
-    "dev:demo": "vite --mode demo",
     "build": "vite build",
-    "build:demo": "vite build --mode demo",
-    "typecheck": "tsc --noEmit",
-    "test": "node --experimental-transform-types --test tests/*.test.ts"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "react": "19.2.8",

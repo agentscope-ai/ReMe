@@ -74,7 +74,8 @@ reme help
 `reme help` lists server actions. Ordinary commands invoke server Jobs over HTTP.
 
 For ReMe Studio, install `reme-ai[core]`, start ReMe with `reme start config=proactive`, and open
-<http://127.0.0.1:2333/>. See the [Studio guide](https://reme.agentscope.io/en/workspace/studio) for setup and development.
+<http://127.0.0.1:2333/>. The [Studio guide](https://github.com/agentscope-ai/ReMe/blob/main/reme_studio/README.md)
+covers setup and development.
 
 ---
 

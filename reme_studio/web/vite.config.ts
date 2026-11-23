@@ -9,25 +9,12 @@ const source = readFileSync(
 const version = source.match(/^__version__ = "([^"]+)"$/m)?.[1];
 if (!version) throw new Error("Missing ReMe version.");
 
-export default defineConfig(({ mode }) => ({
-  base: mode === "demo" ? "./" : "/",
+export default defineConfig({
   publicDir: "../workbench/public",
-  plugins: [
-    react(),
-    {
-      name: "studio-title",
-      transformIndexHtml: (html) =>
-        mode === "demo"
-          ? html.replace(
-              "<title>ReMe Studio</title>",
-              "<title>Try ReMe Studio</title>",
-            )
-          : html,
-    },
-  ],
+  plugins: [react()],
   define: { __REME_VERSION__: JSON.stringify(version) },
   build: {
-    outDir: mode === "demo" ? "dist-demo" : "dist-static",
+    outDir: "dist-static",
     target: "es2023",
     // Keep light-dark() tied to Studio's color-scheme setting.
     cssTarget: ["chrome123", "edge123", "firefox120", "safari17.5"],
@@ -40,4 +27,4 @@ export default defineConfig(({ mode }) => ({
       },
     },
   },
-}));
+});

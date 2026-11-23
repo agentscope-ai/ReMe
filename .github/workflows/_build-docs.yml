@@ -37,25 +37,10 @@ jobs:
         with:
           node-version: '22.22.3'
           cache: npm
-          cache-dependency-path: |
-            github-pages/package-lock.json
-            reme_studio/package-lock.json
+          cache-dependency-path: github-pages/package-lock.json
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Install Studio dependencies
-        run: npm ci --prefix ../reme_studio --ignore-scripts
-
-      - name: Check Studio types
-        if: inputs.run_tests
-        working-directory: reme_studio
-        run: npm run typecheck
-
-      - name: Test browser demo behavior
-        if: inputs.run_tests
-        working-directory: reme_studio
-        run: npm test -w web
 
       - name: Run tests
         if: inputs.run_tests

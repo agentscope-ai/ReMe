@@ -73,7 +73,7 @@ reme help
 `reme help` 会列出服务端 action。普通命令会通过 HTTP 调用服务端 Job。
 
 使用 ReMe Studio 时，安装 `reme-ai[core]`，运行 `reme start config=proactive`，然后打开
-<http://127.0.0.1:2333/>。安装和开发说明见 [Studio 指南](https://reme.agentscope.io/zh/workspace/studio)。
+<http://127.0.0.1:2333/>。安装和开发说明见 [Studio 指南](https://github.com/agentscope-ai/ReMe/blob/main/reme_studio/README_ZH.md)。
 
 ---
 

@@ -7,15 +7,11 @@ import "../../workbench/src/style.css";
 import "../../workbench/src/materials.css";
 import "../../workbench/src/workspace.css";
 
-const demo = import.meta.env.MODE === "demo";
 const endpoint = (
   import.meta.env.VITE_REME_API_URL ||
-  location.origin + (import.meta.env.DEV && !demo ? "/api" : "")
+  location.origin + (import.meta.env.DEV ? "/api" : "")
 ).replace(/\/$/, "");
-const fetchRequest = demo
-  ? (await import("../demo/service.ts")).demoService()
-  : window.fetch.bind(window);
-const browser = new BrowserHost(endpoint, undefined, fetchRequest, demo);
+const browser = new BrowserHost(endpoint);
 const host = workbenchHost(browser);
 
 function App() {

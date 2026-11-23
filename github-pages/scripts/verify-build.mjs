@@ -69,11 +69,6 @@ const requiredFiles = [
   "figures/benchmarks/memlens/memlens-256k-four-models-judge.svg",
   "zh/services.html",
   "en/services.html",
-  "studio/index.html",
-  "studio/reme-app-icon.png",
-  "studio/reme-icon.svg",
-  "zh/workspace/studio.html",
-  "en/workspace/studio.html",
   "zh/reference/jobs.html",
   "en/reference/jobs.html",
   "zh/configuration/llms.txt",
@@ -87,38 +82,13 @@ assert.equal((await readFile(path.join(outputDir, "CNAME"), "utf8")).trim(), "re
 const homepage = await readFile(path.join(outputDir, "index.html"), "utf8");
 assert.ok(homepage.includes('href="/en/"'), "root language switch must link to /en/");
 assert.ok(!homepage.includes('href="/en/ex"'), "root language switch must not produce /en/ex");
-assert.ok(homepage.includes('"studio-en":"/en/workspace/studio"'), "legacy redirects must be embedded");
+assert.ok(homepage.includes('"en-quick_start":"/en/quick_start"'), "legacy redirects must be embedded");
 
 const ChineseHomepage = await readFile(path.join(outputDir, "zh/index.html"), "utf8");
 assert.match(ChineseHomepage, /8cafe9df-d883-4046-b5e9-36dfd21a4884/);
 assert.match(ChineseHomepage, /用真实评测/);
 assert.match(ChineseHomepage, /89\.4%/);
 assert.match(ChineseHomepage, /公开、透明的访问趋势/);
-
-const ChineseStudio = await readFile(path.join(outputDir, "zh/workspace/studio.html"), "utf8");
-assert.match(ChineseStudio, /href="\/studio\/\?lang=zh"/);
-assert.match(ChineseStudio, /<span[^>]*>体验Studio<\/span>/);
-assert.doesNotMatch(ChineseStudio, /<aside[^>]*class="VPSidebar/);
-
-const EnglishStudio = await readFile(path.join(outputDir, "en/workspace/studio.html"), "utf8");
-assert.match(EnglishStudio, /href="\/studio\/\?lang=en"/);
-assert.match(EnglishStudio, /<span[^>]*>Try Studio<\/span>/);
-
-// Studio is a separate static app: every entry must bypass VitePress routing.
-for (const language of ["zh", "en"]) {
-  for (const page of ["index.html", "workspace/studio.html"]) {
-    const html = await readFile(path.join(outputDir, language, page), "utf8");
-    const links = [...html.matchAll(/<a\b[^>]*href="\/studio\/\?lang=[^"]+"[^>]*>/g)];
-    assert.ok(links.length, `${language}/${page}: Studio entry exists`);
-    for (const [link] of links) assert.match(link, /target="_self"/, "Studio must use full-page navigation");
-  }
-}
-
-const studioDemo = await readFile(path.join(outputDir, "studio/index.html"), "utf8");
-assert.match(studioDemo, /<title>Try ReMe Studio<\/title>/);
-for (const match of studioDemo.matchAll(/(?:src|href)="(\.\/[^"?#]+)"/g)) {
-  await access(path.join(outputDir, "studio", match[1]));
-}
 
 const ChineseTraffic = await readFile(path.join(outputDir, "zh/traffic.html"), "utf8");
 assert.match(ChineseTraffic, /S1OZK1PSDLEpyiU5/);

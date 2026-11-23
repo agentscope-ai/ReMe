@@ -14,14 +14,12 @@
   "scripts": {
     "dev": "npm run dev -w web",
     "dev:desktop": "npm run dev -w desktop",
-    "dev:demo": "npm run dev:demo -w web",
     "build:static": "npm run build -w web",
-    "build:demo": "npm run build:demo -w web",
     "build:desktop": "npm run build -w desktop",
     "build:mobile": "npm run build -w mobile --",
     "typecheck": "npm run typecheck -w desktop -w web -w mobile",
-    "test": "npm run test -w client -w workbench -w desktop -w web",
-    "format:check": "prettier --check desktop/src desktop/tests desktop/scripts/*.mjs desktop/*.json client workbench mobile/src mobile/*.json mobile/*.mts mobile/index.html web/src web/demo web/tests web/vite.config.ts web/*.json web/index.html *.json"
+    "test": "npm run test -w client -w workbench -w desktop",
+    "format:check": "prettier --check desktop/src desktop/tests desktop/scripts/*.mjs desktop/*.json client workbench mobile/src mobile/*.json mobile/*.mts mobile/index.html web/src web/vite.config.ts web/*.json web/index.html *.json"
   },
   "devDependencies": {
     "prettier": "3.9.10",
