@@ -12,11 +12,10 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from reme.application import Application
-from reme.components import ApplicationContext
+from reme import Application
+from reme.core.context import ApplicationContext, RuntimeContext
 from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.job import BackgroundJob, BaseJob, CronJob, StreamJob
-from reme.components.runtime_context import RuntimeContext
 from reme.components.service import HttpService
 from reme.enumeration import ChunkEnum
 from reme.schema import ApplicationConfig, JobConfig, Response, StreamChunk

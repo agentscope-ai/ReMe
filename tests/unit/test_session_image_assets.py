@@ -14,7 +14,7 @@ import frontmatter
 import httpx
 import pytest
 
-from reme.components.runtime_context import RuntimeContext
+from reme.core.context import RuntimeContext
 from reme.steps.evolve.auto_memory import AutoMemoryStep
 from reme.steps.evolve.auto_memory import _save_session_images as save_session_images
 from reme.steps.file_io.write import WriteStep

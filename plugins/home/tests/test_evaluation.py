@@ -650,7 +650,7 @@ async def test_invalid_beam_judge_is_infra_error(app, prepared, raw):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("plugins", [["home"], ["home", "beam-judge", "lme-judge"]])
 async def test_startup_requires_exactly_one_judge(app, tmp_path, plugins):
-    from reme.application import Application
+    from reme import Application
 
     other = Application(
         workspace_dir=str(tmp_path / "other"),
@@ -683,7 +683,7 @@ async def test_preparation_rejects_mismatched_judge_without_writes(app, inputs):
 
 @pytest.mark.asyncio
 async def test_prepared_workspace_rejects_wrong_judge_on_restart(app, prepared):
-    from reme.application import Application
+    from reme import Application
 
     other = Application(
         workspace_dir=app.config.workspace_dir,
@@ -703,7 +703,7 @@ async def test_prepared_workspace_rejects_wrong_judge_on_restart(app, prepared):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("override", [{"enabled": False}, {"steps": [{"backend": "home_prepare_step"}]}])
 async def test_startup_rejects_disabled_or_replaced_judge_job(app, tmp_path, override):
-    from reme.application import Application
+    from reme import Application
 
     other = Application(
         workspace_dir=str(tmp_path / "other"),

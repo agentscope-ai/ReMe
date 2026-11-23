@@ -17,7 +17,7 @@ from unittest.mock import patch
 import pytest
 
 from reme.components.file_chunker import DefaultFileChunker, MarkdownFileChunker
-from reme.utils.file_utils import FileChangedDuringChunkingError
+from reme.utils.files.file_version import FileChangedDuringChunkingError
 
 
 def _write_md(tmpdir: str, name: str, body: str) -> str:

@@ -82,20 +82,20 @@ jobs:
           "${RUNNER_TEMP}/reme-daily-paper-smoke/bin/python" - <<'PY'
           from importlib.metadata import distribution
 
-          from reme.plugin_manifest import load_package_manifest
+          from reme.plugin import PluginManager
 
           package = distribution("reme-daily-paper")
           plugins = {entry.name: entry for entry in package.entry_points if entry.group == "reme.plugins"}
           assert plugins["daily-paper"].value == "reme_daily_paper"
-          manifest = load_package_manifest("reme_daily_paper", plugin_name="daily-paper")
-          assert set(manifest.backends) == {
+          plugin, = PluginManager.discover(["daily-paper"]).plugins
+          assert {backend.name for backend in plugin.backends} == {
               "daily_paper_collect_step",
               "daily_paper_rank_step",
               "daily_paper_select_step",
               "daily_paper_analyze_step",
               "daily_paper_digest_step",
           }
-          assert set(manifest.application_defaults["jobs"]) == {"daily_paper", "daily_paper_cron"}
+          assert set(plugin.config["jobs"]) == {"daily_paper", "daily_paper_cron"}
           PY
 
       - name: Upload distributions

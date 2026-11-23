@@ -6,7 +6,7 @@ from agentscope.model import ChatModelBase
 from agentscope.credential import OpenAICredential
 
 from .base_as_llm import BaseAsLLM
-from ..component_registry import R
+from ...core.registry import R
 
 
 @R.register("openai")

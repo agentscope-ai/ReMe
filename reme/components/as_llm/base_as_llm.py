@@ -5,7 +5,7 @@ import asyncio
 from agentscope.credential import CredentialBase
 from agentscope.model import ChatModelBase
 
-from ..base_component import BaseComponent
+from ..base import BaseComponent
 from ...enumeration import ComponentEnum
 
 

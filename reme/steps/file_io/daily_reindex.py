@@ -18,7 +18,7 @@ Always idempotent and safe to re-run.
 
 from ._daily_index import refresh_day_index
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 from ...steps.evolve import now
 
 

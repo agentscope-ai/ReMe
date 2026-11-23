@@ -19,7 +19,7 @@ from reme_home.preparation.spec import PreparationSpec  # noqa: E402
 from reme_home.judge import JUDGE_PLUGINS  # noqa: E402
 from reme_home.sampling import SamplingPolicy  # noqa: E402
 
-from reme.application import Application  # noqa: E402
+from reme import Application  # noqa: E402
 from reme.utils.env_utils import load_env  # noqa: E402
 
 # pylint: enable=wrong-import-position

@@ -29,7 +29,7 @@ from uuid import uuid4
 import numpy as np
 
 from .base_keyword_index import BaseKeywordIndex
-from ..component_registry import R
+from ...core.registry import R
 from ...utils.async_utils import complete_in_thread
 
 

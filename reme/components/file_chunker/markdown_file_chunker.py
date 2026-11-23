@@ -11,7 +11,7 @@ configured section limit is exceeded; otherwise build a mistletoe AST →
 and merge adjacent small subtrees at their parent. Leaf blocks (table / code /
 list / paragraph) split on internal boundaries and each piece is annotated
 ``[Part X/N]``. Wikilink extraction is
-delegated to :class:`reme.utils.wikilink_handler.WikilinkHandler` —
+delegated to :class:`reme.utils.documents.wikilink_handler.WikilinkHandler` —
 the single source of truth for ``[[...]]`` syntax.
 """
 
@@ -26,13 +26,13 @@ from pydantic import ValidationError
 
 
 from .default_file_chunker import DefaultFileChunker, InvalidEncodingPolicy
-from ..component_registry import R
+from ...core.registry import R
 from ...schema import (
     FileChunk,
     FileFrontMatter,
     FileNode,
 )
-from ...utils.wikilink_handler import WikilinkHandler
+from ...utils.documents.wikilink_handler import WikilinkHandler
 
 # -- AST node + helpers ---------------------------------------------------
 

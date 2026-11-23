@@ -6,7 +6,7 @@ from importlib import import_module
 import math
 from pathlib import Path
 
-from reme.components.base_component import BaseComponent
+from reme.components.base import BaseComponent
 from reme.schema import ComponentConfig
 
 from .preparation.data.models import fingerprint

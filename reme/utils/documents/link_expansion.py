@@ -16,7 +16,7 @@ Two-layer split so callers can pick what they need:
 
 import asyncio
 
-from ..schema import FileLink, FileNode
+from ...schema import FileLink, FileNode
 
 
 def _group_by_neighbor(links: list[FileLink], key_attr: str) -> dict[str, list[str]]:

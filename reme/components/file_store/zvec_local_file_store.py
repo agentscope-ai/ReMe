@@ -11,7 +11,7 @@ import numpy as np
 
 from .base_file_store import BaseFileStore
 from .local_file_store import LocalFileStore
-from ..component_registry import R
+from ...core.registry import R
 from ...schema import FileChunk, FileNode
 from ...utils.async_utils import complete_in_thread
 

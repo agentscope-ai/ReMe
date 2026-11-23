@@ -12,8 +12,7 @@ from agentscope.message import Msg
 from reme.components.file_store import BaseFileStore
 from reme.components.file_store.local_file_store import LocalFileStore
 from reme.components.tag_index import LocalTagIndex
-from reme.components import ApplicationContext
-from reme.components.runtime_context import RuntimeContext
+from reme.core.context import ApplicationContext, RuntimeContext
 from reme.config.config_parser import parse_kwargs
 from reme.enumeration import LinkScopeEnum
 from reme.schema import FileChunk, FileLink, FileNode, Response
@@ -668,63 +667,6 @@ async def test_search_non_strict_date_filter_not_in_search_filter(step_cls):
         assert "strict_date_filter" not in sf
 
 
-@pytest.mark.asyncio
-async def test_search_v2_step_all_deduped_shows_all_returned_message():
-    """When tool_context dedup removes every result, the answer explains that all content was previously returned."""
-
-    chunks = [
-        _chunk("a", "daily/a.md", "first", "keyword", 5.0),
-        _chunk("b", "daily/b.md", "second", "keyword", 4.0),
-    ]
-    store = FakeSearchStore(keyword_results=chunks)
-    step = SearchV2Step(file_store=store, expand_links=False)
-
-    first = await step(RuntimeContext(query="alpha", limit=5, tool_context_id="ctx-1"))
-    second = await step(RuntimeContext(query="alpha", limit=5, tool_context_id="ctx-1"))
-
-    assert [r["id"] for r in first.metadata["results"]] == ["a", "b"]
-    assert first.answer != ""
-
-    assert second.metadata["results"] == []
-    assert second.answer == ALL_RETURNED_MESSAGE
-    assert second.metadata["counts"]["returned"] == 0
-
-
-@pytest.mark.asyncio
-async def test_plain_search_steps_all_deduped_shows_all_returned_message():
-    """VectorSearchStep and Bm25SearchStep show the all-returned message when dedup empties results."""
-
-    vector_store = FakeSearchStore(
-        vector_results=[
-            _chunk("a", "daily/a.md", "first", "vector", 5.0),
-            _chunk("b", "daily/b.md", "second", "vector", 4.0),
-        ],
-    )
-    keyword_store = FakeSearchStore(
-        keyword_results=[
-            _chunk("a", "daily/a.md", "first", "keyword", 5.0),
-            _chunk("b", "daily/b.md", "second", "keyword", 4.0),
-        ],
-    )
-
-    vector = VectorSearchStep(file_store=vector_store, include_source=False)
-    bm25 = Bm25SearchStep(file_store=keyword_store, include_source=False)
-
-    v_first = await vector(RuntimeContext(query="alpha", limit=5, tool_context_id="ctx-v"))
-    v_second = await vector(RuntimeContext(query="alpha", limit=5, tool_context_id="ctx-v"))
-
-    b_first = await bm25(RuntimeContext(query="alpha", limit=5, tool_context_id="ctx-b"))
-    b_second = await bm25(RuntimeContext(query="alpha", limit=5, tool_context_id="ctx-b"))
-
-    assert v_first.answer != ""
-    assert v_second.metadata["results"] == []
-    assert v_second.answer == ALL_RETURNED_MESSAGE
-
-    assert b_first.answer != ""
-    assert b_second.metadata["results"] == []
-    assert b_second.answer == ALL_RETURNED_MESSAGE
-
-
 def test_search_step_and_range_dedup_states_coexist_in_both_call_orders():
     """Chunk-id and range dedup keep independent state in a shared tool context."""
 
@@ -764,27 +706,33 @@ def test_search_step_and_range_dedup_states_coexist_in_both_call_orders():
     asyncio.run(run())
 
 
+@pytest.mark.parametrize(
+    "step_cls,source",
+    [
+        pytest.param(SearchV2Step, "keyword", id="beam"),
+        pytest.param(VectorSearchStep, "vector", id="vector"),
+        pytest.param(Bm25SearchStep, "keyword", id="bm25"),
+    ],
+)
 @pytest.mark.asyncio
-async def test_search_steps_no_results_shows_no_results_message():
-    """When there are no results at all (before dedup), the answer explains that nothing was found."""
+async def test_search_distinguishes_no_matches_from_seen_results(step_cls, source):
+    """Search explains whether empty results came from retrieval or deduplication."""
+    store = FakeSearchStore()
+    step = step_cls(file_store=store)
+    for tool_context_id in ("", "ctx-1"):
+        response = await step(RuntimeContext(query="alpha", tool_context_id=tool_context_id))
+        assert response.metadata["results"] == []
+        assert response.answer == NO_RESULTS_MESSAGE
 
-    empty_store = FakeSearchStore()
+    candidates = store.vector_results if source == "vector" else store.keyword_results
+    candidates.append(_chunk("a", "daily/a.md", "first", source, 5.0))
+    first = await step(RuntimeContext(query="alpha", tool_context_id="ctx-1"))
+    assert [result["id"] for result in first.metadata["results"]] == ["a"]
+    assert first.answer
 
-    hybrid = SearchV2Step(file_store=empty_store, expand_links=False)
-    vector = VectorSearchStep(file_store=empty_store, include_source=False)
-    bm25 = Bm25SearchStep(file_store=empty_store, include_source=False)
-
-    # With tool_context_id set (dedup path, but nothing to dedup)
-    for step in (hybrid, vector, bm25):
-        resp = await step(RuntimeContext(query="alpha", limit=5, tool_context_id="ctx-1"))
-        assert resp.metadata["results"] == []
-        assert resp.answer == NO_RESULTS_MESSAGE
-
-    # Without tool_context_id (plain truncation path)
-    for step in (hybrid, vector, bm25):
-        resp = await step(RuntimeContext(query="alpha", limit=5))
-        assert resp.metadata["results"] == []
-        assert resp.answer == NO_RESULTS_MESSAGE
+    second = await step(RuntimeContext(query="alpha", tool_context_id="ctx-1"))
+    assert second.metadata["results"] == []
+    assert second.answer == ALL_RETURNED_MESSAGE
 
 
 _QUERY_STEP_CLASSES = [

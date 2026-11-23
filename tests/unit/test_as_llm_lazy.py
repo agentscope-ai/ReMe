@@ -9,7 +9,7 @@ import pytest
 
 from agentscope.model import ChatResponse
 
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.components.as_llm import BaseAsLLM
 from reme.components.job import BaseJob
 from reme.enumeration import ComponentEnum

@@ -1,4 +1,4 @@
-"""Tests for ``reme.utils.link_expansion``.
+"""Tests for ``reme.utils.documents.link_expansion``.
 
 Two pure helpers:
 
@@ -20,8 +20,8 @@ import pytest
 
 from reme.components.file_store import LocalFileStore
 from reme.schema import FileFrontMatter, FileNode
-from reme.utils.link_expansion import expand_links, render_expansion_lines
-from reme.utils.wikilink_handler import WikilinkHandler
+from reme.utils.documents.link_expansion import expand_links, render_expansion_lines
+from reme.utils.documents.wikilink_handler import WikilinkHandler
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="jieba")
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="pkg_resources")

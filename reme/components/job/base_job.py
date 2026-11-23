@@ -4,10 +4,10 @@ import asyncio
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
-from ..application_context import ApplicationContext
-from ..base_component import BaseComponent
-from ..component_registry import R
-from ..runtime_context import RuntimeContext, _current_job_execution
+from ...schema.response import JOB_ERROR_METADATA_KEY
+from ..base import BaseComponent
+from ...core.registry import R
+from ...core.context import ApplicationContext, RuntimeContext, _current_job_execution
 from ...enumeration import ComponentEnum
 from ...schema import ComponentConfig, Response
 
@@ -162,5 +162,5 @@ class BaseJob(BaseComponent):
                 self.logger.exception(f"Failed to execute job: {e}")
                 context.response.success = False
                 context.response.answer = _describe_exception(e)
-                context.response.metadata["reme.job_error"] = _exception_details(e)
+                context.response.metadata[JOB_ERROR_METADATA_KEY] = _exception_details(e)
         return context.response

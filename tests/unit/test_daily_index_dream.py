@@ -4,10 +4,9 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext, RuntimeContext
 from reme.components.file_catalog import BaseFileCatalog
 from reme.components.file_store import BaseFileStore
-from reme.components.runtime_context import RuntimeContext
 from reme.steps.evolve.dream.extract import DreamExtractStep
 
 

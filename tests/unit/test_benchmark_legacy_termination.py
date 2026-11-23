@@ -15,7 +15,7 @@ from PIL import Image
 import pytest
 
 from reme.components.agent_wrapper.as_agent_wrapper import AsAgentWrapper
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.components.file_store import LocalFileStore
 from reme.config import resolve_app_config
 from reme.plugin import resolve_plugin_runtime
@@ -121,7 +121,7 @@ def test_only_benchmark_config_selects_local_wrappers(benchmark, monkeypatch):
     name, wrapper_type, _ = benchmark
     entry = EntryPoint(name=name, value=f"reme_{name}", group="reme.plugins")
     monkeypatch.setattr(
-        "reme.plugin.find_entry_points",
+        "reme.plugin.manager.find_entry_points",
         lambda group, plugin: [entry] if (group, plugin) == (entry.group, entry.name) else [],
     )
     preset = Path(__file__).resolve().parents[2] / f"plugins/{name}/src/reme_{name}/benchmark.yaml"

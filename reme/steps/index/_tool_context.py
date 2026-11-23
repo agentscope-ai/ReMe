@@ -3,7 +3,7 @@
 from typing import TYPE_CHECKING, Any, Final
 
 if TYPE_CHECKING:
-    from ...components import ApplicationContext
+    from ...core.context import ApplicationContext
 
 
 class _ToolContextMixin:

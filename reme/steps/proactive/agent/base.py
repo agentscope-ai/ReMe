@@ -8,7 +8,7 @@ from ...file_io import check_path_permission
 from ....components.agent_runtime import BaseAgentRuntime
 from ....enumeration import ComponentEnum
 from ....schema import AgentActivity, Response, collect_reply
-from ....utils.agent_activity import ActivityTracker
+from ._activity import ActivityTracker
 
 
 class BaseAgentStep(BaseStep):

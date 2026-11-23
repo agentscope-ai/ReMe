@@ -8,10 +8,11 @@ from datetime import date
 import frontmatter
 import yaml
 
+from ....constants import CHAT_AGENT_NAME, PROACTIVE_MESSAGE_ID_PREFIX
 from ....schema.agent_runtime import AgentReminder, ReminderRef
 from ....schema.event import Event
 from ....utils.async_utils import complete_in_thread, finish_cleanup
-from ....utils.path_lock import get_path_lock
+from ....utils.files.path_lock import get_path_lock
 
 
 class AgentOutbox:
@@ -336,10 +337,10 @@ class AgentOutbox:
 
     async def read(self, agent_name, message_id, *, mark_read=False):
         """Authorize the mailbox before updating only the user's read receipt."""
-        if agent_name != "Remy":
+        if agent_name != CHAT_AGENT_NAME:
             await self.runtime.definition(agent_name)
         await self.refresh()
-        if agent_name == "Remy" and message_id.startswith("reme-proactive-"):
+        if agent_name == CHAT_AGENT_NAME and message_id.startswith(PROACTIVE_MESSAGE_ID_PREFIX):
             async with self.lock:
                 refs = [ref for ref in self.committed if message_id in self.records[ref].chat_message_ids]
             if not refs and not mark_read:
@@ -357,8 +358,8 @@ class AgentOutbox:
             ref = next((ref for ref in self.committed if ref.id == message_id), None)
             if (
                 ref is None
-                or (agent_name == "Remy" and not (self.records[ref].delivered_at or self.records[ref].read_at))
-                or (agent_name not in {"Remy", self.owners[ref]})
+                or (agent_name == CHAT_AGENT_NAME and not (self.records[ref].delivered_at or self.records[ref].read_at))
+                or (agent_name not in {CHAT_AGENT_NAME, self.owners[ref]})
             ):
                 raise ValueError("message not found in this mailbox")
         if mark_read:

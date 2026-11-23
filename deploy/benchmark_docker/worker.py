@@ -194,7 +194,7 @@ def _atomic_write_json(path: Path, value: Any) -> None:
 
 def _start_case_log(path: Path) -> Any:
     """Attach an exact artifact path to ReMe's configured logger backend."""
-    from reme.utils import get_logger
+    from reme.utils.logger_utils import get_logger
 
     path.parent.mkdir(parents=True, exist_ok=True)
     logger = get_logger(log_to_console=False, log_to_file=False, force_init=True)
@@ -258,9 +258,9 @@ async def _run(request: dict[str, Any]) -> dict[str, Any]:
     job = request["job"]
     job_args = request.get("arguments") or {}
     _, app_config = _prepare_runtime(request)
-    from reme.reme import ReMe
+    from reme import Application
 
-    app = ReMe(**app_config)
+    app = Application(**app_config)
     failed_results: list[dict[str, Any]] = []
     async with _application_scope(app, failed_results):
         await app.start()
@@ -286,13 +286,13 @@ async def _run_build(request: dict[str, Any]) -> dict[str, Any]:
 
     try:
         case_root, app_config = _prepare_runtime(request)
-        from reme.reme import ReMe
-        from reme.utils import get_logger
+        from reme import Application
+        from reme.utils.logger_utils import get_logger
 
         jobs = request.get("jobs")
         if not isinstance(jobs, list) or not jobs:
             raise ValueError("build request requires a non-empty jobs list")
-        app = ReMe(**app_config)
+        app = Application(**app_config)
         logger = None
         results: list[dict[str, Any]] = []
         failed_results: list[dict[str, Any]] = []
@@ -418,8 +418,8 @@ async def _run_queries(request: dict[str, Any], *, write_summary: bool = True) -
     the case-level artifact directory with ``summary.json``.
     """
     case_root, app_config = _prepare_runtime(request)
-    from reme.reme import ReMe
-    from reme.utils import get_logger
+    from reme import Application
+    from reme.utils.logger_utils import get_logger
 
     queries = request.get("queries")
     if not isinstance(queries, list) or not queries:
@@ -434,7 +434,7 @@ async def _run_queries(request: dict[str, Any], *, write_summary: bool = True) -
         raise FileExistsError("query artifacts already exist for this case")
     queries_root.mkdir(parents=True, exist_ok=True)
 
-    app = ReMe(**app_config)
+    app = Application(**app_config)
     results: list[dict[str, Any]] = []
     failed_results: list[dict[str, Any]] = []
     async with _application_scope(app, failed_results):

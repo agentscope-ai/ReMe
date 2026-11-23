@@ -31,25 +31,24 @@ and concise documentation together.
 ## Repository Map
 
 - `reme/reme.py`: CLI entry point; dispatches `start`, `find_reme`, and client calls.
-- `reme/application.py`: application assembly, dependency ordering, job execution, and lifecycle.
+- `reme/core/application.py`: application assembly, dependency ordering, job execution, and lifecycle.
 - `reme/config/config_parser.py`: YAML/JSON loading, environment expansion, dot-notation parsing, and deep config
   merging.
 - `reme/config/default.yaml`: default service, jobs, steps, and components. Other files in
   `reme/config/` are named configuration variants.
 - `reme/schema/application_config.py`: typed application, component, and job configuration.
 - `reme/schema/`: request, response, streaming, memory, graph, and file contracts.
-- `reme/components/application_context.py`: application-wide wiring and in-memory shared state.
-- `reme/components/runtime_context.py`: request-scoped data, response, streaming queue, and stop event.
-- `reme/components/base_component.py`: component lifecycle, dependency binding, and workspace helpers.
-- `reme/components/component_registry.py`: the frozen built-in registry template and application-local registry factory.
+- `reme/core/context.py`: application-wide wiring and request-scoped data, response, streaming, and stop events.
+- `reme/components/base.py`: component lifecycle, dependency binding, and workspace helpers.
+- `reme/core/registry.py`: the frozen built-in registry template and application-local registry factory.
 - `reme/components/job/`: base, stream, background, and cron job implementations.
 - `reme/components/service/`: local CLI, HTTP, and MCP service backends.
 - `reme/components/`: agent wrappers, model adapters, stores, catalogs, graphs, indexes, clients, tokenizers, and
   outbound proxies.
 - `reme/steps/`: registered job steps grouped by common, file I/O, index, evolve, cookbook, and transfer
   concerns.
-- `reme/utils/`: shared utilities, including service discovery, logging, web-static resolution, session I/O, token
-  accounting, and wikilink handling.
+- `reme/utils/`: shared logging, async, process, and token helpers, with `files/` for filesystem primitives,
+  `documents/` for document parsing and links, and `file_sandbox/` for platform-specific sandboxed execution.
 - `tests/unit/`: primary fast, isolated validation suite.
 - `tests/integration/`: service/model tests that may need credentials or external processes.
 - `reme_studio/`: ReMe Studio frontend source plus the independently published `reme_studio` Python package and

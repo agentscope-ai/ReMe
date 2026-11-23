@@ -33,9 +33,8 @@ from reme_daily_paper.base import (
 )
 from reme_daily_paper.huggingface_papers import paper_ids_from_html, paper_info_from_payload
 from reme_daily_paper.rank import build_candidate_pool, rrf_score
-from reme.components import ApplicationContext
+from reme.core.context import ApplicationContext, RuntimeContext
 from reme.components.agent_wrapper.base_agent_wrapper import BaseAgentWrapper
-from reme.components.runtime_context import RuntimeContext
 from reme.config import expand_env_vars
 
 PLUGIN_MANIFEST = yaml.safe_load(

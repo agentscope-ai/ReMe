@@ -9,10 +9,10 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from reme.enumeration import ComponentEnum
-from reme.application import Application
-from reme.components import ApplicationContext
-from reme.components.base_component import BaseComponent
-from reme.components.component_registry import ComponentRegistry, R
+from reme import Application
+from reme.core.context import ApplicationContext
+from reme.components.base import BaseComponent
+from reme.core.registry import ComponentRegistry, R
 from reme.components.job.background_job import BackgroundJob
 from reme.components.job.base_job import BaseJob
 from reme.components.job.cron_job import CronJob

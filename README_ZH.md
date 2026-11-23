@@ -49,6 +49,9 @@
 
 <!-- 最新动态最多展开 5 条；新增条目时，将超出的旧条目移入下方“更多更新”折叠区。 -->
 
+- [2026.11] - **`NEW`** **[ReMe5 前瞻 · Proactive Runtime](docs/zh/reme5_preview.md)**。ReMe 将以文件化记忆为核心，
+  支持事件驱动和定时 Agent。你可以把需要持续跟进的事交给 ReMe，有新进展时它会记下来，并在需要时提醒你。
+  我们计划在 **2026 年底前**发布 ReMe5，欢迎先看我们的设计方案、开发计划和里程碑。
 - [2026.10] - **[基于决策模型的上下文压缩](docs/zh/context_compaction.md)**：根据下一步任务判断旧工具证据的保留价值，
   保护关键历史，并返回可回溯的压缩建议；提供 SVG 流程图、两个真实模型集成场景和 14-query 固定摘要实验，包含强制 Hermes 摘要基线。
 - [2026.10] - **[ReMe 多模态记忆更新](https://reme.agentscope.io/zh/blog_20261009)**：Auto Memory 将会话图片和上下文一起
@@ -66,11 +69,12 @@
 
 - [2026.09] - **[给记忆加上“标签”](https://reme.agentscope.io/zh/blog_20260920)发布**：介绍基于 Markdown 的实体标签、
   可重建 Tag Index 与标签过滤检索。
-- [2026.09] - **[Hermes Agent 记忆 Provider](https://reme.agentscope.io/zh/integrations/hermes) 已可使用**：支持 HTTP 和 Embedded
-  两种模式，在模型调用前自动召回、每轮对话结束后异步执行 `auto_memory`。集成支持 Hermes Agent 0.21 及以上版本，后台任务也会继承当前 profile 上下文。
 
 <details>
 <summary>更多更新</summary>
+
+- [2026.09] - **[Hermes Agent 记忆 Provider](https://reme.agentscope.io/zh/integrations/hermes) 已可使用**：支持 HTTP 和 Embedded
+  两种模式，在模型调用前自动召回、每轮对话结束后异步执行 `auto_memory`。集成支持 Hermes Agent 0.21 及以上版本，后台任务也会继承当前 profile 上下文。
 
 - [2026.09] - **[OpenClaw 插件](https://reme.agentscope.io/zh/integrations/openclaw) 发布**：可通过
   [ClawHub](https://clawhub.ai/agentscope-ai/plugins/reme-openclaw-plugin) 或

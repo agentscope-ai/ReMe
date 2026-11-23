@@ -11,8 +11,9 @@ from zoneinfo import ZoneInfo
 
 from watchfiles import awatch
 
+from ...constants import CHAT_AGENT_NAME
 from .base_agent_runtime import BaseAgentRuntime
-from ...utils.workspace_files import WorkspaceFiles
+from ...utils.files.workspace_files import WorkspaceFiles
 from ._internal.notifications import ChatNotifications
 from ._internal.outbox import AgentOutbox
 from ._internal.registry import AgentRegistry
@@ -20,7 +21,7 @@ from ._internal.sessions import AgentSessions
 from ._internal.live_turn import LiveTurns
 from ..agent_wrapper import BaseAgentWrapper
 from ..agent_inbox import BaseAgentInbox
-from ..component_registry import R
+from ...core.registry import R
 from ...schema.agent_runtime import (
     ChatAgentConfig,
     NotificationConfig,
@@ -347,7 +348,7 @@ class LocalAgentRuntime(BaseAgentRuntime):
 
     async def list_inputs(self, agent_name, **kwargs):
         """Page the same event Inbox for Chat and task Agents."""
-        if agent_name == "Remy":
+        if agent_name == CHAT_AGENT_NAME:
             return await self.outbox.inbox(**kwargs)
         await self.definition(agent_name)
         page = await self.inbox.read(agent_name, **kwargs)
@@ -356,7 +357,7 @@ class LocalAgentRuntime(BaseAgentRuntime):
 
     async def list_chat_sessions(self, offset=0, limit=10):
         """Listing is side-effect-free, including before the first Chat turn."""
-        return await self.sessions.list("Remy", offset, limit)
+        return await self.sessions.list(CHAT_AGENT_NAME, offset, limit)
 
     @asynccontextmanager
     async def _agent_task(self, agent_name):

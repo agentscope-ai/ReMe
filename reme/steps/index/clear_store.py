@@ -1,7 +1,7 @@
 """Clear the file store before reusing the standard init change producer."""
 
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 
 
 @R.register("clear_store_step")

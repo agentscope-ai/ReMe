@@ -1,7 +1,7 @@
 """Deliver observations to an agent without exposing its internal stream name."""
 
 from ..agent import BaseAgentStep
-from ....components import R
+from ....core.registry import R
 from ....schema.event import Event
 
 

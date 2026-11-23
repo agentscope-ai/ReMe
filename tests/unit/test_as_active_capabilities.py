@@ -13,8 +13,8 @@ from agentscope.state import AgentState
 from agentscope.tool import FunctionTool, ToolChunk, Toolkit
 
 from reme.components.agent_wrapper import AsAgentWrapper
-from reme.components.application_context import ApplicationContext
-from reme.utils import AsStateHandler
+from reme.core.context import ApplicationContext
+from reme.components.agent_wrapper.as_state_io import AsStateHandler
 from .test_as_agent_sessions import OfflineModel
 
 

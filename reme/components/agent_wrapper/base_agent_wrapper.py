@@ -8,12 +8,12 @@ from typing import Any, ClassVar, Literal, TYPE_CHECKING
 
 from pydantic import BaseModel
 
-from ..base_component import BaseComponent
+from ..base import BaseComponent
 from ..outbound_proxy import BaseOutboundProxy
 from ...enumeration import ChunkEnum, ComponentEnum
 from ...schema import AgentReply, SessionMessage, SessionSnapshot, SessionStatus, StreamChunk, TokenUsage
 from ...schema.agent_reply import AgentReplyStatus, collect_reply
-from ...utils import global_counter_add_many
+from ...utils.counter import global_counter_add_many
 
 if TYPE_CHECKING:
     from ..job.base_job import BaseJob

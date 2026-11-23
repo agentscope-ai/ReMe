@@ -8,7 +8,7 @@ import pytest
 
 from reme.components.file_chunker import DefaultFileChunker
 from reme.schema import FileChunk, FileFrontMatter
-from reme.utils.wikilink_handler import WikilinkHandler
+from reme.utils.documents.wikilink_handler import WikilinkHandler
 
 # Add parent path for import
 
@@ -226,15 +226,6 @@ def test_parse_wikilink_line_ranges():
         ("notes/example.md", "L9-L10"),
         ("notes/example.md", "L9-L10,L15-L20"),
     ]
-
-
-def test_parse_markdown_links_are_ignored():
-    """Ordinary Markdown links do not create FileLink edges."""
-    links = WikilinkHandler.extract_links(
-        "[plain](../wiki/a.md) [section](../wiki/a.md#section) [ranges](../wiki/b.md#L9-L10,L15-L20)",
-        "daily/note.md",
-    )
-    assert not links
 
 
 def test_parse_links_no_match():

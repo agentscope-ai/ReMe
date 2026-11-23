@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from reme.components.agent_wrapper import BaseAgentWrapper
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.components.file_store import LocalFileStore
 from reme.enumeration import ChunkEnum
 from reme.schema import FileFrontMatter, FileLink, FileNode, StreamChunk, TokenUsage, TraverseGraph

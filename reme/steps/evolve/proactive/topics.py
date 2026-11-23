@@ -19,7 +19,7 @@ import re
 
 from ...base_step import BaseStep
 from .._evolve import passthrough_response
-from ....components import R
+from ....core.registry import R
 from ....enumeration import ComponentEnum
 from ....schema import ProactiveState, ProactiveStateFile, ProactiveTopic
 from ....schema.proactive import clamp_confidence

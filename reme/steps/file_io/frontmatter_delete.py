@@ -14,14 +14,11 @@ read/edit/write alone would still leave frontmatter of arbitrary workspace
 Markdown files mutable.
 """
 
-from pathlib import Path
-
 import frontmatter
 
-from ._file_io import get_path_lock
-from ._path import check_path_permission, display_path, gate_md, resolve_path
+from ._base import frontmatter_target
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 
 
 @R.register("frontmatter_delete_step")
@@ -37,44 +34,24 @@ class FrontmatterDeleteStep(BaseStep):
             keys = [keys]
         keys = list(keys)
 
-        workspace_dir = Path(self.file_store.workspace_path or ".").resolve()
-        target, err = resolve_path(workspace_dir, path)
-        if err or target is None:
-            payload: dict = {"path": path, "error": err or "invalid path"}
-        else:
-            original_target = target
-            target, is_md = gate_md(target)
-            if not check_path_permission(workspace_dir, target, self.context.get("_allowed_paths")):
-                payload = {"path": path, "error": "no permission to update this file"}
-            else:
-                lock = await get_path_lock(target)
-                async with lock:
-                    if not target.is_file():
-                        payload = {"path": path, "error": f"{display_path(workspace_dir, target)} not found"}
-                    elif not is_md:
-                        payload = {"path": path, "error": "not markdown"}
-                    elif not keys:
-                        payload = {"path": path, "error": "keys is empty"}
-                    else:
-                        post = frontmatter.loads(target.read_text(encoding="utf-8"))
-                        deleted: list[str] = []
-                        missing: list[str] = []
-                        for k in keys:
-                            if k in post.metadata:
-                                del post.metadata[k]
-                                deleted.append(k)
-                            else:
-                                missing.append(k)
-                        if deleted:
-                            target.write_text(frontmatter.dumps(post), encoding="utf-8")
-                        payload = {
-                            "path": path,
-                            "deleted": deleted,
-                            "missing": missing,
-                            "frontmatter": dict(post.metadata),
-                        }
-            if target != original_target:
-                payload["resolved_path"] = display_path(workspace_dir, target)
+        allowed_paths = self.context.get("_allowed_paths")
+        async with frontmatter_target(self.file_store.workspace_path, path, allowed_paths) as (target, payload):
+            if target is not None:
+                if not keys:
+                    payload["error"] = "keys is empty"
+                else:
+                    post = frontmatter.loads(target.read_text(encoding="utf-8"))
+                    deleted: list[str] = []
+                    missing: list[str] = []
+                    for key in keys:
+                        if key in post.metadata:
+                            del post.metadata[key]
+                            deleted.append(key)
+                        else:
+                            missing.append(key)
+                    if deleted:
+                        target.write_text(frontmatter.dumps(post), encoding="utf-8")
+                    payload.update(deleted=deleted, missing=missing, frontmatter=dict(post.metadata))
 
         if "error" in payload:
             self.context.response.success = False

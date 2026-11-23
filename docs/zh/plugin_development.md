@@ -48,7 +48,7 @@ application_defaults:
 ## 实现 Step
 
 ```python
-from reme.components.component_registry import R
+from reme.core.registry import R
 from reme.steps.base_step import BaseStep
 
 
@@ -67,6 +67,8 @@ Step 实例属于单次 Job 调用。跨调用的内存状态应放在带命名�
 ```text
 插件默认值 < 选中/default 配置 < CLI 覆盖
 ```
+
+仅最终生效的插件默认值要求其引用的环境变量有值或 fallback。应用配置中的 `plugins` 必须是字符串列表，例如 `plugins: [my_plugin]`。
 
 插件不应自动修改用户的配置文件。只有在 Application 的 `plugins` 列表中显式启用后，插件 backend 才会加入该 Application 的局部 registry。
 

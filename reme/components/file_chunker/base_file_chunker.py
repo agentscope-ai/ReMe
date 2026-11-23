@@ -9,11 +9,11 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable
 
-from ..base_component import BaseComponent
+from ..base import BaseComponent
 from ...enumeration import ComponentEnum
 from ...schema import FileChunk, FileNode
 from ...utils.async_utils import finish_cleanup
-from ...utils.file_utils import check_file_version
+from ...utils.files.file_version import check_file_version
 
 
 class BaseFileChunker(BaseComponent):

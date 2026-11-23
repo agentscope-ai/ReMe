@@ -2,7 +2,7 @@
 
 from ...base_step import BaseStep
 from .._evolve import passthrough_response
-from ....components import R
+from ....core.registry import R
 from ....schema import FileNode, ProactiveState
 from ..dream.utils import workspace_dir
 

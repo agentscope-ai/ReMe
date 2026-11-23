@@ -1,6 +1,6 @@
 """Index steps."""
 
-from ._source_format import normalize_posix_path
+from ...utils.files.paths import normalize_posix_path
 from .bm25_search import Bm25SearchStep
 from .clear_paths import ClearPathsStep
 from .clear_store import ClearStoreStep

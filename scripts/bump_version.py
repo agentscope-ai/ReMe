@@ -16,7 +16,7 @@ _VERSION_PATTERN = re.compile(r'(?m)^__version__ = "(?P<version>[^"]+)"$')
 
 
 def _version_file(repository: Path) -> Path:
-    return repository / "reme" / "__init__.py"
+    return repository / "reme" / "_version.py"
 
 
 def _canonical_version(value: str) -> str:

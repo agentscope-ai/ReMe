@@ -20,7 +20,7 @@ from uuid import uuid4
 from aiohttp import web
 import httpx
 
-from reme.components import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.components.agent_wrapper import AsAgentWrapper, CcAgentWrapper, CodexAgentWrapper
 from reme.components.codex_app_server import SdkCodexAppServer
 from reme.enumeration import ComponentEnum

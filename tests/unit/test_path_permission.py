@@ -39,7 +39,7 @@ from reme.steps.file_io.read import ReadStep
 from reme.steps.file_io.read_image import ReadImageStep
 from reme.steps.file_io.stat import StatStep
 from reme.steps.file_io.write import WriteStep
-from reme.utils.wikilink_handler import WikilinkHandler
+from reme.utils.documents.wikilink_handler import WikilinkHandler
 
 
 def _seed(workspace: Path, rel: str, body: str = "body\n") -> Path:

@@ -7,7 +7,7 @@ import math
 import time
 
 from ..base_step import BaseStep, Ref
-from ...components import R
+from ...core.registry import R
 from ...components.as_decision_model import BaseAsDecisionModel
 from ...enumeration import ComponentEnum
 from ...schema.compaction import CallDecision, CompactionRequest, CompactionResult

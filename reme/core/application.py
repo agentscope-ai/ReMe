@@ -4,18 +4,22 @@ import asyncio
 import heapq
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import aclosing
 from inspect import getattr_static
 from pathlib import Path
 from typing import Any, AsyncGenerator, TypeVar
 
-from . import __version__
-from .components import ApplicationContext, BaseComponent
-from .components.job import BackgroundJob, BaseJob, CronJob, StreamJob
-from .components.service import BaseService
-from .enumeration import ComponentEnum, ComponentType, component_type_name
-from .plugin import resolve_plugin_runtime
-from .schema import ComponentConfig, Response, StreamChunk
-from .utils import execute_stream_task, print_logo, get_logger
+from .context import ApplicationContext
+from .._version import __version__
+from ..components.base import BaseComponent
+from ..components.job import BackgroundJob, BaseJob, CronJob, StreamJob
+from ..components.service import BaseService
+from ..enumeration import ComponentEnum, ComponentType, component_type_name
+from ..plugin import resolve_plugin_runtime
+from ..schema import ComponentConfig, Response, StreamChunk
+from ..utils.streaming import execute_stream_task
+from .banner import print_logo
+from ..utils.logger_utils import get_logger
 
 T = TypeVar("T", bound=BaseComponent)
 _NodeKey = tuple[str, str]
@@ -408,14 +412,9 @@ class Application(BaseComponent):
         job = self._get_enabled_job(name)
         stream_queue: asyncio.Queue = asyncio.Queue()
         task = asyncio.create_task(job(stream_queue=stream_queue, **kwargs))
-        async for chunk in execute_stream_task(
-            stream_queue=stream_queue,
-            task=task,
-            task_name=name,
-            output_format="chunk",
-        ):
-            assert isinstance(chunk, StreamChunk)
-            yield chunk
+        async with aclosing(execute_stream_task(stream_queue, task, name)) as chunks:
+            async for chunk in chunks:
+                yield chunk
 
     def run_app(self):
         """Serve the application through the configured service backend."""

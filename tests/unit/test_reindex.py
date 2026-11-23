@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from reme.components.file_store import LocalFileStore
-from reme.components.runtime_context import RuntimeContext
+from reme.core.context import RuntimeContext
 from reme.config import resolve_app_config
 from reme.steps.index import ReindexStep
 

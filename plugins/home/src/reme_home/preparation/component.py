@@ -10,9 +10,10 @@ from uuid import uuid4
 
 import yaml
 
-from reme.components.base_component import BaseComponent
+from reme.components.base import BaseComponent
 from reme.steps.base_step import BaseStep, Ref
 from reme.utils.async_utils import finish_cleanup
+from reme.utils.files.file_sync import sync_directory
 
 from .code import prepare_code
 from .evaluation_source import EvaluationSource
@@ -28,7 +29,6 @@ from .transaction import (
     recover_preparation,
     rollback,
     write_json,
-    sync_directory,
 )
 from ..workspace import HomeWorkspace, _initialization_lock, _validate_directory
 

@@ -10,16 +10,17 @@ import shutil
 from threading import Event as ThreadEvent
 from zoneinfo import ZoneInfo
 
+from ....schema.resource_metadata import RESOURCE_METADATA_FILENAME
 from ._codex_dialogue import CodexDialogueIndex
 from .base_connector import resource_package_id
 from ..agent import BaseAgentStep
-from ...file_io import get_path_lock
-from ....components import R
-from ....utils.workspace_files import WorkspaceFiles
+from ....utils.files.path_lock import get_path_lock
+from ....core.registry import R
+from ....utils.files.workspace_files import WorkspaceFiles
 from ....schema import Event, ResourceMetadata
 from ....schema.agent_runtime import validate_agent_name
 from ....utils.async_utils import finish_cleanup
-from ....utils.file_sync import sync_directory
+from ....utils.files.file_sync import sync_directory
 
 
 class _CodexDialogueBase(BaseAgentStep):
@@ -143,7 +144,7 @@ class CodexDialogueStep(_CodexDialogueBase):
         if metadata.source != "codex_dialogue":
             raise ValueError("Unexpected Codex dialogue resource source")
         directory = index.files.path(resource["path"])
-        manifest = directory / "metadata.json"
+        manifest = directory / RESOURCE_METADATA_FILENAME
         paths = [manifest, *(directory / entry.path for entry in metadata.files)]
         self.require_paths(directory, *paths)
         for path in paths[1:]:

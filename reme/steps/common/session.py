@@ -1,7 +1,7 @@
 """Backend-neutral session jobs; unsupported wrappers fail explicitly."""
 
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 
 
 class _SessionStep(BaseStep):

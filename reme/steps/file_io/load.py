@@ -5,7 +5,7 @@ from datetime import datetime
 from ._base import _FileIOStep
 from ._file_io import read_file_safe
 from ._path import check_path_permission, resolve_path
-from ...components import R
+from ...core.registry import R
 
 DEFAULT_EDITOR_MAX_BYTES = 5 * 1024 * 1024
 

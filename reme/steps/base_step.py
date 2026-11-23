@@ -7,18 +7,18 @@ from typing import Any, TYPE_CHECKING
 from agentscope.model import ChatModelBase
 
 from ..components.agent_wrapper.base_agent_wrapper import BaseAgentWrapper
-from ..components.base_component import ComponentMixin
-from ..components.component_registry import R
+from ..components.base import ComponentMixin
+from ..core.registry import R
 from ..components.file_catalog import BaseFileCatalog
 from ..components.file_store import BaseFileStore
-from ..components.prompt_handler import PromptHandler
-from ..components.runtime_context import RuntimeContext
+from .prompt import PromptHandler
+from ..core.context import RuntimeContext
 from ..enumeration import ComponentEnum
 from ..schema import ApplicationConfig, Response
 from ..constants import DEFAULT_MAX_FILE_BYTES
 
 if TYPE_CHECKING:
-    from ..components import ApplicationContext
+    from ..core.context import ApplicationContext
     from ..components.job import BaseJob
 
 _UNSET = object()

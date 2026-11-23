@@ -48,8 +48,8 @@ def test_hermes_text_runtime_accepts_host_pins() -> None:
     assert Version("2.0.11") not in embedded[0].specifier
 
 
-def test_home_requires_workflow_and_sandbox_release() -> None:
-    """Home requires workflow interfaces, request path rejection and environment isolation."""
+def test_home_requires_shared_file_sync_release() -> None:
+    """Home requires the release that provides its shared filesystem sync helper."""
     config = tomllib.loads((REPOSITORY / "plugins" / "home" / "pyproject.toml").read_text(encoding="utf-8"))
     requirement = next(Requirement(value) for value in config["project"]["dependencies"] if value.startswith("reme-ai"))
 
@@ -57,7 +57,9 @@ def test_home_requires_workflow_and_sandbox_release() -> None:
     assert Version("0.4.1.14") not in requirement.specifier
     assert Version("0.4.2.0") not in requirement.specifier
     assert Version("0.4.2.1") not in requirement.specifier
-    assert Version("0.4.2.2") in requirement.specifier
+    assert Version("0.4.2.2") not in requirement.specifier
+    assert Version("0.4.2.3") not in requirement.specifier
+    assert Version("0.4.2.4") in requirement.specifier
     assert Version(bump_version.read_version()) in requirement.specifier
 
 
@@ -121,7 +123,7 @@ def test_typescript_host_plugins_are_independent_packages() -> None:
 
 def _write_version_fixture(repository: Path) -> None:
     (repository / "reme").mkdir()
-    (repository / "reme" / "__init__.py").write_text('__version__ = "1.2.3"\n', encoding="utf-8")
+    (repository / "reme" / "_version.py").write_text('__version__ = "1.2.3"\n', encoding="utf-8")
 
 
 def test_bump_version_updates_only_reme(tmp_path: Path) -> None:
@@ -134,7 +136,7 @@ def test_bump_version_updates_only_reme(tmp_path: Path) -> None:
     previous_version = bump_version.bump_version("1.2.4", tmp_path)
 
     assert previous_version == "1.2.3"
-    assert (tmp_path / "reme" / "__init__.py").read_text(encoding="utf-8") == '__version__ = "1.2.4"\n'
+    assert (tmp_path / "reme" / "_version.py").read_text(encoding="utf-8") == '__version__ = "1.2.4"\n'
     assert 'version = "0.1.0"' in studio_config.read_text(encoding="utf-8")
 
 
@@ -142,7 +144,7 @@ def test_bump_version_updates_only_reme(tmp_path: Path) -> None:
 def test_bump_version_rejects_invalid_pep440_versions(tmp_path: Path, version: str) -> None:
     """Reject invalid release versions before changing the source file."""
     _write_version_fixture(tmp_path)
-    version_file = tmp_path / "reme" / "__init__.py"
+    version_file = tmp_path / "reme" / "_version.py"
     original_version_text = version_file.read_text(encoding="utf-8")
 
     with pytest.raises(ValueError, match="Invalid PEP 440 version"):
@@ -162,7 +164,7 @@ def test_check_versions_reports_release_tag_mismatch(tmp_path: Path) -> None:
 def test_read_version_identifies_invalid_source_file(tmp_path: Path) -> None:
     """Point maintainers to the invalid Python version declaration."""
     _write_version_fixture(tmp_path)
-    version_file = tmp_path / "reme" / "__init__.py"
+    version_file = tmp_path / "reme" / "_version.py"
     version_file.write_text('__version__ = "1..2"\n', encoding="utf-8")
 
     with pytest.raises(ValueError, match=rf"{re.escape(str(version_file))}.*Fix the __version__ declaration"):
@@ -172,7 +174,7 @@ def test_read_version_identifies_invalid_source_file(tmp_path: Path) -> None:
 def test_bump_version_rolls_back_when_validation_fails(monkeypatch, tmp_path: Path) -> None:
     """Restore the previous version if post-write validation fails."""
     _write_version_fixture(tmp_path)
-    version_file = tmp_path / "reme" / "__init__.py"
+    version_file = tmp_path / "reme" / "_version.py"
     original = version_file.read_text(encoding="utf-8")
 
     def fail_validation(*_args, **_kwargs) -> None:

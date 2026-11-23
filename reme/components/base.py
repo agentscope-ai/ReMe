@@ -6,10 +6,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, TypeVar, cast
 
 from ..enumeration import ComponentEnum, ComponentType, component_type_name
-from ..utils import get_logger
+from ..utils.logger_utils import get_logger
 
 if TYPE_CHECKING:
-    from .application_context import ApplicationContext
+    from ..core.context import ApplicationContext
 
 T = TypeVar("T", bound="BaseComponent")
 

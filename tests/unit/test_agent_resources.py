@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from reme.components import RuntimeContext
+from reme.core.context import RuntimeContext
 from reme.schema.agent_view import AgentInboxRequest, AgentOutboxRequest, AgentReminderRequest
 from reme.steps.proactive.agent import AgentInboxStep, AgentOutboxStep, AgentReminderStep
 from .test_agent_runtime import completed_result, create_agent, running_runtime
