@@ -47,14 +47,18 @@ class ProactiveAgentStep(BaseAgentStep):
         self.max_local_search_calls = max_local_search_calls
         self.recent_history_hours = recent_history_hours
 
-    def _paths(self, agent, now: datetime) -> dict[str, Path]:
+    def _paths(self, agent, now: datetime, receipt_paths: frozenset[str] = frozenset()) -> dict[str, Path]:
         runtime = self.proactive_runtime
         daily = runtime.files.path(self.config_value("daily_dir"))
         day = daily / now.date().isoformat()
         stem = f"{agent.agent_name}_{now:%H%M%S}"
         record = runtime.files.checked(day / f"{stem}.md")
         collision = 0
-        while record.exists() or runtime.outbox.has_registration(agent.agent_name, record):
+        while (
+            record.relative_to(runtime.files.workspace).as_posix() in receipt_paths
+            or record.exists()
+            or runtime.outbox.has_registration(agent.agent_name, record)
+        ):
             collision += 1
             record = runtime.files.checked(day / f"{stem}_{collision}.md")
         return {"daily_dir": daily, "task_path": runtime.agents.task_path(agent), "record_path": record}
@@ -241,7 +245,12 @@ class ProactiveAgentStep(BaseAgentStep):
         self.context.response.metadata["reme.agent_run"] = stats
         runtime = self.proactive_runtime
         now = runtime.now()
-        paths = await asyncio.to_thread(self._paths, agent, now)
+        paths = await asyncio.to_thread(
+            self._paths,
+            agent,
+            now,
+            receipt_paths=await runtime.outbox.receipt_record_paths(agent.agent_name),
+        )
         await record.prepare(paths["record_path"])
         task_content = await asyncio.to_thread(runtime.files.read, paths["task_path"])
         if not task_content.strip():

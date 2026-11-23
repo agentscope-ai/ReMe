@@ -3,8 +3,9 @@
 # pylint: disable=protected-access,missing-function-docstring
 
 import asyncio
-from datetime import timedelta
-from unittest.mock import AsyncMock
+from datetime import datetime, timedelta
+from unittest.mock import AsyncMock, Mock
+from zoneinfo import ZoneInfo
 
 import pytest
 import frontmatter
@@ -47,6 +48,60 @@ async def test_real_receipt_write_failure_preserves_markdown_and_recovers_delive
         assert snapshot["pending_count"] == (0 if committed else 1)
         assert (snapshot["receipt"] is not None) is committed
         assert bool(runtime.notifications.pending) is committed
+
+
+@pytest.mark.asyncio
+async def test_repeat_local_time_reserves_path_of_unregistered_receipt(tmp_path, monkeypatch):
+    first_time = datetime(2026, 11, 1, 1, 30, tzinfo=ZoneInfo("America/New_York"))
+    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+        monkeypatch.setattr(runtime, "now", lambda: first_time)
+        await create_agent(runtime)
+        agent = await runtime.definition("monitor")
+        first_step = ProactiveAgentStep(app_context=context)
+        first_paths = first_step._paths(agent, first_time)
+        install_round(runtime, wrapper, monkeypatch, first_paths)
+        with monkeypatch.context() as patch:
+            patch.setattr(runtime.outbox.storage, "write", Mock(side_effect=OSError("outbox write failed")))
+            first = await first_step(agent_name="monitor")
+        first_path = first_paths["record_path"]
+        first_ref = first.answer["notifications"][0]["id"]
+        snapshot = await runtime.inbox.snapshot("monitor")
+        assert snapshot["receipt"].metadata["reminder_path"] == first_ref
+        assert not runtime.outbox.has_registration("monitor", first_path)
+        moved = first_path.rename(tmp_path / first_path.name)
+
+        second_time = first_time.replace(fold=1)
+        monkeypatch.setattr(runtime, "now", lambda: second_time)
+        await runtime.append_events(
+            "monitor",
+            [Event(id="event-2", event_ts=second_time, source="experiment", description="Second result")],
+        )
+        second_path = first_path.with_stem(f"{first_path.stem}_1")
+        second_ref = second_path.relative_to(tmp_path).as_posix()
+        second_text = REMIND.format(priority="P1", body="\n").replace("Verified result", "Second result")
+        install_round(runtime, wrapper, monkeypatch, {"record_path": second_path}, text=second_text)
+        reply_stream = wrapper.reply_stream
+
+        async def recover_during_round(query, **options):
+            assert second_ref in query
+            async for chunk in reply_stream(query, **options):
+                await runtime.outbox.sync()
+                assert not runtime.notifications.pending
+                yield chunk
+
+        monkeypatch.setattr(wrapper, "reply_stream", recover_during_round)
+        second = await ProactiveAgentStep(app_context=context)(agent_name="monitor")
+        assert second.answer["notifications"][0]["id"] == second_ref
+        assert (await runtime.inbox.snapshot("monitor"))["pending_count"] == 0
+        assert not first_path.exists()
+
+        moved.rename(first_path)
+        await runtime.outbox.sync()
+        mailbox = await runtime.outbox.list(state="pending")
+        assert {item["id"]: item["message"] for item in mailbox["items"]} == {
+            first_ref: "Verified result",
+            second_ref: "Second result",
+        }
 
 
 @pytest.mark.asyncio

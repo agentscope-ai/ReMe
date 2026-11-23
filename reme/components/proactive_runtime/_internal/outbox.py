@@ -106,6 +106,15 @@ class ReminderOutbox:
         agent = agents.get(self.owners.get(ref))
         return agent is not None and agent.enabled and (agent.notify_window is None or agent.notify_window.allows(now))
 
+    async def receipt_record_paths(self, agent_name) -> frozenset[str]:
+        """Get the paths that durable input receipts can still use for recovery."""
+        receipts = await self.runtime.inbox.receipts()
+        return frozenset(
+            ref
+            for receipt in receipts.get(agent_name, [])
+            if isinstance(ref := receipt.metadata.get("reminder_path"), str)
+        )
+
     def has_registration(self, agent_name, path):
         """Check whether the outbox reserves this path even if its source is missing."""
         return self.storage.state_path(agent_name, path).exists()
