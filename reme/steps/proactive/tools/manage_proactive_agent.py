@@ -11,7 +11,7 @@ class ManageProactiveAgentStep(BaseAgentStep):
     """Validate management arguments before accessing configuration or sessions."""
 
     async def execute(self):
-        runtime = self.agent_runtime
+        runtime = self.proactive_runtime
         request = ManageProactiveAgentRequest.model_validate(self.parameters())
         self.require_paths(runtime.agents.directory)
         if request.action in {"create", "update", "query"}:

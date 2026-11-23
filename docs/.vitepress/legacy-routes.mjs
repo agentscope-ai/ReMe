@@ -29,8 +29,6 @@ export const legacyRoutes = {
   "en-contributing": "/en/contributing",
   "typescript-zh": "/zh/integrations",
   "typescript-en": "/en/integrations",
-  "studio-zh": "/zh/workspace/studio",
-  "studio-en": "/en/workspace/studio",
   "daily-paper-zh": "/zh/plugins/daily-paper",
   "daily-paper-en": "/en/plugins/daily-paper",
   "auto-fin-zh": "/zh/plugins/auto-fin",

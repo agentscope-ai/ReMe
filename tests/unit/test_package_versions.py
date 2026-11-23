@@ -59,7 +59,8 @@ def test_home_requires_workflow_and_sandbox_release() -> None:
     assert Version("0.4.2.1") not in requirement.specifier
     assert Version("0.4.2.2") not in requirement.specifier
     assert Version("0.4.2.3") not in requirement.specifier
-    assert Version("0.4.2.4") in requirement.specifier
+    assert Version("0.4.2.4") not in requirement.specifier
+    assert Version("0.4.3") in requirement.specifier
     assert Version(bump_version.read_version()) in requirement.specifier
 
 
@@ -75,15 +76,17 @@ def test_multimodal_benchmarks_require_agent_reply_release(plugin: str) -> None:
     assert Version(bump_version.read_version()) in requirement.specifier
 
 
-def test_studio_packages_have_independent_identity() -> None:
-    """Keep both Studio distributions independent from the ReMe release version."""
+def test_studio_packages_match_reme_release() -> None:
+    """Check the published packages and lockfile against ReMe's version."""
     main_config = tomllib.loads((REPOSITORY / "pyproject.toml").read_text(encoding="utf-8"))
-    studio_config = tomllib.loads((REPOSITORY / "reme_studio" / "pyproject.toml").read_text(encoding="utf-8"))
-    npm_config = json.loads((REPOSITORY / "reme_studio" / "package.json").read_text(encoding="utf-8"))
+    studio_config = tomllib.loads(
+        (REPOSITORY / "reme_studio" / "web" / "python" / "pyproject.toml").read_text(encoding="utf-8"),
+    )
+    npm_config = json.loads((REPOSITORY / "reme_studio" / "web" / "package.json").read_text(encoding="utf-8"))
 
     assert studio_config["project"]["name"] == "reme_studio"
     assert npm_config["name"] == "@agentscope-ai/reme_studio"
-    assert studio_config["project"]["version"] == npm_config["version"]
+    assert studio_config["project"]["version"] == npm_config["version"] == bump_version.check_versions(REPOSITORY)
     agentscope_requirements = [Requirement(value) for value in main_config["project"]["optional-dependencies"]["as"]]
     assert len(agentscope_requirements) == 1
     agentscope_requirement = agentscope_requirements[0]
@@ -94,9 +97,9 @@ def test_studio_packages_have_independent_identity() -> None:
     assert len(agentscope_specifiers) == 1
     assert agentscope_specifiers[0].operator == "=="
     assert not Version(agentscope_specifiers[0].version).is_prerelease
-    assert main_config["project"]["optional-dependencies"]["web"] == ["reme_studio"]
+    assert main_config["project"]["optional-dependencies"]["web"] == [f"reme_studio=={bump_version.read_version()}"]
     assert main_config["project"]["optional-dependencies"]["core"].count("reme-ai[as]") == 1
-    assert main_config["project"]["optional-dependencies"]["core"].count("reme_studio") == 1
+    assert "reme-ai[web]" in main_config["project"]["optional-dependencies"]["core"]
     assert "qwenpaw" not in main_config["project"]["optional-dependencies"]
     assert main_config["tool"]["setuptools"]["packages"]["find"]["include"] == [
         "reme",
@@ -124,20 +127,27 @@ def test_typescript_host_plugins_are_independent_packages() -> None:
 def _write_version_fixture(repository: Path) -> None:
     (repository / "reme").mkdir()
     (repository / "reme" / "_version.py").write_text('__version__ = "1.2.3"\n', encoding="utf-8")
+    studio = repository / "reme_studio"
+    for relative in ("desktop", "web/python"):
+        (studio / relative).mkdir(parents=True)
+    for relative in ("desktop/package.json", "web/package.json"):
+        (studio / relative).write_text(json.dumps({"version": "1.2.3"}, indent=2) + "\n", encoding="utf-8")
+    (studio / "web/python/pyproject.toml").write_text('[project]\nversion = "1.2.3"\n', encoding="utf-8")
+    lock = {"packages": {name: {"version": "1.2.3"} for name in ("desktop", "web")}}
+    (studio / "package-lock.json").write_text(json.dumps(lock, indent=2) + "\n", encoding="utf-8")
+    (repository / "pyproject.toml").write_text(
+        '[project.optional-dependencies]\nweb = ["reme_studio==1.2.3"]\ncore = ["reme-ai[web]"]\n',
+        encoding="utf-8",
+    )
 
 
-def test_bump_version_updates_only_reme(tmp_path: Path) -> None:
-    """Do not couple an independent Studio release to the ReMe version helper."""
+def test_bump_version_synchronizes_release_metadata(tmp_path: Path) -> None:
+    """Apply the shared number to every artifact and the matching dependencies."""
     _write_version_fixture(tmp_path)
-    studio_config = tmp_path / "reme_studio" / "pyproject.toml"
-    studio_config.parent.mkdir()
-    studio_config.write_text('[project]\nname = "reme_studio"\nversion = "0.1.0"\n', encoding="utf-8")
-
-    previous_version = bump_version.bump_version("1.2.4", tmp_path)
-
-    assert previous_version == "1.2.3"
-    assert (tmp_path / "reme" / "_version.py").read_text(encoding="utf-8") == '__version__ = "1.2.4"\n'
-    assert 'version = "0.1.0"' in studio_config.read_text(encoding="utf-8")
+    assert bump_version.bump_version("1.2.4", tmp_path) == "1.2.3"
+    assert bump_version.check_versions(tmp_path, "v1.2.4") == "1.2.4"
+    lock = json.loads((tmp_path / "reme_studio" / "package-lock.json").read_text(encoding="utf-8"))
+    assert all(entry["version"] == "1.2.4" for entry in lock["packages"].values())
 
 
 @pytest.mark.parametrize("version", ["release", "1..2", "1.2.3_"])
@@ -198,6 +208,7 @@ def _studio_package_fixture(monkeypatch, tmp_path: Path) -> tuple[Path, Path]:
     license_file.write_text("test license\n", encoding="utf-8")
     monkeypatch.setattr(package_studio, "STUDIO_DIR", studio_dir)
     monkeypatch.setattr(package_studio, "STATIC_DIR", static_dir)
+    monkeypatch.setattr(package_studio, "PYTHON_DIR", studio_dir)
     monkeypatch.setattr(package_studio, "LICENSE_FILE", license_file)
     return studio_dir, static_dir
 

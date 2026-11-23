@@ -16,7 +16,7 @@ hash still require their original source artifacts for validation.
 
 ## 1. Install and configure
 
-HoMe requires ReMe 0.4.2.4 or newer. From the ReMe repository root, in the
+HoMe requires ReMe 0.4.3 or newer. From the ReMe repository root, in the
 Python environment where you run ReMe:
 
 ```bash

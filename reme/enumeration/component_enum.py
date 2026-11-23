@@ -30,7 +30,7 @@ class ComponentEnum(str, Enum):
 
     AGENT_INBOX = "agent_inbox"
 
-    AGENT_RUNTIME = "agent_runtime"
+    PROACTIVE_RUNTIME = "proactive_runtime"
 
     KEYWORD_INDEX = "keyword_index"
 

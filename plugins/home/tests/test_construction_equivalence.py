@@ -4,6 +4,7 @@
 
 import asyncio
 import os
+import shutil
 from pathlib import Path
 import sys
 from threading import Event
@@ -88,6 +89,60 @@ async def test_corrected_equivalence_authorizes_replay(app, prepared, reviewer, 
     assert read_json(Path(report["review_path"]))["session_id"]
     assert not Path(report["source_path"]).exists()
     model.generate_structured_output.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stage", ["before_export", "after_review", "final_validation"])
+async def test_replay_binds_reviewed_archive(app, prepared, reviewer, sandbox, monkeypatch, stage):
+    baseline = await app.run_job("home_evaluate")
+    source = Path(baseline.answer["result_dir"])
+    commit_candidate(prepared)
+    force_draw(monkeypatch, 0.1)
+    set_model(
+        app,
+        "home_construction_equivalence",
+        ScriptedModel(final='{"decision":"construction_unchanged","reason":"Query only"}'),
+    )
+
+    def replace_snapshot(run):
+        target = run / "cases/1/memory_construction"
+        shutil.copyfile(run / "cases/2/memory_construction/reme_workspace.tar.gz", target / "reme_workspace.tar.gz")
+        result = read_json(target / "result.json")
+        result["workspace_sha256"] = file_sha256(target / "reme_workspace.tar.gz")
+        if "source_workspace_sha256" in result:
+            result["source_workspace_sha256"] = result["workspace_sha256"]
+        write_json(target / "result.json", result)
+
+    if stage == "before_export":
+        prepare = construction_equivalence.prepare_equivalence_scope
+
+        def changed(*args, **kwargs):
+            replace_snapshot(source)
+            return prepare(*args, **kwargs)
+
+        monkeypatch.setattr(construction_equivalence, "prepare_equivalence_scope", changed)
+    elif stage == "after_review":
+        review = reuse._review_source
+
+        async def changed(*args, **kwargs):
+            report = await review(*args, **kwargs)
+            replace_snapshot(source)
+            return report
+
+        monkeypatch.setattr(reuse, "_review_source", changed)
+    launches = len(FakeFactory.instances)
+    response = await app.run_job("home_evaluate", sampling=True)
+    if stage == "final_validation":
+        assert response.success, response.answer
+        run = Path(response.answer["result_dir"])
+        optimizer.verify_evaluation(prepared, run, response.answer["commit_sha"])
+        replace_snapshot(run)
+        with pytest.raises(ValueError, match="snapshot provenance"):
+            optimizer.verify_evaluation(prepared, run, response.answer["commit_sha"])
+    else:
+        assert not response.success
+        assert "changed" in str(response.answer)
+        assert len(FakeFactory.instances) == launches
 
 
 @pytest.mark.asyncio
@@ -358,8 +413,18 @@ async def test_auto_memory_override_and_whitespace_only_changes(app, prepared, r
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("draw", [0.1, 0.9])
-async def test_infrastructure_retry_preserves_replay_and_selection(app, prepared, reviewer, sandbox, monkeypatch, draw):
-    assert (await app.run_job("home_evaluate")).success
+@pytest.mark.parametrize("archive_source", [False, True])
+async def test_infrastructure_retry_preserves_replay_and_selection(
+    app,
+    prepared,
+    reviewer,
+    sandbox,
+    monkeypatch,
+    draw,
+    archive_source,
+):
+    baseline = await app.run_job("home_evaluate")
+    assert baseline.success
     commit_candidate(prepared)
     model = ScriptedModel(final='{"decision":"construction_unchanged","reason":"Query only"}')
     set_model(app, "home_construction_equivalence", model)
@@ -368,6 +433,8 @@ async def test_infrastructure_retry_preserves_replay_and_selection(app, prepared
     failed = await app.run_job("home_evaluate", sampling=True, max_evaluations=10)
     assert not failed.success
     failed_manifest = read_json(Path(failed.answer["result_dir"]) / "manifest.json")
+    if archive_source:
+        shutil.rmtree(Path(baseline.answer["result_dir"]))
     assert (await app.run_job("home_create_candidate_branch", branch_name="retry-branch")).success
     monkeypatch.setattr(FakeFactory, "bad_export", False)
     monkeypatch.setattr(reuse, "select_query_only", lambda: pytest.fail("Recovery must not redraw"))
@@ -392,6 +459,32 @@ async def test_infrastructure_retry_preserves_replay_and_selection(app, prepared
     assert recovered.answer["execution_mode"] == ("query_only_replay" if draw < 0.6 else "full_validation")
     assert len(model.calls) == 1
     assert validation_budget_status(prepared, 10)["used_validations"] == 2
+
+
+@pytest.mark.asyncio
+async def test_retry_rejects_corrupt_retained_snapshot(app, prepared, reviewer, sandbox, monkeypatch):
+    baseline = await app.run_job("home_evaluate")
+    assert baseline.success
+    commit_candidate(prepared)
+    set_model(
+        app,
+        "home_construction_equivalence",
+        ScriptedModel(final='{"decision":"construction_unchanged","reason":"Query only"}'),
+    )
+    force_draw(monkeypatch, 0.1)
+    monkeypatch.setattr(FakeFactory, "bad_export", True)
+    failed = await app.run_job("home_evaluate", sampling=True, max_evaluations=10)
+    assert not failed.success
+    run = Path(failed.answer["result_dir"])
+    manifest = read_json(run / "manifest.json")
+    case_id = next(iter(manifest["construction_sources"]))
+    (run / f"cases/{case_id}/memory_construction/reme_workspace.tar.gz").write_bytes(b"corrupt")
+    shutil.rmtree(Path(baseline.answer["result_dir"]))
+    launches = len(FakeFactory.instances)
+    monkeypatch.setattr(FakeFactory, "bad_export", False)
+    response = await app.run_job("home_evaluate", sampling=True, max_evaluations=10)
+    assert not response.success
+    assert len(FakeFactory.instances) == launches
 
 
 @pytest.mark.asyncio

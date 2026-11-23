@@ -13,6 +13,8 @@ this checkout. Keep the ReMe service running while using the plugin.
 Start ReMe → Install the ReMe plugin → Use memory in Claude Code
 ```
 
+The host integration gives existing conversations access to ReMe's long-term memory. The [Proactive Runtime](https://reme.agentscope.io/en/proactive_runtime) can also use this agent as an execution backend for its own tasks. Those runs use task-owned sessions.
+
 ## Requirements
 
 - Python 3.11+ available as `python3` in the host's environment. Optional stdio mode also needs `fastmcp>=4.1.4,<5`.

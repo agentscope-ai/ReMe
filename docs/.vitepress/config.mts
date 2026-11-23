@@ -111,7 +111,6 @@ function nav(language: "zh" | "en"): DefaultTheme.NavItem[] {
   return [
     { text: zh ? "首页" : "Home", link: `/${language}/` },
     { text: zh ? "文档" : "Docs", link: `/${language}/quick_start` },
-    { text: zh ? "体验Studio" : "Try Studio", link: `/studio/?lang=${language}`, target: "_self" },
     { text: zh ? "集成" : "Integrations", link: `/${language}/integrations` },
     { text: zh ? "插件" : "Plugins", link: `/${language}/plugin_management` },
     { text: zh ? "评测" : "Benchmarks", link: `/${language}/benchmarks/longmemeval` },
@@ -132,7 +131,6 @@ function docsSidebar(language: "zh" | "en"): DefaultTheme.SidebarItem[] {
         { text: zh ? "基础配置" : "Configuration", link: `/${language}/configuration` },
         { text: zh ? "服务与部署" : "Services and Deployment", link: `/${language}/services` },
         { text: zh ? "Docker 部署" : "Docker Deployment", link: `/${language}/docker` },
-        { text: "ReMe Studio", link: `/${language}/workspace/studio` },
       ],
     },
     {
@@ -142,7 +140,7 @@ function docsSidebar(language: "zh" | "en"): DefaultTheme.SidebarItem[] {
         { text: zh ? "文件即记忆" : "Memory as File", link: `/${language}/memory_as_file` },
         { text: zh ? "记忆检索" : "Memory Search", link: `/${language}/memory_search` },
         { text: zh ? "自动关联" : "Auto Link", link: `/${language}/auto_link` },
-        { text: "Proactive Agent", link: `/${language}/proactive_runtime` },
+        { text: zh ? "主动智能运行时" : "Proactive Runtime", link: `/${language}/proactive_runtime` },
         { text: zh ? "应用场景" : "Application Scenarios", link: `/${language}/reme_scene` },
       ],
     },

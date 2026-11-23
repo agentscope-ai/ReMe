@@ -532,6 +532,7 @@ class SdkCodexAppServer(BaseCodexAppServer):
                                 and (source_path is None or not await asyncio.to_thread(source_path.exists))
                             )
                             if empty:
+                                options.pop("include_turns", None)
                                 thread = await codex.thread_start(**options)
                                 state.token_usage = TokenUsage()
                             else:

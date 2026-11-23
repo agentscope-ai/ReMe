@@ -18,7 +18,7 @@ from ....utils.files.path_lock import get_path_lock
 from ....core.registry import R
 from ....utils.files.workspace_files import WorkspaceFiles
 from ....schema import Event, ResourceMetadata
-from ....schema.agent_runtime import validate_agent_name
+from ....schema.proactive_runtime import validate_agent_name
 from ....utils.async_utils import finish_cleanup
 from ....utils.files.file_sync import sync_directory
 
@@ -173,16 +173,15 @@ class CodexDialogueStep(_CodexDialogueBase):
 
     async def execute(self):
         directory = self._authorize()
-        if self.get_job("append_agent_events") is None:
-            raise RuntimeError("Codex dialogue requires the append_agent_events Job")
-        if (await self.agent_runtime.definition(self.agent_name)).agent_type != "proactive":
-            raise ValueError("Codex dialogue requires an event Agent")
+        if self.get_job("append_task_events") is None:
+            raise RuntimeError("Codex dialogue requires the append_task_events Job")
+        await self.proactive_runtime.definition(self.agent_name)
         async with await get_path_lock(directory):
             batch = await self._offload(self._prepare)
             events = await self._offload(self._publish, batch)
             if events:
                 response = await self.run_job(
-                    "append_agent_events",
+                    "append_task_events",
                     agent_name=self.agent_name,
                     events=events,
                     _allowed_paths=self.context.get("_allowed_paths"),

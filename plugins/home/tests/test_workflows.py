@@ -748,7 +748,7 @@ async def test_infrastructure_baseline_failure_never_calls_optimizer(app, prepar
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("existing_baseline", [False, True])
-@pytest.mark.parametrize("failure_stage", ["answer", "construction"])
+@pytest.mark.parametrize("failure_stage", ["answer", "answer_batch", "construction"])
 async def test_baseline_infra_error_continues_optimization(
     app,
     prepared,
@@ -757,13 +757,15 @@ async def test_baseline_infra_error_continues_optimization(
     existing_baseline,
     failure_stage,
 ):
-    method = "run_queries" if failure_stage == "answer" else "run_build"
+    method = "run_build" if failure_stage == "construction" else "run_queries"
     original = getattr(FakeWorker, method)
 
     async def execute(self, items):
         failed = len(FakeFactory.instances) == 1 and self.case_id == "1"
         if failed and failure_stage == "construction":
             raise ConnectionError("Construction infrastructure unavailable")
+        if failed and failure_stage == "answer_batch":
+            raise ConnectionError("Answer batch disconnected")
         result = await original(self, items)
         if failed:
             result["queries"][0].update(answer=None, error="AgentScope reply ended: exceed_max_iters")
@@ -793,9 +795,21 @@ async def test_baseline_infra_error_continues_optimization(
     assert summary["case_status_counts"] == {"completed": 1, "candidate_failure": 0, "infra_error": 1}
     assert summary["query_status_counts"]["completed"] == 1
     assert summary["query_status_counts"]["infra_error"] == (1 if failure_stage == "answer" else 0)
-    if failure_stage == "construction":
-        assert summary["cases"]["1"]["construction"]["status"] == "failure"
+    if failure_stage != "answer":
+        assert summary["cases"]["1"]["construction"]["status"] == (
+            "failure" if failure_stage == "construction" else "success"
+        )
         assert summary["cases"]["1"]["queries"] == {}
+    with pytest.raises(ValueError, match="without infrastructure failures"):
+        optimizer_module.verify_evaluation(prepared, path, manifest["commit_sha"])
+    if failure_stage == "answer_batch":
+        failure_path = path / "cases/1/failure.json"
+        failure = read_json(failure_path)
+        for change in ({"stage": "artifacts"}, {"failure_kind": "candidate_failure"}):
+            write_json(failure_path, {**failure, **change})
+            with pytest.raises(ValueError, match="incomplete query coverage"):
+                optimizer_module.verify_evaluation(prepared, path, manifest["commit_sha"], baseline=True)
+        write_json(failure_path, failure)
     assert summary["cases"]["2"]["queries"]["fact:1"]["score"] == 0.5
     retry = read_json(Path(response.answer["evaluation_path"]) / "manifest.json")
     assert retry["case_ids"] == manifest["case_ids"] and retry["query_ids"] == manifest["query_ids"]

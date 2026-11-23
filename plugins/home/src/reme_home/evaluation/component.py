@@ -308,7 +308,7 @@ class HomeEvaluation(BaseComponent):
             sources = previous_manifest.get("construction_sources", {})
             if not sources and previous_manifest.get("execution_mode") in {"query_only_replay", "mixed_validation"}:
                 raise ValueError("Recovery requires saved per-case construction sources")
-            sources, archives = case_reuse_inputs(home, spec, cases, fingerprints, sources)
+            sources, archives = case_reuse_inputs(home, spec, cases, fingerprints, sources, previous=previous)
         elif spec.sampling and not spec.debug and not defer_sampling:
             source, verified_archives, eligibility = replay_sampling_inputs(home, spec, cases, fingerprints)
             plan = create_sampling_plan(

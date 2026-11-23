@@ -186,33 +186,52 @@ def prepare_source(home, spec, cases, fingerprints, context, *, paired=False):
             cases, selection = replay
     except (OSError, ValueError, KeyError, TypeError):
         return None
-    reusable = []
+    reusable, hashes = [], {}
     for case in cases:
         try:
-            validate_snapshot(source, case.case_id, spec.max_artifact_bytes)
+            _, sha = validate_snapshot(source, case.case_id, spec.max_artifact_bytes)
             validate_replay_answers(source, case.case_id)
         except (OSError, ValueError, KeyError, TypeError, tarfile.TarError):
             if paired:
                 return None
             continue
         reusable.append(case)
+        hashes[case.case_id] = sha
     if not reusable:
         return None
-    prepared = {"context": context, "spec": source_spec, "cases": reusable, "fingerprints": fingerprints}
+    prepared = {
+        "context": {**context, "workspace_sha256": hashes},
+        "spec": source_spec,
+        "cases": reusable,
+        "fingerprints": fingerprints,
+    }
     if paired:
         prepared["replay_selection"] = selection
     return prepared
 
 
-def case_reuse_inputs(home, spec, cases, fingerprints, sources):
+def case_reuse_inputs(home, spec, cases, fingerprints, sources, *, previous=None):
     """Resolve a frozen per-case source map without substituting another snapshot."""
     by_id = {case.case_id: case for case in cases}
     if set(sources) - by_id.keys():
         raise ValueError("Construction sources contain unselected cases")
-    groups = {}
+    resolved, archives, groups = {}, {}, {}
     for case_id, source in sources.items():
+        if previous is not None and source.get("workspace_sha256"):
+            try:
+                archive, sha = validate_snapshot(previous, case_id, spec.max_artifact_bytes)
+                result = read_json(archive.parent / "result.json")
+                if (
+                    sha != source["workspace_sha256"]
+                    or result.get("source") != source
+                    or result.get("source_workspace_sha256") != sha
+                ):
+                    raise ValueError("Retained construction snapshot provenance mismatch")
+                resolved[case_id], archives[case_id] = source, (archive, sha)
+                continue
+            except (OSError, ValueError, KeyError, tarfile.TarError):
+                pass  # Fall back only to the same pinned original snapshot.
         groups.setdefault(source["result_dir"], []).append(by_id[case_id])
-    resolved, archives = {}, {}
     for path, selected in groups.items():
         source, snapshots = reuse_inputs(
             home,
@@ -223,12 +242,15 @@ def case_reuse_inputs(home, spec, cases, fingerprints, sources):
         for case in selected:
             if source["commit_sha"] != sources[case.case_id]["commit_sha"]:
                 raise ValueError("Construction source commit changed")
-            resolved[case.case_id] = source
+            expected_sha = sources[case.case_id].get("workspace_sha256")
+            if expected_sha is not None and snapshots[case.case_id][1] != expected_sha:
+                raise ValueError(f"Construction source changed after review: {case.case_id}")
+            resolved[case.case_id] = sources[case.case_id]
         archives.update(snapshots)
     return resolved, archives
 
 
-def verify_case_reuse(home, run, manifest, commit):
+def verify_case_reuse(_home, run, manifest, commit):
     """Accept mixed evidence only when every reused case has host-reviewed provenance."""
     sources = manifest["construction_sources"]
     selected = manifest.get("case_ids", [])
@@ -263,6 +285,8 @@ def verify_case_reuse(home, run, manifest, commit):
                 report.get("base_commit") == source["commit_sha"],
                 group.get("source_validation") == source["result_dir"],
                 report.get("source_validation") == source["result_dir"],
+                source.get("workspace_sha256") is not None,
+                report.get("workspace_sha256", {}).get(case_id) == source.get("workspace_sha256"),
             ),
         ):
             raise ValueError(f"Case {case_id} lacks matching construction-equivalence evidence")
@@ -274,21 +298,18 @@ def verify_case_reuse(home, run, manifest, commit):
             if result.get("status") == "reused":
                 raise ValueError(f"Case {case_id} has an undeclared reused snapshot")
             continue
-        expected_sha = result.get("source_workspace_sha256")
-        if expected_sha is None:
-            # Older runs still need their original source evidence.
-            source, source_manifest = load_reuse_source(home, sources[case_id]["result_dir"], manifest["fingerprints"])
-            if source_manifest["commit_sha"] != sources[case_id]["commit_sha"]:
-                raise ValueError("Construction source commit changed")
-            _, expected_sha = validate_snapshot(source, case_id, spec.max_artifact_bytes)
+        expected_sha = sources[case_id].get("workspace_sha256")
         if (
             result.get("success") is not True
             or result.get("status") != "reused"
             or result.get("source") != sources[case_id]
             or result.get("workspace_sha256") != expected_sha
+            or result.get("source_workspace_sha256", expected_sha) != expected_sha
         ):
             raise ValueError(f"Case {case_id} has mismatched construction snapshot provenance")
-        validate_snapshot(run, case_id, spec.max_artifact_bytes)
+        _, actual_sha = validate_snapshot(run, case_id, spec.max_artifact_bytes)
+        if actual_sha != expected_sha:
+            raise ValueError(f"Case {case_id} has mismatched construction snapshot provenance")
 
 
 def changed_auto_memory_files(home, context):
@@ -408,7 +429,11 @@ async def automatic_reuse(wrapper, home, prepared, *, memory_limit_mib=None, cas
             if not approved:
                 selection.update(group_context)
             for case in group["cases"]:
-                approved[case.case_id] = {"result_dir": path, "commit_sha": group_context["base_commit"]}
+                approved[case.case_id] = {
+                    "result_dir": path,
+                    "commit_sha": group_context["base_commit"],
+                    "workspace_sha256": group_context["workspace_sha256"][case.case_id],
+                }
                 pending.pop(case.case_id, None)
             if prepared["paired_replay"]:
                 selection["replay_selection"] = group["replay_selection"]

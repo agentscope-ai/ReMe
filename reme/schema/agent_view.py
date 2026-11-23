@@ -2,10 +2,10 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ..constants import CHAT_AGENT_NAME
-from .agent_runtime import AgentName, AgentType
+from .proactive_runtime import AgentName, AgentType
 from .agent_activity import ActivityPhase
 from .agent_message import AgentMessage, ClientModel
 from .proactive_agent import TaskSettings
@@ -39,13 +39,13 @@ class AgentRequest(BaseModel):
     agent_name: AgentName = CHAT_AGENT_NAME
 
 
-class AgentChatRequest(AgentRequest):
+class AskAgentRequest(AgentRequest):
     """A user message continues Chat or queries a fork of the latest task session."""
 
     query: str = Field(min_length=1, max_length=100000)
 
 
-class AgentTaskRequest(BaseModel):
+class TaskDocumentRequest(BaseModel):
     """Read or save a task's original TASK.md without accepting arbitrary paths."""
 
     model_config = ConfigDict(extra="forbid")
@@ -132,7 +132,7 @@ class AgentInboxRequest(AgentPageRequest):
     state: Literal["all", "pending", "processing", "processed"] = "all"
 
 
-class AgentOutboxRequest(AgentPageRequest):
+class ListTaskRemindersRequest(AgentPageRequest):
     """Page reminders produced by one task Agent."""
 
     agent_name: AgentName
@@ -140,7 +140,6 @@ class AgentOutboxRequest(AgentPageRequest):
 
 
 class AgentReminderRequest(AgentRequest):
-    """Read a scoped reminder and optionally acknowledge explicit user reading."""
+    """Read a reminder by its workspace-relative path or Chat message ID."""
 
-    message_id: str = Field(min_length=1, max_length=128)
-    mark_read: StrictBool = False
+    message_id: str = Field(min_length=1)

@@ -11,12 +11,12 @@ from ....enumeration import ChunkEnum
 from ....schema import StreamChunk
 from ....utils.agent_transcript import TranscriptProjector
 from ....schema.agent_view import (
-    AgentChatRequest,
+    AskAgentRequest,
     AgentRequest,
     AgentInboxRequest,
-    AgentOutboxRequest,
+    ListTaskRemindersRequest,
     AgentReminderRequest,
-    AgentTaskRequest,
+    TaskDocumentRequest,
 )
 
 
@@ -38,7 +38,7 @@ class AgentListStep(_AgentViewStep):
         if self.parameters():
             raise ValueError("list_agents accepts no arguments")
         self.require_paths(self.workspace_path)
-        self.context.response.answer = await self.agent_runtime.list_views()
+        self.context.response.answer = await self.proactive_runtime.list_views()
         return self.context.response
 
 
@@ -48,17 +48,17 @@ class AgentSessionStep(_AgentViewStep):
 
     async def execute(self):
         request = self.request()
-        self.context.response.answer = await self.agent_runtime.read_agent(request.agent_name)
+        self.context.response.answer = await self.proactive_runtime.read_agent(request.agent_name)
         return self.context.response
 
 
-@R.register("agent_task_step")
-class AgentTaskStep(_AgentViewStep):
+@R.register("task_document_step")
+class TaskDocumentStep(_AgentViewStep):
     """Reuse contained file operations for a named task's original description."""
 
     async def execute(self):
-        request = AgentTaskRequest.model_validate(self.parameters())
-        runtime = self.agent_runtime
+        request = TaskDocumentRequest.model_validate(self.parameters())
+        runtime = self.proactive_runtime
         self.require_paths(runtime.agents.directory)
         agent = await runtime.definition(request.agent_name)
         target = runtime.agents.task_path(agent)
@@ -84,24 +84,24 @@ class AgentTaskStep(_AgentViewStep):
         return response
 
 
-@R.register("agent_events_step")
-class AgentEventsStep(_AgentViewStep):
+@R.register("watch_agent_session_step")
+class WatchAgentSessionStep(_AgentViewStep):
     """Relay Chat history changes or atomic latest-task-turn snapshots with sidebar status."""
 
     async def execute(self):
         request = self.request()
-        async with aclosing(self.agent_runtime.watch_agent(request.agent_name)) as events:
+        async with aclosing(self.proactive_runtime.watch_agent(request.agent_name)) as events:
             async for event in events:
                 await self.context.add_stream_chunk(StreamChunk(chunk_type=ChunkEnum.DATA, chunk=event))
         return self.context.response
 
 
-@R.register("agent_chat_step")
-class AgentChatStep(_AgentViewStep, BaseChatAgentStep):
+@R.register("ask_agent_step")
+class AskAgentStep(_AgentViewStep, BaseChatAgentStep):
     """Continue Chat or ask a read-only fork of the latest task session."""
 
     async def execute(self):
-        request = self.request(AgentChatRequest)
+        request = self.request(AskAgentRequest)
         if not request.query.strip():
             raise ValueError("query must not be blank")
         projector = TranscriptProjector()
@@ -139,27 +139,27 @@ class AgentNewSessionStep(_AgentViewStep, BaseChatAgentStep):
             raise ValueError("create_chat_session accepts no arguments")
         self.require_paths(self.workspace_path)
         await self.new_session()
-        self.context.response.answer = await self.agent_runtime.read_agent(CHAT_AGENT_NAME)
+        self.context.response.answer = await self.proactive_runtime.read_agent(CHAT_AGENT_NAME)
         return self.context.response
 
 
-@R.register("agent_outbox_step")
-class AgentOutboxStep(_AgentViewStep):
+@R.register("list_task_reminders_step")
+class ListTaskRemindersStep(_AgentViewStep):
     """Page a task Agent's committed reminders."""
 
     async def execute(self):
-        request = self.request(AgentOutboxRequest)
-        self.context.response.answer = await self.agent_runtime.outbox.list(**request.model_dump())
+        request = self.request(ListTaskRemindersRequest)
+        self.context.response.answer = await self.proactive_runtime.outbox.list(**request.model_dump())
         return self.context.response
 
 
 @R.register("agent_reminder_step")
 class AgentReminderStep(_AgentViewStep):
-    """Keep user reading separate from Inbox processing."""
+    """Read a task reminder or the sources of a Chat message."""
 
     async def execute(self):
         request = self.request(AgentReminderRequest)
-        self.context.response.answer = await self.agent_runtime.outbox.read(**request.model_dump())
+        self.context.response.answer = await self.proactive_runtime.outbox.read(**request.model_dump())
         return self.context.response
 
 
@@ -169,5 +169,5 @@ class AgentInboxStep(_AgentViewStep):
 
     async def execute(self):
         request = self.request(AgentInboxRequest)
-        self.context.response.answer = await self.agent_runtime.list_inputs(**request.model_dump())
+        self.context.response.answer = await self.proactive_runtime.list_inputs(**request.model_dump())
         return self.context.response

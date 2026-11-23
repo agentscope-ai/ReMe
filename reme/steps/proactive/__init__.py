@@ -3,14 +3,14 @@
 from . import agent, data_connectors, tools
 from .agent import (
     BaseAgentStep,
-    InboxChatStep,
+    ProcessChatRemindersStep,
     ListChatSessionsStep,
     ProactiveAgentStep,
 )
 
 __all__ = [
     "BaseAgentStep",
-    "InboxChatStep",
+    "ProcessChatRemindersStep",
     "ListChatSessionsStep",
     "ProactiveAgentStep",
     "agent",

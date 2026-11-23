@@ -1,4 +1,4 @@
-"""Finance schedules collect into isolated files and use the real append_agent_events Job."""
+"""Finance schedules collect into isolated files and use the real append_task_events Job."""
 
 # pylint: disable=protected-access,missing-function-docstring,redefined-outer-name
 
@@ -13,7 +13,7 @@ import httpx
 import pytest
 
 from reme.core.context import ApplicationContext, RuntimeContext
-from reme.components import LocalAgentRuntime
+from reme.components import LocalProactiveRuntime
 from reme.utils.files.workspace_files import WorkspaceFiles
 from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.agent_inbox import AgentEventInbox
@@ -56,18 +56,18 @@ def mock_http(monkeypatch):
 async def collector_runtime(tmp_path):
     context = ApplicationContext(workspace_dir=str(tmp_path), reme_agent_dir="reme_agents", language="zh")
     inbox = AgentEventInbox(app_context=context)
-    runtime = LocalAgentRuntime(
+    runtime = LocalProactiveRuntime(
         app_context=context,
         agents=[{"agent_name": "finance", "task_description": "偏好 AI 相关的财经新闻"}],
     )
     context.components = {
         "agent_inbox": {"default": inbox},
         "agent_wrapper": {"default": Mock(spec=BaseAgentWrapper)},
-        "agent_runtime": {"default": runtime},
+        "proactive_runtime": {"default": runtime},
     }
-    job = BaseJob(app_context=context, steps=[{"backend": "append_event_step"}])
+    job = BaseJob(app_context=context, steps=[{"backend": "append_task_events_step"}])
     append = AsyncMock(side_effect=job.__call__)
-    context.jobs["append_agent_events"] = append
+    context.jobs["append_task_events"] = append
     async with inbox, runtime, job:
         runtime.watcher.cancel()
         await asyncio.gather(runtime.watcher, return_exceptions=True)

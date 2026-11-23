@@ -9,7 +9,7 @@ daily/<date>/interests.yaml
 
 上层 Agent 可以用它获取“今天值得主动关注什么”，再决定是否提醒、追问、推荐下一步或生成主动洞察。
 
-事件触发、定时任务和主动提醒的整体方案见 [Proactive Agent](./proactive_runtime.md)。
+事件触发、定时任务和主动提醒的整体方案见 [主动智能运行时](./proactive_runtime.md)。
 
 `interests.yaml` 由 proactive refresh writer 链路生成，默认通过 `proactive_refresh_cron` 定时执行；
 `proactive_read` 只负责读取和暴露结果。Auto Dream 是独立的 daily-to-digest 流程，不读取或写入 proactive 状态。

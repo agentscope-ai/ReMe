@@ -79,10 +79,6 @@ async def test_archived_source_final_check_uses_copy_without_locking_workspace(
         return validate(source, case_id, limit)
 
     monkeypatch.setattr(reuse, "validate_snapshot", pause)
-    if mutation == "legacy":
-        with pytest.raises((ValueError, OSError)):
-            verify_final(prepared, selection)
-        return
     task = asyncio.create_task(asyncio.to_thread(verify_final, prepared, selection))
     try:
         await asyncio.wait_for(entered.wait(), 10)
@@ -96,7 +92,7 @@ async def test_archived_source_final_check_uses_copy_without_locking_workspace(
             assert switched.success, switched.answer
     finally:
         resume.set()
-    if mutation:
+    if mutation in {"archive", "checkout"}:
         with pytest.raises(ValueError):
             await task
     else:
@@ -696,8 +692,8 @@ async def test_targeted_review_opens_only_budgeted_archives(app, prepared, monke
     inspect_archive = inputs.inspect_archive
 
     def inspect(path, max_bytes, destination=None):
-        if path.is_relative_to(source):
-            case_id = path.relative_to(source).parts[1]
+        if path.is_relative_to(source) or (destination is not None and path.is_relative_to(prepared / "tmp")):
+            case_id = destination.parent.name if destination is not None else path.relative_to(source).parts[1]
             (exported if destination is not None else inspected).add(case_id)
             with _initialization_lock(prepared / "metadata/workspace.lock"):
                 pass  # Archive validation must not block other workspace Jobs.

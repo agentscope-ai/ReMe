@@ -102,6 +102,8 @@ docker compose exec reme reme status
 宿主机 CLI 应明确指定发布地址，例如 `reme health_check host=127.0.0.1 port=2444`；宿主机的进程发现无法还原容器内
 启动参数。Agent 集成应连接发布的 HTTP 或 MCP 地址，避免对同一工作区再启动第二个本机 ReMe。
 
+使用共用 Studio 工作台时，请在容器环境中设置 `REME_CONFIG=proactive`。
+
 ## 网络和可选工具
 
 容器内的 `127.0.0.1` 指向容器自身。宿主机上的模型服务需要使用可访问的宿主机地址，例如 Docker Desktop 的

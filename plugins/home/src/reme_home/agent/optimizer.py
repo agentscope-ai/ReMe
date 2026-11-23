@@ -24,7 +24,7 @@ from ..code.repository import (
     status,
 )
 from ..evaluation.artifacts import contained, read_json, write_json
-from ..evaluation.inputs import EvaluationSpec, load_inputs
+from ..evaluation.inputs import EvaluationSpec, evaluation_head, load_inputs
 from ..evaluation.history import read_state
 from ..evaluation.budget import validate_max_evaluations, validation_budget_status
 from ..evaluation.reuse import verify_case_reuse
@@ -318,7 +318,17 @@ def verify_evaluation(home, path, commit, *, baseline=False):
     # Failed construction may omit answers. Baseline infrastructure errors remain
     # observations; final evidence already passed the strict checks above.
     for key, row in rows.items():
-        if set(row.get("queries", {})) != set(queries[key]) and row.get("construction", {}).get("status") != "failure":
+        observed = set(row.get("queries", {}))
+        failure_path = contained(run, f"cases/{key}/failure.json")
+        failure = read_json(failure_path) if baseline and failure_path.is_file() else {}
+        unobserved_answers = (
+            baseline and failure.get("stage") == "answer" and failure.get("failure_kind") == "infra_error"
+        )
+        if observed - set(queries[key]) or (
+            observed != set(queries[key])
+            and row.get("construction", {}).get("status") != "failure"
+            and not unobserved_answers
+        ):
             raise ValueError(f"Evaluation summary has incomplete query coverage: {key}")
     if reused:
         verify_case_reuse(home, run, manifest, commit)
@@ -409,13 +419,11 @@ def evaluation_checkout(home):
     """Bind the host-owned sampling decision to one actual checkout."""
     with _initialization_lock(home / "metadata/workspace.lock"):
         repo, record = validate_repository(home)
-        current = status(repo, record)
+        commit, branch = evaluation_head(repo)
         return {
-            "expected_commit": current["commit_sha"],
-            "expected_branch": current["current_branch"],
-            "sampling": (
-                current["current_branch"] != "init" and current["commit_sha"] != record["code"]["initial_commit"]
-            ),
+            "expected_commit": commit,
+            "expected_branch": branch,
+            "sampling": branch != "init" and commit != record["code"]["initial_commit"],
         }
 
 

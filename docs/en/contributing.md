@@ -39,7 +39,7 @@ The project requires Python 3.11 or later. A virtual environment is recommended:
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -e reme_studio -e ".[dev,full]"
+pip install -e reme_studio/web/python -e ".[dev,full]"
 cd reme_studio
 npm ci
 npm run build:static
