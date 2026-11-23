@@ -89,7 +89,10 @@ async def test_real_evaluation_catalog_and_case_query_navigation_are_read_only(a
 async def test_inspection_reports_a_single_source_from_per_case_sources(app, prepared):
     source = {"commit_sha": "b" * 40, "result_dir": "old-source"}
     other = {"commit_sha": "c" * 40, "result_dir": "other-source"}
-    sources = {"case~a": source, "missing-case": source}
+    sources = {
+        "case~a": {**source, "workspace_sha256": "1" * 64},
+        "missing-case": {**source, "workspace_sha256": "2" * 64},
+    }
     compact = write_run(prepared, construction_sources=sources)
     mixed = write_run(prepared, "2", construction_sources={**sources, "missing-case": other})
     before = snapshot(prepared)

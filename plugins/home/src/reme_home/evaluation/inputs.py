@@ -215,11 +215,16 @@ def load_reuse_source(home: Path, value: str, fingerprints: dict, *, sampling: b
         if sampling:
             raise ValueError("Replay sampling requires a completed scored training-set run")
         raise ValueError("Reuse requires a completed training-set evaluation")
+    validate_reuse_fingerprints(manifest, fingerprints)
+    return source, manifest
+
+
+def validate_reuse_fingerprints(manifest: dict, fingerprints: dict):
+    """Apply the same compatibility checks to original and retained snapshots."""
     source_fingerprints = manifest.get("fingerprints")
     for key in ("dataset", "construction_config"):
         if not isinstance(source_fingerprints, dict) or source_fingerprints.get(key) != fingerprints[key]:
             raise ValueError(f"Construction source has incompatible {key}")
-    return source, manifest
 
 
 def validate_snapshot(source: Path, case_id: str, max_artifact_bytes: int):

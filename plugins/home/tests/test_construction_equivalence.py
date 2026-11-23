@@ -462,7 +462,62 @@ async def test_infrastructure_retry_preserves_replay_and_selection(
 
 
 @pytest.mark.asyncio
-async def test_retry_rejects_corrupt_retained_snapshot(app, prepared, reviewer, sandbox, monkeypatch):
+@pytest.mark.parametrize("mode", ["automatic", "explicit", "sampled_explicit"])
+@pytest.mark.parametrize("archive_source", [False, True])
+@pytest.mark.parametrize("change_image", [False, True])
+async def test_replay_retry_checks_config_and_retains_pinned_sources(
+    app,
+    prepared,
+    reviewer,
+    sandbox,
+    monkeypatch,
+    mode,
+    archive_source,
+    change_image,
+):
+    baseline = await app.run_job("home_evaluate")
+    assert baseline.success
+    commit_candidate(prepared)
+    set_model(
+        app,
+        "home_construction_equivalence",
+        ScriptedModel(final='{"decision":"construction_unchanged","reason":"Query only"}'),
+    )
+    force_draw(monkeypatch, 0.1)
+    options = {"sampling": mode != "explicit", "max_evaluations": 10}
+    if mode != "automatic":
+        options["reuse_construction_from"] = baseline.answer["result_dir"]
+    monkeypatch.setattr(FakeFactory, "bad_export", True)
+    failed = await app.run_job("home_evaluate", **options)
+    assert not failed.success
+    run = Path(failed.answer["result_dir"])
+    old = read_json(run / "manifest.json")
+    assert old["construction_sources"]
+    for case_id, source in old["construction_sources"].items():
+        archive = run / f"cases/{case_id}/memory_construction/reme_workspace.tar.gz"
+        assert source["workspace_sha256"] == file_sha256(archive)
+    if archive_source:
+        shutil.rmtree(Path(baseline.answer["result_dir"]))
+    monkeypatch.setattr(FakeFactory, "bad_export", False)
+    launches = len(FakeFactory.instances)
+    if change_image:
+        options["base_image"] = "different-image:latest"
+    response = await app.run_job("home_evaluate", **options)
+    if change_image:
+        assert not response.success
+        assert "incompatible construction_config" in str(response.answer)
+        assert len(FakeFactory.instances) == launches
+    else:
+        assert response.success, response.answer
+        current = read_json(Path(response.answer["result_dir"]) / "manifest.json")
+        assert current["construction_sources"] == old["construction_sources"]
+        assert current["case_ids"] == old["case_ids"] and current["query_ids"] == old["query_ids"]
+        assert not any(event[1] == "build" for factory in FakeFactory.instances[launches:] for event in factory.events)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("explicit", [False, True])
+async def test_retry_rejects_corrupt_retained_snapshot(app, prepared, reviewer, sandbox, monkeypatch, explicit):
     baseline = await app.run_job("home_evaluate")
     assert baseline.success
     commit_candidate(prepared)
@@ -473,7 +528,8 @@ async def test_retry_rejects_corrupt_retained_snapshot(app, prepared, reviewer, 
     )
     force_draw(monkeypatch, 0.1)
     monkeypatch.setattr(FakeFactory, "bad_export", True)
-    failed = await app.run_job("home_evaluate", sampling=True, max_evaluations=10)
+    options = {"reuse_construction_from": baseline.answer["result_dir"]} if explicit else {}
+    failed = await app.run_job("home_evaluate", sampling=True, max_evaluations=10, **options)
     assert not failed.success
     run = Path(failed.answer["result_dir"])
     manifest = read_json(run / "manifest.json")
@@ -482,7 +538,7 @@ async def test_retry_rejects_corrupt_retained_snapshot(app, prepared, reviewer, 
     shutil.rmtree(Path(baseline.answer["result_dir"]))
     launches = len(FakeFactory.instances)
     monkeypatch.setattr(FakeFactory, "bad_export", False)
-    response = await app.run_job("home_evaluate", sampling=True, max_evaluations=10)
+    response = await app.run_job("home_evaluate", sampling=True, max_evaluations=10, **options)
     assert not response.success
     assert len(FakeFactory.instances) == launches
 

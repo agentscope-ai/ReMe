@@ -324,6 +324,7 @@ class HomeEvaluation(BaseComponent):
         else:
             source, archives = reuse_inputs(home, spec, cases, fingerprints)
             sources = {case.case_id: source for case in cases} if source else {}
+        sources = {case_id: {**source, "workspace_sha256": archives[case_id][1]} for case_id, source in sources.items()}
         return (
             record,
             dataset,

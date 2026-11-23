@@ -18,6 +18,7 @@ from .inputs import (
     reuse_inputs,
     select_cases,
     validate_replay_answers,
+    validate_reuse_fingerprints,
     validate_snapshot,
 )
 
@@ -215,6 +216,8 @@ def case_reuse_inputs(home, spec, cases, fingerprints, sources, *, previous=None
     by_id = {case.case_id: case for case in cases}
     if set(sources) - by_id.keys():
         raise ValueError("Construction sources contain unselected cases")
+    if previous is not None and sources:
+        validate_reuse_fingerprints(read_json(contained(previous, "manifest.json")), fingerprints)
     resolved, archives, groups = {}, {}, {}
     for case_id, source in sources.items():
         if previous is not None and source.get("workspace_sha256"):

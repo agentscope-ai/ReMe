@@ -135,8 +135,13 @@ def _catalog_row(run, manifest):
     source = None
     if isinstance(sources, dict) and sources:
         first = next(iter(sources.values()))
-        if isinstance(first, dict) and all(item == first for item in sources.values()):
-            source = first
+        if isinstance(first, dict):
+            identity = {key: first.get(key) for key in ("result_dir", "commit_sha")}
+            if all(
+                isinstance(item, dict) and all(item.get(key) == value for key, value in identity.items())
+                for item in sources.values()
+            ):
+                source = identity
     row = {
         "validation_path": str(run),
         "manifest_path": str(run / "manifest.json"),
