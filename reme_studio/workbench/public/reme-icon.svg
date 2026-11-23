@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="7 7 50 50" role="img" aria-label="Remy" color="#2864b3" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="7 7 50 50" role="img" aria-label="Remy" color="#000" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
   <defs>
     <filter id="remy-shadow" filterUnits="userSpaceOnUse" x="7" y="7" width="50" height="50">
       <feDropShadow dx="1.6" dy="2" stdDeviation="1.6" flood-color="currentColor" flood-opacity="0.3"/>

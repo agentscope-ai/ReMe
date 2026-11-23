@@ -24,7 +24,7 @@
 		A00000000000000000000003 /* ReMeStudio */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = A00000000000000000000009;
-			buildPhases = (A00000000000000000000006, A00000000000000000000007);
+			buildPhases = (A00000000000000000000006, A00000000000000000000007, A00000000000000000000038);
 			buildRules = ();
 			dependencies = ();
 			name = ReMeStudio;
@@ -40,7 +40,7 @@
 		};
 		A00000000000000000000005 /* ReMeStudio sources */ = {
 			isa = PBXGroup;
-			children = (A00000000000000000000011, A00000000000000000000012, A00000000000000000000013, A00000000000000000000014);
+			children = (A00000000000000000000011, A00000000000000000000012, A00000000000000000000013, A00000000000000000000014, A00000000000000000000036);
 			path = ReMeStudio;
 			sourceTree = "<group>";
 		};
@@ -165,6 +165,14 @@
 			remoteInfo = ReMeStudio;
 		};
 		A00000000000000000000035 /* StudioUITests.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = StudioUITests.xcconfig; sourceTree = SOURCE_ROOT; };
+		A00000000000000000000036 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A00000000000000000000037 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000036; };
+		A00000000000000000000038 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (A00000000000000000000037);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 	};
 	rootObject = A00000000000000000000001;
 }

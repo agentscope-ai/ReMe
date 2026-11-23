@@ -12,11 +12,17 @@ import time
 from urllib.request import ProxyHandler, Request, build_opener
 import uuid
 
-_OFFLINE_JOB_OVERRIDES = [
-    f"jobs.{name}.{key}={value}"
-    for name in ("dream_cron", "proactive_refresh_cron", "optimize_index_cron")
-    for key, value in (("backend", "base"), ("enable_serve", "false"))
-]
+_OFFLINE_JOBS = {
+    "default": ("dream_cron", "proactive_refresh_cron", "optimize_index_cron"),
+    "proactive": (
+        "codex_dialogue_cron",
+        "screen_capture_cron",
+        "finance_news_cron",
+        "stock_quotes_cron",
+        "btc_quotes_cron",
+        "proactive_loop",
+    ),
+}
 
 
 def docker(*arguments: str) -> str:
@@ -60,7 +66,14 @@ def wait_ready(container: str, base_url: str, port: int) -> None:
     raise TimeoutError("ReMe did not become healthy within 180 seconds")
 
 
-def start_container(image: str, container: str, data: Path, port: int = 2432, cli_override: bool = False) -> str:
+def start_container(
+    image: str,
+    container: str,
+    data: Path,
+    port: int = 2432,
+    cli_override: bool = False,
+    config: str = "default",
+) -> str:
     """Publish a random loopback port and mount only the disposable workspace."""
     docker(
         "run",
@@ -77,9 +90,11 @@ def start_container(image: str, container: str, data: Path, port: int = 2432, cl
         "LLM_API_KEY=",
         "--env",
         f"REME_PORT={2333 if cli_override else port}",
+        "--env",
+        f"REME_CONFIG={config}",
         image,
         "start",
-        *_OFFLINE_JOB_OVERRIDES,
+        *(f"jobs.{name}.enabled=false" for name in _OFFLINE_JOBS[config]),
         *([f"service.port={port}"] if cli_override else []),
     )
     mappings = json.loads(docker("inspect", "--format", "{{json .NetworkSettings.Ports}}", container))
@@ -131,16 +146,23 @@ def check_mcp(base_url: str) -> None:
 def run_smoke(image: str) -> None:
     """Verify packaged assets, file safety, indexing, restart recovery, and signals."""
     docker("run", "--rm", image, "python", "-c", "import os, faiss, zvec; assert os.getuid() != 0")
-    # Keep scheduled model jobs inactive even if a check crosses a cron boundary.
-    version = docker("run", "--rm", image, "reme", "start", "job=version", *_OFFLINE_JOB_OVERRIDES)
+    version = docker(
+        "run",
+        "--rm",
+        "--env",
+        "LLM_API_KEY=",
+        image,
+        "reme",
+        "start",
+        "job=version",
+        *(f"jobs.{name}.enabled=false" for name in _OFFLINE_JOBS["default"]),
+    )
     with tempfile.TemporaryDirectory(prefix="reme-docker-smoke-") as directory:
         data = Path(directory) / "data"
         data.mkdir()
         container = f"reme-smoke-{uuid.uuid4().hex[:12]}"
         try:
             base_url = start_container(image, container, data)
-            page, _ = request(base_url, "/")
-            assert isinstance(page, str) and '<div id="root">' in page
             result, _ = request(base_url, "/version", {})
             assert result["success"] and result["answer"] == version
             check_mcp(base_url)
@@ -166,6 +188,12 @@ def run_smoke(image: str) -> None:
                 if time.monotonic() >= deadline:
                     raise AssertionError(f"Persisted memory was not indexed: {result}")
                 time.sleep(1)
+            stop_container(container)
+            base_url = start_container(image, container, data, config="proactive")
+            page, _ = request(base_url, "/")
+            assert isinstance(page, str) and '<div id="root">' in page
+            result, _ = request(base_url, "/get_client_info", {})
+            assert result["success"] and "watch_agent_session" in result["answer"]["jobs"]
             stop_container(container)
         except Exception:
             subprocess.run(["docker", "logs", container], check=False)

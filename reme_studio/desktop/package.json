@@ -47,6 +47,7 @@
   "build": {
     "appId": "io.agentscope.reme.desktop",
     "productName": "ReMe Studio",
+    "icon": "../workbench/public/reme-app-icon.png",
     "publish": null,
     "directories": {
       "output": "dist"
@@ -72,7 +73,7 @@
       "extendInfo": {
         "NSMicrophoneUsageDescription": "ReMe Studio 仅在你录制语音消息时使用麦克风。 Microphone access is used only when you record a voice message."
       },
-      "icon": "out/remy.icns",
+      "icon": "out/reme.icns",
       "category": "public.app-category.productivity",
       "target": [
         "dmg",
@@ -80,7 +81,6 @@
       ]
     },
     "win": {
-      "icon": "assets/remy/frames/idle/00.png",
       "artifactName": "ReMe-Studio-${version}-${arch}-setup.${ext}",
       "target": [
         "nsis"

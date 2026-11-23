@@ -6,12 +6,12 @@
   border-radius: var(--radius-lg);
   background: var(--page-opaque);
   color: var(--ink);
-  box-shadow: 0 24px 80px #10241930;
+  box-shadow: 0 24px 80px #1c1e2130;
   overflow: auto;
   font-size: var(--text-ui);
 }
 .task-dialog::backdrop {
-  background: #10241938;
+  background: var(--scrim);
   backdrop-filter: blur(3px);
 }
 .task-dialog > header {

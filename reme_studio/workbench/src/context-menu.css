@@ -11,8 +11,8 @@
   background: var(--floating);
   color: var(--ink);
   box-shadow:
-    0 8px 30px #10241924,
-    0 1px 3px #10241914;
+    0 8px 30px #1c1e2124,
+    0 1px 3px #1c1e2114;
   backdrop-filter: blur(20px);
   -webkit-app-region: no-drag;
 }

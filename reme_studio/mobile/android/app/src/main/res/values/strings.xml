@@ -4,7 +4,6 @@
     <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">@color/studio_surface</item>
         <item name="android:windowLightStatusBar">true</item>
-        <item name="android:colorAccent">#286348</item>
+        <item name="android:colorAccent">#1C1E21</item>
     </style>
-    <color name="studio_surface">#FCFCF7</color>
 </resources>

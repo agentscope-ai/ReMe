@@ -86,7 +86,7 @@ export class DesktopWindows {
       trafficLightPosition:
         process.platform === "darwin" ? { x: 20, y: 22 } : undefined,
       transparent: process.platform === "darwin",
-      backgroundColor: process.platform === "darwin" ? "#00000000" : "#f4f5f7",
+      backgroundColor: process.platform === "darwin" ? "#00000000" : "#f9f9f9",
       visualEffectState: "followWindow",
       title: app.getName(),
       icon: paths.icon,

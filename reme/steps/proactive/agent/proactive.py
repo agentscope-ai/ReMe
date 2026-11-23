@@ -11,6 +11,9 @@ import shlex
 from time import monotonic
 from urllib.parse import unquote, urlsplit
 
+import yaml
+from pydantic import ValidationError
+
 from .base import BaseAgentStep
 from ....core.registry import R
 from ....enumeration import ChunkEnum
@@ -226,7 +229,7 @@ class ProactiveAgentStep(BaseAgentStep):
         return self.context.response
 
     async def _execute(self, agent, events, *, record):
-        """Run the complete workflow in one turn, then validate its saved decisions."""
+        """Run the workflow and allow one follow-up to repair the saved record."""
         is_cron = events[0]["source"] == CRON_EVENT_SOURCE
         agent_type = "cron" if is_cron else "proactive"
         stats = {
@@ -260,7 +263,8 @@ class ProactiveAgentStep(BaseAgentStep):
         label = f"Proactive agent={agent.agent_name} agent_type={agent_type}"
         session_id = None
         calls = {}
-        turn_id, warned = None, False
+        turn_ids, turn_usage = {}, {}
+        warned = False
 
         def update_counts():
             nonlocal warned
@@ -275,14 +279,15 @@ class ProactiveAgentStep(BaseAgentStep):
                 )
                 warned = True
 
-        async def observe(chunk):
-            nonlocal turn_id
-            turn_id = chunk.turn_id or turn_id
+        async def observe(chunk, *, attempt, publish):
+            if chunk.turn_id:
+                turn_ids[attempt] = chunk.turn_id
             kind, payload = chunk.chunk_type, chunk.chunk
             if kind in {ChunkEnum.TOOL_CALL, ChunkEnum.TOOL_RESULT}:
                 identifier = chunk.tool_call_id or chunk.block_id or chunk.message_id
-                if identifier and (chunk.tool_call_name or identifier in calls):
-                    call = calls.setdefault(identifier, {})
+                key = (attempt, identifier)
+                if identifier and (chunk.tool_call_name or key in calls):
+                    call = calls.setdefault(key, {})
                     call["name"] = chunk.tool_call_name or call.get("name")
                     if kind == ChunkEnum.TOOL_CALL or (
                         call["name"] == "commandExecution"
@@ -304,45 +309,76 @@ class ProactiveAgentStep(BaseAgentStep):
                     stats["model_status"] = payload.get("status", "failed")
                     payload = payload.get("usage")
                 if payload is not None:
-                    stats["usage"] = TokenUsage.from_provider(payload).model_dump()
+                    turn_usage[attempt] = TokenUsage.from_provider(payload)
             publish(chunk)
 
+        deadline = asyncio.get_running_loop().time() + self.timeout_seconds
         try:
-            model_error = None
-            reply_text = None
-            try:
-                async with asyncio.timeout(self.timeout_seconds):
-                    session_id = await runtime.sessions.ensure(
-                        agent.agent_name,
-                        runtime.agent_wrapper,
-                        options,
-                        now,
-                        new=True,
-                    )
-                    label += f" session={session_id}"
-                    self.logger.info(f"{label} result=started path={paths['record_path']}")
-                    with runtime.live_turns.observe(agent.agent_name, session_id, query) as publish:
-                        try:
-                            reply = await collect_reply(
-                                runtime.agent_wrapper.reply_stream(query, resume=session_id, **options),
-                                on_chunk=observe,
+            for attempt in range(2):
+                turn_ids[attempt] = None
+                reply = model_error = None
+                try:
+                    async with asyncio.timeout_at(deadline):
+                        if attempt == 0:
+                            session_id = await runtime.sessions.ensure(
+                                agent.agent_name,
+                                runtime.agent_wrapper,
+                                options,
+                                now,
+                                new=True,
                             )
-                        finally:
-                            async with await get_path_lock(record.path):
-                                await complete_in_thread(record.capture)
-                    if reply["status"] != "completed":
-                        raise RuntimeError(reply.get("error") or f"Proactive agent {reply['status']}")
-                    reply_text = reply["result"]
-            except Exception as exc:
-                model_error = exc
-                stats["model_status"] = "timeout" if isinstance(exc, TimeoutError) else "failed"
-            try:
-                async with await get_path_lock(record.path):
-                    reminder = await asyncio.to_thread(self._read_record, record.path, reply_text, is_cron=is_cron)
-            except Exception as validation_error:
-                if model_error is not None:
-                    raise model_error from validation_error
-                raise
+                            label += f" session={session_id}"
+                            self.logger.info(f"{label} result=started path={record.path}")
+                        with runtime.live_turns.observe(agent.agent_name, session_id, query) as publish:
+                            try:
+                                reply = await collect_reply(
+                                    runtime.agent_wrapper.reply_stream(query, resume=session_id, **options),
+                                    on_chunk=partial(observe, attempt=attempt, publish=publish),
+                                )
+                            finally:
+                                if attempt == 0:
+                                    async with await get_path_lock(record.path):
+                                        await complete_in_thread(record.capture)
+                        if reply["status"] != "completed":
+                            raise RuntimeError(reply.get("error") or f"Proactive agent {reply['status']}")
+                except Exception as exc:
+                    model_error = exc
+                    stats["model_status"] = "timeout" if isinstance(exc, TimeoutError) else "failed"
+                if attempt and model_error is not None:
+                    raise model_error
+                try:
+                    async with await get_path_lock(record.path):
+                        if attempt:
+                            decision = ProactiveRecordDecision.model_validate(reply["structured_output"])
+                            await complete_in_thread(record.replace_frontmatter, decision.model_dump())
+                        else:
+                            await asyncio.to_thread(record.check_version, record.path)
+                        reminder = await asyncio.to_thread(
+                            self._read_record,
+                            record.path,
+                            reply["result"] if attempt == 0 and model_error is None else None,
+                            is_cron=is_cron,
+                        )
+                except Exception as validation_error:
+                    if model_error is not None:
+                        raise model_error from validation_error
+                    if attempt or not isinstance(validation_error, (yaml.YAMLError, ValidationError)):
+                        raise
+                    record_path = record.path.relative_to(runtime.workspace_path).as_posix()
+                    query = self.prompt_format(
+                        "repair_record_query",
+                        record_path=record_path,
+                        error=str(validation_error)[:2000],
+                    )
+                    options = {
+                        **options,
+                        "sandbox": "read-only",
+                        "job_tools": [],
+                        "output_schema": ProactiveRecordDecision.model_json_schema(),
+                    }
+                    self.logger.info(f"{label} result=repairing_record path={record.path}")
+                else:
+                    break
             if model_error is not None:
                 self.logger.warning(f"{label} result=accepted_record model_error={type(model_error).__name__}")
             self.logger.info(
@@ -359,19 +395,26 @@ class ProactiveAgentStep(BaseAgentStep):
             raise
         finally:
             if session_id is not None:
-                try:
-                    saved = await runtime.agent_wrapper.get_tool_calls(session_id, turn_id)
-                    if saved is not None:
-                        for call in saved:
-                            previous = calls.get(call["id"], {})
-                            calls[call["id"]] = {
-                                **previous,
-                                **call,
-                                "actions": call.get("actions") or previous.get("actions", []),
-                            }
-                        stats["tool_call_source"] = "native"
-                except Exception as exc:
-                    self.logger.warning(f"{label} could not read saved tool statistics: {exc}")
+                for attempt, turn_id in turn_ids.items():
+                    if turn_id is None and len(turn_ids) > 1:
+                        # An unfiltered native read would include both turns and count calls twice.
+                        continue
+                    try:
+                        saved = await runtime.agent_wrapper.get_tool_calls(session_id, turn_id)
+                        if saved is not None:
+                            for call in saved:
+                                key = (attempt, call["id"])
+                                previous = calls.get(key, {})
+                                calls[key] = {
+                                    **previous,
+                                    **call,
+                                    "actions": call.get("actions") or previous.get("actions", []),
+                                }
+                            stats["tool_call_source"] = "native"
+                    except Exception as exc:
+                        self.logger.warning(f"{label} could not read saved tool statistics: {exc}")
             stats["session_id"] = session_id
+            if turn_usage:
+                stats["usage"] = TokenUsage.combine(list(turn_usage.values())).model_dump()
             update_counts()
         return reminder, session_id

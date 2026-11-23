@@ -17,13 +17,13 @@ task_query: |
   ## 1. Gather information for this run
   [is_event] Read the events for this run and any files they mention, including images. If you only got part of a file, try using `offset` to read the rest. Use the task requirements to identify the `key information`.
   [is_event] It also counts as `key information` if it is time for a reminder or its condition is met. If there is no `key information`, reply only with "{no_key_information}" and finish the run.
-  [is_cron] Do the work the task asks for this run and find the `key information` in the results. Handle requests to remind the user or send results in step 3.
+  [is_cron] Complete this run's work as required by the task and identify the `key information` in the results. Handle any requirements to remind the user or send results in step 3.
 
   ## 2. Search past records
   For history, search only the `Records directory` shared by all tasks. Choose keywords or a regular expression based on the `key information`.
 
-  - Check what has already been recorded and what reminders have already been written. Check records from the last {recent_history_hours} hours first. Apply the rules in step 3 to avoid duplicate records and reminders.
-  - When checking past reminders, read `reminder_priority` and `reminder_message` from the record's YAML.
+  - Check what has already been recorded and which reminders have already been written. Start with records from the last {recent_history_hours} hours. Use the rules for records and reminders in step 3 to avoid duplicates.
+  - When checking past reminders, read `reminder_priority` and `reminder_message` from the original record's YAML.
   - Put related records in time order to see how things have developed and how this run's information relates to earlier progress. You can draw inferences from the records. If you write one down, label it as an inference.
 
   Go to step 3 when you have enough information, find no relevant records, or have used the local search tool {max_local_search_calls} times.
@@ -33,28 +33,28 @@ task_query: |
 
   ### Body
   Record only new information for the task that is worth keeping, such as progress or a change in timing. Skip repeats and anything the user does not want to keep.
-  Write the body in Markdown. Keep it brief and clear, include any sources and links the user needs, and leave out sensitive information. If there is no new information worth keeping, leave the body empty.
+  Write the body in Markdown. Keep it brief and clear, include the necessary sources and links, and leave out sensitive information. If there is no new information worth keeping, leave the body empty.
   For local file links in the body and reminder, use paths relative to the directory containing this run's record, for example `[xxx](xxx.md)`.
 
   ### Reminder
   Use the `Task requirements` to decide which items warrant a reminder, then choose the priority. Do this even if the body is empty.
-  - Skip the reminder if a condition is still unmet or the user does not want it.
+  - Skip the reminder if its condition has not been met or the user does not want it.
   - If a reminder about the same development has already been written, skip it even if the user has yet to read it.
-  - Write each scheduled reminder or report only once per scheduled occurrence. If the task requires sending it every time, send it even if the result is unchanged.
+  - For scheduled reminders and reports, check for duplicates by scheduled time and write each occurrence only once. If the task requires sending it every time, send it even if the result is unchanged.
 
   At the top of the file, write only these two YAML fields between two lines containing `---`.
   - `reminder_priority`
     - If there is nothing to remind the user about, write `skip`.
     - For items that warrant a reminder, use the priority specified by the task. If the task gives no priority, choose the first one that applies in the order below.
       - `P0`: The agreed reminder time has arrived, an explicit reminder condition is met, or the user clearly needs to decide or act now.
-      - `P1`: There is important progress on something the task tracks, and the user can hear about it later.
+      - `P1`: There is important progress on something the task tracks, and you can tell the user later.
       - `P2`: This run found useful new information related to the task.
     - If several items warrant a reminder, use the highest priority.
   - `reminder_message`
-    - For `P0`, `P1`, or `P2`, include only the items that warrant a reminder in this run. Briefly include any relevant timing or action the user needs to take.
+    - For `P0`, `P1`, or `P2`, write one short sentence in plain language as if speaking directly to the user, covering only what warrants a reminder this run.
     - For `skip`, briefly say why you skipped the reminder.
 
-  When you write a `P0`, `P1`, or `P2` reminder to the file, the system puts it in the user's inbox right away. The user may not have seen it yet.
+  After the round commits, ReMe puts a `P0`, `P1`, or `P2` reminder in the user's inbox. The user may not have seen it yet.
 
 task_query_zh: |
   # 背景
@@ -109,10 +109,23 @@ task_query_zh: |
       - `P2`：本轮发现了和任务相关的有用新信息。
     - 有多项需要提醒时，用最高的等级。
   - `reminder_message`
-    - 等级是 `P0`、`P1` 或 `P2` 时，只写本轮需要提醒的事项。涉及时间或用户要做的事，就简洁写清。
+    - 等级是 `P0`、`P1` 或 `P2` 时，像直接跟用户说话一样，用一句简短的大白话，只说本轮需要提醒的事。
     - 等级是 `skip` 时，简短写明为什么跳过提醒。
 
-  把 `P0`、`P1` 或 `P2` 的提醒写到文件后，系统会立刻把它放进用户的收件箱。用户可能还没看到。
+  本轮提交后，ReMe 会把 `P0`、`P1` 或 `P2` 提醒放进用户的收件箱。用户可能还没看到。
+
+repair_record_query: |
+  Read the YAML frontmatter in `{record_path}` and return the corrected reminder priority and message.
+  Preserve the intended meaning. ReMe will apply the correction to the draft.
+
+  Use this validation error to locate the problem.
+  {error}
+
+repair_record_query_zh: |
+  阅读 `{record_path}` 的 YAML 文件头，返回修正后的提醒等级和正文，保留原意。ReMe 会把修正写回草稿。
+
+  根据下面的校验错误定位问题。
+  {error}
 
 event_input: |
   ### Event {number}

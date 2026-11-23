@@ -70,6 +70,7 @@ const requiredFiles = [
   "zh/services.html",
   "en/services.html",
   "studio/index.html",
+  "studio/reme-app-icon.png",
   "studio/reme-icon.svg",
   "zh/workspace/studio.html",
   "en/workspace/studio.html",

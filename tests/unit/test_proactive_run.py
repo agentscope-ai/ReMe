@@ -1,4 +1,4 @@
-"""Single-turn file decisions and delivery in automatic proactive rounds."""
+"""File decisions, repair and delivery in automatic proactive rounds."""
 
 # pylint: disable=missing-function-docstring,protected-access
 
@@ -53,13 +53,17 @@ def install_round(
     failed=False,
     error=None,
     reply_text="Finished",
+    repaired_metadata=None,
 ):
     calls = []
 
     async def generate(query, **options):
         calls.append((query, options))
-        assert "output_schema" not in options
-        if text is not None:
+        repairing = "output_schema" in options
+        if repairing:
+            assert options["sandbox"] == "read-only"
+            assert options["job_tools"] == []
+        elif text is not None:
             runtime.files.write(paths["record_path"], text)
         if error is not None:
             raise error
@@ -68,7 +72,7 @@ def install_round(
             "status": "failed" if failed else "completed",
             "error": "Model failed" if failed else None,
             "result": reply_text,
-            "structured_output": {"notifications": [{"message": "Ignore this"}]},
+            "structured_output": repaired_metadata if repairing else {"notifications": [{"message": "Ignore this"}]},
             "usage": None,
             "raw": {},
         }
@@ -172,6 +176,88 @@ async def test_round_publishes_and_acknowledges_the_same_note(
         assert [item["id"]] == related and item["read_at"]
 
 
+@pytest.mark.parametrize(
+    "agent_type,language,invalid_message,error",
+    [
+        ("proactive", "zh", "Updated palette\n  to blue #20774D\n  and white", "while parsing"),
+        ("cron", "en", "", "reminder_message"),
+    ],
+)
+@pytest.mark.parametrize("edit_during_repair", [False, True])
+@pytest.mark.asyncio
+async def test_record_format_is_repaired_in_the_same_session(
+    tmp_path,
+    monkeypatch,
+    agent_type,
+    language,
+    invalid_message,
+    error,
+    edit_during_repair,
+):
+    async with running_runtime(tmp_path, language=language) as (runtime, context, wrapper):
+        await create_round_task(runtime, monkeypatch, agent_type)
+        now = runtime.now()
+        monkeypatch.setattr(runtime, "now", lambda: now)
+        step = ProactiveAgentStep(app_context=context)
+        paths = step._paths(await runtime.definition("monitor"), now)
+        path = paths["record_path"]
+        body = "\n# Progress\n"
+        repaired = REMIND.format(priority="P2", body=body).replace("Verified result", "'Palette #20774D'")
+        draft = repaired.replace("'Palette #20774D'", invalid_message)
+        calls = install_round(
+            runtime,
+            wrapper,
+            monkeypatch,
+            paths,
+            text=draft,
+            repaired_metadata={"reminder_priority": "P2", "reminder_message": "Palette #20774D"},
+        )
+        original = wrapper.reply_stream
+        user_edit = repaired + "User's own edit.\n"
+
+        async def stream(query, **options):
+            attempt = len(calls)
+            assert (await runtime.inbox.snapshot("monitor"))["receipt"] is None
+            assert not runtime.outbox.records
+            if attempt and edit_during_repair:
+                runtime.files.write(path, user_edit)
+            yield StreamChunk(
+                chunk_type=ChunkEnum.TOOL_CALL,
+                turn_id=f"turn-{attempt}",
+                tool_call_id="write",
+                tool_call_name="apply_patch",
+            )
+            yield StreamChunk(chunk_type=ChunkEnum.USAGE, chunk={"output_tokens": 5})
+            async for chunk in original(query, **options):
+                yield chunk
+
+        monkeypatch.setattr(wrapper, "reply_stream", stream)
+        saved_calls = AsyncMock(return_value=[{"id": "write", "name": "apply_patch"}])
+        monkeypatch.setattr(wrapper, "get_tool_calls", saved_calls)
+        if edit_during_repair:
+            with pytest.raises(RuntimeError, match="Agent output changed outside this round"):
+                await step(agent_name="monitor")
+            assert path.read_text() == user_edit
+            assert (await runtime.status("monitor"))["pending_events"] == 1
+            assert not runtime.outbox.records
+            return
+        result = await step(agent_name="monitor")
+
+        assert result.success and result.answer["processed"] == 1
+        assert result.answer["notifications"][0]["message"] == "Palette #20774D"
+        assert len(runtime.outbox.records) == len(wrapper.created) == 1
+        assert (await runtime.status("monitor"))["pending_events"] == 0
+        assert path.read_text().endswith(f"---{body}")
+        (_, initial), (repair, followup) = calls
+        assert initial["resume"] == followup["resume"] == "session-1"
+        assert path.relative_to(tmp_path).as_posix() in repair
+        assert error in repair
+        assert followup["output_schema"]["required"] == ["reminder_priority", "reminder_message"]
+        assert [call.args for call in saved_calls.await_args_list] == [("session-1", "turn-0"), ("session-1", "turn-1")]
+        stats = result.metadata["reme.agent_run"]
+        assert stats["tool_calls"] == 2 and stats["usage"]["output_tokens"] == 10
+
+
 @pytest.mark.parametrize("error", [OSError("interrupted after commit"), asyncio.CancelledError()])
 @pytest.mark.asyncio
 async def test_delivery_recovers_from_a_committed_input_receipt(tmp_path, monkeypatch, error):
@@ -248,11 +334,12 @@ async def test_failed_round_keeps_the_input_and_removes_only_its_draft(tmp_path,
         step = ProactiveAgentStep(app_context=context)
         paths = step._paths(await runtime.definition("monitor"), now)
         path = paths["record_path"]
-        install_round(runtime, wrapper, monkeypatch, paths, text=draft)
+        queries = install_round(runtime, wrapper, monkeypatch, paths, text=draft)
         if error is OSError:
             monkeypatch.setattr(runtime.inbox, "ack", AsyncMock(side_effect=OSError("receipt unavailable")))
         with pytest.raises(error):
             await step(agent_name="monitor")
+        assert len(queries) == (1 if error is OSError else 2)
         assert not path.exists()
         assert (await runtime.status("monitor"))["pending_events"] == 1
 

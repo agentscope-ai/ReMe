@@ -19,12 +19,12 @@ final class StudioViewController: UIViewController, WKNavigationDelegate, WKUIDe
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemBackground
         let configuration = WKWebViewConfiguration()
         configuration.userContentController.addScriptMessageHandler(
             StudioBridge(controller: self), contentWorld: .page, name: Self.bridgeName
         )
         webView = WKWebView(frame: .zero, configuration: configuration)
+        applyTheme(dark: traitCollection.userInterfaceStyle == .dark)
         webView.navigationDelegate = self
         webView.uiDelegate = self
         #if DEBUG
@@ -49,6 +49,16 @@ final class StudioViewController: UIViewController, WKNavigationDelegate, WKUIDe
             self, selector: #selector(suspendRecording), name: UIApplication.didEnterBackgroundNotification, object: nil
         )
         loadStudio()
+    }
+
+    private func applyTheme(dark: Bool) {
+        let traits = UITraitCollection(userInterfaceStyle: dark ? .dark : .light)
+        let surface = UIColor(named: "StudioSurface", in: .main, compatibleWith: traits)?.resolvedColor(with: traits)
+            ?? .systemBackground
+        darkStatusBar = dark
+        view.backgroundColor = surface
+        webView.underPageBackgroundColor = surface
+        setNeedsStatusBarAppearanceUpdate()
     }
 
     @objc private func suspendRecording() {
@@ -191,11 +201,7 @@ final class StudioViewController: UIViewController, WKNavigationDelegate, WKUIDe
                 complete(false)
                 return
             }
-            darkStatusBar = value == "dark"
-            view.backgroundColor = darkStatusBar
-                ? UIColor(red: 24 / 255, green: 29 / 255, blue: 26 / 255, alpha: 1)
-                : UIColor(red: 252 / 255, green: 252 / 255, blue: 247 / 255, alpha: 1)
-            setNeedsStatusBarAppearanceUpdate()
+            applyTheme(dark: value == "dark")
             complete(true)
         default:
             complete(false)

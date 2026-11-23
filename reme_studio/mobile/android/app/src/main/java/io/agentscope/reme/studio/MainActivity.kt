@@ -219,7 +219,7 @@ class MainActivity : ComponentActivity() {
                 val controller = WindowInsetsControllerCompat(window, surface)
                 controller.isAppearanceLightStatusBars = !dark
                 controller.isAppearanceLightNavigationBars = !dark
-                surface.setBackgroundColor(if (dark) 0xFF181D1A.toInt() else 0xFFFCFCF7.toInt())
+                surface.setBackgroundResource(if (dark) R.color.studio_surface_dark else R.color.studio_surface_light)
                 complete(true)
             }
             else -> complete(false)

@@ -3,7 +3,9 @@ import SwiftUI
 @main
 struct ReMeStudioApp: App {
     var body: some Scene {
-        WindowGroup { StudioView() }
+        WindowGroup {
+            StudioView().ignoresSafeArea(.container)
+        }
     }
 }
 

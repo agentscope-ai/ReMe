@@ -1,3 +1,5 @@
+/// <reference types="electron-vite/node" />
+
 import { BehaviorController } from "./behavior.ts";
 import {
   defaultLanguage,
@@ -41,6 +43,7 @@ import { DesktopUpdater } from "./updater.ts";
 import { WORKBENCH_PAGES } from "../../../client/src/protocol.ts";
 import { channels } from "../protocol.ts";
 import type { DesktopAction } from "../protocol.ts";
+import studioIconPath from "../../../workbench/public/reme-app-icon.png?asset";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 app.setName("ReMe Studio");
@@ -158,7 +161,7 @@ else {
         {
           preload: path.join(here, "../preload/index.cjs"),
           renderer: path.join(here, "../renderer/index.html"),
-          icon: path.join(directory, "frames/idle/00.png"),
+          icon: studioIconPath,
         },
         (visible) => controller!.setChatVisible(visible),
         (focused) => controller!.setChatFocused(focused),
@@ -689,7 +692,7 @@ else {
       const characterIcon = nativeImage.createFromPath(
         path.join(directory, "frames/idle/00.png"),
       );
-      app.dock?.setIcon(characterIcon);
+      app.dock?.setIcon(studioIconPath);
       const icon = characterIcon.resize({ width: 20, height: 20 });
       tray = new Tray(icon);
       const menu = () =>

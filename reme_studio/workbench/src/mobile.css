@@ -1,5 +1,5 @@
 html:is([data-platform="android"], [data-platform="ios"]) {
-  --mobile-page: light-dark(#fcfcf7, #181d1a);
+  --mobile-page: var(--page-opaque);
   --mobile-quick: 150ms;
   --mobile-motion: 285ms;
   --mobile-ease: cubic-bezier(0.22, 0.75, 0.22, 1);
@@ -20,20 +20,10 @@ html[data-android-insets="pending"] .mobile-workbench {
 }
 
 .mobile-workbench {
-  --mobile-drawer: light-dark(#eef2e9, #222b25);
+  --mobile-drawer: var(--glass-opaque);
   --mobile-width: min(324px, calc(100% - 64px));
   --mobile-progress: var(--mobile-drag-progress, 0);
   --mobile-offset: var(--mobile-drag-offset, 0px);
-  --ink: light-dark(#21342a, #ebf2ec);
-  --muted: light-dark(#596a60, #acc0b2);
-  --accent: light-dark(#286348, #91d3a9);
-  --accent-soft: light-dark(#e0eee0, #304435);
-  --accent-line: light-dark(#c9ddce, #4b6b56);
-  --line: light-dark(#dce5d8, #39483e);
-  --soft: light-dark(#edf1e9, #29332c);
-  --surface-opaque: light-dark(#fff, #212a23);
-  --glass-opaque: var(--mobile-drawer);
-  --page-opaque: var(--mobile-page);
   --page: var(--mobile-page);
   --glass: var(--mobile-drawer);
   --surface: var(--surface-opaque);
@@ -57,16 +47,7 @@ html[data-android-insets="pending"] .mobile-workbench {
 .mobile-workbench > .workspace-shell {
   --titlebar-height: 57px;
   --rail-width: 0px;
-  --ink: inherit;
-  --muted: inherit;
-  --line: inherit;
-  --soft: inherit;
-  --accent: inherit;
-  --accent-line: inherit;
-  --accent-soft: inherit;
-  --surface-opaque: inherit;
   --glass-opaque: var(--mobile-page);
-  --page-opaque: var(--mobile-page);
   position: relative;
   z-index: 2;
   display: flex;
@@ -261,7 +242,7 @@ html[data-android-insets="pending"] .mobile-workbench {
   border: 0;
   border-radius: calc(26px * var(--mobile-progress)) 0 0
     calc(26px * var(--mobile-progress));
-  background: light-dark(#152c2040, #0007);
+  background: var(--scrim);
   opacity: var(--mobile-progress);
   pointer-events: none;
   transform: translateX(var(--mobile-offset));
@@ -579,7 +560,7 @@ html:is([data-platform="android"], [data-platform="ios"]) .context-menu button {
 }
 
 .mobile-workbench dialog::backdrop {
-  background: #10241952;
+  background: var(--scrim);
   opacity: 0;
   transition:
     opacity var(--mobile-motion),

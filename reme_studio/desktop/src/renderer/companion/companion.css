@@ -6,8 +6,8 @@
   background: var(--bubble-fill);
   color: var(--ink);
   box-shadow:
-    0 2px 5px light-dark(#17251d0b, #00000020),
-    0 5px 10px light-dark(#17251d14, #00000030);
+    0 2px 5px light-dark(#1c1e210b, #00000020),
+    0 5px 10px light-dark(#1c1e2114, #00000030);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
   animation: bubble-appear 120ms ease-out;

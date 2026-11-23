@@ -234,8 +234,8 @@ html[data-view] .workspace-titlebar {
   display: grid;
   place-items: center;
   border-radius: 25%;
-  background: var(--soft);
-  color: var(--ink);
+  background: var(--surface-opaque);
+  color: light-dark(#000, var(--ink));
 }
 .remy-mark::before {
   content: "";
@@ -425,12 +425,9 @@ html[data-view] .workspace-titlebar {
   border: 0;
   border-radius: var(--radius-lg);
   padding: 13px 20px;
-  background: var(--soft);
+  background: var(--accent-soft);
   color: var(--ink);
   max-width: 85%;
-}
-:where(html[data-view]) .message.user {
-  background: var(--accent-soft);
 }
 .message-focused {
   outline: 1px solid var(--accent-line);
@@ -529,7 +526,7 @@ html[data-view] .workspace-titlebar {
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   padding: 16px 13px 12px 18px;
-  box-shadow: 0 3px 16px light-dark(#223e2910, #00000018);
+  box-shadow: 0 3px 16px light-dark(#1c1e2110, #00000018);
   background: var(--surface-opaque);
   gap: 8px;
 }
@@ -723,8 +720,8 @@ html[data-view] .workspace-titlebar {
   color: var(--ink);
   font-size: var(--text-caption);
   box-shadow:
-    0 8px 30px #10241924,
-    0 1px 3px #10241914;
+    0 8px 30px #1c1e2124,
+    0 1px 3px #1c1e2114;
 }
 .workspace-shell select option {
   gap: 8px;
@@ -787,27 +784,27 @@ html[data-view] .workspace-titlebar {
   display: flex;
   padding: 8px;
   gap: 7px;
-  background: var(--theme-preview-light, #f2f4f0);
+  background: var(--theme-preview-light);
   border: 2px solid transparent;
   border-radius: var(--radius-md);
-  box-shadow: inset 0 0 0 1px #152b1510;
+  box-shadow: inset 0 0 0 1px #0001;
 }
 .theme-options button[aria-pressed="true"] .theme-preview {
   border-color: var(--accent);
 }
 .theme-preview.dark {
-  background: var(--theme-preview-dark, #252c27);
+  background: var(--theme-preview-dark);
 }
 .theme-preview.system {
   background: linear-gradient(
     110deg,
-    var(--theme-preview-light, #f2f4f0) 50%,
-    var(--theme-preview-dark, #252c27) 50%
+    var(--theme-preview-light) 50%,
+    var(--theme-preview-dark) 50%
   );
 }
 .mini-sidebar {
   width: 27%;
-  background: #9cae9f22;
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
   border-radius: 4px;
 }
 .mini-content {
@@ -827,7 +824,7 @@ html[data-view] .workspace-titlebar {
   width: 75%;
   height: 3px;
   border-radius: 3px;
-  background: #83a38c50;
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
   margin-bottom: 6px;
 }
 .mini-content i:nth-child(2) {
@@ -835,10 +832,6 @@ html[data-view] .workspace-titlebar {
 }
 .mini-content i:nth-child(3) {
   width: 50%;
-}
-html[data-view] .mini-sidebar,
-html[data-view] .mini-content i {
-  background: color-mix(in srgb, var(--accent) 25%, transparent);
 }
 .theme-preview > span {
   position: absolute;
@@ -1067,7 +1060,7 @@ html[data-view] .mini-content i {
   margin: 0 15px 8px;
   padding: 3px;
   border-radius: var(--radius-md);
-  background: light-dark(#6c876b0a, #0000000d);
+  background: color-mix(in srgb, var(--ink) 3%, transparent);
 }
 .source-tabs button {
   display: flex;
@@ -1259,7 +1252,7 @@ html[data-view] .mini-content i {
   gap: 6px;
   min-width: 0;
   max-width: 100%;
-  border: 1px solid light-dark(#758d751a, #ffffff0e);
+  border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   padding: 3px 7px;
   color: var(--muted);
@@ -1324,17 +1317,13 @@ html[data-view] .mini-content i {
   height: 120px;
   color: var(--accent);
   margin-bottom: 24px;
-  border: 1px solid light-dark(#82a48718, #82a48712);
+  border: 1px solid var(--accent-line);
   border-radius: 36px;
-  background: linear-gradient(
-    145deg,
-    light-dark(#eff6eb, #82a4870d),
-    light-dark(#e7f0e510, #82a48702)
-  );
+  background: linear-gradient(145deg, var(--accent-soft), var(--page));
 }
 .knowledge-illustration span {
   position: absolute;
-  background: light-dark(#a4bfae, #709e7a);
+  background: var(--accent-line);
   border: 4px solid var(--page);
   width: 15px;
   height: 15px;
@@ -1349,13 +1338,6 @@ html[data-view] .mini-content i {
   left: -7px;
   width: 12px;
   height: 12px;
-}
-html[data-view] .knowledge-illustration {
-  border-color: var(--accent-line);
-  background: linear-gradient(145deg, var(--accent-soft), var(--page));
-}
-html[data-view] .knowledge-illustration span {
-  background: var(--accent-line);
 }
 .knowledge-empty h2 {
   font-size: var(--text-document);
@@ -1401,7 +1383,7 @@ html[data-view] .knowledge-illustration span {
   margin: 22px 0 26px;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  background: light-dark(#f3f6f240, #ffffff03);
+  background: color-mix(in srgb, var(--ink) 3%, transparent);
   overflow: hidden;
 }
 .document-properties summary {
@@ -1531,7 +1513,7 @@ html[data-view] .knowledge-illustration span {
   padding: 3px 18px;
   margin: 22px 0;
   color: var(--muted);
-  background: light-dark(#edf3eb60, #ffffff03);
+  background: color-mix(in srgb, var(--ink) 3%, transparent);
 }
 .document-markdown pre,
 .document-text {
@@ -1858,10 +1840,10 @@ html[data-view] .knowledge-illustration span {
   border-radius: var(--radius-lg);
   background: var(--page-opaque);
   color: var(--ink);
-  box-shadow: 0 24px 72px #10241930;
+  box-shadow: 0 24px 72px #1c1e2130;
 }
 .workspace-dialog::backdrop {
-  background: #10241938;
+  background: var(--scrim);
   backdrop-filter: blur(3px);
 }
 .workspace-dialog h2 {

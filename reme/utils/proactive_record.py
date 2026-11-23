@@ -38,14 +38,21 @@ def round_paths(directory, agent_name):
         yield from (path for path in day.glob(f"{agent_name}_*.md") if is_round_record(path, agent_name))
 
 
-def split_record(text):
-    """Read YAML metadata while keeping the exact Markdown suffix for state updates."""
+def _split_frontmatter(text):
     text = text.removeprefix("\ufeff")
     if match := _FRONTMATTER.match(text):
-        metadata = yaml.safe_load(match[1])
+        return match[1], text[match.end() :]
+    return None, text
+
+
+def split_record(text):
+    """Read YAML metadata while keeping the exact Markdown suffix for state updates."""
+    header, body = _split_frontmatter(text)
+    if header is not None:
+        metadata = yaml.safe_load(header)
         if isinstance(metadata, dict):
-            return metadata, text[match.end() :]
-    return {}, text
+            return metadata, body
+    return {}, text.removeprefix("\ufeff")
 
 
 class RoundRecord:
@@ -84,6 +91,19 @@ class RoundRecord:
         """Reject edits made before commit, including a file created after a skip."""
         if path != self.path or self._version(path) != self.written:
             raise RuntimeError(f"Agent output changed outside this round: {path}")
+
+    def replace_frontmatter(self, metadata):
+        """Replace an unchanged draft's frontmatter under its file lock."""
+        self.check_version(self.path)
+        header, body = _split_frontmatter(self.files.read(self.path))
+        if header is None:
+            raise ValueError("The round record must have delimited YAML frontmatter")
+
+        def save_version(result):
+            _, self.written = result
+
+        content = f"---\n{yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False)}---{body}"
+        self.files.write(self.path, content, on_write=save_version)
 
     async def rollback(self):
         """Remove only the uncommitted version written by this round."""

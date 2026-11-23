@@ -227,7 +227,7 @@ button {
   font-size: var(--text-caption);
   background: var(--warning-soft);
   color: var(--warning);
-  box-shadow: 0 2px 8px #10241920;
+  box-shadow: 0 2px 8px #1c1e2120;
 }
 .companion-error {
   position: absolute;
@@ -552,7 +552,7 @@ button {
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: var(--surface-opaque);
-  box-shadow: 0 6px 24px light-dark(#223e2918, #0005);
+  box-shadow: 0 6px 24px light-dark(#1c1e2118, #0005);
 }
 .chat-command-menu button {
   display: flex;
@@ -642,8 +642,13 @@ button {
   white-space: nowrap;
 }
 .loading {
+  display: grid;
+  place-items: center;
+  min-height: 100%;
+  margin: 0;
   padding: 20px;
   color: var(--muted);
+  text-align: center;
 }
 @media (prefers-reduced-motion: reduce) {
   * {

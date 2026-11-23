@@ -11,6 +11,12 @@ service:
   mcp_enabled: true
 
 jobs:
+  health_check:
+    backend: base
+    description: "Return a health snapshot of ReMe components."
+    steps:
+      - backend: health_check_step
+
   todo:
     backend: base
     description: >-

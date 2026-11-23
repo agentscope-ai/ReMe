@@ -29,6 +29,8 @@ export default defineConfig(({ mode }) => ({
   build: {
     outDir: mode === "demo" ? "dist-demo" : "dist-static",
     target: "es2023",
+    // Keep light-dark() tied to Studio's color-scheme setting.
+    cssTarget: ["chrome123", "edge123", "firefox120", "safari17.5"],
   },
   server: {
     proxy: {

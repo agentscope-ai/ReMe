@@ -1,22 +1,28 @@
-/* Shared across the workspace and transparent companion surfaces. */
+/* Shared by the workspace, mobile hosts, and transparent companion surfaces. */
 :root {
-  --ink: light-dark(#303731, #e5ebe6);
-  --muted: light-dark(#606b63, #a8b2ab);
-  --accent: light-dark(#4d7057, #adccb5);
-  --accent-ink: light-dark(#fff, #1c3425);
-  --accent-soft: light-dark(#e2ebe1, #334739);
-  --accent-line: light-dark(#c7d4c7, #526b58);
-  --line: light-dark(#e1e6df, #3a453d);
-  --soft: light-dark(#edf0eb, #2c3730);
-  --surface: light-dark(#fffffff0, #2b352ef0);
-  --page: light-dark(#fcfcfbf5, #1f2421f5);
-  --glass: light-dark(#f2f4f0b8, #252c27b8);
-  --surface-opaque: light-dark(#fff, #2b352e);
-  --page-opaque: light-dark(#fcfcfb, #1f2421);
-  --glass-opaque: light-dark(#f2f4f0, #252c27);
+  --theme-preview-light: #f9f9f9;
+  --theme-preview-dark: #222224;
+  --ink: light-dark(#1c1e21, #ededee);
+  --muted: light-dark(#48494c, #b6b6ba);
+  --accent: light-dark(#1c1e21, #f0f0f1);
+  --accent-ink: light-dark(#fff, #18181a);
+  --accent-soft: light-dark(#edeeee, #353537);
+  --accent-line: light-dark(#d5d6d8, #545459);
+  --line: light-dark(#e6e6e7, #3b3b3e);
+  --soft: light-dark(#f0f0f1, #2d2d30);
+  --surface: light-dark(#fffffff0, #28282bf0);
+  --page: light-dark(#fefefef5, #18181af5);
+  --glass: light-dark(#f9f9f9d4, #222224d4);
+  --surface-opaque: light-dark(#fff, #28282b);
+  --page-opaque: light-dark(#fefefe, #18181a);
+  --glass-opaque: light-dark(
+    var(--theme-preview-light),
+    var(--theme-preview-dark)
+  );
   --card: light-dark(#ffffffb8, #ffffff06);
-  --floating: light-dark(#fcfcfbf7, #2b352efa);
-  --shadow: light-dark(0 3px 14px #283d2e0c, 0 3px 14px #00000020);
+  --floating: light-dark(#fafafaf7, #28282bfa);
+  --shadow: light-dark(0 3px 14px #1c1e210c, 0 3px 14px #00000020);
+  --scrim: light-dark(#1c1e2140, #0007);
   --warning: light-dark(#87642a, #dfbf86);
   --warning-soft: light-dark(#f5eedf, #3e3527);
   --error: light-dark(#a04f47, #e7aaa0);
@@ -39,28 +45,4 @@
   --space-4: 16px;
   --space-6: 24px;
   --space-8: 32px;
-}
-
-:root[data-view] {
-  --theme-preview-light: #f2f7ff;
-  --theme-preview-dark: #1a2535;
-  --ink: light-dark(#1e293b, #e8eef8);
-  --muted: light-dark(#52647a, #aab9cc);
-  --accent: light-dark(#2864b3, #92beff);
-  --accent-ink: light-dark(#fff, #12233c);
-  --accent-soft: light-dark(#e5efff, #273e5e);
-  --accent-line: light-dark(#c8dcf6, #4f6f98);
-  --line: light-dark(#dde6f2, #344358);
-  --soft: light-dark(#edf4fe, #243348);
-  --surface: light-dark(#fffffff0, #202c3df0);
-  --page: light-dark(#fffffff5, #141e2cf5);
-  --glass: light-dark(#f2f7ffd4, #1a2535d4);
-  --surface-opaque: light-dark(#fff, #202c3d);
-  --page-opaque: light-dark(#fff, #141e2c);
-  --glass-opaque: light-dark(
-    var(--theme-preview-light),
-    var(--theme-preview-dark)
-  );
-  --floating: light-dark(#f8fbfff7, #202c3dfa);
-  --shadow: light-dark(0 3px 14px #223c660c, 0 3px 14px #00000020);
 }
