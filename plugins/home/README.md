@@ -9,10 +9,10 @@ You can run the optimization agent or edit and evaluate candidates yourself.
 HoMe experiment you want to run again. Keep the old workspace to consult
 previous evaluation results.
 
-New evaluations retain the verified source hash and review evidence alongside
-each reused snapshot. Final validation checks this retained copy even after the
-source evaluation is archived. Older evaluations without the retained source
-hash still require their original source artifacts for validation.
+Final candidate validation requires a verified construction snapshot and the
+hash recorded during its review for each reused case. HoMe retains both for
+automatically selected replay, so validation can proceed after the source
+evaluation is archived.
 
 ## 1. Install and configure
 
