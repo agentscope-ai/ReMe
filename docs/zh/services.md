@@ -58,8 +58,9 @@ curl -N http://127.0.0.1:2333/chat \
   -d '{"query":"总结我的长期偏好"}'
 ```
 
-`proactive` 的工作区接口为 `list_workspace`、`search_workspace`、`load_file` 和 `get_client_info`；
-默认配置提供 `list`、`search`、`load` 和 `app_config`。
+`proactive` 的工作区接口为 `list_workspace`、`search_workspace`、`load_file`、`save_file` 和 `get_client_info`。
+Studio 保存时提交完整原文，并将 `load_file` 返回的 `mtime` 作为 `expected_mtime`。文件已变化时返回 `file_conflict`。
+默认配置提供 `list`、`search`、`load`、`save` 和 `app_config`。
 
 `proactive` 配置提供 `ask_agent(query, agent_name=Remy)`，使用固定 Chat Agent 的当前原生会话，
 `create_chat_session` 创建并选中新会话。`demo` 继承这两个 Job，并提供 `list_chat_sessions`、
@@ -134,12 +135,12 @@ Remy `MEMORY.md`，重启和切换会话保留已有个人记忆。Chat 的 `job
 
 通过 proactive 预置配置的 `components.proactive_manager.default.runtimes` 声明初始 Runtime，使用创建接口的同一组字段，
 包括 `task_description`。启动只创建缺失的身份，保留已有的任务说明、配置和删除状态。配置损坏的 Runtime 单独报错，其他 Runtime 继续运行。
-默认配置中，`finance` 结合财联社电报关注现货黄金、WTI 原油、BTC/USDT 和纳斯达克综合指数，`work` 根据新观察资料跟踪主人正在做的项目，
+默认配置中，`proactive_fin` 结合财联社电报关注现货黄金、WTI 原油、BTC/USDT 和纳斯达克综合指数，`proactive_memory` 根据新观察资料跟踪主人正在做的项目，
 整理各项目的进度、进展、难点和待讨论问题。`codex_dialogue_cron` 采集 Codex 新增对话和图片附件，
-`screen_capture_cron` 独立采集全部显示器。两者默认每五分钟执行，都投递给 `work`。
-对话采集器也将事件投递给 `proactive_notebook`，用于跟进随记中的已有待办。
+`screen_capture_cron` 独立采集全部显示器。两者默认每五分钟执行，都投递给 `proactive_memory`。
+对话采集器也将事件投递给 `proactive_note`，用于跟进随记中的已有待办。
 对话 Job 启动时先执行 `init_steps` 建立读取基线，不导入已有对话，初始化成功后才开始定时采集。
-时间触发任务 `tech_news` 每天按应用时区 08:00 整理过去 24 小时的重要科技新闻并在完成后提醒。
+时间触发任务 `proactive_news` 每天按应用时区 08:00 整理过去 24 小时的重要科技新闻并在完成后提醒。
 
 每个 Proactive Runtime 消费自己的事件并根据工作区文件重建上下文。Manager 将保存的提醒经 Outbox 投递到 Chat Inbox。
 下图以工作场景中的潜在问题和待办提醒为例；Claude Code 轨迹可通过事件 API 接入，提醒消息仅作示意。
@@ -289,7 +290,7 @@ reme idea action=list project=ReMe scope=all
 Todo 默认 `pending`（待开始），开始后可设为 `in_progress`（进行中）。完成或取消时设为 `closed` 并自动归档，
 可同时用 `close_note` 记录结果或原因。重新打开会清除本次关闭时间和备注。
 
-`proactive_notebook` 由事件触发，与 `work` 接收同一份新增 Codex 对话。随记使用 `manage-todos-ideas` 查找相关
+`proactive_note` 由事件触发，与 `proactive_memory` 接收同一份新增 Codex 对话。随记使用 `manage-todos-ideas` 查找相关
 Todo 和 Idea，先读完 Todo 的进展，再按新依据追加、更正或撤回进展，也可以把已开工的 Todo 改为 `in_progress`。
 条目的新增、关闭、Idea 修改和关联变更交给 Remy。需要用户决定的事项逐条写入 Markdown，说明条目、新依据和下一步，再按统一流程投递。
 

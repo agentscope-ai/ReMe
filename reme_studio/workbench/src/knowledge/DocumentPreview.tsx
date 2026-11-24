@@ -1,42 +1,35 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState, type ReactNode, type Ref } from "react";
 import MarkdownText from "../markdown.tsx";
-import { ChevronRight, FileText, ListFilter } from "lucide-react";
+import {
+  Check,
+  ChevronRight,
+  Copy,
+  FileText,
+  ListFilter,
+  Pencil,
+} from "lucide-react";
 import { stringify } from "yaml";
 import { translator, type Language } from "../../../client/src/i18n.ts";
 import { parseMarkdown } from "./model.ts";
 
-export default function DocumentPreview({
+export function DocumentHeading({
   path,
-  content,
   mtime,
-  tagKey,
-  onTag,
-  onLink,
   language,
+  children,
 }: {
   path: string;
-  content: string;
   mtime?: string;
-  tagKey?: string;
-  onTag?: (tag: string) => void;
-  onLink: (href: string) => void;
   language: Language;
+  children?: ReactNode;
 }) {
   const t = translator(language);
-  const markdown = /\.mdx?$/i.test(path);
   const filename = path.split("/").at(-1) || path;
-  const extension = /.+\.([^.]+)$/.exec(filename)?.[1];
-  const title =
-    markdown && extension ? filename.slice(0, -extension.length - 1) : filename;
-  const modified = !markdown && mtime ? new Date(mtime) : null;
-  const parsed = useMemo(
-    () => parseMarkdown(markdown ? content : ""),
-    [content, markdown],
-  );
-  const entries = Object.entries(parsed.metadata);
+  const title = filename.replace(/\.mdx?$/i, "") || filename;
+  const modified = !/\.mdx?$/i.test(path) && mtime ? new Date(mtime) : null;
   return (
-    <article className="document-content">
-      <header className="document-heading">
+    <header className="document-heading">
+      <div className="document-heading-text">
         <h1 className="document-title" data-long={title.length > 80}>
           {title}
         </h1>
@@ -55,7 +48,98 @@ export default function DocumentPreview({
             })}
           </time>
         )}
-      </header>
+      </div>
+      {children}
+    </header>
+  );
+}
+
+export default function DocumentPreview({
+  path,
+  content,
+  mtime,
+  tagKey,
+  onTag,
+  onLink,
+  onCopy,
+  onEdit,
+  editRef,
+  language,
+}: {
+  path: string;
+  content: string;
+  mtime?: string;
+  tagKey?: string;
+  onTag?: (tag: string) => void;
+  onLink: (href: string) => void;
+  onCopy?: (content: string) => Promise<void>;
+  onEdit?: () => void;
+  editRef?: Ref<HTMLButtonElement>;
+  language: Language;
+}) {
+  const t = translator(language);
+  const [copyStatus, setCopyStatus] = useState<"copied" | "failed">();
+  useEffect(() => {
+    if (!copyStatus) return;
+    const timer = window.setTimeout(() => setCopyStatus(undefined), 2400);
+    return () => window.clearTimeout(timer);
+  }, [copyStatus]);
+  const markdown = /\.mdx?$/i.test(path);
+  const filename = path.split("/").at(-1) || path;
+  const extension = /.+\.([^.]+)$/.exec(filename)?.[1];
+  const parsed = useMemo(
+    () => parseMarkdown(markdown ? content : ""),
+    [content, markdown],
+  );
+  const entries = Object.entries(parsed.metadata);
+  return (
+    <article className="document-content">
+      <DocumentHeading path={path} mtime={mtime} language={language}>
+        {(onCopy || onEdit) && (
+          <div className="document-actions">
+            {onCopy && (
+              <button
+                type="button"
+                className="subtle"
+                title={t("copyContent")}
+                onClick={() =>
+                  void onCopy(content).then(
+                    () => setCopyStatus("copied"),
+                    () => setCopyStatus("failed"),
+                  )
+                }
+              >
+                {copyStatus === "copied" ? (
+                  <Check size={14} aria-hidden />
+                ) : (
+                  <Copy size={14} aria-hidden />
+                )}
+                <span aria-live="polite">
+                  {t(
+                    copyStatus === "copied" ? "documentCopied" : "documentCopy",
+                  )}
+                </span>
+              </button>
+            )}
+            {onEdit && (
+              <button
+                ref={editRef}
+                type="button"
+                className="secondary"
+                onClick={onEdit}
+              >
+                <Pencil size={14} aria-hidden />
+                {t("documentEdit")}
+              </button>
+            )}
+          </div>
+        )}
+      </DocumentHeading>
+      {copyStatus === "failed" && (
+        <p className="document-action-error" role="alert">
+          {t("documentCopyFailed")}
+        </p>
+      )}
       {(entries.length > 0 || parsed.frontmatterError) && (
         <details className="document-properties" open>
           <summary>

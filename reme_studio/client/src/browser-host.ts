@@ -288,6 +288,10 @@ export class BrowserHost implements StudioApi {
       }
       case "document.open":
         return this.openLink(action.path);
+      case "clipboard.copy":
+        if (typeof action.text !== "string") throw new UiError("invalidAction");
+        if (!navigator.clipboard) throw new UiError("documentCopyFailed");
+        return navigator.clipboard.writeText(action.text);
       case "link.open":
         return this.openLink(action.url, action.sourcePath);
       case "agent.reveal": {

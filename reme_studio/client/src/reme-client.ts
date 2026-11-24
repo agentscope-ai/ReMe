@@ -60,10 +60,13 @@ export class ReMeClient {
         reader.releaseLock();
       }
     } else payload = await response.json();
-    if (payload?.success !== true)
+    if (payload?.success !== true) {
+      if (job === "save_file" && payload?.metadata?.code === "file_conflict")
+        throw new UiError("documentConflict");
       throw typeof payload?.answer === "string"
         ? new Error(payload.answer)
         : new UiError("jobFailed", { job });
+    }
     return { ...payload, metadata: payload.metadata ?? {} };
   }
 

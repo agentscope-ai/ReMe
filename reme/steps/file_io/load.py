@@ -40,7 +40,7 @@ class LoadStep(_FileIOStep):
             )
             return self.context.response
         try:
-            content, encoding = await read_file_safe(target, max_bytes=max_bytes)
+            content, encoding = await read_file_safe(target, max_bytes=max_bytes, require_complete=True)
         except Exception as exc:  # pylint: disable=broad-except
             self._fail(f"load failed: {exc}", path=raw_path)
             return self.context.response

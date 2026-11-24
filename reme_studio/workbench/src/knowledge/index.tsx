@@ -21,6 +21,7 @@ import { useWorkspace } from "../resources.ts";
 import SplitPane, { SidebarHeading } from "../split-pane.tsx";
 import { buildTree, type FileTree } from "./model.ts";
 import DocumentPreview from "./DocumentPreview.tsx";
+import DocumentEditor from "./DocumentEditor.tsx";
 
 const sources = [
   ["workspace", FolderTree, "workspaceTab"],
@@ -153,6 +154,11 @@ export default function Knowledge({
   const error =
     config && !available ? new UiError("workspaceUnavailable") : requestError;
   const [fileError, setFileError] = useState<unknown>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [navigationBlocked, setNavigationBlocked] = useState(false);
+  const editButton = useRef<HTMLButtonElement>(null);
+  const restoreEditFocus = useRef(false);
+  const openedTarget = useRef<number>(undefined);
   const loadedPath = useRef("");
   const documentScroll = useRef<HTMLDivElement>(null);
   const root =
@@ -172,15 +178,27 @@ export default function Knowledge({
   const activeTags = browsingTags ? selectedTags : undefined;
   const showFiles = !browsingTags || Boolean(query || activeTags?.length);
   useEffect(() => {
-    if (!state.documentTarget) return;
+    const target = state.documentTarget;
+    if (!target) {
+      openedTarget.current = undefined;
+      return;
+    }
+    if (editorOpen || openedTarget.current === target.request) return;
+    openedTarget.current = target.request;
     setSource("workspace");
     setQuery("");
     setDraft("");
     setSelectedTags([]);
     setPage(1);
-    setSelected(state.documentTarget.path);
+    setSelected(target.path);
     setRefresh((value) => value + 1);
-  }, [state.documentTarget]);
+  }, [state.documentTarget, editorOpen]);
+  useEffect(() => {
+    if (!editorOpen && restoreEditFocus.current) {
+      restoreEditFocus.current = false;
+      editButton.current?.focus({ preventScroll: true });
+    }
+  }, [editorOpen]);
   useEffect(() => {
     if (!active || !browsingTags || !supportsTags) return;
     let live = true;
@@ -305,7 +323,7 @@ export default function Knowledge({
     return () => clearInterval(timer);
   }, [active, config]);
   useEffect(() => {
-    if (!selected) return;
+    if (!selected || editorOpen) return;
     let live = true;
     if (loadedPath.current !== selected) {
       setFileLoading(true);
@@ -330,7 +348,10 @@ export default function Knowledge({
             image: image
               ? `data:${result.metadata.mime};base64,${result.answer}`
               : undefined,
-            mtime: result.metadata.mtime as string | undefined,
+            mtime:
+              typeof result.metadata.mtime === "string"
+                ? result.metadata.mtime
+                : undefined,
           });
         }
       })
@@ -346,7 +367,13 @@ export default function Knowledge({
     return () => {
       live = false;
     };
-  }, [selected, refresh]);
+  }, [selected, refresh, editorOpen]);
+  const mtime = document?.mtime;
+  const canEdit = Boolean(
+    mtime &&
+    config?.jobs.includes("save_file") &&
+    /\.(mdx?|txt|csv|jsonl?|ya?ml)$/i.test(selected),
+  );
   const tree = useMemo(() => buildTree(paths, root), [paths, root]);
   const selectSource = (next: KnowledgeSource) => {
     if (next === source) return;
@@ -375,6 +402,13 @@ export default function Knowledge({
     void action({ type: "link.open", url, sourcePath: selected }).catch(
       setFileError,
     );
+  const selectDocument = (path: string) => {
+    if (editorOpen && path !== selected) {
+      setNavigationBlocked(true);
+      return;
+    }
+    setSelected(path);
+  };
   return (
     <SplitPane
       name="knowledge"
@@ -383,8 +417,8 @@ export default function Knowledge({
           ? [
               {
                 label: t("memory"),
-                onSelect: () => setSelected(""),
-                revealSidebar: true,
+                onSelect: () => selectDocument(""),
+                revealSidebar: !editorOpen,
               },
               {
                 label: selected.split(/[\\/]/).at(-1) || selected,
@@ -564,7 +598,7 @@ export default function Knowledge({
                 nodes={tree}
                 selected={selected}
                 onOpen={(path) => {
-                  setSelected(path);
+                  selectDocument(path);
                   onNavigate?.();
                 }}
               />
@@ -606,7 +640,7 @@ export default function Knowledge({
                   {t("retry")}
                 </button>
               </div>
-            ) : fileLoading ? (
+            ) : fileLoading || loadedPath.current !== selected ? (
               <div className="document-loading">{t("documentLoading")}</div>
             ) : (
               document &&
@@ -615,6 +649,35 @@ export default function Knowledge({
                   className="knowledge-image"
                   src={document.image}
                   alt={selected}
+                />
+              ) : editorOpen && mtime ? (
+                <DocumentEditor
+                  path={selected}
+                  content={document.content}
+                  mtime={mtime}
+                  language={state.settings.language}
+                  navigationBlocked={navigationBlocked}
+                  save={async (content) => {
+                    const { metadata } = await request({
+                      type: "save",
+                      path: selected,
+                      content,
+                      expectedMtime: mtime,
+                    });
+                    setDocument({
+                      content,
+                      mtime:
+                        typeof metadata.mtime === "string"
+                          ? metadata.mtime
+                          : undefined,
+                    });
+                    setRefresh((n) => n + 1);
+                  }}
+                  onClose={() => {
+                    restoreEditFocus.current = true;
+                    setEditorOpen(false);
+                    setNavigationBlocked(false);
+                  }}
                 />
               ) : (
                 <DocumentPreview
@@ -625,6 +688,9 @@ export default function Knowledge({
                   tagKey={config?.tag_key ?? "memory_tags"}
                   onTag={supportsTags ? chooseTag : undefined}
                   onLink={openLink}
+                  onCopy={(text) => action({ type: "clipboard.copy", text })}
+                  onEdit={canEdit ? () => setEditorOpen(true) : undefined}
+                  editRef={editButton}
                   language={state.settings.language}
                 />
               ))

@@ -1528,7 +1528,37 @@ html[data-view] .workspace-titlebar {
   overflow-wrap: anywhere;
 }
 .document-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 16px;
   margin-bottom: 24px;
+}
+.document-heading-text {
+  flex: 1 1 150px;
+  min-width: 0;
+}
+.document-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.document-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+}
+.document-actions .subtle:has(svg) {
+  min-width: 86px;
+}
+.document-action-error {
+  color: var(--error);
+  font-size: var(--text-caption);
+  margin: 0 0 16px;
 }
 .document-title {
   font-size: var(--text-document);
@@ -2020,6 +2050,47 @@ html[data-view] .workspace-titlebar {
   width: 100%;
   margin-top: var(--space-3);
   accent-color: var(--accent);
+}
+.document-editor {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  padding-bottom: 24px;
+}
+.document-editor textarea {
+  flex: 1;
+  width: 100%;
+  min-height: min(280px, 42dvh);
+  padding: 16px;
+  resize: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--ink);
+  font:
+    var(--text-body) / 1.65 ui-monospace,
+    SFMono-Regular,
+    monospace;
+  overscroll-behavior: contain;
+}
+.document-editor textarea:focus-visible {
+  border-color: var(--accent-line);
+  outline: 2px solid var(--accent-soft);
+  outline-offset: 0;
+}
+.document-edit-status {
+  min-height: 1.5em;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: var(--text-caption);
+}
+@media (pointer: coarse) {
+  .document-actions button {
+    min-height: 42px;
+  }
+  .document-editor textarea {
+    font-size: max(16px, var(--text-body));
+  }
 }
 .agent-document {
   flex: 1;

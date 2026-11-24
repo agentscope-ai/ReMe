@@ -215,7 +215,7 @@ export default function TaskEditor({
                   maxLength={80}
                   value={name}
                   onChange={(event) => setName(event.target.value)}
-                  placeholder="tech_news"
+                  placeholder="proactive_news"
                 />
               </label>
             )}

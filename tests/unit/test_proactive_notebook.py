@@ -28,9 +28,9 @@ async def test_notebook_uses_common_runner_and_tools(tmp_path, monkeypatch, noti
     preset = next(
         item
         for item in config["components"]["proactive_manager"]["default"]["runtimes"]
-        if item["agent_name"] == "proactive_notebook"
+        if item["agent_name"] == "proactive_note"
     )
-    runtime_name = "release_notebook" if notify else "proactive_notebook"
+    runtime_name = "release_notebook" if notify else "proactive_note"
     preset = {**preset, "agent_name": runtime_name}
     language = "zh" if notify else "en"
     async with running_manager(tmp_path, runtimes=[preset], language=language) as (manager, context, wrapper):
@@ -203,7 +203,7 @@ async def test_notebook_uses_common_runner_and_tools(tmp_path, monkeypatch, noti
 async def test_restored_notebook_keeps_its_configured_step(tmp_path):
     """Restore content and the execution step together under the same runtime name."""
     async with running_manager(tmp_path) as (manager, _, _):
-        name = "proactive_notebook"
+        name = "proactive_note"
         await manager.create(
             {
                 "agent_name": name,

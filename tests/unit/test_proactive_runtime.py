@@ -209,10 +209,10 @@ def test_builtin_agent_configurations_resolve_steps_and_keep_internal_jobs_priva
     config = resolve_app_config(config=name, log_config=False)
     components = config["components"]
     assert {item["agent_name"] for item in components["proactive_manager"]["default"]["runtimes"]} == {
-        "work",
-        "finance",
-        "tech_news",
-        "proactive_notebook",
+        "proactive_memory",
+        "proactive_fin",
+        "proactive_news",
+        "proactive_note",
     }
     wrapper = components["agent_wrapper"]["default"]
     assert wrapper["backend"] == backend
@@ -220,10 +220,12 @@ def test_builtin_agent_configurations_resolve_steps_and_keep_internal_jobs_priva
     if backend == "claude_code":
         assert json.loads(wrapper["settings"])["permissions"]["blockWritesOutsideWorkingDirectories"] is True
     jobs = config["jobs"]
+    assert jobs["screen_capture_cron"]["steps"][0]["task_names"] == ["proactive_memory"]
+    assert jobs["codex_dialogue_cron"]["steps"][0]["task_names"] == ["proactive_memory", "proactive_note"]
     finance_jobs = {
         job_name
         for job_name, job in jobs.items()
-        if any("finance" in step.get("task_names", []) for step in job.get("steps", []))
+        if any("proactive_fin" in step.get("task_names", []) for step in job.get("steps", []))
     }
     assert finance_jobs == {
         "finance_news_cron",
@@ -242,7 +244,7 @@ def test_builtin_agent_configurations_resolve_steps_and_keep_internal_jobs_priva
     notebook = next(
         item
         for item in components["proactive_manager"]["default"]["runtimes"]
-        if item["agent_name"] == "proactive_notebook"
+        if item["agent_name"] == "proactive_note"
     )
     assert R.get(ComponentEnum.STEP, notebook["step_backend"]) is ProactiveNotebookStep
     assert issubclass(ProactiveNotebookStep, ProactiveAgentStep)

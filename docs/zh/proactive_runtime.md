@@ -41,7 +41,7 @@ ReMe 的主动智能运行时（Proactive Runtime）把本地长期记忆用于�
 
 Agent 需要先拿到资料，才能知道发生了什么。资料可以来自屏幕截图、工作对话、新闻和行情，也可以来自外部程序提交的日志或任务状态。
 
-采集器把原始资料保存到工作区，再提交一条事件，说明时间、来源、简要内容和文件位置。例如，`codex_dialogue_cron` 启动时先执行 `init_steps` 建立读取基线，不导入旧历史，成功后每五分钟采集 Codex 新增对话和图片附件。`screen_capture_cron` 独立采集多屏截图，两路都交给 `work` Agent。采集本身不调用模型，分析留到任务执行时完成。
+采集器把原始资料保存到工作区，再提交一条事件，说明时间、来源、简要内容和文件位置。例如，`codex_dialogue_cron` 启动时先执行 `init_steps` 建立读取基线，不导入旧历史，成功后每五分钟采集 Codex 新增对话和图片附件。`screen_capture_cron` 独立采集多屏截图，两路都交给 `proactive_memory` Agent。采集本身不调用模型，分析留到任务执行时完成。
 
 内置采集器按 `resource/{source}/{date}/{batch}/` 保存每批资料。`date` 为应用时区的日期，格式是 `YYYY-MM-DD`；`batch` 由采集时的 `HHMMSS` 和六位随机十六进制字符组成。批次内的 `metadata.json` 记录来源和文件清单，截图按屏幕 ID 保存为 PNG。清单完整发布后，才向 Agent 投递事件。Codex 对话事件提供 `dialogue.md` 和图片路径，供 Agent 直接阅读。
 
@@ -156,7 +156,7 @@ Chat 通过 `manage-proactive-agent` skill 按任务名称管理后台任务。�
 
 你可能收到：“项目 A 的修改已完成，目前还缺一次验证；项目 B 的两种方案各有一个限制，需要你选一下方向。”之后可以继续问“把两种方案的依据列给我”，相关记录仍然可以查回。
 
-当前内置 Codex 对话采集和截图采集每五分钟独立执行，分别保存资源并投递给同一个 `work` Agent。Codex 采集[新增对话和图片附件](./auto_resource.md#定时-codex-对话采集)，截图采集全部显示器。Claude Code 和更完整的工具执行轨迹需要额外接入；分析时要区分用户要求、尝试过的操作和已验证的结果。采集配置见[服务配置](./services.md#proactive-runtime)。
+当前内置 Codex 对话采集和截图采集每五分钟独立执行，分别保存资源并投递给同一个 `proactive_memory` Agent。Codex 采集[新增对话和图片附件](./auto_resource.md#定时-codex-对话采集)，截图采集全部显示器。Claude Code 和更完整的工具执行轨迹需要额外接入；分析时要区分用户要求、尝试过的操作和已验证的结果。采集配置见[服务配置](./services.md#proactive-runtime)。
 
 ### 实验与长任务监控：去做别的事，等关键结果
 
@@ -184,7 +184,7 @@ Chat 通过 `manage-proactive-agent` skill 按任务名称管理后台任务。�
 
 > “关注 AI 领域的重要新闻和这些标的的明显波动，达到约定条件时，告诉我发生了什么，并附来源。”
 
-现货黄金、WTI 原油、BTC/USDT、纳斯达克综合指数及财联社电报各自每五分钟采集一次，投递给 `finance` Agent。
+现货黄金、WTI 原油、BTC/USDT、纳斯达克综合指数及财联社电报各自每五分钟采集一次，投递给 `proactive_fin` Agent。
 
 Agent 结合用户的关注范围和提醒条件，整理价格变化、相关消息和信息时间。当前示例要求仅在 AI 重大新闻或跟踪标的的日内振幅超过 5% 时生成提醒，其余内容保留记录。
 

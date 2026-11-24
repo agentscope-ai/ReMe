@@ -62,7 +62,7 @@ workspace/
 ## 定时屏幕采集
 
 `config=proactive` 默认启用 `screen_capture_cron`，按应用时区每 5 分钟采集截图，启动时不立即采集。
-截图独立投递给 `work` 任务，与 Codex 对话采集互不依赖。可用 `jobs.screen_capture_cron.enabled=false` 关闭，
+截图独立投递给 `proactive_memory` 任务，与 Codex 对话采集互不依赖。可用 `jobs.screen_capture_cron.enabled=false` 关闭，
 或在 `screen_capture_step` 中设置 `task_names`，指定接收截图的事件触发任务。
 
 截图步骤为每个显示器保存一张原尺寸 PNG，并在发布 `metadata.json` 前保存接收任务。
@@ -114,7 +114,7 @@ Markdown 按项目、会话和轮次列出用户消息、进度文字和最终�
 | `nasdaq_quotes_cron` | 腾讯纳斯达克综合指数（IXIC），写入 `nasdaq.jsonl`，单位为指数点 |
 | `btc_quotes_cron` | [Binance BTC/USDT 现货行情](https://developers.binance.com/en/docs/products/spot/faqs/market_data_only)，写入 `btc.jsonl` |
 
-黄金、原油和纳指按相对昨收的涨跌幅判断，BTC 使用滚动 24 小时涨跌幅。默认 `finance` 任务在绝对涨跌幅达到 3% 时
+黄金、原油和纳指按相对昨收的涨跌幅判断，BTC 使用滚动 24 小时涨跌幅。默认 `proactive_fin` 任务在绝对涨跌幅达到 3% 时
 提醒，相关财联社电报用于补充背景。
 
 新增电报或行情有变化时，在 `resource/<source>/YYYY-MM-DD/hhmmss_<suffix>/` 发布资源包。行情保留报价时间和采集时间。

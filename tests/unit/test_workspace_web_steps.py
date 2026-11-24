@@ -96,6 +96,16 @@ async def test_load_step_rejects_file_larger_than_editor_limit(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_load_step_rejects_lossy_editor_text(tmp_path):
+    """Invalid text must fail before an editor can write replacement characters back."""
+    (tmp_path / "note.md").write_bytes(b"invalid UTF-8: \xff")
+
+    response = await LoadStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))(path="note.md")
+
+    assert not response.success
+
+
+@pytest.mark.asyncio
 async def test_save_step_rejects_external_change(tmp_path):
     """An obsolete mtime cannot overwrite a file changed by another editor."""
 
@@ -115,6 +125,27 @@ async def test_save_step_rejects_external_change(tmp_path):
     assert response.success is False
     assert response.metadata["code"] == "file_conflict"
     assert target.read_text(encoding="utf-8") == "external"
+
+
+@pytest.mark.asyncio
+async def test_document_save_requires_version_and_preserves_the_load_limit(tmp_path):
+    """Require the original version and apply the byte limit to encoded content."""
+    target = tmp_path / "note.md"
+    target.write_text("first", encoding="utf-8")
+    version = datetime.fromtimestamp(target.stat().st_mtime).isoformat()
+    step = SaveStep(
+        app_context=ApplicationContext(workspace_dir=str(tmp_path)),
+        require_expected_mtime=True,
+        max_bytes=5,
+    )
+
+    assert not (await step(path="note.md", content="")).success
+    assert not (await step(path="note.md", expected_mtime=version)).success
+    assert not (await step(path="note.md", content="中文", expected_mtime=version)).success
+    assert target.read_text(encoding="utf-8") == "first"
+
+    assert (await step(path="note.md", content="", expected_mtime=version)).success
+    assert target.read_text(encoding="utf-8") == ""
 
 
 @pytest.mark.asyncio

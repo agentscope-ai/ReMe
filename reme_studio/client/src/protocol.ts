@@ -214,6 +214,7 @@ export type StudioAction =
   | { type: "items.read" }
   | ({ type: "settings.update" } & SettingsUpdate)
   | { type: "document.open"; path: string }
+  | { type: "clipboard.copy"; text: string }
   | { type: "link.open"; url: string; sourcePath?: string };
 
 export type StudioCommand =
@@ -261,6 +262,7 @@ export type WorkspaceRequest =
     }
   | { type: "list"; path: string }
   | { type: "load"; path: string }
+  | { type: "save"; path: string; content: string; expectedMtime: string }
   | { type: "image"; path: string }
   | { type: "tags"; page: number }
   | { type: "tagFiles"; tags: string[]; path: string; page: number }

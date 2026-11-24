@@ -69,7 +69,7 @@ Permanent material should remain in user-controlled workspace paths.
 ## Scheduled Screen Capture
 
 `config=proactive` enables `screen_capture_cron` every five minutes in the application timezone, without a startup capture.
-It publishes screenshots to the `work` task, independently of Codex dialogue collection. Set
+It publishes screenshots to the `proactive_memory` task, independently of Codex dialogue collection. Set
 `jobs.screen_capture_cron.enabled=false` to disable it. To change recipients, set `task_names` on
 `screen_capture_step` and name the event-triggered tasks that should receive screenshots.
 
@@ -131,7 +131,7 @@ An idle scan writes no new progress record; tool-only changes still advance offs
 | `nasdaq_quotes_cron` | Tencent Nasdaq Composite (IXIC) in `nasdaq.jsonl`, in index points |
 | `btc_quotes_cron` | [Binance BTC/USDT spot data](https://developers.binance.com/en/docs/products/spot/faqs/market_data_only) in `btc.jsonl` |
 
-Gold, WTI, and Nasdaq use the change from the previous close. BTC uses a rolling 24-hour window. The default `finance`
+Gold, WTI, and Nasdaq use the change from the previous close. BTC uses a rolling 24-hour window. The default `proactive_fin`
 task alerts when the absolute change reaches 3% and uses relevant CLS news for context.
 
 New news and changed quotes become resource packages under `resource/<source>/YYYY-MM-DD/hhmmss_<suffix>/`.

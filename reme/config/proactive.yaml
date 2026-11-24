@@ -123,7 +123,7 @@ jobs:
     steps:
       - backend: screen_capture_step
         similarity_threshold: 0.99
-        task_names: [work]
+        task_names: [proactive_memory]
 
   codex_dialogue_cron:
     backend: cron
@@ -134,7 +134,7 @@ jobs:
         codex_home: &codex_home ${CODEX_HOME:-~/.codex}
     steps:
       - backend: codex_dialogue_step
-        task_names: [work, proactive_notebook]
+        task_names: [proactive_memory, proactive_note]
         codex_home: *codex_home
 
   finance_news_cron:
@@ -142,7 +142,7 @@ jobs:
     cron: "*/5 * * * *"
     steps:
       - backend: finance_news_step
-        task_names: [finance]
+        task_names: [proactive_fin]
 
   gold_quotes_cron:
     backend: cron
@@ -150,7 +150,7 @@ jobs:
     steps:
       - backend: tencent_quotes_step
         instrument: gold
-        task_names: [finance]
+        task_names: [proactive_fin]
 
   oil_quotes_cron:
     backend: cron
@@ -158,7 +158,7 @@ jobs:
     steps:
       - backend: tencent_quotes_step
         instrument: oil
-        task_names: [finance]
+        task_names: [proactive_fin]
 
   nasdaq_quotes_cron:
     backend: cron
@@ -166,14 +166,14 @@ jobs:
     steps:
       - backend: tencent_quotes_step
         instrument: nasdaq
-        task_names: [finance]
+        task_names: [proactive_fin]
 
   btc_quotes_cron:
     backend: cron
     cron: "*/5 * * * *"
     steps:
       - backend: btc_quotes_step
-        task_names: [finance]
+        task_names: [proactive_fin]
 
   manage_proactive_agent:
     backend: base
@@ -434,6 +434,29 @@ jobs:
     - backend: load_step
       max_bytes: 5242880
 
+  save_file:
+    backend: base
+    description: Save an existing workspace text document if its version still matches the loaded version.
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        path:
+          type: string
+          description: workspace-relative path
+        content:
+          type: string
+          description: complete source text, including frontmatter
+        expected_mtime:
+          type: string
+          minLength: 1
+          description: file version returned by load_file
+      required: [path, content, expected_mtime]
+    steps:
+      - backend: save_step
+        require_expected_mtime: true
+        max_bytes: 5242880
+
   read_image:
     backend: base
     description: Read an image file as base64 (workspace-relative path).
@@ -612,7 +635,7 @@ components:
           主人关注 AI 相关的大新闻，以及当前项目的进度、进展、难点和待讨论问题。
       # Initial descriptions are written verbatim to TASK.md when creating tasks.
       runtimes:
-        - agent_name: finance
+        - agent_name: proactive_fin
           enabled: true
           min_trigger_interval_seconds: 10
           max_batch_events: 20
@@ -620,18 +643,18 @@ components:
             关注现货黄金（XAU/USD）、WTI 原油期货（CL）、BTC/USDT 和纳斯达克综合指数（IXIC）。用财联社电报补充与这四项行情直接相关的背景。
             以最新有效报价为准，涨跌幅绝对值达到 3% 才提醒。黄金、原油和纳指以昨收为基准，BTC 使用滚动 24 小时涨跌幅。
             提醒说明标的、价格或点位、涨跌幅、报价时间和来源。有依据时补充新闻背景。同一波变动只提醒一次，报价有延迟时注明。
-        - agent_name: work
+        - agent_name: proactive_memory
           max_batch_events: 2
           enabled: true
           task_description: |
             帮我梳理目前在做的项目，跟进各个项目的进展和难点，整理需要进一步讨论的问题。
-        - agent_name: proactive_notebook
+        - agent_name: proactive_note
           step_backend: proactive_notebook_step
           enabled: true
           max_batch_events: 2
           task_description: |
             跟进 Todo 和 Idea，更新有依据的 Todo 状态和进展，把需要用户决定的事项交给 Remy。
-        - agent_name: tech_news
+        - agent_name: proactive_news
           enabled: true
           cron: "0 8 * * *"
           task_description: |

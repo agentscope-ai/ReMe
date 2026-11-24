@@ -113,7 +113,7 @@ jobs:
         codex_home: &codex_home ${CODEX_HOME:-~/.codex}
     steps:
       - backend: codex_dialogue_step
-        task_names: [work, proactive_notebook]
+        task_names: [proactive_memory, proactive_note]
         codex_home: *codex_home
 ```
 

@@ -21,10 +21,13 @@ class SaveStep(_FileIOStep):
     async def execute(self):
         assert self.context is not None
         raw_path = str(self.context.get("path") or "")
-        content = str(self.context.get("content") or "")
+        content = self.context.get("content")
         expected_mtime = self.context.get("expected_mtime")
-
         target, error = resolve_path(self.workspace_path, raw_path)
+        if self.kwargs.get("require_expected_mtime") and (
+            not isinstance(expected_mtime, str) or not expected_mtime or not isinstance(content, str)
+        ):
+            error = "content and expected_mtime are required to save a document"
         if error or target is None:
             self._fail(error or "invalid path", path=raw_path)
             return self.context.response
@@ -50,7 +53,12 @@ class SaveStep(_FileIOStep):
 
             encoding = await detect_file_encoding(target) if target.exists() else "utf-8"
             try:
-                await write_file_safe(target, content, encoding=encoding)
+                await write_file_safe(
+                    target,
+                    str(content or ""),
+                    encoding=encoding,
+                    max_bytes=self.kwargs.get("max_bytes"),
+                )
             except Exception as exc:  # pylint: disable=broad-except
                 self._fail(f"save failed: {exc}", path=raw_path)
                 return self.context.response

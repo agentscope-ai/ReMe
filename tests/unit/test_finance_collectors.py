@@ -55,7 +55,7 @@ async def collector_runtime(tmp_path):
     inbox = AgentEventInbox(app_context=context)
     runtime = LocalProactiveManager(
         app_context=context,
-        runtimes=[{"agent_name": "finance", "task_description": "关注主要行情和财联社电报"}],
+        runtimes=[{"agent_name": "proactive_fin", "task_description": "关注主要行情和财联社电报"}],
     )
     context.components = {
         "agent_inbox": {"default": inbox},
@@ -115,7 +115,7 @@ async def test_new_instruments_publish_the_right_quote_and_timestamp(
 
     async with collector_runtime(tmp_path) as (context, inbox, _):
         await TencentQuotesStep(instrument=instrument, app_context=context)()
-        (event,) = (await inbox.claim("finance"))["items"]
+        (event,) = (await inbox.claim("proactive_fin"))["items"]
         assert event["source"] == f"{instrument}_quotes"
         quote = MarketQuote.model_validate_json((tmp_path / event["paths"][0]).read_text())
         assert quote.symbol == symbol
@@ -141,19 +141,19 @@ def btc_statistics(clock):
 async def test_failed_delivery_retries_original_package_before_collecting_again(tmp_path, clock, mock_http):
     mock_http(lambda _: gold_response(clock))
     async with collector_runtime(tmp_path) as (context, inbox, append):
-        append.return_value = {"deliveries": {}, "rejected": {}, "errors": {"finance": "queue full"}}
+        append.return_value = {"deliveries": {}, "rejected": {}, "errors": {"proactive_fin": "queue full"}}
         append.side_effect = lambda **_: append.return_value
         with pytest.raises(RuntimeError, match="queue full"):
             await TencentQuotesStep(instrument="gold", app_context=context)()
         original = append.await_args.kwargs["events"][0]
-        assert (await inbox.snapshot("finance"))["pending_count"] == 0
+        assert (await inbox.snapshot("proactive_fin"))["pending_count"] == 0
         (receipt,) = tmp_path.glob("resource/**/.delivery.json")
-        assert WorkspaceFiles(tmp_path).read_json(receipt, {})["pending"] == ["finance"]
+        assert WorkspaceFiles(tmp_path).read_json(receipt, {})["pending"] == ["proactive_fin"]
     async with collector_runtime(tmp_path) as (context, inbox, append):
         await TencentQuotesStep(instrument="gold", app_context=context, task_names=["another_task"])()
         assert append.await_args.kwargs["events"] == [original]
-        assert append.await_args.kwargs["task_names"] == ["finance"]
-        assert (await inbox.snapshot("finance"))["pending_count"] == 1
+        assert append.await_args.kwargs["task_names"] == ["proactive_fin"]
+        assert (await inbox.snapshot("proactive_fin"))["pending_count"] == 1
     assert len(list(tmp_path.glob("resource/**/metadata.json"))) == 1
 
 
@@ -161,14 +161,14 @@ async def test_failed_delivery_retries_original_package_before_collecting_again(
 async def test_rejected_finance_target_gets_a_terminal_receipt(tmp_path, clock, mock_http):
     mock_http(lambda _: gold_response(clock))
     async with collector_runtime(tmp_path) as (context, inbox, append):
-        step = TencentQuotesStep(instrument="gold", app_context=context, task_names=["finance", "missing"])
+        step = TencentQuotesStep(instrument="gold", app_context=context, task_names=["proactive_fin", "missing"])
         assert (await step()).success
         (receipt,) = tmp_path.glob("resource/**/.delivery.json")
         assert (
             WorkspaceFiles(tmp_path).read_json(receipt, {})["rejected"]["missing"]
             == "proactive agent not found: missing"
         )
-        assert (await inbox.snapshot("finance"))["pending_count"] == 1
+        assert (await inbox.snapshot("proactive_fin"))["pending_count"] == 1
         assert (await step()).success
         assert append.await_count == 1
 
@@ -193,11 +193,11 @@ async def test_successful_append_without_delivery_receipt_is_idempotent_after_re
             patch.setattr(WorkspaceFiles, "write_json", fail_receipt)
             with pytest.raises(OSError, match="receipt unavailable"):
                 await TencentQuotesStep(instrument="gold", app_context=context)()
-        assert (await inbox.snapshot("finance"))["pending_count"] == 1
+        assert (await inbox.snapshot("proactive_fin"))["pending_count"] == 1
     async with collector_runtime(tmp_path) as (context, inbox, append):
         await TencentQuotesStep(instrument="gold", app_context=context)()
         append.assert_awaited_once()
-        assert (await inbox.snapshot("finance"))["pending_count"] == 1
+        assert (await inbox.snapshot("proactive_fin"))["pending_count"] == 1
     assert len(list(tmp_path.glob("resource/**/metadata.json"))) == 1
 
 
@@ -207,7 +207,7 @@ async def test_concurrent_collectors_do_not_duplicate_quotes(tmp_path, clock, mo
     async with collector_runtime(tmp_path) as (context, inbox, append):
         await asyncio.gather(*(TencentQuotesStep(instrument="gold", app_context=context)() for _ in range(2)))
         append.assert_awaited_once()
-        assert (await inbox.snapshot("finance"))["pending_count"] == 1
+        assert (await inbox.snapshot("proactive_fin"))["pending_count"] == 1
 
 
 @pytest.mark.asyncio
@@ -217,7 +217,7 @@ async def test_http_errors_retry_before_publishing(tmp_path, clock, mock_http, m
     monkeypatch.setattr(TencentQuotesStep, "wait", lambda *_: None)
     async with collector_runtime(tmp_path) as (context, inbox, _):
         await TencentQuotesStep(instrument="gold", app_context=context)()
-        assert (await inbox.snapshot("finance"))["pending_count"] == 1
+        assert (await inbox.snapshot("proactive_fin"))["pending_count"] == 1
     assert len(requests) == 2
 
 
@@ -238,7 +238,7 @@ async def test_gold_saves_only_changed_xau_quotes(tmp_path, clock, mock_http):
     requests = mock_http(lambda _: gold_response(clock, price=price, quoted_at=quoted_at))
     async with collector_runtime(tmp_path) as (context, inbox, append):
         assert (await TencentQuotesStep(instrument="gold", app_context=context)()).success
-        event = (await inbox.claim("finance"))["items"][0]
+        event = (await inbox.claim("proactive_fin"))["items"][0]
         assert event["source"] == "gold_quotes"
         quote = MarketQuote.model_validate_json((tmp_path / event["paths"][0]).read_text())
         assert (quote.symbol, quote.currency, quote.source) == ("XAUUSD", "USD", "tencent")
@@ -258,7 +258,7 @@ async def test_gold_saves_only_changed_xau_quotes(tmp_path, clock, mock_http):
     async with collector_runtime(tmp_path) as (context, inbox, _):
         quoted_at = clock.now.return_value - timedelta(seconds=1)
         assert (await TencentQuotesStep(instrument="gold", app_context=context)()).success
-        assert (await inbox.snapshot("finance"))["pending_count"] == 2
+        assert (await inbox.snapshot("proactive_fin"))["pending_count"] == 2
 
     assert len(requests) == 4
     assert all(
@@ -283,7 +283,7 @@ async def test_invalid_gold_quotes_publish_nothing(tmp_path, clock, mock_http, k
         with pytest.raises(ValueError):
             await TencentQuotesStep(instrument="gold", app_context=context)()
         append.assert_not_awaited()
-        assert (await inbox.snapshot("finance"))["pending_count"] == 0
+        assert (await inbox.snapshot("proactive_fin"))["pending_count"] == 0
     assert not list(tmp_path.glob("resource/**/metadata.json"))
 
 
@@ -293,7 +293,7 @@ async def test_btc_collects_on_weekends_and_deduplicates_the_observed_minute(tmp
     requests = mock_http(lambda _: httpx.Response(200, json=btc_statistics(clock)))
     async with collector_runtime(tmp_path) as (context, inbox, append):
         await BtcQuotesStep(app_context=context)()
-        event = (await inbox.claim("finance"))["items"][0]
+        event = (await inbox.claim("proactive_fin"))["items"][0]
         assert event["source"] == "btc_quotes"
         quote = CryptoQuote.model_validate_json((tmp_path / event["paths"][0]).read_text())
         assert quote.symbol == "BTCUSDT" and quote.currency == "USDT"
@@ -304,7 +304,7 @@ async def test_btc_collects_on_weekends_and_deduplicates_the_observed_minute(tmp
         assert (await BtcQuotesStep(app_context=context)()).answer == {"skipped": "no_new_data"}
         clock.now.return_value += timedelta(minutes=1)
         await BtcQuotesStep(app_context=context)()
-        assert (await inbox.snapshot("finance"))["pending_count"] == 1
+        assert (await inbox.snapshot("proactive_fin"))["pending_count"] == 1
         assert append.await_count == 1
     assert len(requests) == 2
     assert requests[0].url.host == "data-api.binance.vision"
@@ -320,7 +320,7 @@ async def test_btc_same_minute_deduplication_survives_restart(tmp_path, clock, m
     async with collector_runtime(tmp_path) as (context, inbox, append):
         assert (await BtcQuotesStep(app_context=context)()).answer == {"skipped": "no_new_data"}
         append.assert_not_awaited()
-        assert (await inbox.snapshot("finance"))["pending_count"] == 1
+        assert (await inbox.snapshot("proactive_fin"))["pending_count"] == 1
     assert len(requests) == 1
 
 
@@ -329,14 +329,14 @@ async def test_btc_failed_delivery_reuses_the_saved_batch_after_restart(tmp_path
     requests = mock_http(lambda _: httpx.Response(200, json=btc_statistics(clock)))
     async with collector_runtime(tmp_path) as (context, _, append):
         append.side_effect = None
-        append.return_value = {"deliveries": {}, "rejected": {}, "errors": {"finance": "queue full"}}
+        append.return_value = {"deliveries": {}, "rejected": {}, "errors": {"proactive_fin": "queue full"}}
         with pytest.raises(RuntimeError, match="queue full"):
             await BtcQuotesStep(app_context=context)()
         original = append.await_args.kwargs["events"]
     async with collector_runtime(tmp_path) as (context, inbox, append):
         await BtcQuotesStep(app_context=context)()
         assert append.await_args.kwargs["events"] == original
-        assert (await inbox.snapshot("finance"))["pending_count"] == 1
+        assert (await inbox.snapshot("proactive_fin"))["pending_count"] == 1
     assert len(requests) == 1
     assert len(list(tmp_path.glob("resource/btc_quotes/*/*/btc.jsonl"))) == 1
 
@@ -360,7 +360,7 @@ async def test_invalid_btc_statistics_produce_no_files_or_events(tmp_path, clock
         with pytest.raises(ValueError):
             await BtcQuotesStep(app_context=context)()
         append.assert_not_awaited()
-        assert (await inbox.snapshot("finance"))["pending_count"] == 0
+        assert (await inbox.snapshot("proactive_fin"))["pending_count"] == 0
     assert not list(tmp_path.glob("resource/**/metadata.json"))
 
 
@@ -381,7 +381,7 @@ async def test_btc_business_changes_survive_restart_and_ignore_window_only_updat
     ):
         async with collector_runtime(tmp_path) as (context, inbox, _):
             await BtcQuotesStep(app_context=context)()
-            assert (await inbox.snapshot("finance"))["pending_count"] == count
+            assert (await inbox.snapshot("proactive_fin"))["pending_count"] == count
         clock.now.return_value += timedelta(minutes=5)
     assert len(list(tmp_path.glob("resource/btc_quotes/*/*/btc.jsonl"))) == 4
 
@@ -396,7 +396,7 @@ async def test_btc_older_statistics_do_not_replace_the_latest_observation(tmp_pa
         payload["lastPrice"] = "67000"
         payload["closeTime"] -= 1000
         assert (await BtcQuotesStep(app_context=context)()).answer == {"skipped": "no_new_data"}
-        assert append.await_count == 1 and (await inbox.snapshot("finance"))["pending_count"] == 1
+        assert append.await_count == 1 and (await inbox.snapshot("proactive_fin"))["pending_count"] == 1
 
 
 @pytest.mark.asyncio
@@ -405,9 +405,9 @@ async def test_news_uses_existing_job_and_source_files_deduplicate_after_restart
     async with collector_runtime(tmp_path) as (context, inbox, append):
         response = await FinanceNewsStep(app_context=context, request_interval=0)()
         assert response.success
-        event = (await inbox.claim("finance"))["items"][0]
+        event = (await inbox.claim("proactive_fin"))["items"][0]
         assert event["source"] == "finance_news"
-        assert append.await_args.kwargs["task_names"] == ["finance"]
+        assert append.await_args.kwargs["task_names"] == ["proactive_fin"]
         assert append.await_args.kwargs["events"][0].id == event["id"]
         (markdown_path,) = event["paths"]
         markdown = tmp_path / markdown_path
@@ -421,7 +421,7 @@ async def test_news_uses_existing_job_and_source_files_deduplicate_after_restart
     async with collector_runtime(tmp_path) as (context, inbox, append):
         response = await FinanceNewsStep(app_context=context, request_interval=0)()
         assert response.answer == {"skipped": "no_new_data"}
-        assert (await inbox.snapshot("finance"))["pending_count"] == 1
+        assert (await inbox.snapshot("proactive_fin"))["pending_count"] == 1
         append.assert_not_awaited()
     assert len(requests) == 2
     assert len(list(tmp_path.glob("resource/finance_news/*/*/news.jsonl"))) == 1
@@ -437,7 +437,7 @@ async def test_news_paginates_until_window_boundary_and_deduplicates_overlapping
     requests = mock_http(lambda _: news_response(pages.pop(0)))
     async with collector_runtime(tmp_path) as (context, inbox, _):
         await FinanceNewsStep(app_context=context, request_interval=0)()
-        event = (await inbox.claim("finance"))["items"][0]
+        event = (await inbox.claim("proactive_fin"))["items"][0]
         items = [
             FinanceNewsItem.model_validate_json(line)
             for line in (tmp_path / event["paths"][0]).with_name("news.jsonl").read_text().splitlines()
@@ -454,7 +454,7 @@ async def test_no_new_news_creates_no_package_or_event(tmp_path, clock, mock_htt
     async with collector_runtime(tmp_path) as (context, inbox, append):
         assert (await FinanceNewsStep(app_context=context)()).answer == {"skipped": "no_new_data"}
         append.assert_not_awaited()
-        assert (await inbox.snapshot("finance"))["pending_count"] == 0
+        assert (await inbox.snapshot("proactive_fin"))["pending_count"] == 0
     assert not list(tmp_path.glob("resource/*/*/*"))
     assert not list(tmp_path.glob(".reme-resource-*"))
 
@@ -473,7 +473,7 @@ async def test_bad_news_response_never_publishes_partial_data(tmp_path, clock, m
         with pytest.raises((ValueError, KeyError)):
             await FinanceNewsStep(app_context=context, **options)()
         append.assert_not_awaited()
-        assert (await inbox.snapshot("finance"))["pending_count"] == 0
+        assert (await inbox.snapshot("proactive_fin"))["pending_count"] == 0
     assert not list(tmp_path.glob("resource/**/metadata.json"))
 
 
@@ -493,7 +493,7 @@ async def test_cancellation_interrupts_pagination_without_publishing(tmp_path, c
         with pytest.raises(asyncio.CancelledError):
             await asyncio.wait_for(task, 2)
         append.assert_not_awaited()
-        assert (await inbox.snapshot("finance"))["pending_count"] == 0
+        assert (await inbox.snapshot("proactive_fin"))["pending_count"] == 0
     assert not list(tmp_path.glob("resource/**/metadata.json"))
     assert not list(tmp_path.glob(".reme-resource-*"))
 
@@ -546,7 +546,7 @@ async def test_news_progress_is_not_advanced_when_manifest_publication_fails(tmp
                 await FinanceNewsStep(app_context=context)()
         assert not (tmp_path / "resource/finance_news/progress.json").exists()
         await FinanceNewsStep(app_context=context)()
-        assert (await inbox.snapshot("finance"))["pending_count"] == 1
+        assert (await inbox.snapshot("proactive_fin"))["pending_count"] == 1
 
 
 @pytest.mark.asyncio
@@ -566,4 +566,4 @@ async def test_news_overlap_keeps_late_records_without_repeating_known_ids(tmp_p
         markdown = package.joinpath("news.md").read_text()
         assert markdown.count("新消息") == 1
         assert "/detail/3)" in markdown and "/detail/4)" in markdown and "/detail/2)" not in markdown
-        assert append.await_count == 2 and (await inbox.snapshot("finance"))["pending_count"] == 2
+        assert append.await_count == 2 and (await inbox.snapshot("proactive_fin"))["pending_count"] == 2

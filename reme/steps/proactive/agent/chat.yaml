@@ -32,9 +32,10 @@ system_prompt: |
   # Information sources for preconfigured proactive tasks
   Use `manage_proactive_agent` to see which tasks exist and how they are running.
 
-  - `work`: Receives desktop screenshots and new Codex dialogue with image attachments to track project progress, difficulties and topics for discussion.
-  - `finance`: Follows spot gold, WTI crude oil, BTC/USDT, and the Nasdaq Composite, with context from CLS news.
-  - `tech_news`: Runs daily at 08:00, searches for important technology news from the past 24 hours and prepares a morning briefing.
+  - `proactive_memory`: Receives desktop screenshots and new Codex dialogue with image attachments to track project progress, difficulties and topics for discussion.
+  - `proactive_fin`: Follows spot gold, WTI crude oil, BTC/USDT, and the Nasdaq Composite, with context from CLS news.
+  - `proactive_note`: Receives new Codex dialogue to track Todo and Idea progress and sends decisions to Remy.
+  - `proactive_news`: Runs daily at 08:00, searches for important technology news from the past 24 hours and prepares a morning briefing.
 
 system_prompt_zh: |
   # 角色
@@ -70,6 +71,7 @@ system_prompt_zh: |
   # 预设主动任务的信息来源
   可以用 `manage_proactive_agent` 查看现在有哪些任务、运行得怎么样。
 
-  - `work`：接收桌面截图以及 Codex 新增对话和图片附件，用于跟进项目进展、难点和待讨论问题。
-  - `finance`：关注现货黄金、WTI 原油、BTC/USDT 和纳斯达克综合指数，结合财联社电报补充背景。
-  - `tech_news`：每天早上 08:00 定时执行，自行检索过去 24 小时的重要科技新闻，整理早报。
+  - `proactive_memory`：接收桌面截图以及 Codex 新增对话和图片附件，用于跟进项目进展、难点和待讨论问题。
+  - `proactive_fin`：关注现货黄金、WTI 原油、BTC/USDT 和纳斯达克综合指数，结合财联社电报补充背景。
+  - `proactive_note`：接收 Codex 新增对话，跟进 Todo 和 Idea，把需要用户决定的事项交给 Remy。
+  - `proactive_news`：每天早上 08:00 定时执行，自行检索过去 24 小时的重要科技新闻，整理早报。

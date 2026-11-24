@@ -60,7 +60,7 @@ class _CodexDialogueBase(BaseAgentStep):
         if type(max_scan_bytes) is not int or max_scan_bytes < 1:
             raise ValueError("max_scan_bytes must be a positive integer")
         self.codex_home = Path(codex_home or os.environ.get("CODEX_HOME") or Path.home() / ".codex")
-        self.task_names = validate_task_names(["work"] if task_names is None else task_names)
+        self.task_names = validate_task_names(["proactive_memory"] if task_names is None else task_names)
         self.max_scan_bytes = max_scan_bytes
         self.cancelled = ThreadEvent()
 

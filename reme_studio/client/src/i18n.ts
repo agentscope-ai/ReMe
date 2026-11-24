@@ -393,6 +393,26 @@ export const messages = {
   ],
   reading: ["阅读", "Reading"],
   documentLoading: ["正在打开文档…", "Opening document…"],
+  documentCopy: ["复制", "Copy"],
+  documentCopied: ["已复制", "Copied"],
+  documentCopyFailed: [
+    "无法复制到剪贴板。",
+    "Could not copy to the clipboard.",
+  ],
+  documentEdit: ["编辑", "Edit"],
+  documentSource: ["文档原文", "Document source"],
+  documentSave: ["保存", "Save"],
+  documentSaving: ["正在保存…", "Saving…"],
+  documentDiscard: ["不保存", "Don't save"],
+  documentUnsaved: ["未保存的更改", "Unsaved changes"],
+  documentFinishEditing: [
+    "请先保存或放弃更改，再切换文档。",
+    "Save or discard your changes before switching documents.",
+  ],
+  documentConflict: [
+    "文件已在别处更新。请复制需要保留的修改，然后退出编辑以读取最新版本。",
+    "This file was updated elsewhere. Copy any changes you want to keep, then exit editing to load the latest version.",
+  ],
   retry: ["重试", "Try again"],
   limitedFiles: [
     "已展示最近 5000 个文件，可切换目录缩小范围。",

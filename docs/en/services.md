@@ -52,8 +52,9 @@ curl -N http://127.0.0.1:2333/chat \
   -d '{"query":"Summarize my long-term preferences"}'
 ```
 
-The `proactive` preset uses `list_workspace`, `search_workspace`, `load_file` and `get_client_info` for workspace access.
-The default configuration provides `list`, `search`, `load` and `app_config`.
+The `proactive` preset uses `list_workspace`, `search_workspace`, `load_file`, `save_file` and `get_client_info` for workspace access.
+Studio sends the complete source and uses the `mtime` from `load_file` as `expected_mtime`. A changed file causes a `file_conflict` response.
+The default configuration provides `list`, `search`, `load`, `save` and `app_config`.
 
 The `proactive` configuration exposes `ask_agent(query, agent_name=Remy)` for the fixed Chat Agent. It resumes the current
 native session; `create_chat_session` selects a fresh session. The `demo` preset inherits both Jobs and adds
@@ -138,14 +139,14 @@ API requests, responses, workspace directories and Desktop use the same name. It
 Declare initial Runtimes under `components.proactive_manager.default.runtimes` in the proactive preset using the same creation
 fields, including `task_description`. Startup creates missing identities and preserves existing descriptions, settings
 and deletions. An invalid Runtime definition is reported separately so other runtimes can continue. In the default preset,
-`finance` follows spot gold, WTI crude oil, BTC/USDT, and the Nasdaq Composite with context from CLS news. `work` tracks the user's
+`proactive_fin` follows spot gold, WTI crude oil, BTC/USDT, and the Nasdaq Composite with context from CLS news. `proactive_memory` tracks the user's
 current projects, progress, difficulties and discussion points from
 incoming observations. `codex_dialogue_cron` collects new Codex dialogue and image attachments;
-`screen_capture_cron` separately captures all displays. Both run every five minutes and deliver to `work`.
-The dialogue collector also delivers to `proactive_notebook`, which tracks progress on existing notebook items.
+`screen_capture_cron` separately captures all displays. Both run every five minutes and deliver to `proactive_memory`.
+The dialogue collector also delivers to `proactive_note`, which tracks progress on existing notebook items.
 The dialogue Job's `init_steps` establish the startup reading baseline without importing existing dialogue before
 periodic collection begins.
-The default time-triggered task `tech_news` runs daily at 08:00 in the application timezone, summarizes important
+The default time-triggered task `proactive_news` runs daily at 08:00 in the application timezone, summarizes important
 technology news from the past 24 hours and sends a reminder when ready.
 
 Each Runtime consumes events and reconstructs context from workspace files. The Manager delivers saved reminders
@@ -314,7 +315,7 @@ New Todos default to `pending`. Use `in_progress` once work starts and `closed` 
 A `closed` Todo is archived. Pass `close_note` with `status=closed` to record the outcome or reason. Reopening clears
 the closure time and note.
 
-The event-triggered `proactive_notebook` runtime receives the same new Codex dialogue as `work`. It loads `manage-todos-ideas`
+The event-triggered `proactive_note` runtime receives the same new Codex dialogue as `proactive_memory`. It loads `manage-todos-ideas`
 to find related Todos and Ideas and read the full progress history before updating a Todo. It adds new progress, corrects
 or removes individual notes when the evidence changes, and can move a Todo to `in_progress`. Remy handles creation,
 closure, Idea updates, link changes, and other follow-up

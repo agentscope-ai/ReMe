@@ -62,7 +62,7 @@ User feedback can update the relevant task description or configuration for late
 
 [`codex_dialogue_cron`](./auto_resource.md#scheduled-codex-dialogue-collection) collects new Codex dialogue and
 attachments. `screen_capture_cron` independently captures all displays. Both run every five minutes and send
-observations to the `work` Agent. The dialogue Job first runs its
+observations to the `proactive_memory` Agent. The dialogue Job first runs its
 `init_steps` at startup to establish the reading baseline without importing old history. Claude Code and fuller tool
 execution trajectories require additional connectors. Collected observations must distinguish requested work, attempted
 actions, and verified results.

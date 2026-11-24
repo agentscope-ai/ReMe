@@ -610,6 +610,13 @@ else {
                 ? { voiceVolume: action.voiceVolume }
                 : {}),
             });
+          case "clipboard.copy":
+            if (event.sender.id !== windows!.chat.webContents.id)
+              throw new UiError("invalidSender");
+            if (typeof action.text !== "string")
+              throw new UiError("invalidAction");
+            clipboard.writeText(action.text);
+            return;
           case "document.open":
           case "link.open": {
             const href =

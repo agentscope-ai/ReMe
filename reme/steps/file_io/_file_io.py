@@ -53,7 +53,7 @@ def _try_decode(data: bytes, encodings: Iterable[str]) -> tuple[str, str] | None
     return None
 
 
-def _decode_known_file(data: bytes, file_extension: str) -> tuple[str, str]:
+def _decode_known_file(data: bytes, file_extension: str, *, errors: str = "replace") -> tuple[str, str]:
     """Decode file bytes using the extension as a hint. Returns ``(text, encoding)``."""
     if data.startswith(b"\xef\xbb\xbf"):
         return data.decode("utf-8-sig"), "utf-8-sig"
@@ -77,7 +77,7 @@ def _decode_known_file(data: bytes, file_extension: str) -> tuple[str, str]:
             text, enc = result
             return text, "utf-8" if enc == "utf-8-sig" else enc
 
-    return data.decode("utf-8", errors="replace"), "utf-8"
+    return data.decode("utf-8", errors=errors), "utf-8"
 
 
 # ---------------------------------------------------------------------------
@@ -93,11 +93,7 @@ async def read_file_safe(
 ) -> tuple[str, str]:
     """Read file in byte mode and decode using extension-aware strategy.
 
-    Returns ``(text, encoding)``. With ``require_complete``, reject files above
-    the byte limit or reads that leave unread bytes at the EOF check. This only
-    prevents returning a truncated bounded read for write-back; it does not
-    support oversized-file editing, provide a stable snapshot against concurrent
-    changes, or make subsequent writes atomic.
+    With ``require_complete``, reject oversized, truncated or undecodable input.
     """
     stat = await aiofiles.os.stat(str(file_path))
     if require_complete and stat.st_size > max_bytes:
@@ -107,7 +103,7 @@ async def read_file_safe(
         data = await f.read(read_size)
         if require_complete and await f.read(1):
             raise ValueError("file changed during read; refusing to return incomplete contents")
-    return _decode_known_file(data, Path(file_path).suffix)
+    return _decode_known_file(data, Path(file_path).suffix, errors="strict" if require_complete else "replace")
 
 
 async def read_file_lines_safe(
@@ -147,9 +143,14 @@ async def detect_file_encoding(file_path, sniff_bytes: int = 8192) -> str:
     return enc
 
 
-async def write_file_safe(file_path: Path, content: str | bytes, encoding: str = "utf-8") -> None:
+async def write_file_safe(
+    file_path: Path,
+    content: str | bytes,
+    encoding: str = "utf-8",
+    *,
+    max_bytes: int | None = None,
+) -> None:
     """Publish complete bytes atomically while retaining normal file permissions."""
-    file_path.parent.mkdir(parents=True, exist_ok=True)
     if isinstance(content, str):
         try:
             payload = content.encode(encoding)
@@ -161,6 +162,9 @@ async def write_file_safe(file_path: Path, content: str | bytes, encoding: str =
             payload = content.encode("utf-8")
     else:
         payload = content
+    if max_bytes is not None and len(payload) > max_bytes:
+        raise ValueError(f"file size {len(payload)} exceeds the editor limit of {max_bytes} bytes")
+    file_path.parent.mkdir(parents=True, exist_ok=True)
 
     def publish():
         flags = os.O_WRONLY | getattr(os, "O_BINARY", 0)

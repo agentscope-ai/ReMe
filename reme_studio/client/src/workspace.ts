@@ -19,7 +19,7 @@ function relativePath(value: unknown): string {
   return value;
 }
 
-/** Expose workspace browsing, reminder details and the two notebook jobs. */
+/** Route Studio workspace operations to their ReMe jobs. */
 export async function requestWorkspace(
   client: ReMeClient,
   request: WorkspaceRequest,
@@ -134,6 +134,23 @@ export async function requestWorkspace(
     case "load":
       job = "load_file";
       body = { path: relativePath(request.path) };
+      break;
+    case "save":
+      if (
+        !request.path ||
+        typeof request.content !== "string" ||
+        request.content.length > 5 * 1024 * 1024 ||
+        typeof request.expectedMtime !== "string" ||
+        !request.expectedMtime ||
+        request.expectedMtime.length > 80
+      )
+        throw new UiError("invalidWorkspaceRequest");
+      job = "save_file";
+      body = {
+        path: relativePath(request.path),
+        content: request.content,
+        expected_mtime: request.expectedMtime,
+      };
       break;
     case "tags":
       job = "list_tags";
