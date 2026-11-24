@@ -1,5 +1,5 @@
 # Build from repository root:
-# docker build -f deploy/benchmark_docker/Dockerfile.base -t reme-benchmark-base:agentscope-2.0.11 .
+# docker build -f plugins/home/docker/Dockerfile.base -t reme-benchmark-base:agentscope-2.0.11 .
 FROM python:3.11-slim
 
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \

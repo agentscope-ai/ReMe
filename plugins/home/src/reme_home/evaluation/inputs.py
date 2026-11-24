@@ -10,12 +10,11 @@ import zlib
 
 from pydantic import Field, field_validator, model_validator
 
-from deploy.benchmark_docker import SourceSnapshot
-
 from ..preparation.code import export_git_tree, git, git_tree, runtime_roots, tree_fingerprint
 from ..preparation.data.basic import artifact_name_key, validate_artifact_ids
 from ..preparation.data.models import CaseSpec, DatasetManifest, fingerprint
 from .artifacts import contained, file_sha256, inspect_archive, read_json
+from .docker import SourceSnapshot
 from ..preparation.spec import SpecModel
 from ..code.repository import validate_repository
 from ..sampling import SamplingPolicy

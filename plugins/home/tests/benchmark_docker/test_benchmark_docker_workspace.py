@@ -9,8 +9,8 @@ from unittest.mock import AsyncMock
 import pytest
 
 DockerError = pytest.importorskip("aiodocker.exceptions").DockerError
-from deploy.benchmark_docker.direct_docker_workspace import DirectDockerWorkspace  # noqa: E402
-from deploy.benchmark_docker import DockerReMeSandboxFactory, ImageCandidate  # noqa: E402
+from reme_home.evaluation.docker.direct_docker_workspace import DirectDockerWorkspace  # noqa: E402
+from reme_home.evaluation.docker import DockerReMeSandboxFactory, ImageCandidate  # noqa: E402
 
 
 def make_workspace():
@@ -40,7 +40,7 @@ def make_creating_workspace(monkeypatch):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("cleanup_times_out", [False, True])
 async def test_cancelled_creation_is_cleaned_up_after_response(monkeypatch, cleanup_times_out):
-    from deploy.benchmark_docker import direct_docker_workspace
+    from reme_home.evaluation.docker import direct_docker_workspace
 
     monkeypatch.setattr(direct_docker_workspace, "DOCKER_CLEANUP_TIMEOUT", 0.01)
     workspace, container, client = make_creating_workspace(monkeypatch)
@@ -80,7 +80,7 @@ async def test_cancelled_creation_is_cleaned_up_after_response(monkeypatch, clea
 @pytest.mark.asyncio
 @pytest.mark.parametrize("response_lost", [False, True])
 async def test_factory_cleans_up_creation_after_both_close_attempts_time_out(monkeypatch, response_lost):
-    from deploy.benchmark_docker import direct_docker_workspace
+    from reme_home.evaluation.docker import direct_docker_workspace
 
     monkeypatch.setattr(direct_docker_workspace, "DOCKER_CLEANUP_TIMEOUT", 0.01)
     workspace, container, client = make_creating_workspace(monkeypatch)
@@ -174,7 +174,7 @@ async def test_stop_kills_and_confirms_exit_before_removal():
 @pytest.mark.asyncio
 @pytest.mark.parametrize("operation", ["kill", "delete"])
 async def test_docker_cleanup_timeout_retains_handles(monkeypatch, operation):
-    from deploy.benchmark_docker import direct_docker_workspace
+    from reme_home.evaluation.docker import direct_docker_workspace
 
     monkeypatch.setattr(direct_docker_workspace, "DOCKER_CLEANUP_TIMEOUT", 0.01)
     workspace = make_workspace()

@@ -37,7 +37,7 @@ RUN apt-get update \
     && mkdir -p /app /data \
     && chown reme:reme /app /data
 COPY --from=python-builder /opt/venv /opt/venv
-COPY deploy/docker/reme_container.py /usr/local/lib/reme_container.py
+COPY scripts/reme_container.py /usr/local/lib/reme_container.py
 ENV PATH="/opt/venv/bin:${PATH}" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \

@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from deploy.benchmark_docker import EvaluationQuery, ImageCandidate
-from deploy.benchmark_docker.docker_sandbox import DockerReMeSandbox
+from reme_home.evaluation.docker import EvaluationQuery, ImageCandidate
+from reme_home.evaluation.docker.docker_sandbox import DockerReMeSandbox
 
 
 @pytest.mark.asyncio

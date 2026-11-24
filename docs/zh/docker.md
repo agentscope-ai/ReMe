@@ -29,7 +29,7 @@ export REME_GID=$(id -g)
 docker compose up --build -d
 ```
 
-需要模型驱动的记忆演化时，如果尚无 `.env`，将 `deploy/docker/example.env` 复制为 `.env`，再填写模型凭证。
+需要模型驱动的记忆演化时，如果尚无 `.env`，将仓库根目录的 `example.env` 复制为 `.env`，再填写模型凭证。
 Compose 在运行时注入这个可选文件；Docker 构建排除 `.env` 文件。Compose 的 `--env-file` 用于配置变量替换，
 `REME_ENV_FILE` 则选择实际注入容器的环境文件。
 

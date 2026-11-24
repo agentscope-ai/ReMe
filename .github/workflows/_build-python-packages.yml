@@ -88,12 +88,13 @@ jobs:
           import sys
           import reme
           import reme_home
-          from deploy.benchmark_docker.direct_docker_workspace import DirectDockerWorkspace
           from reme.enumeration import ComponentEnum
           from reme.plugin import resolve_plugin_runtime
           from reme_home import AutoBashStep
+          from reme_home.evaluation.docker import worker
+          from reme_home.evaluation.docker.direct_docker_workspace import DirectDockerWorkspace
 
-          for module in (reme, reme_home, sys.modules[DirectDockerWorkspace.__module__]):
+          for module in (reme, reme_home, worker, sys.modules[DirectDockerWorkspace.__module__]):
               assert Path(module.__file__).is_relative_to(sys.prefix), module.__file__
           runtime = resolve_plugin_runtime({"plugins": ["home"]})
           assert runtime.registry.get(ComponentEnum.STEP, "auto_bash_step") is AutoBashStep

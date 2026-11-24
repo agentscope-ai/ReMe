@@ -6,8 +6,6 @@ import shutil
 import traceback
 from contextlib import nullcontext
 
-from deploy.benchmark_docker import BenchmarkDockerPool, CasePlan, DockerReMeSandboxFactory, SourceCandidate
-
 from reme.components.base import BaseComponent
 from reme.utils.async_utils import complete_in_thread as blocking
 from reme.utils.async_utils import finish_cleanup
@@ -26,6 +24,7 @@ from .artifacts import (
     answer_exception,
     failure_kind,
 )
+from .docker import BenchmarkDockerPool, CasePlan, DockerReMeSandboxFactory, SourceCandidate
 from .inputs import (
     EvaluationSpec,
     evaluation_head,

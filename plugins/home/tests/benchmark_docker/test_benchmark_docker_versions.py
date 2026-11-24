@@ -6,8 +6,8 @@ import json
 
 import pytest
 
-from deploy.benchmark_docker import ImageCandidate
-from deploy.benchmark_docker.docker_sandbox import (
+from reme_home.evaluation.docker import ImageCandidate
+from reme_home.evaluation.docker.docker_sandbox import (
     DockerReMeSandbox,
     SandboxCommandError,
     _default_workspace_builder,

@@ -68,12 +68,12 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          pip install -e reme_studio/web/python -e ".[dev,core,decision,qwen-tokenizer,benchmark-docker]"
+          pip install -e reme_studio/web/python -e ".[dev,core,decision,qwen-tokenizer]"
           python reme_studio/client/scripts/client-contract.py --check
           pip install --no-deps -e plugins/auto-fin
           pip install -e plugins/daily_paper
           pip install -e plugins/lme -e plugins/beam
-          pip install "safecmd>=0.1.16,<0.2" shfmt-py
+          pip install "aiodocker>=0.27.0" "safecmd>=0.1.16,<0.2" shfmt-py
           # Keep the checkout's ReMe instead of resolving the plugin's published ReMe dependency.
           pip install --no-deps -e plugins/home
           pip install coverage

@@ -1,6 +1,6 @@
 """Opt-in, credential-free smoke test against real AgentScope Docker containers.
 
-Run with ``REME_DOCKER_INTEGRATION=1 pytest tests/integration/test_benchmark_docker.py -v``.
+Run with ``REME_DOCKER_INTEGRATION=1 pytest plugins/home/tests/benchmark_docker/test_integration.py -v``.
 The base image is built from the repository Dockerfile unless
 ``REME_BENCHMARK_TEST_IMAGE`` names an existing one. Temporary image tags are
 removed after the test; workspace files stay under pytest's temporary root.
@@ -18,7 +18,7 @@ import uuid
 
 import pytest
 
-from deploy.benchmark_docker import (
+from reme_home.evaluation.docker import (
     BenchmarkDockerPool,
     CasePlan,
     DockerReMeSandboxFactory,
@@ -29,7 +29,7 @@ from deploy.benchmark_docker import (
     SourceSnapshot,
 )
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[4]
 SMOKE_CONFIG = """\
 enable_logo: false
 service:
@@ -61,7 +61,7 @@ def _base_image():
         return
 
     tag = f"reme-benchmark-smoke:{uuid.uuid4().hex[:12]}"
-    _docker("build", "-f", "deploy/benchmark_docker/Dockerfile.base", "-t", tag, ".", cwd=ROOT)
+    _docker("build", "-f", "plugins/home/docker/Dockerfile.base", "-t", tag, ".", cwd=ROOT)
     try:
         yield tag
     finally:
@@ -105,8 +105,8 @@ def _query(query_id: str) -> EvaluationQuery:
 @pytest.mark.asyncio
 async def test_real_docker_timeout_kills_blocked_thread_pool(base_image):
     """A host deadline must terminate a worker blocked in executor shutdown."""
-    from deploy.benchmark_docker.direct_docker_workspace import DirectDockerWorkspace
-    from deploy.benchmark_docker.docker_sandbox import DockerReMeSandbox, SandboxCommandTimeoutError
+    from reme_home.evaluation.docker.direct_docker_workspace import DirectDockerWorkspace
+    from reme_home.evaluation.docker.docker_sandbox import DockerReMeSandbox, SandboxCommandTimeoutError
 
     container_id = f"timeout-{uuid.uuid4().hex[:12]}"
     workspace = DirectDockerWorkspace(workspace_id=container_id, base_image=base_image)

@@ -8,13 +8,14 @@ on:
       - 'Dockerfile'
       - '.dockerignore'
       - 'docker-compose.yml'
-      - 'deploy/docker/**'
+      - 'example.env'
       - 'pyproject.toml'
       - 'README.md'
       - 'LICENSE'
       - 'reme/**'
       - 'reme_studio/**'
       - 'scripts/package_studio.py'
+      - 'scripts/reme_container.py'
       - 'scripts/test_docker_image.py'
   push:
     branches: [main]
@@ -23,13 +24,14 @@ on:
       - 'Dockerfile'
       - '.dockerignore'
       - 'docker-compose.yml'
-      - 'deploy/docker/**'
+      - 'example.env'
       - 'pyproject.toml'
       - 'README.md'
       - 'LICENSE'
       - 'reme/**'
       - 'reme_studio/**'
       - 'scripts/package_studio.py'
+      - 'scripts/reme_container.py'
       - 'scripts/test_docker_image.py'
   workflow_call:
     inputs:

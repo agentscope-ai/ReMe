@@ -13,9 +13,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from deploy.benchmark_docker import ImageCandidate
-from deploy.benchmark_docker import docker_sandbox as sandbox_module
-from deploy.benchmark_docker.docker_sandbox import _archive_workspace
+from reme_home.evaluation.docker import ImageCandidate
+from reme_home.evaluation.docker import docker_sandbox as sandbox_module
+from reme_home.evaluation.docker.docker_sandbox import _archive_workspace
 
 
 @pytest.mark.parametrize("source_kind", ["directory", "archive"])
@@ -69,11 +69,10 @@ def test_workspace_archive_rejects_unsafe_entries(tmp_path, kind):
 
 
 def test_candidate_image_preserves_root_exclusions_after_plugin_exceptions():
-    root = Path(__file__).resolve().parents[2]
+    home = Path(__file__).resolve().parents[2]
+    root = home.parents[1]
     root_rules = (root / ".dockerignore").read_text(encoding="utf-8").splitlines()
-    candidate_rules = (
-        (root / "deploy/benchmark_docker/Dockerfile.candidate.dockerignore").read_text(encoding="utf-8").splitlines()
-    )
+    candidate_rules = (home / "docker/Dockerfile.candidate.dockerignore").read_text(encoding="utf-8").splitlines()
     exceptions = [rule for rule in candidate_rules if rule.startswith("!")]
     assert set(exceptions) == {"!plugins/lme", "!plugins/beam"}
     assert "plugins/*" in candidate_rules
