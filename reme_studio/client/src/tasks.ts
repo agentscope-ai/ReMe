@@ -36,7 +36,7 @@ export type TaskRequest = { type: "task" } & (
       task_description: string;
       settings: ProactiveRuntimeSettings;
     }
-  | { action: "delete" | "read"; agent_name: string }
+  | { action: "read"; agent_name: string }
   | {
       action: "update";
       agent_name: string;
@@ -119,8 +119,7 @@ export function taskPayload(request: TaskRequest): {
       throw new Error("Invalid task document");
     body.content = request.content;
     body.expected_mtime = request.expected_mtime;
-  } else if (!["delete", "read"].includes(action))
-    throw new Error("Invalid task action");
+  } else if (action !== "read") throw new Error("Invalid task action");
   return {
     job:
       action === "read" || action === "save"

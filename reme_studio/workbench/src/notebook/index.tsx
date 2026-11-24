@@ -7,27 +7,32 @@ import {
   CheckSquare,
   ChevronLeft,
   ChevronRight,
+  Folder,
+  Folders,
   Lightbulb,
   Plus,
   RefreshCw,
   Search,
 } from "lucide-react";
 import { errorText, translator, UiError } from "../../../client/src/i18n.ts";
-import type { StudioState } from "../../../client/src/protocol.ts";
+import type {
+  ResourcePage,
+  StudioState,
+} from "../../../client/src/protocol.ts";
 import {
   DEFAULT_PROJECT,
   isTodo,
   normalizeProject,
   projectLabel,
-  projectValue,
   splitNotebookText,
   type NotebookItem,
   type NotebookKind,
+  type NotebookProjects,
   type NotebookRequest,
   type Todo,
 } from "../../../client/src/notebook.ts";
-import { useResource, useResourcePage } from "../resources.ts";
-import SplitPane from "../split-pane.tsx";
+import { usePollingResource, useResource } from "../resources.ts";
+import SplitPane, { SidebarHeading } from "../split-pane.tsx";
 import RecordDetail from "./detail.tsx";
 import RecordEditor, { type RecordDraft } from "./editor.tsx";
 import NotebookList from "./list.tsx";
@@ -55,7 +60,6 @@ export default function Notebook({
   const [query, setQuery] = useState("");
   const [project, setProject] = useState("");
   const [queryDraft, setQueryDraft] = useState("");
-  const [projectDraft, setProjectDraft] = useState("");
   const [offset, setOffset] = useState(0);
   const [selection, setSelection] = useState<
     Partial<Record<NotebookKind, string>>
@@ -100,7 +104,12 @@ export default function Notebook({
   latest.current = { kind, selected, selection };
   const ready = active && connected && available;
   const disabled = saving || !connected || !available;
-  const page = useResourcePage<NotebookItem>(
+  const {
+    data: page,
+    error: pageError,
+    loading: pageLoading,
+    refresh: refreshPage,
+  } = usePollingResource<ResourcePage<NotebookItem>>(
     {
       type: kind,
       action: "list",
@@ -113,8 +122,20 @@ export default function Notebook({
     ready,
     revision,
   );
+  const projects = usePollingResource<NotebookProjects>(
+    { type: "todo", action: "list_projects", scope: "all" },
+    ready,
+    revision,
+  );
+  const projectNames = [
+    "",
+    DEFAULT_PROJECT,
+    ...(projects.data?.items
+      .map(({ project }) => project)
+      .filter((name) => name !== DEFAULT_PROJECT) ?? []),
+  ];
   const summary = JSON.stringify(
-    page.page?.items.find((value) => value.id === selected),
+    page?.items.find((value) => value.id === selected),
   );
   useEffect(() => {
     mounted.current = true;
@@ -123,11 +144,11 @@ export default function Notebook({
     };
   }, []);
   useEffect(() => {
-    if (page.page && offset > 0 && offset >= page.page.total)
+    if (page && offset > 0 && offset >= page.total)
       setOffset(
-        Math.max(0, Math.floor((page.page.total - 1) / PAGE_SIZE) * PAGE_SIZE),
+        Math.max(0, Math.floor((page.total - 1) / PAGE_SIZE) * PAGE_SIZE),
       );
-  }, [page.page?.total, offset]);
+  }, [page?.total, offset]);
   useEffect(() => {
     if (scroll.current)
       scroll.current.scrollTop = selected || editor ? 0 : listScroll.current;
@@ -185,8 +206,7 @@ export default function Notebook({
           setOffset(0);
           setQuery("");
           setQueryDraft("");
-          setProject("");
-          setProjectDraft("");
+          setProject((current) => (current === result.project ? current : ""));
         }
       } else if (latest.current.selection[request.type] === result.id) {
         setDetails((current) => ({ ...current, [request.type]: result }));
@@ -294,13 +314,14 @@ export default function Notebook({
   const KindIcon = todo ? CheckSquare : Lightbulb;
   const orderLabel = todo
     ? t(archived ? "notebookClosedOrder" : "notebookDueOrder")
-    : t(archived ? "notebookArchiveOrder" : "notebookWriteOrder");
+    : t(archived ? "notebookArchiveOrder" : "notebookCaptureOrder");
   const emptyLabel = todo
     ? t(archived ? "notebookEmptyClosed" : "notebookEmptyTodos")
     : t(archived ? "notebookEmptyArchive" : "notebookEmptyIdeas");
   const kindTabs = (className = "") => (
     <div
       className={`source-tabs notebook-kind-tabs ${className}`}
+      data-kind={kind}
       role="group"
       aria-label={t("notebook")}
     >
@@ -355,44 +376,40 @@ export default function Notebook({
       className={`notebook-browser notebook-${kind}`}
       sidebar={
         <>
-          <div className="sidebar-heading notebook-sidebar-heading">
-            <h1>
-              {t("notebook")}
-              <span className="sidebar-heading-actions">
-                <button
-                  className="icon-button"
-                  aria-label={t("notebookRefresh")}
-                  title={t("notebookRefresh")}
-                  disabled={!connected || saving}
-                  onClick={() => {
-                    setRevision((value) => value + 1);
-                    setActionError(null);
-                  }}
-                >
-                  <RefreshCw
-                    size={15}
-                    className={page.loading ? "spinning" : ""}
-                  />
-                </button>
-              </span>
-            </h1>
-          </div>
-          {kindTabs()}
-          <form
-            className="notebook-filters"
-            onSubmit={(event) => {
-              event.preventDefault();
-              setQuery(projectValue(queryDraft.trim(), language));
-              setProject(projectDraft.trim());
-              setOffset(0);
-              setSelection({});
-              listScroll.current = 0;
-              if (scroll.current) scroll.current.scrollTop = 0;
-              onNavigate?.();
-            }}
-          >
-            <label className="knowledge-search">
-              <Search size={15} />
+          <SidebarHeading eyebrow="NOTES & TO-DOS" title={t("notebook")}>
+            <button
+              type="button"
+              className="icon-button"
+              aria-label={t("notebookRefresh")}
+              title={t("notebookRefresh")}
+              disabled={!connected || saving}
+              onClick={() => {
+                setRevision((value) => value + 1);
+                setActionError(null);
+              }}
+            >
+              <RefreshCw
+                size={15}
+                aria-hidden
+                className={pageLoading ? "spinning" : ""}
+              />
+            </button>
+          </SidebarHeading>
+          <div className="sidebar-controls">
+            {kindTabs()}
+            <form
+              className="sidebar-search"
+              onSubmit={(event) => {
+                event.preventDefault();
+                setQuery(queryDraft.trim());
+                setOffset(0);
+                setSelection({});
+                listScroll.current = 0;
+                if (scroll.current) scroll.current.scrollTop = 0;
+                onNavigate?.();
+              }}
+            >
+              <Search size={15} aria-hidden />
               <input
                 aria-label={t("notebookSearch")}
                 placeholder={t("notebookSearch")}
@@ -400,35 +417,69 @@ export default function Notebook({
                 disabled={!!editor}
                 onChange={(event) => setQueryDraft(event.target.value)}
               />
-              <button aria-label={t("searchAction")} disabled={!!editor}>
-                <ArrowRight size={14} />
-              </button>
-            </label>
-            <label className="notebook-project-filter">
-              <span>{t("notebookProject")}</span>
-              <input
-                aria-label={t("notebookProjectFilter")}
-                placeholder={t("notebookAllProjects")}
-                value={
-                  projectDraft === DEFAULT_PROJECT
-                    ? projectLabel(projectDraft, language)
-                    : projectDraft
-                }
+              <button
+                type="submit"
+                aria-label={t("searchAction")}
                 disabled={!!editor}
-                onChange={(event) =>
-                  setProjectDraft(projectValue(event.target.value, language))
-                }
-                onBlur={() => {
-                  if (project !== projectDraft.trim()) {
-                    setProject(projectDraft.trim());
-                    setOffset(0);
-                    setSelection({});
-                    listScroll.current = 0;
-                  }
-                }}
-              />
-            </label>
-          </form>
+              >
+                <ArrowRight size={14} aria-hidden />
+              </button>
+            </form>
+          </div>
+          <section className="notebook-projects">
+            <h3 className="list-section-label">{t("notebookProjects")}</h3>
+            <ul
+              aria-label={t("notebookProjectFilter")}
+              aria-busy={ready && projects.loading}
+            >
+              {projectNames.map((name) => (
+                <li key={name}>
+                  <button
+                    type="button"
+                    className={`file-tree-row ${project === name ? "selected" : ""}`}
+                    aria-pressed={project === name}
+                    disabled={editing}
+                    onClick={() => {
+                      if (project !== name) {
+                        setProject(name);
+                        setOffset(0);
+                        listScroll.current = 0;
+                      }
+                      openList();
+                      onNavigate?.();
+                    }}
+                  >
+                    {name ? (
+                      <Folder size={15} aria-hidden />
+                    ) : (
+                      <Folders size={15} aria-hidden />
+                    )}
+                    <span
+                      className="notebook-project-name"
+                      title={name ? projectLabel(name, language) : undefined}
+                    >
+                      {name
+                        ? projectLabel(name, language)
+                        : t("notebookAllProjects")}
+                    </span>
+                    {name === DEFAULT_PROJECT && (
+                      <span className="notebook-project-default">
+                        {t("notebookDefaultProjectBadge")}
+                      </span>
+                    )}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {projects.error != null && (
+              <p className="navigator-error" role="alert">
+                {errorText(projects.error, language)}{" "}
+                <button className="text-action" onClick={projects.refresh}>
+                  {t("retry")}
+                </button>
+              </p>
+            )}
+          </section>
         </>
       }
     >
@@ -499,8 +550,9 @@ export default function Notebook({
                     setOffset(0);
                     setQuery("");
                     setQueryDraft("");
-                    setProject("");
-                    setProjectDraft("");
+                    setProject((current) =>
+                      current === target.project ? current : "",
+                    );
                     setSelection((current) => ({
                       ...current,
                       [targetKind]: target.id,
@@ -553,21 +605,27 @@ export default function Notebook({
                     </button>
                   ))}
                 </div>
-                {page.page && (
+                {page && (
                   <span className="notebook-list-summary">
-                    {(todo || archived) && (
-                      <CalendarDays size={14} aria-hidden />
+                    {project && (
+                      <span
+                        className="notebook-project-context"
+                        title={projectLabel(project, language)}
+                      >
+                        {projectLabel(project, language)}
+                      </span>
                     )}
+                    <CalendarDays size={14} aria-hidden />
                     {orderLabel} ·{" "}
-                    {t("notebookResultCount", { count: page.page.total })}
+                    {t("notebookResultCount", { count: page.total })}
                   </span>
                 )}
               </div>
-              <div aria-busy={ready && page.loading}>
-                {page.error != null && (
+              <div aria-busy={ready && pageLoading}>
+                {pageError != null && (
                   <p className="navigator-error" role="alert">
-                    {errorText(page.error, language)}{" "}
-                    <button className="text-action" onClick={page.refresh}>
+                    {errorText(pageError, language)}{" "}
+                    <button className="text-action" onClick={refreshPage}>
                       {t("retry")}
                     </button>
                   </p>
@@ -575,14 +633,14 @@ export default function Notebook({
                 {!connected && (
                   <p className="notebook-list-empty">{t("waitingService")}</p>
                 )}
-                {ready && page.loading && !page.page && (
+                {ready && pageLoading && (
                   <div className="tree-skeleton">
                     <i />
                     <i />
                     <i />
                   </div>
                 )}
-                {page.page && !page.page.total && (
+                {page && !page.total && (
                   <div className="notebook-list-empty">
                     <KindIcon size={24} aria-hidden />
                     <p>
@@ -590,9 +648,9 @@ export default function Notebook({
                     </p>
                   </div>
                 )}
-                {page.page && page.page.items.length > 0 && (
+                {page && page.items.length > 0 && (
                   <NotebookList
-                    items={page.page.items}
+                    items={page.items}
                     kind={kind}
                     archived={archived}
                     language={language}
@@ -620,7 +678,7 @@ export default function Notebook({
                   />
                 )}
               </div>
-              {page.page && page.page.total > page.page.limit && (
+              {page && page.total > page.limit && (
                 <nav
                   className="resource-pagination"
                   aria-label={t("navigation")}
@@ -639,13 +697,13 @@ export default function Notebook({
                   <span>
                     {t("pageLabel", {
                       page: Math.floor(offset / PAGE_SIZE) + 1,
-                      total: Math.ceil(page.page.total / PAGE_SIZE),
+                      total: Math.ceil(page.total / PAGE_SIZE),
                     })}
                   </span>
                   <button
                     className="icon-button"
                     aria-label={t("nextPage")}
-                    disabled={offset + PAGE_SIZE >= page.page.total}
+                    disabled={offset + PAGE_SIZE >= page.total}
                     onClick={() => {
                       listScroll.current = 0;
                       setOffset(offset + PAGE_SIZE);

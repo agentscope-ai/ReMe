@@ -25,14 +25,18 @@ export type NotebookKind = "todo" | "idea";
 const todoStatuses = ["pending", "in_progress", "closed"] as const;
 export type TodoStatus = (typeof todoStatuses)[number];
 
-export interface Idea {
+interface NotebookRecord {
   id: string;
   project: string;
   text: string;
   closed_at?: string | null;
 }
 
-export interface Todo extends Idea {
+export interface Idea extends NotebookRecord {
+  created_at?: string | null;
+}
+
+export interface Todo extends NotebookRecord {
   status: TodoStatus;
   progress: { time: string; text: string }[];
   progress_count?: number;
@@ -58,6 +62,11 @@ interface ListOptions {
   limit?: number;
 }
 
+export interface NotebookProjects {
+  items: { project: string; todo_count: number; idea_count: number }[];
+  total: number;
+}
+
 interface ContentFields {
   project?: string;
   text?: string;
@@ -74,6 +83,7 @@ interface TodoFields extends ContentFields {
 export type NotebookRequest =
   | ({ type: "todo" } & (
       | (ListOptions & { status?: TodoStatus; source_idea?: string | null })
+      | { action: "list_projects"; scope?: ListOptions["scope"] }
       | { action: "get"; id: string }
       | ({ action: "create" } & TodoFields)
       | ({ action: "update"; id: string } & TodoFields)
@@ -91,7 +101,7 @@ export function notebookPayload(
 ): Record<string, unknown> {
   const actions =
     value.type === "todo"
-      ? ["create", "list", "get", "update"]
+      ? ["create", "list", "list_projects", "get", "update"]
       : ["create", "list", "get", "update", "archive", "restore"];
   if (!actions.includes(value.action))
     throw new Error("Invalid notebook action");
@@ -105,22 +115,24 @@ export function notebookPayload(
           "limit",
           ...(value.type === "todo" ? ["status", "source_idea"] : []),
         ]
-      : value.action === "create" || value.action === "update"
-        ? [
-            "project",
-            "text",
-            ...(value.action === "update" ? ["id"] : []),
-            ...(value.type === "todo"
-              ? [
-                  "status",
-                  "due_date",
-                  "source_idea",
-                  "progress_text",
-                  "close_note",
-                ]
-              : []),
-          ]
-        : ["id"];
+      : value.action === "list_projects"
+        ? ["scope"]
+        : value.action === "create" || value.action === "update"
+          ? [
+              "project",
+              "text",
+              ...(value.action === "update" ? ["id"] : []),
+              ...(value.type === "todo"
+                ? [
+                    "status",
+                    "due_date",
+                    "source_idea",
+                    "progress_text",
+                    "close_note",
+                  ]
+                : []),
+            ]
+          : ["id"];
   const body: Record<string, unknown> = { action: value.action };
   for (const [key, field] of Object.entries(value)) {
     if (key === "type" || key === "action") continue;

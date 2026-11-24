@@ -11,9 +11,9 @@ import "./context-menu.css";
 export interface MenuItem {
   id: string;
   label: string;
+  status?: string;
   icon?: LucideIcon;
   disabled?: boolean;
-  danger?: boolean;
   checked?: boolean;
   children?: MenuItem[];
   select?: () => void;
@@ -176,7 +176,7 @@ export default function ContextMenu({
           onClick={() => setPath(path.slice(0, -1))}
         >
           <ChevronLeft size={14} />
-          <span>{title}</span>
+          <span className="context-menu-label">{title}</span>
         </button>
       )}
       {page.map(({ icon: Icon, ...item }) => (
@@ -184,7 +184,6 @@ export default function ContextMenu({
           key={item.id}
           role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"}
           data-menu-id={item.id}
-          data-danger={item.danger || undefined}
           aria-checked={item.checked}
           aria-haspopup={item.children ? "menu" : undefined}
           disabled={item.disabled}
@@ -205,7 +204,10 @@ export default function ContextMenu({
               )}
             </span>
           )}
-          <span>{item.label}</span>
+          <span className="context-menu-label">{item.label}</span>
+          {item.status && (
+            <span className="context-menu-status">{item.status}</span>
+          )}
           {item.children && <ChevronRight size={13} />}
         </button>
       ))}

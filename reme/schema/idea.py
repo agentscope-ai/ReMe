@@ -8,11 +8,12 @@ from .notebook import DEFAULT_PROJECT, NotebookProject
 
 
 class Idea(BaseModel):
-    """A stable project note with an optional archive timestamp."""
+    """A stable project note with capture and archive timestamps when known."""
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     id: str = Field(default_factory=lambda: uuid4().hex, min_length=1)
     project: NotebookProject = DEFAULT_PROJECT
     text: str = Field(min_length=1)
+    created_at: AwareDatetime | None = None
     closed_at: AwareDatetime | None = None

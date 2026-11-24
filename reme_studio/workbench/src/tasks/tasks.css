@@ -99,11 +99,6 @@
   padding: 7px 18px;
   border-radius: var(--radius-sm);
 }
-.task-danger {
-  border: 0;
-  background: var(--error);
-  color: white;
-}
 .task-editor-error {
   margin-bottom: 16px;
   color: var(--error);

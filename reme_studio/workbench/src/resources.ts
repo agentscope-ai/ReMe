@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import { fromMarkdown } from "mdast-util-from-markdown";
 import type {
   JobResponse,
-  ResourcePage,
   WorkspaceRequest,
 } from "../../client/src/protocol.ts";
 import {
@@ -73,23 +72,19 @@ export function plainText(content: string): string {
   return text(fromMarkdown(content)).replace(/\s+/g, " ").trim();
 }
 
-/** One visible resource page owns one polling loop; details reuse its canonical rows. */
-export function useResourcePage<T>(
+export function usePollingResource<T>(
   request: WorkspaceRequest,
   active: boolean,
   revision?: number,
 ) {
   const requestResource = useResource();
   const key = JSON.stringify(request);
-  const [page, setPage] = useState<ResourcePage<T> | null>(null);
-  const [error, setError] = useState<unknown>(null);
-  const [loading, setLoading] = useState(true);
+  const [result, setResult] = useState<{
+    key: string;
+    data: T | null;
+    error: unknown;
+  }>();
   const [retry, setRetry] = useState(0);
-  useEffect(() => {
-    setPage(null);
-    setError(null);
-    setLoading(true);
-  }, [key]);
   useEffect(() => {
     if (!active) return;
     let live = true;
@@ -98,18 +93,19 @@ export function useResourcePage<T>(
       if (pending || document.hidden) return;
       pending = true;
       try {
-        const value = await requestResource<ResourcePage<T>>(
+        const value = await requestResource<T>(
           JSON.parse(key) as WorkspaceRequest,
         );
-        if (live) {
-          setPage(value);
-          setError(null);
-        }
-      } catch (reason) {
-        if (live) setError(reason);
+        if (live) setResult({ key, data: value, error: null });
+      } catch (error) {
+        if (live)
+          setResult((previous) => ({
+            key,
+            data: previous?.key === key ? previous.data : null,
+            error,
+          }));
       } finally {
         pending = false;
-        if (live) setLoading(false);
       }
     };
     void refresh();
@@ -119,10 +115,11 @@ export function useResourcePage<T>(
       clearInterval(timer);
     };
   }, [key, active, revision, retry]);
+  const current = result?.key === key ? result : undefined;
   return {
-    page,
-    error,
-    loading,
+    data: current?.data ?? null,
+    error: current?.error ?? null,
+    loading: !current,
     refresh: () => setRetry((value) => value + 1),
   };
 }

@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import MarkdownText from "../markdown.tsx";
-import { ChevronRight, ListFilter } from "lucide-react";
+import { ChevronRight, FileText, ListFilter } from "lucide-react";
 import { stringify } from "yaml";
 import { translator, type Language } from "../../../client/src/i18n.ts";
 import { parseMarkdown } from "./model.ts";
@@ -25,7 +25,9 @@ export default function DocumentPreview({
   const t = translator(language);
   const markdown = /\.mdx?$/i.test(path);
   const filename = path.split("/").at(-1) || path;
-  const title = filename.replace(/\.[^.]+$/, "") || filename;
+  const extension = /.+\.([^.]+)$/.exec(filename)?.[1];
+  const title =
+    markdown && extension ? filename.slice(0, -extension.length - 1) : filename;
   const modified = !markdown && mtime ? new Date(mtime) : null;
   const parsed = useMemo(
     () => parseMarkdown(markdown ? content : ""),
@@ -34,24 +36,26 @@ export default function DocumentPreview({
   const entries = Object.entries(parsed.metadata);
   return (
     <article className="document-content">
-      <h1 className="document-title" data-long={title.length > 80}>
-        {title}
-      </h1>
-      {modified && !Number.isNaN(modified.getTime()) && (
-        <time
-          className="document-modified"
-          dateTime={mtime}
-          title={t("modifiedTime")}
-        >
-          {modified.toLocaleString(language === "zh" ? "zh-CN" : "en", {
-            year: "numeric",
-            month: "short",
-            day: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
-        </time>
-      )}
+      <header className="document-heading">
+        <h1 className="document-title" data-long={title.length > 80}>
+          {title}
+        </h1>
+        {modified && !Number.isNaN(modified.getTime()) && (
+          <time
+            className="document-modified"
+            dateTime={mtime}
+            title={t("modifiedTime")}
+          >
+            {modified.toLocaleString(language === "zh" ? "zh-CN" : "en", {
+              year: "numeric",
+              month: "short",
+              day: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </time>
+        )}
+      </header>
       {(entries.length > 0 || parsed.frontmatterError) && (
         <details className="document-properties" open>
           <summary>
@@ -131,7 +135,15 @@ export default function DocumentPreview({
           />
         </div>
       ) : (
-        <pre className="document-text">{content}</pre>
+        <div className="document-source">
+          <div className="document-source-format">
+            <FileText size={13} aria-hidden />
+            <span>{extension?.toUpperCase() ?? t("plainTextFile")}</span>
+          </div>
+          <pre className="document-text">
+            <code>{content}</code>
+          </pre>
+        </div>
       )}
     </article>
   );

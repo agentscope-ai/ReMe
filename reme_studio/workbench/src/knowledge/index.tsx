@@ -18,7 +18,7 @@ import type { StudioState, TagFiles } from "../../../client/src/protocol.ts";
 import { errorText, translator, UiError } from "../../../client/src/i18n.ts";
 import { useHost } from "../host.ts";
 import { useWorkspace } from "../resources.ts";
-import SplitPane from "../split-pane.tsx";
+import SplitPane, { SidebarHeading } from "../split-pane.tsx";
 import { buildTree, type FileTree } from "./model.ts";
 import DocumentPreview from "./DocumentPreview.tsx";
 
@@ -75,7 +75,9 @@ function TreeNode({
     <>
       <button
         className={`file-tree-row ${selected === node.path ? "selected" : ""}`}
-        style={{ paddingInlineStart: 12 + depth * 15 }}
+        style={{
+          paddingInlineStart: `calc(var(--sidebar-row-inset) + ${depth * 15}px)`,
+        }}
         title={node.path}
         aria-expanded={node.children ? expanded : undefined}
         onClick={() =>
@@ -380,7 +382,7 @@ export default function Knowledge({
         selected
           ? [
               {
-                label: t("knowledge"),
+                label: t("memory"),
                 onSelect: () => setSelected(""),
                 revealSidebar: true,
               },
@@ -389,77 +391,78 @@ export default function Knowledge({
                 title: selected,
               },
             ]
-          : [{ label: t("knowledge") }]
+          : [{ label: t("memory") }]
       }
       collapsed={collapsed}
       language={state.settings.language}
       sidebar={
         <>
-          <div className="sidebar-heading">
-            <span className="eyebrow">YOUR SECOND MEMORY</span>
-            <h1>
-              {t("knowledge")}
-              <button
-                className="icon-button"
-                aria-label={t("refreshFiles")}
-                onClick={() => setRefresh((n) => n + 1)}
-              >
-                <RefreshCw
-                  size={15}
-                  className={
-                    (showFiles && loading) ||
-                    (browsingTags && supportsTags && tagsLoading)
-                      ? "spinning"
-                      : ""
-                  }
-                />
-              </button>
-            </h1>
-            <p>{t("knowledgeCaption")}</p>
-          </div>
-          <form
-            className="knowledge-search"
-            onSubmit={(event) => {
-              event.preventDefault();
-              setQuery(draft.trim());
-              setPage(1);
-            }}
-          >
-            <Search size={15} />
-            <input
-              aria-label={t("searchKnowledge")}
-              placeholder={t("searchKnowledge")}
-              value={draft}
-              onChange={(event) => {
-                const value = event.target.value;
-                setDraft(value);
-                if (query && !value.trim()) {
-                  setQuery("");
-                  setPage(1);
+          <SidebarHeading eyebrow="KNOWLEDGE & HISTORY" title={t("memory")}>
+            <button
+              type="button"
+              className="icon-button"
+              aria-label={t("refreshMemory")}
+              title={t("refreshMemory")}
+              onClick={() => setRefresh((n) => n + 1)}
+            >
+              <RefreshCw
+                size={15}
+                aria-hidden
+                className={
+                  (showFiles && loading) ||
+                  (browsingTags && supportsTags && tagsLoading)
+                    ? "spinning"
+                    : ""
                 }
-              }}
-            />
-            <button aria-label={t("searchAction")}>
-              <ArrowRight size={14} />
+              />
             </button>
-          </form>
-          <div
-            className="source-tabs knowledge-source-tabs"
-            data-source={source}
-            role="group"
-            aria-label={t("knowledge")}
-          >
-            {sources.map(([id, Icon, key]) => (
-              <button
-                key={id}
-                aria-pressed={source === id}
-                className={source === id ? "active" : ""}
-                onClick={() => selectSource(id)}
-              >
-                <Icon size={14} aria-hidden />
-                <span>{t(key)}</span>
+          </SidebarHeading>
+          <div className="sidebar-controls">
+            <div
+              className="source-tabs knowledge-source-tabs"
+              data-source={source}
+              role="group"
+              aria-label={t("memory")}
+            >
+              {sources.map(([id, Icon, key]) => (
+                <button
+                  key={id}
+                  type="button"
+                  aria-pressed={source === id}
+                  className={source === id ? "active" : ""}
+                  onClick={() => selectSource(id)}
+                >
+                  <Icon size={14} aria-hidden />
+                  <span>{t(key)}</span>
+                </button>
+              ))}
+            </div>
+            <form
+              className="sidebar-search"
+              onSubmit={(event) => {
+                event.preventDefault();
+                setQuery(draft.trim());
+                setPage(1);
+              }}
+            >
+              <Search size={15} aria-hidden />
+              <input
+                aria-label={t("searchKnowledge")}
+                placeholder={t("searchKnowledge")}
+                value={draft}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setDraft(value);
+                  if (query && !value.trim()) {
+                    setQuery("");
+                    setPage(1);
+                  }
+                }}
+              />
+              <button type="submit" aria-label={t("searchAction")}>
+                <ArrowRight size={14} aria-hidden />
               </button>
-            ))}
+            </form>
           </div>
           {browsingTags && (
             <section

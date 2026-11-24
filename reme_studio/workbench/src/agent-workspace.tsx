@@ -46,8 +46,6 @@ export default function AgentWorkspace({
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [error, setError] = useState<unknown>(null);
   const live = useRef(false);
-  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
-  const deleteDialog = useRef<HTMLDialogElement>(null);
   const [taskBusy, setTaskBusy] = useState(false);
   const [createdTask, setCreatedTask] = useState<string | null>(null);
   const [inboxRevision, setInboxRevision] = useState(0);
@@ -69,9 +67,6 @@ export default function AgentWorkspace({
       live.current = false;
     };
   }, []);
-  useEffect(() => {
-    if (active && !isRemy && deleteTarget) deleteDialog.current?.showModal();
-  }, [active, isRemy, deleteTarget]);
   useEffect(() => {
     if (
       active &&
@@ -227,9 +222,6 @@ export default function AgentWorkspace({
         path={path}
         collapsed={collapsed}
         language={state.settings.language}
-        defaultWidth={224}
-        minWidth={208}
-        maxWidth={320}
         sidebar={
           <AgentSidebar
             state={state}
@@ -240,10 +232,6 @@ export default function AgentWorkspace({
               select(agentName, section);
               onNavigate();
             }}
-            onDelete={(agentName) => {
-              setError(null);
-              setDeleteTarget(agentName);
-            }}
             onToggle={toggleTask}
             onReveal={(agentName) =>
               void manage(() => action({ type: "agent.reveal", agentName }))
@@ -253,7 +241,7 @@ export default function AgentWorkspace({
         }
       >
         <section className="agent-workspace">
-          {error != null && !deleteTarget && (
+          {error != null && (
             <p className="action-error" role="alert">
               {errorText(error, state.settings.language)}
             </p>
@@ -334,58 +322,6 @@ export default function AgentWorkspace({
           </div>
         </section>
       </SplitPane>
-      {active && !isRemy && deleteTarget && (
-        <dialog
-          ref={deleteDialog}
-          className="workspace-dialog"
-          aria-labelledby="task-delete-title"
-          onClose={() => {
-            setDeleteTarget(null);
-            setError(null);
-          }}
-          onCancel={(event) => {
-            if (taskBusy) event.preventDefault();
-          }}
-        >
-          <h2 id="task-delete-title">{t("taskDelete")}</h2>
-          <p>{t("taskDeleteHint", { name: deleteTarget })}</p>
-          {error != null && (
-            <p className="action-error" role="alert">
-              {errorText(error, state.settings.language)}
-            </p>
-          )}
-          <footer>
-            <button
-              type="button"
-              className="secondary"
-              disabled={taskBusy}
-              onClick={() => deleteDialog.current?.close()}
-            >
-              {t("taskCancel")}
-            </button>
-            <button
-              type="button"
-              className="task-danger"
-              disabled={
-                taskBusy ||
-                !state.agents?.some((item) => item.agent_name === deleteTarget)
-              }
-              onClick={() =>
-                void manage(async () => {
-                  await requestResource({
-                    type: "task",
-                    action: "delete",
-                    agent_name: deleteTarget,
-                  });
-                  if (live.current) setDeleteTarget(null);
-                })
-              }
-            >
-              {t("taskDelete")}
-            </button>
-          </footer>
-        </dialog>
-      )}
     </>
   );
 }

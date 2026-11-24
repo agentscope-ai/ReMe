@@ -78,6 +78,12 @@ class _RecordStep(BaseStep):
             records = sorted(records, key=lambda record: record.closed_at, reverse=True)
         elif request.scope == "active" and isinstance(request, TodoRequest):
             records = sorted(records, key=lambda record: (record.due_date is None, record.due_date))
+        elif request.scope == "active" and isinstance(request, IdeaRequest):
+            records = sorted(
+                records,
+                key=lambda record: (record.created_at is not None, record.created_at),
+                reverse=True,
+            )
         items = []
         for record in records:
             if "project" in request.model_fields_set and record.project != request.project:
@@ -191,7 +197,7 @@ class IdeaStep(_RecordStep):
     async def change_record(self, original, request):
         changes = request.model_dump(include={"project", "text"}, exclude_unset=True)
         if original is None:
-            return Idea(**changes)
+            return Idea(created_at=datetime.now(timezone.utc), **changes)
         if request.action == "update":
             return Idea.model_validate({**original.model_dump(), **changes})
         record = original.model_copy()

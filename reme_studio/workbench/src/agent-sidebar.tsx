@@ -12,10 +12,10 @@ import {
   Plus,
   Send,
   SlidersHorizontal,
-  Trash2,
 } from "lucide-react";
 import type { AgentView, StudioState } from "../../client/src/protocol.ts";
 import { translator } from "../../client/src/i18n.ts";
+import { SidebarHeading } from "./split-pane.tsx";
 import ContextMenu, {
   type MenuItem,
   type MenuPosition,
@@ -132,7 +132,6 @@ export default function AgentSidebar({
   section,
   remyActions,
   onSelect,
-  onDelete,
   onToggle,
   onReveal,
   busy,
@@ -142,7 +141,6 @@ export default function AgentSidebar({
   section: AgentSection;
   remyActions: Record<RemySection, MenuItem[]>;
   onSelect: (agentName: string | null, section: AgentSection) => void;
-  onDelete: (agentName: string) => void;
   onToggle: (agent: AgentView) => void;
   onReveal: (agentName: string) => void;
   busy: boolean;
@@ -171,6 +169,7 @@ export default function AgentSidebar({
     {
       id: "toggle",
       label: t(agent.enabled ? "taskPause" : "taskEnable"),
+      status: t(agent.enabled ? "taskEnabledStatus" : "taskPausedStatus"),
       icon: agent.enabled ? Pause : Play,
       disabled: busy || state.connection !== "connected",
       select: () => onToggle(agent),
@@ -180,14 +179,6 @@ export default function AgentSidebar({
       label: t("taskOpenDirectory"),
       icon: FolderOpen,
       select: () => onReveal(agent.agent_name),
-    },
-    {
-      id: "delete",
-      label: t("taskDelete"),
-      icon: Trash2,
-      danger: true,
-      disabled: busy,
-      select: () => onDelete(agent.agent_name),
     },
   ];
   const rows: SidebarRow[] =
@@ -301,27 +292,26 @@ export default function AgentSidebar({
       data-page={page}
       aria-label={page === "remy" ? "Remy" : t("proactiveAi")}
     >
+      <SidebarHeading
+        eyebrow={page === "remy" ? "AT YOUR SIDE" : "IN THE BACKGROUND"}
+        title={page === "remy" ? "Remy" : t("proactiveAi")}
+      >
+        {page === "remy" ? (
+          remy && <AgentStatus agent={remy} t={t} />
+        ) : (
+          <button
+            type="button"
+            className="icon-button"
+            aria-label={t("taskCreate")}
+            title={t("taskCreate")}
+            disabled={busy || state.connection !== "connected"}
+            onClick={() => onSelect(null, "create")}
+          >
+            <Plus size={16} aria-hidden />
+          </button>
+        )}
+      </SidebarHeading>
       <div className="agent-navigation">
-        <div className="agent-sidebar-heading">
-          <div className="agent-identity">
-            <h2>{page === "remy" ? "Remy" : t("proactiveAi")}</h2>
-            {page === "remy" ? (
-              remy && <AgentStatus agent={remy} t={t} />
-            ) : (
-              <button
-                type="button"
-                className="icon-button agent-task-add"
-                aria-label={t("taskCreate")}
-                title={t("taskCreate")}
-                disabled={busy || state.connection !== "connected"}
-                onClick={() => onSelect(null, "create")}
-              >
-                <Plus size={16} aria-hidden />
-              </button>
-            )}
-          </div>
-          {page === "remy" && <p>{t("personalAssistant")}</p>}
-        </div>
         {rows.length ? (
           <ul
             className={page === "remy" ? "agent-sections" : "agent-list"}

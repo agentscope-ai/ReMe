@@ -6,14 +6,36 @@ import WorkspaceTitlebar, {
   type Breadcrumb,
 } from "./workspace-titlebar.tsx";
 
+export function SidebarHeading({
+  eyebrow,
+  title,
+  children,
+}: {
+  eyebrow: string;
+  title: string;
+  children?: ReactNode;
+}) {
+  return (
+    <header className="module-sidebar-heading">
+      <span className="eyebrow" aria-hidden>
+        {eyebrow}
+      </span>
+      <div className="module-sidebar-title">
+        <h2>{title}</h2>
+        {children}
+      </div>
+    </header>
+  );
+}
+
 export default function SplitPane({
   name,
   sidebar,
   children,
   language,
   collapsed = false,
-  defaultWidth = 292,
-  minWidth = 240,
+  defaultWidth = 256,
+  minWidth = 224,
   maxWidth = 400,
   minContentWidth = 280,
   className = "",

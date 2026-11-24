@@ -99,6 +99,7 @@ description: 用 ReMe 的 todo 和 idea 工具查找项目、管理待办和想�
 ### `list`
 
 按项目、关键词和归档状态查找 Idea。
+当前想法按记录时间倒序排列，未记录日期的想法列在最后。归档想法按归档时间倒序排列。
 
 ```json
 {"action":"list","project":"ReMe","scope":"all","query":"发布包","offset":0,"limit":20}

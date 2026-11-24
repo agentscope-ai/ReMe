@@ -185,9 +185,11 @@ test("reasoning stays inside activity disclosure while prose, plans and completi
     server: { middlewareMode: true, watch: null, hmr: false, ws: false },
   });
   try {
-    const { default: MessageBody, timelineItems } = await server.ssrLoadModule(
-      "/workbench/src/message-body.tsx",
-    );
+    const {
+      default: MessageBody,
+      timelineItems,
+      formatTaskResult,
+    } = await server.ssrLoadModule("/workbench/src/message-body.tsx");
     const reply = {
       content: "我先核查来源。\n\n来源已核实，正在整理结论。\n\n结果已经确认。",
       items: [
@@ -323,6 +325,30 @@ test("reasoning stays inside activity disclosure while prose, plans and completi
       assert.doesNotMatch(
         render(message, language, true),
         /turn-completion|activity-group/,
+      );
+      const marker = "NO_KEY_INFORMATION";
+      const noUpdates = {
+        ...message,
+        content: `Checked sources.\n\n${marker}`,
+        items: [
+          ...reply.items.filter((item) => item.type === "tool"),
+          content("commentary", "Checked sources."),
+          { ...content("answer", marker), phase: "final_answer" },
+        ],
+      } satisfies DisplayMessage;
+      const task = formatTaskResult(noUpdates, language);
+      const taskHtml = render(task, language);
+      assert.match(taskHtml, /activity-group/);
+      assert.match(taskHtml, /Checked sources/);
+      assert.match(
+        taskHtml,
+        language === "zh" ? /本轮没有重要更新/ : /No significant updates/,
+      );
+      assert.doesNotMatch(taskHtml, /NO_KEY_INFORMATION/);
+      assert.match(render(noUpdates, language), /NO_KEY_INFORMATION/);
+      assert.equal(
+        formatTaskResult({ ...noUpdates, streaming: true }, language),
+        undefined,
       );
     }
   } finally {

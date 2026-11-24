@@ -234,40 +234,40 @@ test("authoritative subscriptions reconcile replies and endpoint changes respect
     turn_id: "native-turn",
     content: "Task result",
   });
-  for (const source of ["task", undefined] as const) {
-    for (const phase of [
-      "working",
-      "failed",
-      "interrupted",
-      "completed",
-    ] as const) {
-      listeners.get("monitor")!({
-        chunk_type: "data",
-        chunk: {
-          ...snapshot("monitor", [result]),
-          activities: {
-            monitor: {
-              source,
-              phase,
-              turn_id: "batch",
-              session_id: phase === "completed" ? "monitor-session" : "",
-            },
+  for (const phase of [
+    "working",
+    "failed",
+    "interrupted",
+    "completed",
+  ] as const) {
+    listeners.get("monitor")!({
+      chunk_type: "data",
+      chunk: {
+        ...snapshot("monitor", [result]),
+        activities: {
+          monitor: {
+            source: "task",
+            phase,
+            turn_id: "batch",
+            session_id: phase === "completed" ? "monitor-session" : "",
+            tool: null,
+            started_at: "2026-11-24T03:00:00Z",
           },
         },
-      });
-      assert.deepEqual(
-        controller.state.messages.map(({ id, completed }) => [id, completed]),
-        [["native-result", true]],
-      );
-      assert.equal(
-        controller.state.taskRunStatus?.tone,
-        phase === "completed"
-          ? undefined
-          : phase === "working"
-            ? "working"
-            : "error",
-      );
-    }
+      },
+    });
+    assert.deepEqual(
+      controller.state.messages.map(({ id, completed }) => [id, completed]),
+      [["native-result", true]],
+    );
+    assert.equal(
+      controller.state.taskRunStatus?.tone,
+      phase === "completed"
+        ? undefined
+        : phase === "working"
+          ? "working"
+          : "error",
+    );
   }
   const active = snapshot("monitor");
   active.agent.status = "active";

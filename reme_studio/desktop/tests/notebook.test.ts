@@ -65,6 +65,15 @@ test("localized project names round trip through IPC with one stable default", a
     signal,
   );
   assert.deepEqual(calls.at(-1), ["todo", { action: "list", project: "随笔" }]);
+  await requestWorkspace(
+    client,
+    { type: "todo", action: "list_projects", scope: "all" },
+    signal,
+  );
+  assert.deepEqual(calls.at(-1), [
+    "todo",
+    { action: "list_projects", scope: "all" },
+  ]);
 });
 
 test("notebook IPC preserves task patches, explicit clearing and source links", async () => {
@@ -196,6 +205,9 @@ test("notebook IPC rejects untrusted fields and invalid actions before HTTP", as
     },
     { type: "todo", action: "list", progress_text: "不能忽略" },
     { type: "todo", action: "list", limit: 101 },
+    { type: "todo", action: "list_projects", limit: 20 },
+    { type: "todo", action: "list_projects", scope: "invalid" },
+    { type: "idea", action: "list_projects" },
     { type: "idea", action: "list", offset: -1 },
     { type: "idea", action: "list", status: "closed" },
     { type: "todo", action: "create", text: "目标", _allowed_paths: ["/"] },
@@ -211,7 +223,7 @@ test("notebook IPC rejects untrusted fields and invalid actions before HTTP", as
   assert.equal(called, false);
 });
 
-test("Notebook shares Knowledge's default split and preserves Remy's narrower navigation", async (t) => {
+test("Workspace modules share their default sidebar width and headings", async (t) => {
   const directory = await mkdtemp(path.join(tmpdir(), "reme-notebook-view-"));
   const manifest = JSON.parse(
     await readFile(
@@ -248,6 +260,9 @@ test("Notebook shares Knowledge's default split and preserves Remy's narrower na
   const { default: AgentWorkspace } = await server.ssrLoadModule(
     "/workbench/src/agent-workspace.tsx",
   );
+  const { default: Settings } = await server.ssrLoadModule(
+    "/workbench/src/settings.tsx",
+  );
   const state = {
     ...controller.state,
     activePage: "notebook",
@@ -260,9 +275,32 @@ test("Notebook shares Knowledge's default split and preserves Remy's narrower na
   const notebook = render(createElement(Notebook, { state }));
   const knowledge = render(createElement(Knowledge, { state }));
   const remy = render(createElement(AgentWorkspace, { state, page: "remy" }));
-  assert.match(notebook, /--sidebar-width:292px/);
-  assert.match(knowledge, /--sidebar-width:292px/);
-  assert.match(remy, /--sidebar-width:224px/);
+  const tasks = render(createElement(AgentWorkspace, { state, page: "tasks" }));
+  const settings = render(
+    createElement(Settings, {
+      state,
+      version: "test",
+      companionVisible: false,
+      desktop: false,
+      editableEndpoint: false,
+    }),
+  );
+  for (const [html, eyebrow] of [
+    [notebook, "NOTES &amp; TO-DOS"],
+    [knowledge, "KNOWLEDGE &amp; HISTORY"],
+    [remy, "AT YOUR SIDE"],
+    [tasks, "IN THE BACKGROUND"],
+    [settings, "YOUR SPACE"],
+  ]) {
+    assert.match(html, /--sidebar-width:256px/);
+    assert.match(html, /class="module-sidebar-heading"/);
+    assert.ok(
+      html.includes(
+        `<span class="eyebrow" aria-hidden="true">${eyebrow}</span>`,
+      ),
+    );
+  }
+  assert.doesNotMatch(knowledge, /YOUR SECOND MEMORY/);
   assert.match(notebook, /随记/);
   assert.match(notebook, /关闭备注（选填）/);
   assert.match(notebook, /aria-label="调整侧栏宽度"/);

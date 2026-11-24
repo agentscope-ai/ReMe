@@ -61,7 +61,7 @@ jobs:
     backend: base
     description: >-
       Capture and manage one-sentence ideas: create/list/get/update/archive/restore.
-      IDs are generated automatically; archive retains the idea and its Todo links.
+      IDs and capture timestamps are generated automatically; archive retains the idea and its Todo links.
       Creating or completing a linked Todo does not close the idea.
       Follow the manage-todos-ideas skill for workflows and examples.
     parameters:
@@ -72,7 +72,7 @@ jobs:
         id: *record_id
         project: *record_project
         text: *record_text
-        scope: {type: string, enum: [active, archive, all], description: "List only; defaults to active (latest writes first). Archive lists newest archives first."}
+        scope: {type: string, enum: [active, archive, all], description: "List only; defaults to active (newest captures first, undated ideas last). Archive lists newest archives first."}
         query: *record_query
         offset: *record_offset
         limit: *record_limit

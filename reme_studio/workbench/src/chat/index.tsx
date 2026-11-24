@@ -16,6 +16,7 @@ import {
 import { useHost } from "../host.ts";
 import { watchReadReceipt } from "../read-receipt.ts";
 import MessageBody, {
+  formatTaskResult,
   isCompletedTurn,
   splitReminderSource,
 } from "../message-body.tsx";
@@ -31,6 +32,7 @@ import {
   ChevronRight,
   FileText,
   Headphones,
+  List,
   LoaderCircle,
   Radar,
   RotateCcw,
@@ -81,9 +83,11 @@ export default function Chat({
     setCommandIndex(0);
     onDraft(next);
   };
-  const agentName =
-    state.agents?.find((agent) => agent.agent_name === state.selectedAgentName)
-      ?.agent_name ?? "Remy";
+  const agent = state.agents?.find(
+    (item) => item.agent_name === state.selectedAgentName,
+  );
+  const agentName = agent?.agent_name ?? "Remy";
+  const automaticEvent = agent?.agent_type === "event" && !state.pending;
   const [error, setError] = useState<unknown>(null);
   const {
     history,
@@ -426,10 +430,14 @@ export default function Chat({
             const proactive = message.source === "proactive";
             const reminder = proactive && message.role === "assistant";
             const completed = isCompletedTurn(message);
+            const result = automaticEvent
+              ? formatTaskResult(message, language)
+              : undefined;
             const canAct =
               message.role === "assistant" &&
               message.completed &&
-              Boolean(message.content) &&
+              Boolean(message.content.trim()) &&
+              !result &&
               !message.error &&
               message.status?.tone !== "error";
             const playback = voice?.messageId === message.id ? voice : null;
@@ -444,7 +452,7 @@ export default function Chat({
             );
             const body = (
               <MessageBody
-                message={source?.display ?? message}
+                message={source?.display ?? result ?? message}
                 language={language}
                 showCompletion={false}
                 onLink={openLink}
@@ -467,14 +475,20 @@ export default function Chat({
                 )}
                 {proactive && message.role === "user" && (
                   <div className="proactive-label">
-                    <span aria-hidden>✦</span> {t("automaticTurn")}
+                    <Sparkle size={15} aria-hidden />
+                    {t("automaticTurn")}
                   </div>
                 )}
                 {message.taskInput ? (
                   <details className="task-input">
                     <summary>
-                      <ChevronRight size={14} aria-hidden />
-                      {t("taskInput")}
+                      <List size={15} aria-hidden />
+                      <span>{t("taskInput")}</span>
+                      <ChevronRight
+                        size={13}
+                        className="activity-chevron"
+                        aria-hidden
+                      />
                     </summary>
                     {body}
                   </details>
@@ -489,9 +503,9 @@ export default function Chat({
                         title={reminder ? t("proactiveLabel") : undefined}
                       >
                         {reminder ? (
-                          <Sparkle size={13} aria-hidden />
+                          <Sparkle size={15} aria-hidden />
                         ) : (
-                          <Check size={13} aria-hidden />
+                          <Check size={15} aria-hidden />
                         )}
                         {t(reminder ? "proactiveStatus" : "completed")}
                       </span>
@@ -580,7 +594,7 @@ export default function Chat({
             >
               {state.taskRunStatus.tone === "working" && (
                 <LoaderCircle
-                  size={12}
+                  size={15}
                   className="activity-spinner"
                   aria-hidden
                 />

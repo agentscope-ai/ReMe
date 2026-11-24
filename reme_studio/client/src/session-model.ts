@@ -44,27 +44,16 @@ export class SessionModel {
     for (const message of event.messages)
       if (readMessage(message).session_id !== event.agent.session_id)
         throw new UiError("invalidMessage");
-    const activities = Object.fromEntries(
-      Object.entries(event.activities).map(([name, activity]) => {
-        if (
-          !activity ||
-          typeof activity.session_id !== "string" ||
-          typeof activity.turn_id !== "string" ||
-          !clientEnums.activityPhase.includes(activity.phase) ||
-          (activity.source !== undefined &&
-            !clientEnums.activitySource.includes(activity.source))
-        )
-          throw new UiError("invalidActivity");
-        // Older servers omit the source. Only Remy publishes user conversation activity.
-        return [
-          name,
-          {
-            ...activity,
-            source: activity.source ?? (name === "Remy" ? "chat" : "task"),
-          },
-        ];
-      }),
-    );
+    for (const activity of Object.values(event.activities)) {
+      if (
+        !activity ||
+        typeof activity.session_id !== "string" ||
+        typeof activity.turn_id !== "string" ||
+        !clientEnums.activityPhase.includes(activity.phase) ||
+        !clientEnums.activitySource.includes(activity.source)
+      )
+        throw new UiError("invalidActivity");
+    }
     if (
       new Set(event.messages.map((message) => message.id)).size !==
       event.messages.length
@@ -89,7 +78,7 @@ export class SessionModel {
       ];
     }
     this.agent = event.agent;
-    this.activities = activities;
+    this.activities = event.activities;
     return event;
   }
 }

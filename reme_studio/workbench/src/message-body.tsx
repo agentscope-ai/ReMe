@@ -111,6 +111,24 @@ export function isCompletedTurn(message: DisplayMessage): boolean {
   );
 }
 
+/** An automatic event run can finish without a report. Keep its native reply intact. */
+export function formatTaskResult(message: DisplayMessage, language: Language) {
+  const sentinel = "NO_KEY_INFORMATION";
+  if (!isCompletedTurn(message) || replyText(message).trim() !== sentinel)
+    return;
+
+  const text = translator(language)("taskNoUpdates");
+  return {
+    ...message,
+    content: message.content.trim() === sentinel ? text : message.content,
+    items: message.items?.map((item) =>
+      item.type === "text" && item.text.trim() === sentinel
+        ? { ...item, text }
+        : item,
+    ),
+  };
+}
+
 /** Main history follows assistant prose; reasoning and raw output stay in disclosure. */
 export default memo(function MessageBody({
   message,
@@ -206,7 +224,11 @@ export default memo(function MessageBody({
             aria-live="polite"
           >
             {message.streaming && (
-              <LoaderCircle size={12} className="activity-spinner" />
+              <LoaderCircle
+                size={15}
+                className="activity-spinner"
+                aria-hidden
+              />
             )}
             {message.status.text}
           </span>

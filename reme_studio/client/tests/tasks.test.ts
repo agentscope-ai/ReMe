@@ -46,7 +46,6 @@ test("task management forwards settings and document operations for a tmp task",
       content: "New\n",
       expected_mtime: "revision",
     },
-    { type: "task", action: "delete", agent_name: "tmp" },
   ] satisfies TaskRequest[])
     await requestWorkspace(client, request, new AbortController().signal);
   assert.deepEqual(calls, [
@@ -78,17 +77,13 @@ test("task management forwards settings and document operations for a tmp task",
         expected_mtime: "revision",
       },
     },
-    {
-      job: "manage_proactive_agent",
-      body: { action: "delete", agent_name: "tmp" },
-    },
   ]);
 });
 
 test("task IPC rejects unrelated identities, unsafe writes and retired operations", () => {
   for (const request of [
-    { action: "delete", agent_name: "Remy" },
-    { action: "delete", agent_name: "REMY" },
+    { action: "read", agent_name: "Remy" },
+    { action: "read", agent_name: "REMY" },
     { action: "read", agent_name: "../task" },
     { action: "save", agent_name: "task", content: "Text" },
     {
@@ -101,6 +96,7 @@ test("task IPC rejects unrelated identities, unsafe writes and retired operation
     { action: "update", agent_name: "task", settings: { agent_name: "other" } },
     { action: "query", agent_name: "task" },
     { action: "status", agent_name: "task" },
+    { action: "delete", agent_name: "task" },
     { action: "read", agent_name: "task", path: "daily/other.md" },
   ])
     assert.throws(() =>

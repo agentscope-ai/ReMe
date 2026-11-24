@@ -19,7 +19,7 @@ import { errorText, translator } from "../../client/src/i18n.ts";
 import { useHost } from "./host.ts";
 import { Switch } from "./ui.tsx";
 import VoiceSettings from "./speech/settings.tsx";
-import SplitPane from "./split-pane.tsx";
+import SplitPane, { SidebarHeading } from "./split-pane.tsx";
 import { githubUrl } from "./workspace-titlebar.tsx";
 
 const sections = [
@@ -91,27 +91,22 @@ export default function Settings({
         ]}
         language={state.settings.language}
         collapsed={collapsed}
-        defaultWidth={240}
         sidebar={
           <>
-            <div className="sidebar-heading">
-              <span className="eyebrow">YOUR SPACE</span>
-              <h1>{t("settings")}</h1>
-              <p>{t("settingsCaption")}</p>
-            </div>
+            <SidebarHeading eyebrow="YOUR SPACE" title={t("settings")} />
             <nav className="settings-nav" aria-label={t("desktopSettings")}>
               {items.map(([id, Icon]) => (
                 <button
                   key={id}
+                  type="button"
+                  className="settings-nav-item"
                   aria-current={section === id ? "page" : undefined}
                   onClick={() => {
                     setSection(id);
                     onNavigate?.();
                   }}
                 >
-                  <span className={`settings-nav-icon ${id}`}>
-                    <Icon size={16} />
-                  </span>
+                  <Icon size={16} aria-hidden />
                   {id === "remy" ? "Remy" : t(id)}
                 </button>
               ))}

@@ -269,17 +269,14 @@ html[data-android-insets="pending"] .mobile-workbench {
 }
 
 .mobile-sidebar-host > .workspace-sidebar {
+  --sidebar-heading-top: 10px;
   width: 100%;
   min-width: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
 
-.mobile-sidebar-host .sidebar-heading {
-  padding: 10px 10px 13px;
-}
-
-.mobile-sidebar-host :is(.agent-row, .settings-nav button, .file-tree-row) {
+.mobile-sidebar-host :is(.agent-row, .settings-nav-item, .file-tree-row) {
   min-height: 44px;
 }
 
@@ -329,12 +326,13 @@ html:is([data-platform="android"], [data-platform="ios"]) .context-menu button {
   min-height: 44px;
 }
 
-.mobile-sidebar-host .eyebrow,
 .mobile-workbench .settings-detail .eyebrow {
   display: none;
 }
 
 .mobile-workbench .conversation-pane {
+  --chat-turn-gap: 22px;
+  --chat-block-gap: 12px;
   gap: 0;
 }
 
@@ -458,11 +456,7 @@ html:is([data-platform="android"], [data-platform="ios"]) .context-menu button {
   overscroll-behavior-y: contain;
 }
 
-.mobile-workbench .message {
-  margin-bottom: 23px;
-}
-
-.mobile-workbench .message.user {
+.mobile-workbench .message.user:not([data-task-input="true"]) {
   border-radius: 20px 20px 5px 20px;
   padding: 10px 15px;
 }

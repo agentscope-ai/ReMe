@@ -175,9 +175,10 @@ class RecordStore:
         changes = {}
         for relative in {previous, target} - {None}:
             records = dict(self.files.get(relative, {}))
-            records.pop(record.id, None)
             if relative == target:
                 records[record.id] = record
+            else:
+                records.pop(record.id)
             values = [item.model_dump(mode="json", exclude_none=True) for item in records.values()]
             self.validate(values, relative)
             changes[relative] = {"before": self.versions.get(relative), "after": values}

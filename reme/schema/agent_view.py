@@ -71,7 +71,7 @@ class ClientActivity(ClientModel):
 
     session_id: str
     turn_id: str
-    source: ActivitySource = "chat"
+    source: ActivitySource
     phase: ActivityPhase
     tool: str | None = None
     started_at: str | None = None

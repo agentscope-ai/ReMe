@@ -44,14 +44,13 @@
   width: 14px;
   flex-shrink: 0;
 }
-.context-menu > button[data-danger] {
-  color: var(--error);
-  border-top: 1px solid var(--line);
-  margin-top: 4px;
-  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
-}
-.context-menu > button > span:last-of-type {
+.context-menu-label {
   flex: 1;
+}
+.context-menu-status {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 0.9em;
 }
 .context-menu > .context-menu-back {
   border-bottom: 1px solid var(--line);
@@ -106,19 +105,6 @@
 }
 .context-menu[data-inline] > button:last-child {
   margin-block-end: 8px;
-}
-.context-menu[data-inline] > button[data-danger] {
-  margin-block-start: 6px;
-  border: 0;
-  border-radius: var(--radius-sm);
-}
-.context-menu[data-inline] > button[data-danger] .context-menu-icon {
-  color: inherit;
-}
-.context-menu[data-inline]
-  > button[data-danger]:is(:hover, :focus-visible):not(:disabled) {
-  color: var(--error);
-  background: var(--error-soft);
 }
 
 @media (prefers-reduced-motion: reduce) {

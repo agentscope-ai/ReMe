@@ -246,11 +246,11 @@ export default function Workbench({
             <Tabs.Trigger
               className="rail-button"
               value="knowledge"
-              aria-label={t("knowledge")}
+              aria-label={t("memory")}
             >
               <BookOpen size={18} aria-hidden />
               <span className="rail-label" aria-hidden>
-                {t("knowledge")}
+                {t("memory")}
               </span>
             </Tabs.Trigger>
           </Tabs.List>
@@ -327,7 +327,7 @@ export default function Workbench({
     ["remy", "Remy", MessageCircle],
     ["tasks", t("proactiveAi"), Sparkles],
     ["notebook", t("notebook"), Leaf],
-    ["knowledge", t("knowledge"), BookOpen],
+    ["knowledge", t("memory"), BookOpen],
     ["settings", t("settings"), SettingsIcon],
   ] as const;
   return (

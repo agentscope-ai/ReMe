@@ -163,6 +163,34 @@ async def test_notebook_timeline_order_before_pagination(jobs):
 
 
 @pytest.mark.asyncio
+async def test_idea_capture_time_and_undated_order(jobs, notebook_path):
+    """Capture time survives edits and restoration; undated ideas retain their order."""
+    notebook_path.mkdir()
+    path = notebook_path / "ideas.json"
+    path.write_text(
+        json.dumps(
+            [
+                {"id": "undated-first", "text": "First undated idea"},
+                {"id": "undated-last", "text": "Last undated idea"},
+            ],
+        ),
+        encoding="utf-8",
+    )
+    await call(jobs, "idea", action="update", id="undated-first", text="Edited undated idea")
+    first = await call(jobs, "idea", action="create", text="First captured idea")
+    later = await call(jobs, "idea", action="create", text="Later captured idea")
+    assert datetime.fromisoformat(first["created_at"]).utcoffset() is not None
+    for action in ("update", "archive", "restore"):
+        changes = {"text": "Edited captured idea"} if action == "update" else {}
+        record = await call(jobs, "idea", action=action, id=first["id"], **changes)
+        assert record["created_at"] == first["created_at"]
+    for offset, identifier in enumerate((later["id"], first["id"], "undated-last", "undated-first")):
+        page = await call(jobs, "idea", action="list", offset=offset, limit=1)
+        assert page["items"][0]["id"] == identifier
+    assert all("created_at" not in record for record in read(path) if record["id"].startswith("undated-"))
+
+
+@pytest.mark.asyncio
 async def test_list_projects_counts_both_collections_by_scope(jobs, notebook_path):
     """Project discovery includes Idea-only and archive-only projects and respects scope."""
     assert await call(jobs, "todo", action="list_projects") == {"items": [], "total": 0}

@@ -5,6 +5,7 @@ import type {
   StudioState,
   EventState,
   InputEvent,
+  ResourcePage,
   WorkspaceRequest,
 } from "../../client/src/protocol.ts";
 import { errorText, translator } from "../../client/src/i18n.ts";
@@ -14,7 +15,7 @@ import {
   plainText,
   useResource,
   resourceSource,
-  useResourcePage,
+  usePollingResource,
 } from "./resources.ts";
 import ResourcePane, { ResourceMessage } from "./resource-pane.tsx";
 
@@ -48,7 +49,12 @@ export default function AgentResources({
         offset,
         state: filter === "processing" ? "pending" : filter,
       };
-  const { page, error, loading, refresh } = useResourcePage<ListedResource>(
+  const {
+    data: page,
+    error,
+    loading,
+    refresh,
+  } = usePollingResource<ResourcePage<ListedResource>>(
     request,
     active && state.connection === "connected",
     revision,
