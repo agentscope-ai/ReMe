@@ -342,7 +342,7 @@ def test_supervisor_restarts_on_crash():
             backoff_base=0.01,
             backoff_cap=0.05,
         )
-        job._stop_event = stop
+        job._stop_event = stop  # pylint: disable=attribute-defined-outside-init
         await job._run_with_supervisor()
         assert call_count == 3
 
@@ -359,7 +359,7 @@ def test_supervisor_disabled_propagates_exception():
             name="bg",
             supervisor=False,
         )
-        job._stop_event = asyncio.Event()
+        job._stop_event = asyncio.Event()  # pylint: disable=attribute-defined-outside-init
         with pytest.raises(RuntimeError, match="fatal"):
             await job._run_with_supervisor()
 

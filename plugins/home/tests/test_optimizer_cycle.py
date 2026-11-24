@@ -1,4 +1,4 @@
-"""Meta-ReMe cycle timing parity with fake clocks and isolated evaluation evidence."""
+"""Test optimizer cycle timing with fake clocks and isolated evaluation evidence."""
 
 # pylint: disable=missing-function-docstring,missing-class-docstring,protected-access
 # pylint: disable=redefined-outer-name,unused-argument
@@ -15,7 +15,17 @@ from agentscope.state import AgentState
 from reme_home.agent import optimizer
 from reme_home.agent.bounded import BoundedReActAgent
 from reme_home.evaluation.artifacts import write_json
+from reme_home.evaluation.history import rebuild_sampling_state
 from test_bounded_agent import RecordingModel
+
+
+@pytest.fixture(autouse=True)
+def candidate_checkout(monkeypatch):
+    monkeypatch.setattr(
+        optimizer,
+        "evaluation_checkout",
+        lambda _home: {"sampling": True, "expected_commit": "candidate-sha", "expected_branch": "candidate"},
+    )
 
 
 def make_agent(timer, model=None):
@@ -36,6 +46,49 @@ def cycle_hints(messages, source="meta_reme_validation_timer"):
         for block in message.content
         if isinstance(block, HintBlock) and block.source == source
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("debug", [False, True])
+async def test_evaluation_tool_forwards_formal_targets_and_ignores_debug_targets(tmp_path, debug):
+    write_history(tmp_path, [])
+    calls = []
+
+    class EvaluationJob:
+        enabled = is_started = True
+
+        async def __call__(self, **kwargs):
+            calls.append(kwargs)
+            return SimpleNamespace(
+                success=False,
+                answer={"status": "rejected", "paired_comparisons": {"path": "private-until-selection"}},
+                metadata={},
+            )
+
+    wrapper = SimpleNamespace(app_context=SimpleNamespace(jobs={"home_evaluate": EvaluationJob()}))
+    tool = optimizer.evaluation_tool(wrapper, {}, home=tmp_path)
+    targets = {"1": [], "2": None, "3": ["fact:1"]}
+    result = await tool._func(debug=debug, target_queries=targets, _agent_state=AgentState())
+    assert "paired_comparisons" not in result["answer"]
+    assert ("target_queries" in calls[0]) is not debug
+    if not debug:
+        assert calls[0]["target_queries"] == targets
+        assert calls[0]["sampling"] is True
+        assert calls[0]["expected_commit"] == "candidate-sha"
+        assert calls[0]["expected_branch"] == "candidate"
+    else:
+        assert "expected_commit" not in calls[0] and "expected_branch" not in calls[0]
+
+
+@pytest.mark.asyncio
+async def test_early_selection_reveals_guidance_and_stops_timer():
+    timer = optimizer.ValidationCycleTimer(10)
+    hint = await optimizer.final_selection_tool(timer)._func()
+    assert hint == optimizer.FINAL_SELECTION_HINT
+    assert "home_compare_validations" in hint
+    assert "historical finalists" in hint
+    assert timer.next_reminder() is None
+    assert hint in optimizer.VALIDATION_BUDGET_EXHAUSTED_HINT
 
 
 @pytest.mark.parametrize("budget", [True, 0, -1, float("nan"), float("inf"), "10"])
@@ -148,18 +201,17 @@ async def test_cycle_counts_only_completed_context_replacements(monkeypatch):
 
 
 def write_history(home, started):
-    write_json(
-        home / "sampling/state.json",
-        {
-            "schema_version": 2,
-            "round": len(started),
-            "successful_round": 0,
-            "started_validations": {key: index for index, key in enumerate(started, 1)},
-            "processed_validations": [],
-            "cases": {},
-            "queries": {},
-        },
-    )
+    # Started plans are durable evidence; state.json is only a rebuildable cache.
+    for index, key in enumerate(started, 1):
+        write_json(
+            home / "sampling/plans" / f"{key}.json",
+            {
+                "round": index,
+                "validation_key": key,
+                "sandbox_started_at": "2026-10-31T00:00:00Z",
+            },
+        )
+    rebuild_sampling_state(home)
 
 
 @pytest.mark.asyncio
@@ -225,7 +277,7 @@ async def test_evaluation_reset_boundary_matches_dev_meta(tmp_path, outcome, res
 
     wrapper = SimpleNamespace(app_context=SimpleNamespace(jobs={"home_evaluate": EvaluationJob()}))
     tool = optimizer.evaluation_tool(wrapper, {}, home=home, timer=timer if timed else None)
-    assert set(tool.input_schema["properties"]) == {"debug"}
+    assert set(tool.input_schema["properties"]) == {"debug", "target_queries"}
     if outcome == "cancelled":
         with pytest.raises(asyncio.CancelledError):
             await tool._func(debug=False, _agent_state=state)

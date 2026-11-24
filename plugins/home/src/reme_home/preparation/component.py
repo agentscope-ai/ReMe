@@ -30,7 +30,7 @@ from .transaction import (
     rollback,
     write_json,
 )
-from ..workspace import HomeWorkspace, _initialization_lock, _validate_directory
+from ..workspace import EVALUATION_ARTIFACT_GUIDE, HomeWorkspace, _initialization_lock, _validate_directory
 
 
 def _source_path(root: Path, value: str) -> Path:
@@ -176,6 +176,7 @@ class HomePreparation(BaseComponent):
                 transaction / "output-3",
                 sessions_per_case=config.debug.sessions_per_case,
                 messages_per_session=config.debug.messages_per_session,
+                queries_per_case=config.debug.queries_per_case,
             )
         else:
             (transaction / "output-3/cases").mkdir(parents=True)
@@ -190,7 +191,7 @@ class HomePreparation(BaseComponent):
         docs = transaction / "output-5"
         docs.mkdir()
         resources = files("reme_home").joinpath("runtime_docs")
-        for name in ("architecture-guide.md", "validation-artifact-guide.md"):
+        for name in ("architecture-guide.md", EVALUATION_ARTIFACT_GUIDE):
             (docs / name).write_bytes(resources.joinpath(name).read_bytes())
         result = {
             "preparation_id": uuid4().hex,

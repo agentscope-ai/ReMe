@@ -48,18 +48,19 @@ def test_hermes_text_runtime_accepts_host_pins() -> None:
     assert Version("2.0.11") not in embedded[0].specifier
 
 
-def test_home_requires_shared_file_sync_release() -> None:
-    """Home requires the release that provides its shared filesystem sync helper."""
+def test_home_requires_workflow_and_sandbox_release() -> None:
+    """Home requires shared file sync, benchmark case callbacks and artifact export options."""
     config = tomllib.loads((REPOSITORY / "plugins" / "home" / "pyproject.toml").read_text(encoding="utf-8"))
     requirement = next(Requirement(value) for value in config["project"]["dependencies"] if value.startswith("reme-ai"))
 
-    assert requirement.extras == {"as"}
+    assert requirement.extras == {"benchmark-docker"}
     assert Version("0.4.1.14") not in requirement.specifier
     assert Version("0.4.2.0") not in requirement.specifier
     assert Version("0.4.2.1") not in requirement.specifier
     assert Version("0.4.2.2") not in requirement.specifier
     assert Version("0.4.2.3") not in requirement.specifier
-    assert Version("0.4.2.4") in requirement.specifier
+    assert Version("0.4.2.4") not in requirement.specifier
+    assert Version("0.4.3") in requirement.specifier
     assert Version(bump_version.read_version()) in requirement.specifier
 
 

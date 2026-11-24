@@ -11,14 +11,13 @@ import inspect
 import json
 from pathlib import Path
 from pathlib import PurePosixPath
-import re
 import tarfile
 from typing import Any, Awaitable, BinaryIO, Callable, Literal, Protocol
 import uuid
 
 from ._cleanup import cleanup_on_error
 from .candidate import ImageCandidate, SourceCandidate
-from .models import ActionRecord, EvaluationQuery, JobRequest, JobResult
+from .models import ActionRecord, EvaluationQuery, JobRequest, JobResult, validate_case_id, validate_query_artifact_id
 
 CASE_ROOT = "/workspace/case"
 CANDIDATE_ROOT = "/workspace/candidate"
@@ -29,7 +28,6 @@ EXPORT_ARCHIVE = "/tmp/reme-case-export.tar.gz"
 WORKSPACE_ARCHIVE = "/tmp/reme-workspace-upload.tar.gz"
 WORKSPACE_EXPORT_ARCHIVE = "/tmp/reme-workspace-export.tar.gz"
 RUNTIME_LAYOUT = f"{CASE_ROOT}/runtime-layout.json"
-_CASE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 _CASE_ARCHIVE_FORMAT = "reme-case-v1"
 _CLEANUP_TIMEOUT = 30.0
 _LOG_TIMEOUT = 5.0
@@ -89,12 +87,6 @@ class SandboxCommandError(RuntimeError):
 
 class SandboxCommandTimeoutError(SandboxCommandError):
     """A command timed out; cleanup failures are attached as exception notes."""
-
-
-def _validate_case_id(case_id: str) -> None:
-    """Reject identifiers that are unsafe for Docker names and manifests."""
-    if not _CASE_ID_RE.fullmatch(case_id):
-        raise ValueError("case_id must contain only letters, numbers, '.', '_' or '-' and be <= 128 characters")
 
 
 def _utc_now() -> str:
@@ -298,7 +290,7 @@ class DockerReMeSandboxFactory:
 
     async def create_case(self, case_id: str) -> "DockerReMeSandbox":
         """Start and prepare a new container for one benchmark case."""
-        _validate_case_id(case_id)
+        validate_case_id(case_id)
         image = self.candidate.base_image if isinstance(self.candidate, SourceCandidate) else self.candidate.image
         container_id = self._next_workspace_id()
         workspace = self._workspace_builder(container_id, image, self.env)
@@ -665,16 +657,6 @@ class DockerReMeSandbox:
         async with self._operation_lock:
             return await self._run_worker_request("build", {"jobs": serialized})
 
-    @staticmethod
-    def _validate_query_artifact_id(query_id: str) -> None:
-        """Keep verbatim query-directory names inside the artifact root."""
-        if not query_id or len(query_id.encode("utf-8")) > 255:
-            raise ValueError("query_id must be non-empty and no longer than 255 UTF-8 bytes")
-        if query_id in {".", ".."} or "/" in query_id or "\\" in query_id or "\x00" in query_id:
-            raise ValueError(f"query_id is not a safe directory name: {query_id!r}")
-        if query_id == "summary.json":
-            raise ValueError("query_id conflicts with the queries summary: 'summary.json'")
-
     async def run_queries(self, queries: list[EvaluationQuery | dict[str, Any]]) -> dict[str, Any]:
         """Answer multiple queries in one candidate Application with isolated logs."""
         serialized = self._serialize_queries(queries)
@@ -717,7 +699,7 @@ class DockerReMeSandbox:
             query_id = value.get("query_id")
             if not isinstance(query_id, str):
                 raise ValueError("every evaluation query requires a string query_id")
-            self._validate_query_artifact_id(query_id)
+            validate_query_artifact_id(query_id)
             if not isinstance(value.get("question"), str):
                 raise ValueError(f"query {query_id!r} requires a string question")
             answer_arguments = value.get("answer_arguments") or {}
@@ -881,7 +863,7 @@ class DockerReMeSandbox:
     async def export_query(self, query_id: str, destination: str | Path) -> Path:
         """Download one leased query's available logs and result without a case summary."""
 
-        self._validate_query_artifact_id(query_id)
+        validate_query_artifact_id(query_id)
         async with self._operation_lock:
             await self._require_artifact_directory(f"{CASE_ROOT}/queries/{query_id}", "query export")
             return await self._export_archive(
@@ -1136,7 +1118,7 @@ class DockerReMeSandbox:
         previous export archive are removed. Operations are serialized so a
         reset cannot overlap a job or export.
         """
-        _validate_case_id(case_id)
+        validate_case_id(case_id)
         async with self._operation_lock:
             assert self.backend is not None, "sandbox is not initialized"
             await self._exec_checked(

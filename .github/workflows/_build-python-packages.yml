@@ -74,25 +74,49 @@ jobs:
           python -m twine check dist/home/*
           REME_WHEEL="$(pwd)/$(ls dist/reme/reme_ai-[0-9]*.whl)"
           HOME_WHEEL="$(pwd)/$(ls dist/home/reme_home-[0-9]*.whl)"
-          python -m venv "${RUNNER_TEMP}/reme-home-package-smoke"
-          "${RUNNER_TEMP}/reme-home-package-smoke/bin/python" -m pip install "${REME_WHEEL}[as]" "${HOME_WHEEL}"
-          "${RUNNER_TEMP}/reme-home-package-smoke/bin/python" -m pip check
-          cd "${RUNNER_TEMP}"
-          "${RUNNER_TEMP}/reme-home-package-smoke/bin/python" -I - <<'PY'
+          HOME_TESTS="$(pwd)/plugins/home/tests"
+          verify_home_wheel() (
+            local smoke_env="${RUNNER_TEMP}/reme-home-package-smoke-$1"
+            python -m venv "${smoke_env}"
+            # The minimum release may be built here before it is published to PyPI.
+            "${smoke_env}/bin/python" -m pip install --find-links "$(dirname "${REME_WHEEL}")" \
+              "$2" "${HOME_WHEEL}" pytest pytest-asyncio
+            "${smoke_env}/bin/python" -m pip check
+            cd "${RUNNER_TEMP}"
+            "${smoke_env}/bin/python" -I - <<'PY'
           from pathlib import Path
           import sys
           import reme
           import reme_home
+          from deploy.benchmark_docker.direct_docker_workspace import DirectDockerWorkspace
           from reme.enumeration import ComponentEnum
           from reme.plugin import resolve_plugin_runtime
           from reme_home import AutoBashStep
 
-          for module in (reme, reme_home):
+          for module in (reme, reme_home, sys.modules[DirectDockerWorkspace.__module__]):
               assert Path(module.__file__).is_relative_to(sys.prefix), module.__file__
           runtime = resolve_plugin_runtime({"plugins": ["home"]})
           assert runtime.registry.get(ComponentEnum.STEP, "auto_bash_step") is AutoBashStep
           assert runtime.config["jobs"]["auto_bash"]["steps"] == [{"backend": "auto_bash_step"}]
           PY
+            "${smoke_env}/bin/python" -I -m pytest -q -o pythonpath= \
+              "${HOME_TESTS}/test_evaluation.py::test_all_cases_and_artifacts_via_real_job"
+          )
+          verify_home_wheel current "${REME_WHEEL}"
+          HOME_MINIMUM="$(python - <<'PY'
+          import tomllib
+          from packaging.requirements import Requirement
+          from packaging.version import Version
+
+          with open('plugins/home/pyproject.toml', 'rb') as stream:
+              dependencies = tomllib.load(stream)['project']['dependencies']
+          requirement = next(Requirement(value) for value in dependencies if Requirement(value).name == 'reme-ai')
+          minimum, = (item.version for item in requirement.specifier if item.operator == '>=')
+          assert Version(minimum) in requirement.specifier
+          print(f'reme-ai=={minimum}')
+          PY
+          )"
+          verify_home_wheel minimum "${HOME_MINIMUM}"
 
       - name: Build and verify benchmark plugin distributions
         run: |

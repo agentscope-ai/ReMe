@@ -3,7 +3,29 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
 from typing import Any
+
+_CASE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
+
+
+def validate_case_id(case_id: str) -> None:
+    """Keep case IDs usable in Docker names and artifact directories."""
+    if not _CASE_ID_RE.fullmatch(case_id):
+        raise ValueError(
+            "case_id must start with a letter or number, use only letters, numbers, '.', '_' or '-', "
+            "and be at most 128 characters",
+        )
+
+
+def validate_query_artifact_id(query_id: str) -> None:
+    """Keep verbatim query-directory names inside the artifact root."""
+    if not query_id or len(query_id.encode("utf-8")) > 255:
+        raise ValueError("query_id must be non-empty and no longer than 255 UTF-8 bytes")
+    if query_id in {".", ".."} or "/" in query_id or "\\" in query_id or "\x00" in query_id:
+        raise ValueError(f"query_id is not a safe directory name: {query_id!r}")
+    if query_id == "summary.json":
+        raise ValueError("query_id conflicts with the queries summary: 'summary.json'")
 
 
 @dataclass(frozen=True, slots=True)
