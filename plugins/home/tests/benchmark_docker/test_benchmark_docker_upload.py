@@ -72,7 +72,8 @@ def test_candidate_image_preserves_root_exclusions_after_plugin_exceptions():
     home = Path(__file__).resolve().parents[2]
     root = home.parents[1]
     root_rules = (root / ".dockerignore").read_text(encoding="utf-8").splitlines()
-    candidate_rules = (home / "docker/Dockerfile.candidate.dockerignore").read_text(encoding="utf-8").splitlines()
+    candidate_ignore = home / "src/reme_home/evaluation/docker/Dockerfile.candidate.dockerignore"
+    candidate_rules = candidate_ignore.read_text(encoding="utf-8").splitlines()
     exceptions = [rule for rule in candidate_rules if rule.startswith("!")]
     assert set(exceptions) == {"!plugins/lme", "!plugins/beam"}
     assert "plugins/*" in candidate_rules

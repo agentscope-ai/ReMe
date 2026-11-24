@@ -61,7 +61,8 @@ def _base_image():
         return
 
     tag = f"reme-benchmark-smoke:{uuid.uuid4().hex[:12]}"
-    _docker("build", "-f", "plugins/home/docker/Dockerfile.base", "-t", tag, ".", cwd=ROOT)
+    recipe = "plugins/home/src/reme_home/evaluation/docker/Dockerfile.base"
+    _docker("build", "-f", recipe, "-t", tag, ".", cwd=ROOT)
     try:
         yield tag
     finally:

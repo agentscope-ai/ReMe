@@ -8,11 +8,11 @@ Rebuild the base image when upgrading from an older AgentScope image;
 existing images must also use 2.0.11 to pass candidate validation. New runs use
 the `reme-benchmark-base:agentscope-2.0.11` tag by default, including Home evaluations.
 
-From the repository root:
+From the repository root, install ReMe and HoMe together and build the base image.
 
 ```bash
-pip install -e . -e plugins/home
-docker build -f plugins/home/docker/Dockerfile.base \
+python -m pip install -e . ./plugins/home
+docker build -f plugins/home/src/reme_home/evaluation/docker/Dockerfile.base \
   -t reme-benchmark-base:agentscope-2.0.11 .
 ```
 

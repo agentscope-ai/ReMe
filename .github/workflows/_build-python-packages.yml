@@ -75,9 +75,18 @@ jobs:
           REME_WHEEL="$(pwd)/$(ls dist/reme/reme_ai-[0-9]*.whl)"
           HOME_WHEEL="$(pwd)/$(ls dist/home/reme_home-[0-9]*.whl)"
           HOME_TESTS="$(pwd)/plugins/home/tests"
+          LEGACY_HOME="${RUNNER_TEMP}/legacy-home"
+          # Use the last HoMe 0.1.0 source layout before the Docker runner moved.
+          LEGACY_HOME_REF=b3a5eac4a8d56e9681312d608f241c7177eed359
+          mkdir -p "${LEGACY_HOME}"
+          git fetch --no-tags --depth=1 origin "${LEGACY_HOME_REF}"
+          git archive "${LEGACY_HOME_REF}" plugins/home | tar -x -C "${LEGACY_HOME}"
           verify_home_wheel() (
             local smoke_env="${RUNNER_TEMP}/reme-home-package-smoke-$1"
             python -m venv "${smoke_env}"
+            if [[ "$1" == "upgrade" ]]; then
+              "${smoke_env}/bin/python" -m pip install --no-deps "${REME_WHEEL}" "${LEGACY_HOME}/plugins/home"
+            fi
             # The minimum release may be built here before it is published to PyPI.
             "${smoke_env}/bin/python" -m pip install --find-links "$(dirname "${REME_WHEEL}")" \
               "$2" "${HOME_WHEEL}" pytest pytest-asyncio
@@ -91,11 +100,13 @@ jobs:
           from reme.enumeration import ComponentEnum
           from reme.plugin import resolve_plugin_runtime
           from reme_home import AutoBashStep
-          from reme_home.evaluation.docker import worker
-          from reme_home.evaluation.docker.direct_docker_workspace import DirectDockerWorkspace
+          from reme_home.evaluation.docker import direct_docker_workspace, worker
 
-          for module in (reme, reme_home, worker, sys.modules[DirectDockerWorkspace.__module__]):
+          for module in (reme, reme_home, direct_docker_workspace, worker):
               assert Path(module.__file__).is_relative_to(sys.prefix), module.__file__
+          docker_dir = Path(direct_docker_workspace.__file__).parent
+          for name in ("Dockerfile.base", "Dockerfile.candidate", "Dockerfile.candidate.dockerignore", "README.md"):
+              assert (docker_dir / name).is_file(), name
           runtime = resolve_plugin_runtime({"plugins": ["home"]})
           assert runtime.registry.get(ComponentEnum.STEP, "auto_bash_step") is AutoBashStep
           assert runtime.config["jobs"]["auto_bash"]["steps"] == [{"backend": "auto_bash_step"}]
@@ -103,7 +114,7 @@ jobs:
             "${smoke_env}/bin/python" -I -m pytest -q -o pythonpath= \
               "${HOME_TESTS}/test_evaluation.py::test_all_cases_and_artifacts_via_real_job"
           )
-          verify_home_wheel current "${REME_WHEEL}"
+          verify_home_wheel upgrade "${REME_WHEEL}"
           HOME_MINIMUM="$(python - <<'PY'
           import tomllib
           from packaging.requirements import Requirement
