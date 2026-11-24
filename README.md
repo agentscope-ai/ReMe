@@ -53,12 +53,15 @@ The **Proactive Runtime** uses that memory in ongoing tasks. It schedules work f
 
 <!-- Keep at most 5 updates expanded; move older entries into the collapsed section below. -->
 
-- [2026.11] - **`NEW`** **[HoMe](plugins/home/README.md) released**: an evaluation-driven framework that automatically
-  optimizes ReMe's code, prompts, and configuration, raising LongMemEval and BEAM scores while reducing query-time tokens.
 - [ROADMAP] - **[ReMe5 Preview — Proactive Runtime](docs/en/reme5_preview.md)**. ReMe puts file-native memory at
   the core of its event-driven and scheduled agents. Give ReMe a task to follow, and it will record new developments
   and let you know when your attention is needed. We aim to release ReMe5 **by the end of 2026**. Read the preview
   for the design, development plan, and milestones.
+- [2026.11] - **`NEW`** **[HoMe](plugins/home/README.md) released**: an evaluation-driven framework that automatically
+  optimizes ReMe's code, prompts, and configuration. Compared with the base ReMe plugins, HoMe raises the score on the
+  LongMemEval test set (250 questions) from 88.8% to 91.6% (+2.8 percentage points), while reducing average query-time
+  tokens by 59.2%. On BEAM 1M, the score rises from 65.0% to 70.4% (+5.4 percentage points), with 40.7% fewer average
+  query-time tokens.
 - [2026.10] - **[Decision-model context compaction](docs/en/context_compaction.md)**: score old tool calls and results
   against the next action, preserve protected history, and return a recoverable compaction proposal. Includes an SVG
   walkthrough, two live-model integration scenarios, and a 14-query fixed-summary Top-N benchmark with a forced Hermes summary baseline.
@@ -68,21 +71,11 @@ The **Proactive Runtime** uses that memory in ongoing tasks. It schedules work f
   [72.49% on MemLens-256K](benchmark/memlens/docs/en/evaluation.md) and
   [60.69% on MobileMem](benchmark/mobilemem/docs/en/evaluation.md) in LLM-Judge accuracy; the reports also cover Kimi
   and DeepSeek.
-- [2026.10] - **[ReMe Studio Playground](https://reme.agentscope.io/studio/?lang=en) is live**: explore example memory
-  files, edit Markdown, and browse linked memory graphs right in your browser—no installation or backend required.
-  Everyone is welcome to [try it out](https://reme.agentscope.io/studio/?lang=en)!
-
-  <p align="center">
-    <a href="https://reme.agentscope.io/studio/?lang=en">
-      <img src="https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/studio-overview.png" alt="ReMe Studio workspace preview — click to try the Playground" width="480" style="margin: 0 auto;">
-    </a>
-  </p>
+- [2026.09] - **[ReMe Memory Tags](https://reme.agentscope.io/en/blog_20260920) published**: an introduction
+  to file-native entity tags, rebuildable tag indexes, and tag-filtered memory search.
 
 <details>
 <summary>More updates</summary>
-
-- [2026.09] - **[ReMe Memory Tags](https://reme.agentscope.io/en/blog_20260920) published**: an introduction
-  to file-native entity tags, rebuildable tag indexes, and tag-filtered memory search.
 
 - [2026.09] - **[Hermes Agent memory provider](https://reme.agentscope.io/en/integrations/hermes) available**: choose HTTP or embedded
   mode for automatic recall before model calls and asynchronous `auto_memory` after completed turns. The integration

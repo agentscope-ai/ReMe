@@ -51,31 +51,23 @@
 
 <!-- 最新动态最多展开 5 条；新增条目时，将超出的旧条目移入下方“更多更新”折叠区。 -->
 
-- [2026.11] - **`NEW`** **[HoMe](plugins/home/README.md) 上线**：评测驱动的记忆系统自动优化框架，自动改进 ReMe 的代码、prompt 与配置，
-  在 LongMemEval 与 BEAM 上同时提升得分并降低 query token 消耗。
 - [ROADMAP] - **[ReMe5 前瞻 · Proactive Runtime](docs/zh/reme5_preview.md)**。ReMe 将以文件化记忆为核心，
   支持事件驱动和定时 Agent。你可以把需要持续跟进的事交给 ReMe，有新进展时它会记下来，并在需要时提醒你。
   我们计划在 **2026 年底前**发布 ReMe5，欢迎先看我们的设计方案、开发计划和里程碑。
+- [2026.11] - **`NEW`** **[HoMe](plugins/home/README.md) 上线**：评测驱动的记忆系统自动优化框架，自动改进 ReMe 的代码、prompt 与配置，
+  相比 ReMe 基础插件，在 LongMemEval 测试集（250 题）上，Score 从 88.8% 提升至 91.6%（+2.8 个百分点），平均 query token 降低 59.2%；
+  在 BEAM 1M 上，Score 从 65.0% 提升至 70.4%（+5.4 个百分点），平均 query token 降低 40.7%。
 - [2026.10] - **[基于决策模型的上下文压缩](docs/zh/context_compaction.md)**：根据下一步任务判断旧工具证据的保留价值，
   保护关键历史，并返回可回溯的压缩建议；提供 SVG 流程图、两个真实模型集成场景和 14-query 固定摘要实验，包含强制 Hermes 摘要基线。
 - [2026.10] - **[ReMe 多模态记忆更新](https://reme.agentscope.io/zh/blog_20261009)**：Auto Memory 将会话图片和上下文一起
   写入记忆并保留图片来源；Auto Resource 将图片资料整理为可检索、可回溯原图的 daily 卡片。Qwen3.8-Max 下，
   ReMe Image 的 LLM-Judge 得分为 [MemLens-256K 72.49%](benchmark/memlens/docs/zh/evaluation.md)、
   [MobileMem 60.69%](benchmark/mobilemem/docs/zh/evaluation.md)；详情还包含 Kimi、DeepSeek 的结果。
-- [2026.10] - **[ReMe Studio Playground](https://reme.agentscope.io/studio/?lang=zh) 上线**：无需安装或启动后端，
-  即可在浏览器中浏览示例记忆文件、编辑 Markdown、探索记忆关联图谱。欢迎大家[来体验](https://reme.agentscope.io/studio/?lang=zh)！
-
-  <p align="center">
-    <a href="https://reme.agentscope.io/studio/?lang=zh">
-      <img src="https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/studio-overview.png" alt="ReMe Studio 工作区预览，点击体验 Playground" width="480" style="margin: 0 auto;">
-    </a>
-  </p>
+- [2026.09] - **[给记忆加上“标签”](https://reme.agentscope.io/zh/blog_20260920)发布**：介绍基于 Markdown 的实体标签、
+  可重建 Tag Index 与标签过滤检索。
 
 <details>
 <summary>更多更新</summary>
-
-- [2026.09] - **[给记忆加上“标签”](https://reme.agentscope.io/zh/blog_20260920)发布**：介绍基于 Markdown 的实体标签、
-  可重建 Tag Index 与标签过滤检索。
 
 - [2026.09] - **[Hermes Agent 记忆 Provider](https://reme.agentscope.io/zh/integrations/hermes) 已可使用**：支持 HTTP 和 Embedded
   两种模式，在模型调用前自动召回、每轮对话结束后异步执行 `auto_memory`。集成支持 Hermes Agent 0.21 及以上版本，后台任务也会继承当前 profile 上下文。
