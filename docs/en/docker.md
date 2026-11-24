@@ -30,8 +30,8 @@ export REME_GID=$(id -g)
 docker compose up --build -d
 ```
 
-For model-powered memory evolution, copy `deploy/docker/example.env` to `.env` if you do not already have one, then fill in
-your model credentials. Compose injects this optional file at runtime; Docker builds exclude `.env` files. Compose's
+For model-powered memory evolution, copy the repository's `example.env` to `.env` if you do not already have one, then
+fill in your model credentials. Compose injects this optional file at runtime; Docker builds exclude `.env` files. Compose's
 `--env-file` controls variable interpolation; `REME_ENV_FILE` selects the file injected into the container.
 
 ## Use a published image

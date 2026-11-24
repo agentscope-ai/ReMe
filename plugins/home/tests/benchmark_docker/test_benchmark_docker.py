@@ -14,7 +14,7 @@ import tarfile
 
 import pytest
 
-from deploy.benchmark_docker import (
+from reme_home.evaluation.docker import (
     BenchmarkDockerPool,
     CasePlan,
     DockerReMeSandboxFactory,
@@ -23,8 +23,12 @@ from deploy.benchmark_docker import (
     SourceCandidate,
     SourceSnapshot,
 )
-from deploy.benchmark_docker.docker_sandbox import SandboxCommandError, SandboxCommandTimeoutError, _archive_workspace
-from deploy.benchmark_docker import worker as sandbox_worker
+from reme_home.evaluation.docker.docker_sandbox import (
+    SandboxCommandError,
+    SandboxCommandTimeoutError,
+    _archive_workspace,
+)
+from reme_home.evaluation.docker import worker as sandbox_worker
 
 
 class FakeCase:
@@ -958,7 +962,7 @@ async def test_failed_stop_still_removes_container_and_preserves_timeout(tmp_pat
 
 @pytest.mark.asyncio
 async def test_blocked_diagnostics_cannot_prevent_removal(tmp_path, monkeypatch):
-    from deploy.benchmark_docker import docker_sandbox
+    from reme_home.evaluation.docker import docker_sandbox
 
     monkeypatch.setattr(docker_sandbox, "_LOG_TIMEOUT", 0.01)
 
@@ -1458,7 +1462,7 @@ async def test_pool_retries_strict_delete_without_replacing_uncertain_container(
     from unittest.mock import AsyncMock
 
     pytest.importorskip("aiodocker")
-    from deploy.benchmark_docker.direct_docker_workspace import DirectDockerWorkspace
+    from reme_home.evaluation.docker.direct_docker_workspace import DirectDockerWorkspace
 
     workspaces = []
     container = SimpleNamespace(

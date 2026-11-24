@@ -49,11 +49,12 @@ def test_hermes_text_runtime_accepts_host_pins() -> None:
 
 
 def test_home_requires_workflow_and_sandbox_release() -> None:
-    """Home requires shared file sync, benchmark case callbacks and artifact export options."""
+    """Home requires current ReMe runtime APIs and owns the Docker client dependency."""
     config = tomllib.loads((REPOSITORY / "plugins" / "home" / "pyproject.toml").read_text(encoding="utf-8"))
-    requirement = next(Requirement(value) for value in config["project"]["dependencies"] if value.startswith("reme-ai"))
-
-    assert requirement.extras == {"benchmark-docker"}
+    requirements = {Requirement(value).name: Requirement(value) for value in config["project"]["dependencies"]}
+    requirement = requirements["reme-ai"]
+    assert requirement.extras == {"as"}
+    assert Version("0.27.0") in requirements["aiodocker"].specifier
     assert Version("0.4.1.14") not in requirement.specifier
     assert Version("0.4.2.0") not in requirement.specifier
     assert Version("0.4.2.1") not in requirement.specifier
@@ -101,11 +102,10 @@ def test_studio_packages_match_reme_release() -> None:
     assert main_config["project"]["optional-dependencies"]["core"].count("reme-ai[as]") == 1
     assert "reme-ai[web]" in main_config["project"]["optional-dependencies"]["core"]
     assert "qwenpaw" not in main_config["project"]["optional-dependencies"]
+    assert "benchmark-docker" not in main_config["project"]["optional-dependencies"]
     assert main_config["tool"]["setuptools"]["packages"]["find"]["include"] == [
         "reme",
         "reme.*",
-        "deploy",
-        "deploy.*",
     ]
     assert "reme_studio*" in main_config["tool"]["setuptools"]["packages"]["find"]["exclude"]
 

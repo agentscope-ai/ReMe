@@ -3,7 +3,7 @@
 # pylint: disable=missing-function-docstring,missing-class-docstring,unused-argument
 
 import pytest
-from deploy.benchmark_docker import BenchmarkDockerPool, CasePlan, EvaluationQuery, JobRequest
+from reme_home.evaluation.docker import BenchmarkDockerPool, CasePlan, EvaluationQuery, JobRequest
 from .test_benchmark_docker import FakeCase, FakeFactory
 
 

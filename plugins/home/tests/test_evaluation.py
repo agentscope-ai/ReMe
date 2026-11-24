@@ -911,7 +911,7 @@ async def test_real_job_errors_reach_worker_and_home_summary(app, prepared, monk
     from types import SimpleNamespace
 
     import httpx
-    from deploy.benchmark_docker.worker import _run_job_on_app
+    from reme_home.evaluation.docker.worker import _run_job_on_app
     from reme.components.job.base_job import BaseJob
 
     authentication_failure = kind in {"http_401", "http_403", "sdk_auth", "sdk_permission"}

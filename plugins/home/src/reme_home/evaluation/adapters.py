@@ -2,11 +2,10 @@
 
 from datetime import datetime
 
-from deploy.benchmark_docker import EvaluationQuery, JobRequest
-
 from ..preparation.data.basic import sessions_through_cutoff
 from ..preparation.data.models import CaseSpec, QuerySpec, SessionSpec
 from .artifacts import construction_exception, failure_kind
+from .docker import EvaluationQuery, JobRequest
 
 
 def session_time(session: SessionSpec) -> str:
