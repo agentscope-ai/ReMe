@@ -3,11 +3,25 @@
 import os
 from pathlib import Path
 from pathlib import PurePosixPath, PureWindowsPath
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from tzlocal import get_localzone_name
 
 from ..enumeration import component_type_name
 from .event import Event
+
+
+def _default_timezone() -> str:
+    """Use the system's IANA timezone when it can be resolved."""
+    try:
+        name = get_localzone_name()
+        if name:
+            ZoneInfo(name)
+            return name
+    except (LookupError, OSError, ValueError):
+        pass
+    return "Asia/Shanghai"
 
 
 class ComponentConfig(BaseModel):
@@ -59,7 +73,11 @@ class ApplicationConfig(BaseModel):
     digest_dir: str = Field(default="digest", description="Subdirectory for digest memory")
     notebook_dir: str = Field(default="notebook", description="Workspace-relative subdirectory for Todo and Idea files")
     enable_logo: bool = Field(default=True, description="Show ASCII logo on startup")
-    timezone: str | None = Field(default="Asia/Shanghai", description="IANA timezone; None uses local time")
+    timezone: str | None = Field(
+        default_factory=_default_timezone,
+        description="IANA timezone. Defaults to the system timezone, with Asia/Shanghai as a fallback. "
+        "An explicit None uses local time.",
+    )
     language: str = Field(default="", description="Default language for LLM interactions")
     log_to_console: bool = Field(default=True, description="Log to console")
     log_to_file: bool = Field(default=True, description="Log to file")

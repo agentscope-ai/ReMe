@@ -1,8 +1,10 @@
-"""Application path configuration contracts."""
+"""Application configuration contracts."""
 
 # pylint: disable=protected-access
 
 from types import SimpleNamespace
+from unittest.mock import Mock
+from zoneinfo import ZoneInfoNotFoundError
 
 import pytest
 from agentscope.message import Msg
@@ -11,10 +13,43 @@ from pydantic import ValidationError
 from reme import Application
 from reme.core.context import ApplicationContext
 from reme.schema import ApplicationConfig, FileChunk
+from reme.schema import application_config as config_module
 from reme.steps.evolve.auto_memory import AutoMemoryStep
 from reme.steps.file_io.daily_write import DailyWriteStep
 from reme.steps.index._source_format import is_session_path, render_chunk_body
 from reme.utils.files.file_watch import build_watch_rules
+
+
+@pytest.mark.parametrize(
+    "system_timezone,expected",
+    [
+        ("America/New_York", "America/New_York"),
+        (None, "Asia/Shanghai"),
+        ("invalid/zone", "Asia/Shanghai"),
+    ],
+)
+def test_application_timezone_defaults_to_system_timezone(monkeypatch, system_timezone, expected):
+    """Use the detected IANA zone or fall back to Shanghai."""
+    monkeypatch.setattr(config_module, "get_localzone_name", Mock(return_value=system_timezone))
+
+    assert ApplicationConfig().timezone == expected
+
+
+def test_application_timezone_falls_back_when_system_detection_fails(monkeypatch):
+    """Unavailable system timezone settings still yield a usable default."""
+    monkeypatch.setattr(config_module, "get_localzone_name", Mock(side_effect=ZoneInfoNotFoundError))
+
+    assert ApplicationConfig().timezone == "Asia/Shanghai"
+
+
+def test_explicit_application_timezone_takes_precedence(monkeypatch):
+    """An explicit name or null bypasses automatic detection."""
+    detect = Mock(return_value="America/New_York")
+    monkeypatch.setattr(config_module, "get_localzone_name", detect)
+
+    assert ApplicationConfig(timezone="Europe/London").timezone == "Europe/London"
+    assert ApplicationConfig(timezone=None).timezone is None
+    detect.assert_not_called()
 
 
 def test_workspace_dir_expands_user_home(monkeypatch, tmp_path):

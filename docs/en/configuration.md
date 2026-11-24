@@ -69,7 +69,7 @@ Keep secrets in `.env` or the process environment, never in committed configurat
 | `resource_dir` | `resource` | External resources |
 | `daily_dir` | `daily` | Daily memory |
 | `digest_dir` | `digest` | Consolidated long-term memory |
-| `timezone` | `Asia/Shanghai` | IANA timezone used for dates and cron jobs |
+| `timezone` | System timezone, falling back to `Asia/Shanghai` | IANA timezone used for dates and cron jobs |
 | `language` | empty | Default language for LLM interactions |
 | `plugins` | `[]` | Installed plugins enabled for this Application |
 | `service` | HTTP | Service configuration |
@@ -78,6 +78,8 @@ Keep secrets in `.env` or the process environment, never in committed configurat
 | `components` | defaults | Components grouped by type and name |
 
 `session_dir` must remain workspace-relative.
+
+When `timezone` is omitted, ReMe detects the system's IANA timezone at startup. An explicit `timezone: null` uses system local time directly.
 
 ## Enabling jobs
 

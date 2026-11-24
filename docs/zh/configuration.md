@@ -74,7 +74,7 @@ base_url: ${LLM_BASE_URL:-https://example.com/v1}
 | `resource_dir` | `resource` | 外部资料 |
 | `daily_dir` | `daily` | Daily memory |
 | `digest_dir` | `digest` | 长期整理后的记忆 |
-| `timezone` | `Asia/Shanghai` | Cron、日期和梦境流程使用的 IANA 时区 |
+| `timezone` | 系统时区，兜底 `Asia/Shanghai` | Cron、日期和梦境流程使用的 IANA 时区 |
 | `language` | 空 | LLM 交互默认语言 |
 | `plugins` | `[]` | 为当前 Application 启用的已安装插件 |
 | `service` | HTTP | 服务端配置 |
@@ -83,6 +83,8 @@ base_url: ${LLM_BASE_URL:-https://example.com/v1}
 | `components` | 默认组件 | 按类型和名称组织的组件配置 |
 
 `session_dir` 必须保持 workspace-relative。其他 workspace 子目录也应使用清晰、稳定的相对名称。
+
+省略 `timezone` 时，ReMe 在启动时探测系统的 IANA 时区。显式设置 `timezone: null` 会直接使用系统本地时间。
 
 ## Job 启停
 

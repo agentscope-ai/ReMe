@@ -65,7 +65,7 @@ docker run -d --name reme \
 | `REME_CONFIG` | 已有配置名称或挂载的 YAML/JSON 路径；未设置时使用内置默认配置 |
 | `REME_HOST` | HTTP 监听地址；镜像和 Compose 使用 `0.0.0.0` |
 | `REME_PORT` | 容器端口覆盖；Compose 默认 `2333` |
-| `REME_TIMEZONE` | 可选的应用时区覆盖；未设置时沿用应用默认值 |
+| `REME_TIMEZONE` | 可选的应用时区覆盖。自动探测使用容器内的时区 |
 | `REME_DATA_DIR` | Compose 的宿主机工作区目录；默认 `./.reme` |
 | `REME_PUBLISHED_PORT` | Compose 的宿主机端口；默认 `2333`，与容器端口独立 |
 | `REME_BIND_ADDRESS` | Compose 的宿主机监听地址；默认 `127.0.0.1` |

@@ -67,7 +67,7 @@ filesystem; additional paths need additional mounts.
 | `REME_CONFIG` | Existing config name or mounted YAML/JSON path; unset uses the built-in default |
 | `REME_HOST` | HTTP bind address; image and Compose use `0.0.0.0` |
 | `REME_PORT` | Container port override; Compose defaults to `2333` |
-| `REME_TIMEZONE` | Optional application timezone override; otherwise the application default applies |
+| `REME_TIMEZONE` | Optional application timezone override. Automatic detection uses the container's timezone |
 | `REME_DATA_DIR` | Compose host workspace directory; default `./.reme` |
 | `REME_PUBLISHED_PORT` | Compose host port; default `2333`, independent of the container port |
 | `REME_BIND_ADDRESS` | Compose host bind address; default `127.0.0.1` |

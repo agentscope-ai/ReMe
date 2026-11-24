@@ -17,7 +17,7 @@ from ..agent import BaseAgentStep
 from ....utils.files.path_lock import get_path_lock
 from ....core.registry import R
 from ....utils.files.workspace_files import WorkspaceFiles
-from ....schema import Event, ResourceMetadata
+from ....schema import ApplicationConfig, Event, ResourceMetadata
 from ....schema.proactive_runtime import validate_agent_name
 from ....utils.async_utils import finish_cleanup
 from ....utils.files.file_sync import sync_directory
@@ -36,8 +36,8 @@ class _CodexDialogueBase(BaseAgentStep):
         self.cancelled = ThreadEvent()
 
     def _now(self):
-        timezone = self.config_value("timezone")
-        return datetime.now(ZoneInfo(timezone)) if timezone else datetime.now().astimezone()
+        config = self.app_context.app_config if self.app_context is not None else ApplicationConfig()
+        return datetime.now(ZoneInfo(config.timezone)) if config.timezone else datetime.now().astimezone()
 
     def _check_stopped(self):
         if self.cancelled.is_set() or (self.context.stop_event is not None and self.context.stop_event.is_set()):
