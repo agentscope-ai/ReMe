@@ -33,6 +33,7 @@ async def create_round_task(runtime, monkeypatch, agent_type):
         await runtime.create({"agent_name": "monitor", "task_description": "Monitor", "cron": "0 * * * *"})
         await queue_cron_trigger(runtime, "monitor", monkeypatch)
     else:
+        assert agent_type == "event"
         await create_agent(runtime)
 
 
@@ -337,25 +338,28 @@ async def test_failed_record_with_invalid_priority_never_enters_the_inbox(tmp_pa
 @pytest.mark.asyncio
 async def test_cron_can_finish_with_a_skip_record(tmp_path, monkeypatch):
     async with running_manager(tmp_path, language="zh") as (runtime, context, wrapper):
-        await create_round_task(runtime, monkeypatch, "cron")
-        now = runtime.now()
+        now = datetime.fromisoformat("2026-11-24T09:30:00+08:00")
         monkeypatch.setattr(runtime, "now", lambda: now)
+        await create_round_task(runtime, monkeypatch, "time")
         step = ProactiveAgentStep(app_context=context)
-        paths = step._paths(await runtime.definition("monitor"), now)
+        paths = step._paths(await runtime.definition("monitor"), runtime.now())
 
-        old_record = paths["daily_dir"] / "2000-01-01" / "monitor_100000.md"
-        runtime.files.write(old_record, SKIP + "private old body")
         record = paths["record_path"]
+        old_record = paths["daily_dir"] / "2000-01-01" / record.name
+        runtime.files.write(old_record, SKIP + "private old body")
         draft = SKIP.replace("reminder_message: No new information", "reminder_message:")
         queries = install_round(runtime, wrapper, monkeypatch, paths, text=draft)
 
         result = await step(agent_name="monitor")
         assert result.success and result.answer["processed"] == 1
+        assert result.metadata["reme.agent_run"]["agent_type"] == "time"
         assert result.answer["notifications"] == []
         assert record.read_text() == draft
         assert (await runtime.status("monitor"))["pending_events"] == 0
         ((query, _),) = queries
-        assert old_record.name not in query and "private old body" not in query
+        assert record.relative_to(runtime.workspace_path).as_posix() in query
+        assert old_record.relative_to(runtime.workspace_path).as_posix() not in query
+        assert "private old body" not in query
         assert not (await runtime.outbox.list("monitor"))["items"]
 
 
