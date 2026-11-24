@@ -1,62 +1,150 @@
 ---
 name: manage-todos-ideas
-description: 通过 ReMe 的 todo 和 idea 工具查找项目、记录待办与灵感、追加进展，并关联 Todo 与 Idea。
+description: 用 ReMe 的 todo 和 idea 工具查找项目、管理待办和想法、维护进展并关联条目。
 ---
 
 # 管理待办和想法
 
-在 `proactive` 服务中使用 `todo` 和 `idea`，参数放在顶层。CLI 可调用 `reme todo action=...` 和
-`reme idea action=...`。
+用 `todo` 记录明确要做的事，用 `idea` 记录想法和待讨论的方案。先查有没有已有条目，再决定更新或新增。
+工具参数和 `action` 放在同一层。示例中的 `t001` 和 `i001` 用工具返回的实际 ID 替换。
+从命令行调用时，先运行 `reme start config=proactive`，再在另一个终端调用 `reme todo` 或 `reme idea`，用 `key=value` 传入参数。
 
-- 明确要推进的事项记为 Todo，灵感、备选方案和待讨论的问题记为 Idea。每条用一句话概括。
-- 修改前用项目或关键词 `list`，用返回的 ID 执行 `get` 或 `update`。优先更新已有条目。
-- 创建时使用明确指定的项目。由 Idea 创建 Todo 时，省略 `project` 和 `text` 可继承 Idea 的值。
-  没有项目上下文时省略 `project`，工具默认归入 `随笔`，英文界面显示为 Notes。查询这个项目时传 `project="随笔"`。
-- 根据用户确认或实际验证的结果追加 `progress_text`，保留已有进展。有明确发生时间时传带时区的 `progress_time`。
-  进展和状态可以在同一次 `update` 中保存。期限可选，`due_date` 使用 YYYY-MM-DD。
+## 共用参数
 
-## 找回记录
+| 参数 | 用法 |
+| --- | --- |
+| `action` | 必填。取下文对应工具列出的操作名。 |
+| `id` | `get`、`update` 和 Idea 的 `archive`、`restore` 使用已有条目的 ID。新建时由工具生成。归档后仍可用原 ID 查询。 |
+| `project` | `create` 和 `update` 写项目名，`list` 按项目名精确筛选。使用查询返回的原名。单独新建时省略或留空默认归入「随笔」（英文界面显示 Notes）。`list` 省略时查所有项目，`update` 省略时保留原项目。 |
+| `text` | `create` 和 `update` 使用一句非空文字。新建 Idea 时必填，新建 Todo 时可由 `source_idea` 提供。 |
+| `scope` | `list` 和 `todo list_projects` 使用。`active` 查未归档，`archive` 查已归档，`all` 查全部。`list` 默认 `active`，`list_projects` 默认 `all`。 |
+| `query` | `list` 使用。不区分大小写，按子串匹配项目和正文。Todo 还会匹配进展和关闭备注。 |
+| `offset` | `list` 使用。跳过前几条，默认 `0`。 |
+| `limit` | `list` 使用。每页返回 `1`–`100` 条，默认 `20`。根据 `total` 和 `offset` 判断是否需要继续翻页。 |
 
-项目名不明确或需要查看有哪些项目时，调用 `todo`，传 `{"action":"list_projects"}`。它从 Todo 和 Idea 汇总
-项目，返回每个项目的 `project`、`todo_count`、`idea_count`。默认 `scope="all"`，包含活跃和归档记录，也可选
-`active` 或 `archive`。用返回的 `project` 原样查询项目明细。
+## Todo 专用参数
 
-两个工具均支持 `create/list/get/update`。列表可按 `project`、`query` 和 `scope` 筛选，
-默认 `scope="active"`，也可选 `archive` 或 `all`。省略 `project` 查询所有项目。使用 `offset`、`limit` 和
-返回的 `total` 翻页。Todo 可另按 `status` 或 `source_idea` 筛选。列表仅展示最近一条进展及
-`progress_count`，用 `get` 查看完整进展。已归档记录仍可用原 ID 查询。
+| 参数 | 用法 |
+| --- | --- |
+| `status` | `create` 和 `update` 设置状态，`list` 精确筛选。默认 `pending`（待开始），开工后用 `in_progress`，完成或取消时用 `closed`。重新设为 `pending` 或 `in_progress` 会恢复条目并清除关闭时间和备注。 |
+| `due_date` | `create` 和 `update` 使用，格式为 `YYYY-MM-DD`。传 `null` 清除，省略则保留已有期限。 |
+| `source_idea` | `create` 和 `update` 传已有 Idea 的 ID 建立关联，`list` 用它查找关联 Todo。新建 Todo 时，省略的 `project` 和 `text` 继承 Idea 的值。更新时传 `null` 解除关联。 |
+| `progress_text` | `create` 或 `update` 追加一条非空进展。`update` 同时传 `progress_match` 时，替换匹配条目的文字。写入前先读完整进展，只记录新增事实。 |
+| `progress_time` | 与 `progress_text` 一起使用，时间带时区。省略时，新增进展用当前时间，替换进展保留原时间。 |
+| `progress_match` | 仅用于 `update`。传 `get` 返回的原进展对象，包含完整的 `time` 和 `text`，工具会精确匹配一条进展。省略 `progress_text` 会删除匹配的进展。 |
+| `close_note` | `create` 或 `update` 传 `status=closed` 时，可用一句话说明结果或关闭原因。传 `null` 清除备注。 |
 
-## 记录想法并转成任务
+## `todo` 操作
 
-先用 `idea` 记录想法：
+### `list_projects`
 
-```json
-{"action":"create","project":"ReMe","text":"通过对话管理一句话待办"}
-```
-
-用户决定推进时，用 `todo` 创建关联任务，将示例 ID 替换成 Idea 实际返回的 ID：
-
-```json
-{"action":"create","source_idea":"i001","text":"实现待办管理的后端工具"}
-```
-
-一个 Idea 可以关联多个 Todo。用 `todo list` 的 `source_idea` 和 `scope="all"` 查找全部关联任务。
-在 Todo 的 `update` 中传 `source_idea` 可更换关联，传 `null` 可解除关联。Idea 通过自己的
-`archive` 和 `restore` 按 ID 归档与恢复。
-
-## 更新任务进展
+从 Todo 和 Idea 汇总项目。每项返回 `project`、`todo_count` 和 `idea_count`。
 
 ```json
-{"action":"update","id":"t001","status":"partial","progress_text":"接口已完成，测试待补"}
+{"action":"list_projects","scope":"all"}
 ```
 
-Todo 默认 `open`。部分完成用 `partial`，完成用 `done`，作废用 `cancelled`。
-`done` 和 `cancelled` 自动记录关闭时间并归档。设回 `open` 或 `partial` 恢复任务并清除关闭时间。
-更新时仅发送需要修改的字段，传 `due_date=null` 可清除期限。
+### `list`
 
-## 后台更新
+查询 Todo。列表只带最近一条进展和 `progress_count`。要查看全部进展，用 `get`。
 
-后台收到一批资料时，用 `list` 或 `get` 核对项目、已有条目和进展。
-通过 `todo update` 给活跃的 Todo 追加有依据的 `progress_text`，通过 `idea update` 修正活跃 Idea 的 `text`。
-每次更新带上本轮事件的 `event_id`。同一事件对同一条目的更新只保存一次。
-需要新增、关闭、改关联或继续执行时，把条目 ID、依据和下一步交给 Remy。
+```json
+{"action":"list","project":"ReMe","status":"in_progress","source_idea":"i001","scope":"all","query":"发布包","offset":0,"limit":20}
+```
+
+### `get`
+
+读取单条 Todo 及其完整进展。
+
+```json
+{"action":"get","id":"t001"}
+```
+
+### `create`
+
+从已有 Idea 新建 Todo，沿用 Idea 的项目，并写入已发生的进展。
+
+```json
+{
+  "action": "create",
+  "source_idea": "i001",
+  "text": "验证 Windows 发布包",
+  "status": "in_progress",
+  "due_date": "2026-11-25",
+  "progress_text": "Windows 安装通过，待验证启动。",
+  "progress_time": "2026-11-24T10:15:00+08:00"
+}
+```
+
+### `update`
+
+传 ID 和要改的字段。下面把新结果合并到原进展，并关闭已经验证完毕的 Todo。
+
+```json
+{
+  "action": "update",
+  "id": "t001",
+  "progress_match": {
+    "time": "2026-11-24T10:15:00+08:00",
+    "text": "Windows 安装通过，待验证启动。"
+  },
+  "progress_text": "Windows 安装和启动均通过。",
+  "status": "closed",
+  "close_note": "发布包通过 Windows 安装和启动验证。"
+}
+```
+
+## `idea` 操作
+
+### `list`
+
+按项目、关键词和归档状态查找 Idea。
+
+```json
+{"action":"list","project":"ReMe","scope":"all","query":"发布包","offset":0,"limit":20}
+```
+
+### `get`
+
+读取单条 Idea。
+
+```json
+{"action":"get","id":"i001"}
+```
+
+### `create`
+
+用一句话记录想法。
+
+```json
+{"action":"create","project":"ReMe","text":"发版前在干净环境验证发布包能安装和启动。"}
+```
+
+### `update`
+
+传 ID 和要修改的项目或文字。
+
+```json
+{"action":"update","id":"i001","text":"发版前分别在干净的 macOS 和 Windows 环境验证发布包。"}
+```
+
+### `archive`
+
+归档 Idea，保留原 ID 和 Todo 关联。关联 Todo 创建或关闭后，Idea 仍可单独决定是否归档。
+
+```json
+{"action":"archive","id":"i001"}
+```
+
+### `restore`
+
+恢复已归档的 Idea。
+
+```json
+{"action":"restore","id":"i001"}
+```
+
+## 随记后台更新
+
+收到事件后，查找所有相关 Todo 和 Idea，读完命中 Todo 的全部进展。只更新未关闭 Todo 的增量进展，确认开工时可设为 `in_progress`。
+需要用户决定的新增、修改、关闭和关联，逐项交给 Remy，写清已有条目、新依据和建议处理方式。

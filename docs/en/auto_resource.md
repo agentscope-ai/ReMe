@@ -71,7 +71,7 @@ Permanent material should remain in user-controlled workspace paths.
 `config=proactive` enables `screen_capture_cron` every five minutes in the application timezone, without a startup capture.
 It publishes screenshots to the `work` task, independently of Codex dialogue collection. Set
 `jobs.screen_capture_cron.enabled=false` to disable it. To change recipients, set `task_names` on
-`screen_capture_step` and name the event-driven tasks that should receive screenshots.
+`screen_capture_step` and name the event-triggered tasks that should receive screenshots.
 
 `ScreenCaptureStep` saves one original-size PNG per display and records the recipients before publishing
 `metadata.json`. The observation lists the workspace-relative PNG paths. If delivery is interrupted, the collector
@@ -112,8 +112,8 @@ own sessions are excluded.
 Dialogue packages live under `resource/codex_dialogue/YYYY-MM-DD/HHMMSS_<suffix>/`. Events give agents `dialogue.md`
 and paths to its image attachments. The Markdown shows the project, session, turn and message IDs, and lists each
 user message, progress update and final answer in order. A follow-up in an active turn has its own message ID under
-the same turn. Images are linked next to their messages. The notebook runtime includes the dialogue in its prompt
-and checks existing records by project and ID through `todo` and `idea`.
+the same turn. Images are linked next to their messages. Like other Proactive runtimes, Notebook reads the dialogue and
+images from the event's links, then checks existing records by project and ID through `todo` and `idea`.
 `resource/codex_dialogue/progress.jsonl` retains committed reading offsets and message IDs.
 `pending.json` freezes an unfinished batch so delivery can be retried before reading further changes. These collector
 files are not included in event paths. Restarting resumes the saved progress without replaying delivered dialogue.
@@ -121,42 +121,26 @@ An idle scan writes no new progress record; tool-only changes still advance offs
 
 ## Scheduled Finance Collection
 
-`config=proactive` enables three collection jobs: `finance_news_cron` fetches new CLS news every five minutes, and
-`stock_quotes_cron` collects Xiaomi (01810.HK), Alibaba (09988.HK), Tencent (00700.HK), Apple (AAPL), Amazon (AMZN)
-and Meta (META) every five minutes during their market sessions. Install `reme-ai[finance]` for the trading calendars;
-this extra is included in `[core]`. Calendars account for holidays, half-days, lunch breaks and US daylight saving time.
-Quotes may be delayed; records retain quote and collection times. Collection stops at market close. Pending batches
-wait until all markets represented in the batch reopen. Only changed symbols are saved, comparing trading date,
-price and previous close with each symbol's latest saved quote; older quote timestamps are ignored.
+`config=proactive` runs each finance collector independently every five minutes.
 
-`btc_quotes_cron` independently collects BTC/USDT spot statistics every five minutes, 24/7, from Binance's public
-[market-data-only API](https://developers.binance.com/en/docs/products/spot/faqs/market_data_only), without an API key.
-BTC uses the rolling 24-hour percentage change, with the statistics window and collection time saved explicitly;
-its USDT prices and percentage basis are distinct from stock quotes. Stock holidays and collection failures do not stop BTC.
-Unchanged prices and 24-hour opening prices produce no new resource or event; advancing collection or window times
-alone does not count as new information. Older statistics windows are ignored.
+| Job | Source and payload |
+| --- | --- |
+| `finance_news_cron` | [CLS telegraphs](https://www.cls.cn/telegraph) in `news.md`, with `news.jsonl` for deduplication |
+| `gold_quotes_cron` | Tencent XAU/USD spot gold in `gold.jsonl`, in USD per troy ounce |
+| `oil_quotes_cron` | Tencent WTI crude oil futures (CL) in `oil.jsonl`, in USD per barrel |
+| `nasdaq_quotes_cron` | Tencent Nasdaq Composite (IXIC) in `nasdaq.jsonl`, in index points |
+| `btc_quotes_cron` | [Binance BTC/USDT spot data](https://developers.binance.com/en/docs/products/spot/faqs/market_data_only) in `btc.jsonl` |
 
-Under `resource/<source>/YYYY-MM-DD/hhmmss_<suffix>/`, every news batch saves new items in `news.md` and retains
-`news.jsonl` for ID deduplication. `news.md` shows titles, publication times, source links and full text. If the title
-equals the body, it appears once. Stock and BTC batches save `quotes.jsonl` and `btc.jsonl`, respectively. The `finance`
-agent prompt lists `news.md` or the quote file. Collection does not use an LLM. Empty batches produce no files or events.
-News uses a rolling 24-hour lookback and retained news IDs for deduplication; outages longer than
-the lookback can leave gaps. After a successful fetch, a source-owned progress file narrows subsequent requests to
-the last checked time with a ten-minute overlap, bounded by the 24-hour lookback. Removing this progress file restores
-the full lookback; retained news IDs still prevent duplicates. Saved batches without a delivery receipt are retried
-before collecting new inputs, subject to stock trading hours.
-Per-package `delivery-finance.json` receipts prevent replaying successful deliveries; resources are retained.
+Gold, WTI, and Nasdaq use the change from the previous close. BTC uses a rolling 24-hour window. The default `finance`
+task alerts when the absolute change reaches 3% and uses relevant CLS news for context.
 
-Start the service in one terminal with `reme start config=proactive`. The default `finance` task runs on incoming
-observations. Check the task in another terminal:
+New news and changed quotes become resource packages under `resource/<source>/YYYY-MM-DD/hhmmss_<suffix>/`.
+Quote records preserve provider and collection times. CLS looks back up to 24 hours and deduplicates by news ID.
+Pending deliveries are retried from published packages.
 
-```bash
-reme manage_proactive_agent action=status agent_name=finance
-```
-
-Use the returned `task_path` to edit the task description and AI-news preferences in `TASK.md`. Edits persist across restarts.
-Disable a collector with `jobs.finance_news_cron.enabled=false`, `jobs.stock_quotes_cron.enabled=false` or
-`jobs.btc_quotes_cron.enabled=false` at startup.
+Start the service with `reme start config=proactive`. In another terminal, run
+`reme manage_proactive_agent action=status agent_name=finance` to find the task's `TASK.md`.
+Disable a collector at startup with `jobs.<job_name>.enabled=false`.
 
 ## Image Resources
 

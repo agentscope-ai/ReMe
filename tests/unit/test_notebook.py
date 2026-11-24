@@ -63,8 +63,8 @@ async def test_todo_progress_dates_archive_and_reopen(jobs, notebook_path):
     task = await call(jobs, "todo", action="create", source_idea=idea["id"], due_date="2026-11-20")
     identifier = task["id"]
     assert task["project"] == "ReMe" and task["text"] == idea["text"]
-    assert task["status"] == "open" and task["progress"] == []
-    await call(jobs, "todo", action="update", id=identifier, status="partial", progress_text="接口完成，测试待补")
+    assert task["status"] == "pending" and task["progress"] == []
+    await call(jobs, "todo", action="update", id=identifier, status="in_progress", progress_text="接口完成，测试待补")
     task = await call(
         jobs,
         "todo",
@@ -79,19 +79,21 @@ async def test_todo_progress_dates_archive_and_reopen(jobs, notebook_path):
     listing = await call(jobs, "todo", action="list")
     assert listing["items"][0]["progress_count"] == 2
     assert len(listing["items"][0]["progress"]) == 1
-    closed = await call(jobs, "todo", action="update", id=identifier, status="done")
-    assert closed["closed_at"] and read(notebook_path / "todos.json") == []
+    closed = await call(jobs, "todo", action="update", id=identifier, status="closed", close_note="已上线，测试通过")
+    assert closed["closed_at"] and closed["close_note"] == "已上线，测试通过"
+    assert closed["progress"] == task["progress"] and read(notebook_path / "todos.json") == []
     assert read(notebook_path / "archive/todos.json") == [closed]
     assert (await call(jobs, "todo", action="list"))["total"] == 0
-    assert (await call(jobs, "todo", action="list", scope="archive"))["total"] == 1
+    archived = await call(jobs, "todo", action="list", scope="archive", status="closed", query="测试通过")
+    assert archived["total"] == 1 and archived["items"][0]["close_note"] == closed["close_note"]
     assert await call(jobs, "todo", action="get", id=identifier) == closed
     assert "closed_at" not in await call(jobs, "idea", action="get", id=idea["id"])
-    reopened = await call(jobs, "todo", action="update", id=identifier, status="open", due_date=None)
-    assert "closed_at" not in reopened and "due_date" not in reopened
+    reopened = await call(jobs, "todo", action="update", id=identifier, status="pending", due_date=None)
+    assert not {"closed_at", "close_note", "due_date"} & reopened.keys()
     assert reopened["progress"] == closed["progress"] and reopened["id"] == identifier
     assert read(notebook_path / "archive/todos.json") == []
-    cancelled = await call(jobs, "todo", action="update", id=identifier, status="cancelled")
-    assert cancelled["closed_at"] and cancelled["status"] == "cancelled"
+    closed_again = await call(jobs, "todo", action="update", id=identifier, status="closed")
+    assert closed_again["closed_at"] and closed_again["status"] == "closed" and "close_note" not in closed_again
 
 
 @pytest.mark.asyncio
@@ -100,7 +102,7 @@ async def test_existing_links_idea_closure_and_restore(jobs, notebook_path):
     idea = await call(jobs, "idea", action="create", project="ReMe", text="想法")
     task = await call(jobs, "todo", action="create", project="Other", text="已有任务")
     linked = await call(jobs, "todo", action="update", id=task["id"], source_idea=idea["id"])
-    assert linked["project"] == "Other" and linked["text"] == "已有任务" and linked["status"] == "open"
+    assert linked["project"] == "Other" and linked["text"] == "已有任务" and linked["status"] == "pending"
     await call(jobs, "idea", action="update", id=idea["id"], text="补充想法")
     closed = await call(jobs, "idea", action="archive", id=idea["id"])
     assert read(notebook_path / "ideas.json") == []
@@ -127,13 +129,37 @@ async def test_filters_pagination_and_optional_fields(jobs):
     await call(jobs, "todo", action="create", project="ReMe", text="编写文档")
     other = await call(jobs, "todo", action="create", text="临时事项")
     assert other["project"] == "随笔" and "due_date" not in other
-    await call(jobs, "todo", action="update", id=first["id"], status="partial", progress_text="API ready")
+    await call(jobs, "todo", action="update", id=first["id"], status="in_progress", progress_text="API ready")
     result = await call(jobs, "todo", action="list", project="ReMe", offset=1, limit=1)
     assert result["total"] == 2 and len(result["items"]) == 1
     assert (await call(jobs, "todo", action="list", query="api READY"))["total"] == 1
-    assert (await call(jobs, "todo", action="list", status="open"))["total"] == 2
+    assert (await call(jobs, "todo", action="list", status="pending"))["total"] == 2
     assert (await call(jobs, "todo", action="list", project=""))["items"][0]["id"] == other["id"]
     assert (await call(jobs, "todo", action="list", offset=100))["items"] == []
+
+
+@pytest.mark.asyncio
+async def test_notebook_timeline_order_before_pagination(jobs):
+    """Agenda pages follow due dates and archive edits preserve the closure order."""
+    first = await call(jobs, "todo", action="create", text="First", due_date="2026-11-25")
+    later = await call(jobs, "todo", action="create", text="Later", due_date="2026-12-04")
+    undated = await call(jobs, "todo", action="create", text="Undated")
+    for offset, task in enumerate((first, later, undated)):
+        page = await call(jobs, "todo", action="list", offset=offset, limit=1)
+        assert page["items"][0]["id"] == task["id"]
+
+    for kind, records in (("todo", (first, later)), ("idea", None)):
+        if records is None:
+            records = [await call(jobs, kind, action="create", text=text) for text in ("First", "Later")]
+        older, newer = (record["id"] for record in records)
+        for identifier in (older, newer):
+            if kind == "todo":
+                await call(jobs, kind, action="update", id=identifier, status="closed")
+            else:
+                await call(jobs, kind, action="archive", id=identifier)
+        await call(jobs, kind, action="update", id=older, text="First, edited")
+        archive = await call(jobs, kind, action="list", scope="archive", limit=1)
+        assert archive["items"][0]["id"] == newer
 
 
 @pytest.mark.asyncio
@@ -142,7 +168,7 @@ async def test_list_projects_counts_both_collections_by_scope(jobs, notebook_pat
     assert await call(jobs, "todo", action="list_projects") == {"items": [], "total": 0}
     assert not notebook_path.exists()
     await call(jobs, "todo", action="create", project="ReMe", text="待办")
-    await call(jobs, "todo", action="create", project="Archive", text="已完成待办", status="done")
+    await call(jobs, "todo", action="create", project="Archive", text="已完成待办", status="closed")
     await call(jobs, "todo", action="create", text="随手记下的待办")
     await call(jobs, "idea", action="create", project="Ideas", text="想法")
     idea = await call(jobs, "idea", action="create", project="ReMe", text="待办的来源")
@@ -204,12 +230,12 @@ async def test_archive_rollover_retains_history(jobs, notebook_path, kind, model
     for index in range(1000):
         data = {"id": f"old-{index}", "text": f"历史 {index}", "closed_at": now}
         if kind == "todos":
-            data["status"] = "done"
+            data["status"] = "closed"
         values.append(model(**data).model_dump(mode="json", exclude_none=True))
     (directory / f"{kind}.json").write_text(_store.encode(values), encoding="utf-8")
     job = "todo" if kind == "todos" else "idea"
     current = await call(jobs, job, action="create", text="新事项")
-    fields = {"status": "done"} if kind == "todos" else {}
+    fields = {"status": "closed"} if kind == "todos" else {}
     await call(jobs, job, action="update" if kind == "todos" else "archive", id=current["id"], **fields)
     assert len(read(directory / f"{kind}.json")) == 1000
     assert read(directory / f"{kind}_0001.json")[0]["id"] == current["id"]
@@ -244,12 +270,18 @@ async def test_interrupted_archive_recovers_once(jobs, notebook_path, monkeypatc
 
     with monkeypatch.context() as patch:
         patch.setattr(_store, "write_file_safe", fail)
-        response = await jobs["todo"](action="update", id=task["id"], status="done", progress_text="已完成")
+        response = await jobs["todo"](
+            action="update",
+            id=task["id"],
+            status="closed",
+            progress_text="已部署",
+            close_note="验收通过",
+        )
         assert not response.success
     assert (notebook_path / ".todos.pending.json").exists()
     # Fresh Step and Store instances must recover without any in-memory transaction state.
     recovered = (await TodoStep(app_context=jobs["todo"].app_context)(action="get", id=task["id"])).answer
-    assert recovered["status"] == "done" and len(recovered["progress"]) == 1
+    assert recovered["status"] == "closed" and recovered["close_note"] == "验收通过" and len(recovered["progress"]) == 1
     assert read(notebook_path / "todos.json") == []
     assert read(notebook_path / "archive/todos.json") == [recovered]
     assert not (notebook_path / ".todos.pending.json").exists()
@@ -269,7 +301,7 @@ async def test_pending_recovery_preserves_external_edits(jobs, notebook_path, mo
 
     with monkeypatch.context() as patch:
         patch.setattr(_store, "write_file_safe", fail)
-        assert not (await jobs["todo"](action="update", id=task["id"], status="done")).success
+        assert not (await jobs["todo"](action="update", id=task["id"], status="closed")).success
     task["text"] = "用户在服务恢复前手动修订"
     active = notebook_path / "todos.json"
     active.write_text(_store.encode([task]), encoding="utf-8")
@@ -374,7 +406,7 @@ async def test_custom_notebook_directory_contains_linked_records_and_archives(jo
     idea = await call(jobs, "idea", action="create", text="想法", **allowed)
     await call(jobs, "idea", action="archive", id=idea["id"], **allowed)
     task = await call(jobs, "todo", action="create", source_idea=idea["id"], **allowed)
-    await call(jobs, "todo", action="update", id=task["id"], status="done", **allowed)
+    await call(jobs, "todo", action="update", id=task["id"], status="closed", **allowed)
 
     directory = tmp_path / "planning/capture"
     assert read(directory / "todos.json") == read(directory / "ideas.json") == []
@@ -399,6 +431,9 @@ async def test_custom_notebook_directory_contains_linked_records_and_archives(jo
         (TodoRequest, {"action": "update", "id": "t1"}),
         (TodoRequest, {"action": "update", "id": "t1", "text": None}),
         (TodoRequest, {"action": "update", "id": "t1", "status": "doing"}),
+        (TodoRequest, {"action": "update", "id": "t1", "status": "done"}),
+        (TodoRequest, {"action": "update", "id": "t1", "status": "pending", "close_note": "已完成"}),
+        (TodoRequest, {"action": "update", "id": "t1", "status": "closed", "close_note": " "}),
         (TodoRequest, {"action": "update", "id": "t1", "progress_text": None}),
         (TodoRequest, {"action": "update", "id": "t1", "progress_time": "2026-11-18T10:00:00Z"}),
         (
@@ -407,7 +442,7 @@ async def test_custom_notebook_directory_contains_linked_records_and_archives(jo
         ),
         (IdeaRequest, {"action": "archive"}),
         (IdeaRequest, {"action": "create", "text": " "}),
-        (IdeaRequest, {"action": "list", "status": "open"}),
+        (IdeaRequest, {"action": "list", "status": "pending"}),
         (IdeaRequest, {"action": "list_projects"}),
         (IdeaRequest, {"action": "restore", "id": "i1", "text": "不能忽略"}),
     ],
@@ -464,8 +499,15 @@ async def test_http_and_mcp_expose_both_jobs_and_preserve_unset_fields(jobs):
         await client.call_tool("todo", {"action": "update", "id": task["id"], "progress_text": "MCP 追加进展"})
         saved = await call(jobs, "todo", action="get", id=task["id"])
         assert saved["due_date"] == "2026-11-20" and len(saved["progress"]) == 1
-        await client.call_tool("todo", {"action": "update", "id": task["id"], "due_date": None})
-        assert "due_date" not in await call(jobs, "todo", action="get", id=task["id"])
+        await client.call_tool(
+            "todo",
+            {"action": "update", "id": task["id"], "status": "closed", "close_note": "验收通过", "due_date": None},
+        )
+        closed = await call(jobs, "todo", action="get", id=task["id"])
+        assert closed["status"] == "closed" and closed["close_note"] == "验收通过" and "due_date" not in closed
+        await client.call_tool("todo", {"action": "update", "id": task["id"], "status": "closed", "close_note": None})
+        cleared = await call(jobs, "todo", action="get", id=task["id"])
+        assert cleared["closed_at"] == closed["closed_at"] and "close_note" not in cleared
 
 
 @pytest.mark.parametrize("backend", ["http", "mcp"])

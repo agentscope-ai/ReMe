@@ -24,9 +24,11 @@ type ListedResource =
 export default function AgentResources({
   state,
   inbox,
+  revision,
 }: {
   state: StudioState;
   inbox: boolean;
+  revision?: number;
 }) {
   const requestResource = useResource();
   const { action } = useHost();
@@ -49,6 +51,7 @@ export default function AgentResources({
   const { page, error, loading, refresh } = useResourcePage<ListedResource>(
     request,
     active && state.connection === "connected",
+    revision,
   );
   useEffect(() => {
     if (
@@ -157,7 +160,7 @@ export default function AgentResources({
             <button
               className="icon-button"
               onClick={refresh}
-              aria-label={t("refreshFiles")}
+              aria-label={t(inbox ? "refreshInbox" : "refreshFiles")}
             >
               <RefreshCw size={14} className={loading ? "spinning" : ""} />
             </button>

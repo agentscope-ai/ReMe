@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from collections.abc import Callable
 
 from pydantic import BaseModel
 
@@ -61,19 +60,14 @@ class BaseAgentInbox(BaseComponent):
         """Persist inputs before publishing them to a consumer."""
 
     @abstractmethod
-    async def peek(self, name: str, *, item_ids: list[str] | None = None) -> dict | None:
-        """Read the first claimable input in FIFO order without leasing it."""
-
-    @abstractmethod
     async def claim(
         self,
         name: str,
         limit: int | None = None,
         *,
         item_ids: list[str] | None = None,
-        batch_key: Callable[[dict], str | None] | None = None,
     ) -> dict | None:
-        """Lease a FIFO batch, stopping at a different batch key when supplied."""
+        """Lease the next FIFO batch or retry the selected inputs."""
 
     @abstractmethod
     async def ack(self, name: str, token: str, *, metadata: dict | None = None, retain: bool = False) -> str:

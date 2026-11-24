@@ -19,9 +19,9 @@ from .test_proactive_run import create_round_task, install_round, queue_cron_tri
 @pytest.mark.asyncio
 async def test_statistics_separate_agent_types_and_count_snapshots_once(tmp_path, monkeypatch):
     async with running_manager(tmp_path) as (runtime, context, wrapper):
-        for mode in ("proactive", "cron"):
+        for mode in ("event", "time"):
             config = {"agent_name": mode, "task_description": "Check results"}
-            if mode == "cron":
+            if mode == "time":
                 await runtime.create({**config, "cron": "0 * * * *"})
                 await queue_cron_trigger(runtime, mode, monkeypatch)
             else:
@@ -67,7 +67,7 @@ async def test_statistics_separate_agent_types_and_count_snapshots_once(tmp_path
             assert stats["tool_calls"] == 3 and stats["web_lookup_calls"] == 2
             assert stats["usage"] == {"input_tokens": 15, "output_tokens": 7, "total_tokens": 22}
             assert stats["elapsed_seconds"] >= 0
-        for mode in ("proactive", "cron"):
+        for mode in ("event", "time"):
             assert global_counter_get(context.metadata, ["agent_runs", mode, "runs"]) == 1
             assert global_counter_get(context.metadata, ["agent_runs", mode, "tool_calls"]) == 3
             assert global_counter_get(context.metadata, ["agent_runs", mode, "web_lookup_calls"]) == 2
@@ -94,8 +94,8 @@ async def test_run_result_is_distinct_from_model_status(tmp_path, monkeypatch, f
         assert stats["result"] == ("failed" if failure == "commit" else "completed")
         assert stats["model_status"] == ("completed" if failure == "commit" else "failed")
         assert stats["usage"] is None
-        assert global_counter_get(context.metadata, ["agent_runs", "proactive", stats["result"]]) == 1
-        assert global_counter_get(context.metadata, ["agent_runs", "proactive", "usage_runs"]) == 0
+        assert global_counter_get(context.metadata, ["agent_runs", "event", stats["result"]]) == 1
+        assert global_counter_get(context.metadata, ["agent_runs", "event", "usage_runs"]) == 0
 
 
 @pytest.mark.parametrize(
@@ -136,7 +136,7 @@ async def test_failure_before_model_start_is_counted_without_hiding_the_error(tm
         assert stats["result"] == "failed" and stats["model_status"] == "not_started"
         assert stats["session_id"] is None and stats["usage"] is None
         assert stats["tool_calls"] == stats["web_lookup_calls"] == 0
-        assert global_counter_get(context.metadata, ["agent_runs", "proactive", "failed"]) == 1
+        assert global_counter_get(context.metadata, ["agent_runs", "event", "failed"]) == 1
 
 
 @pytest.mark.parametrize(
@@ -159,7 +159,7 @@ def test_explicit_shell_searches_include_compound_commands(command, expected):
     assert (ProactiveAgentStep._lookup_type(call) == "local_search_calls") is expected
 
 
-@pytest.mark.parametrize("agent_type", ["proactive", "cron"])
+@pytest.mark.parametrize("agent_type", ["event", "time"])
 @pytest.mark.asyncio
 async def test_local_search_budget_warns_once_without_interrupting(tmp_path, monkeypatch, agent_type):
     async with running_manager(tmp_path) as (runtime, context, wrapper):

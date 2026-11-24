@@ -84,12 +84,8 @@ class BaseConnectorStep(BaseStep):
         if not check_path_permission(self.workspace_path, path, self.context.get("_allowed_paths")):
             raise PermissionError("no permission to access collector files")
 
-    def delivery_ready(self, _manifest, _metadata):
-        """Allow a collector to defer delivery until its source is active."""
-        return True
-
     def event_payloads(self, metadata):
-        """Expose the resource files that the receiving task should read."""
+        """Choose the published payloads to include in the observation."""
         return [item.path for item in metadata.files]
 
     async def _collect(self, target, now):

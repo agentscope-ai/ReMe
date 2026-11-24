@@ -87,7 +87,7 @@ test("notebook IPC preserves task patches, explicit clearing and source links", 
       type: "todo",
       action: "update",
       id: "t1",
-      status: "partial",
+      status: "in_progress",
       progress_text: "接口完成，测试待补",
     },
     signal,
@@ -100,6 +100,17 @@ test("notebook IPC preserves task patches, explicit clearing and source links", 
       id: "t1",
       due_date: null,
       source_idea: null,
+    },
+    signal,
+  );
+  await requestWorkspace(
+    client,
+    {
+      type: "todo",
+      action: "update",
+      id: "t1",
+      status: "closed",
+      close_note: "需求撤销，取消执行",
     },
     signal,
   );
@@ -127,11 +138,20 @@ test("notebook IPC preserves task patches, explicit clearing and source links", 
       {
         action: "update",
         id: "t1",
-        status: "partial",
+        status: "in_progress",
         progress_text: "接口完成，测试待补",
       },
     ],
     ["todo", { action: "update", id: "t1", due_date: null, source_idea: null }],
+    [
+      "todo",
+      {
+        action: "update",
+        id: "t1",
+        status: "closed",
+        close_note: "需求撤销，取消执行",
+      },
+    ],
     ["idea", { action: "archive", id: "i1" }],
     [
       "todo",
@@ -159,10 +179,25 @@ test("notebook IPC rejects untrusted fields and invalid actions before HTTP", as
     { type: "todo", action: "create", text: "目标", id: "caller-id" },
     { type: "todo", action: "update", id: "t1" },
     { type: "todo", action: "update", id: "t1", status: "doing" },
+    { type: "todo", action: "update", id: "t1", status: "done" },
+    {
+      type: "todo",
+      action: "update",
+      id: "t1",
+      status: "pending",
+      close_note: "已完成",
+    },
+    {
+      type: "todo",
+      action: "update",
+      id: "t1",
+      status: "closed",
+      close_note: " ",
+    },
     { type: "todo", action: "list", progress_text: "不能忽略" },
     { type: "todo", action: "list", limit: 101 },
     { type: "idea", action: "list", offset: -1 },
-    { type: "idea", action: "list", status: "done" },
+    { type: "idea", action: "list", status: "closed" },
     { type: "todo", action: "create", text: "目标", _allowed_paths: ["/"] },
     { type: "idea", action: "get", id: "i1", path: "../outside.json" },
   ])
@@ -229,6 +264,7 @@ test("Notebook shares Knowledge's default split and preserves Remy's narrower na
   assert.match(knowledge, /--sidebar-width:292px/);
   assert.match(remy, /--sidebar-width:224px/);
   assert.match(notebook, /随记/);
+  assert.match(notebook, /关闭备注（选填）/);
   assert.match(notebook, /aria-label="调整侧栏宽度"/);
   const collapsed = render(createElement(Notebook, { state, collapsed: true }));
   assert.match(collapsed, /id="sidebar-notebook"[^>]*hidden=""/);

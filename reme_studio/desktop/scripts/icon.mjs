@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 
 // ICNS supports a PNG-backed 512px ic09 element. macOS scales it for smaller sizes.
 const png = await readFile(
-  new URL("../../workbench/public/reme-app-icon.png", import.meta.url),
+  new URL("../assets/reme-mac-icon.png", import.meta.url),
 );
 if (png.readUInt32BE(16) !== 512 || png.readUInt32BE(20) !== 512)
   throw new Error("ReMe app icon source must be 512 × 512 PNG");

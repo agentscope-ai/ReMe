@@ -42,9 +42,14 @@ export function displayMessages(
     reply?: ReplyProgress;
     task?: boolean;
   },
-  activity: ClientActivity | undefined,
+  sessionActivity: ClientActivity | undefined,
   language: Language,
 ): DisplayMessage[] {
+  const activity =
+    sessionActivity?.session_id === state.sessionId &&
+    sessionActivity.source !== "task"
+      ? sessionActivity
+      : undefined;
   const pending =
     state.pending?.sessionId === state.sessionId ? state.pending : null;
   const messages = state.messages;
@@ -143,6 +148,7 @@ export function displayMessages(
   if (
     activity &&
     !current &&
+    activity.phase !== "completed" &&
     (!pending || pending.turnId === activity.turn_id)
   ) {
     current = {
@@ -178,6 +184,7 @@ export function displayMessages(
           {
             session_id: state.sessionId!,
             turn_id: pending.turnId ?? pending.id,
+            source: "chat",
             tool: null,
             started_at: null,
             phase: pending.streaming

@@ -57,7 +57,7 @@ class ReminderFiles:
     def decision(self, path):
         """Read the model's reminder decision from the original Markdown."""
         metadata, _ = split_record(self.files.read(path))
-        return ProactiveRecordDecision.model_validate(metadata)
+        return ProactiveRecordDecision.parse(metadata)
 
     def read(self, agent_name, path):
         """Join framework-owned state with the current reminder text."""

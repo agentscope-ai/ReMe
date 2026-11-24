@@ -39,7 +39,15 @@ export default function RecordEditor({
         onSave();
       }}
     >
-      <h1>{t(draft.id ? "notebookEdit" : "notebookCapture")}</h1>
+      <h1>
+        {t(
+          draft.id
+            ? "notebookEdit"
+            : kind === "todo"
+              ? "notebookNewTodo"
+              : "notebookNewIdea",
+        )}
+      </h1>
       <label>
         <span>{t("notebookText")}</span>
         <textarea

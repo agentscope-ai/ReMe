@@ -57,8 +57,6 @@ class ResourceDelivery:
         metadata = ResourceMetadata.model_validate_json(await asyncio.to_thread(self.files.read, manifest))
         if metadata.source != self.connector.source:
             raise ValueError(f"Unexpected resource source: {metadata.source}")
-        if not self.connector.delivery_ready(manifest, metadata):
-            return
         paths = [manifest.parent / name for name in self.connector.event_payloads(metadata)]
         for path in paths:
             self.connector.require_path(path)

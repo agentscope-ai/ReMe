@@ -122,27 +122,3 @@ test("settings edits only patch changed fields, preserving concurrent pause and 
   );
   assert.deepEqual(changedTaskSettings(settings, { ...settings }), {});
 });
-
-test("adding and removing a schedule preserves the observation cooldown", () => {
-  const eventOnly = {
-    ...settings,
-    cron: null,
-    min_trigger_interval_seconds: 30,
-  };
-  const scheduled = { ...eventOnly, cron: "0 9 * * *" };
-  assert.deepEqual(changedTaskSettings(eventOnly, scheduled), {
-    cron: "0 9 * * *",
-  });
-  assert.deepEqual(
-    taskPayload({
-      type: "task",
-      action: "update",
-      agent_name: "tmp",
-      settings: changedTaskSettings(scheduled, eventOnly),
-    }),
-    {
-      job: "manage_proactive_agent",
-      body: { action: "update", agent_name: "tmp", cron: null },
-    },
-  );
-});

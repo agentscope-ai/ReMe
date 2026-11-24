@@ -14,7 +14,7 @@ export function agent(
     ...contract.agent,
     agent_name: name,
     session_id: sessionId,
-    agent_type: name === "Remy" ? "chat" : "proactive",
+    agent_type: name === "Remy" ? "chat" : "event",
     directory: `reme_agents/${name}`,
     memory_path: name === "Remy" ? `reme_agents/${name}/MEMORY.md` : null,
     task_path: name === "Remy" ? null : `reme_agents/${name}/TASK.md`,

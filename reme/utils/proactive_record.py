@@ -12,7 +12,7 @@ from .files.path_lock import get_path_lock
 from .files.workspace_files import WorkspaceFiles
 
 _ROUND_SUFFIX = re.compile(r"[0-9]{6}(?:_[0-9]+)?\.md")
-_FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n(.*?)^---[ \t]*(?=\r?$)", re.MULTILINE | re.DOTALL)
+_FRONTMATTER = re.compile(r"\A(?:[ \t]*\r?\n)*---[ \t]*\r?\n(.*?)^---[ \t]*(?=\r?$)", re.MULTILINE | re.DOTALL)
 
 
 def is_round_record(path, agent_name):
@@ -84,22 +84,8 @@ class RoundRecord:
         if path != self.path or self._version(path) != self.written:
             raise RuntimeError(f"Agent output changed outside this round: {path}")
 
-    def _save_version(self, result):
-        _, self.written = result
-
-    def create(self, metadata, body):
-        """Publish structured output only to this round's unused destination."""
-        self.check_version(self.path)
-        content = f"---\n{yaml.safe_dump(metadata, allow_unicode=True)}---\n\n{body.strip()}\n"
-        self.files.write(self.path, content, create_only=True, on_write=self._save_version)
-        self.check_version(self.path)
-
-    def replace_frontmatter(self, metadata):
-        """Replace the record's frontmatter only if its version still matches."""
+    def read_body_for_repair(self) -> str | None:
+        """Keep a copy of the body when the original frontmatter is delimited."""
         self.check_version(self.path)
         header, body = _split_frontmatter(self.files.read(self.path))
-        if header is None:
-            raise ValueError("The round record must have delimited YAML frontmatter")
-
-        content = f"---\n{yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False)}---{body}"
-        self.files.write(self.path, content, on_write=self._save_version)
+        return body if header is not None else None

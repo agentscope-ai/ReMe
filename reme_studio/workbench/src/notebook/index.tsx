@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import {
   Archive,
+  ArrowLeft,
   ArrowRight,
+  CalendarDays,
   CheckSquare,
   ChevronLeft,
   ChevronRight,
-  Leaf,
   Lightbulb,
   Plus,
   RefreshCw,
@@ -14,22 +15,26 @@ import {
 import { errorText, translator, UiError } from "../../../client/src/i18n.ts";
 import type { StudioState } from "../../../client/src/protocol.ts";
 import {
-  isTodo,
   DEFAULT_PROJECT,
+  isTodo,
   normalizeProject,
   projectLabel,
   projectValue,
+  splitNotebookText,
   type NotebookItem,
   type NotebookKind,
   type NotebookRequest,
+  type Todo,
 } from "../../../client/src/notebook.ts";
 import { useResource, useResourcePage } from "../resources.ts";
 import SplitPane from "../split-pane.tsx";
-import RecordDetail, { statuses } from "./detail.tsx";
+import RecordDetail from "./detail.tsx";
 import RecordEditor, { type RecordDraft } from "./editor.tsx";
+import NotebookList from "./list.tsx";
 import "./notebook.css";
 
 type Editor = { draft: RecordDraft; original?: NotebookItem };
+const PAGE_SIZE = 20;
 
 export default function Notebook({
   state,
@@ -64,6 +69,12 @@ export default function Notebook({
   const [progressDrafts, setProgressDrafts] = useState<Record<string, string>>(
     {},
   );
+  const [closingTodo, setClosingTodo] = useState<Todo>();
+  const [closeNote, setCloseNote] = useState("");
+  const closeDialog = useRef<HTMLDialogElement>(null);
+  const closeTitleId = useId();
+  const scroll = useRef<HTMLDivElement>(null);
+  const listScroll = useRef(0);
   const missing = ["todo", "idea"].find(
     (name) => !state.clientInfo?.jobs.includes(name),
   );
@@ -83,6 +94,7 @@ export default function Notebook({
   const epoch = useRef(0);
   const selected = selection[kind] ?? "";
   const editor = editors[kind];
+  const editing = Boolean(editor);
   const item = details[kind]?.id === selected ? details[kind] : undefined;
   const latest = useRef({ kind, selected, selection });
   latest.current = { kind, selected, selection };
@@ -94,7 +106,7 @@ export default function Notebook({
       action: "list",
       scope,
       offset,
-      limit: 20,
+      limit: PAGE_SIZE,
       ...(query ? { query } : {}),
       ...(project ? { project } : {}),
     },
@@ -112,8 +124,14 @@ export default function Notebook({
   }, []);
   useEffect(() => {
     if (page.page && offset > 0 && offset >= page.page.total)
-      setOffset(Math.max(0, Math.floor((page.page.total - 1) / 20) * 20));
+      setOffset(
+        Math.max(0, Math.floor((page.page.total - 1) / PAGE_SIZE) * PAGE_SIZE),
+      );
   }, [page.page?.total, offset]);
+  useEffect(() => {
+    if (scroll.current)
+      scroll.current.scrollTop = selected || editor ? 0 : listScroll.current;
+  }, [kind, scope, selected, editing, offset, project, query]);
   useEffect(() => {
     setDetailError(null);
     if (!ready || !selected || editor) {
@@ -187,6 +205,27 @@ export default function Notebook({
     }
   }
 
+  function openCloseDialog(todo: Todo) {
+    setClosingTodo(todo);
+    setActionError(null);
+    closeDialog.current?.showModal();
+  }
+
+  async function closeTodo() {
+    if (!closingTodo) return;
+    const note = closeNote.trim();
+    if (
+      await write({
+        type: "todo",
+        action: "update",
+        id: closingTodo.id,
+        status: "closed",
+        ...(note ? { close_note: note } : {}),
+      })
+    )
+      closeDialog.current?.close();
+  }
+
   function openEditor(original?: NotebookItem) {
     setEditors((current) => ({
       ...current,
@@ -243,6 +282,56 @@ export default function Notebook({
     setSelection((current) => ({ ...current, [kind]: undefined }));
     setActionError(null);
   };
+  const todo = kind === "todo";
+  const archived = scope === "archive";
+  const kindLabel = t(todo ? "notebookTodos" : "notebookIdeas");
+  const newLabel = t(todo ? "notebookNewTodo" : "notebookNewIdea");
+  const archiveLabel = t(todo ? "notebookClosed" : "notebookArchive");
+  const currentLabel = t(
+    todo ? "notebookCurrentTodos" : "notebookCurrentIdeas",
+  );
+  const listHeading = archived ? archiveLabel : kindLabel;
+  const KindIcon = todo ? CheckSquare : Lightbulb;
+  const orderLabel = todo
+    ? t(archived ? "notebookClosedOrder" : "notebookDueOrder")
+    : t(archived ? "notebookArchiveOrder" : "notebookWriteOrder");
+  const emptyLabel = todo
+    ? t(archived ? "notebookEmptyClosed" : "notebookEmptyTodos")
+    : t(archived ? "notebookEmptyArchive" : "notebookEmptyIdeas");
+  const kindTabs = (className = "") => (
+    <div
+      className={`source-tabs notebook-kind-tabs ${className}`}
+      role="group"
+      aria-label={t("notebook")}
+    >
+      {(["todo", "idea"] as const).map((value) => (
+        <button
+          key={value}
+          type="button"
+          aria-pressed={kind === value}
+          className={kind === value ? "active" : ""}
+          onClick={() => {
+            if (kind !== value) {
+              listScroll.current = 0;
+              setKind(value);
+              setScope("active");
+              setOffset(0);
+              setSelection({});
+              setActionError(null);
+            } else if (!editor) openList();
+            onNavigate?.();
+          }}
+        >
+          {value === "todo" ? (
+            <CheckSquare size={15} />
+          ) : (
+            <Lightbulb size={15} />
+          )}
+          {t(value === "todo" ? "notebookTodos" : "notebookIdeas")}
+        </button>
+      ))}
+    </div>
+  );
   return (
     <SplitPane
       name="notebook"
@@ -253,27 +342,27 @@ export default function Notebook({
           revealSidebar: !editor,
         },
         {
-          label: t(kind === "todo" ? "notebookTodos" : "notebookIdeas"),
+          label: kindLabel,
           onSelect: editor ? undefined : openList,
           revealSidebar: !editor,
         },
         ...(item && !editor
-          ? [{ label: item.text.trim().split("\n", 1)[0] }]
+          ? [{ label: splitNotebookText(item.text).title }]
           : []),
       ]}
       collapsed={collapsed}
       language={language}
-      className="notebook-browser"
+      className={`notebook-browser notebook-${kind}`}
       sidebar={
         <>
-          <div className="sidebar-heading">
-            <span className="eyebrow">A LITTLE ROOM TO THINK</span>
+          <div className="sidebar-heading notebook-sidebar-heading">
             <h1>
               {t("notebook")}
               <span className="sidebar-heading-actions">
                 <button
                   className="icon-button"
                   aria-label={t("notebookRefresh")}
+                  title={t("notebookRefresh")}
                   disabled={!connected || saving}
                   onClick={() => {
                     setRevision((value) => value + 1);
@@ -285,44 +374,10 @@ export default function Notebook({
                     className={page.loading ? "spinning" : ""}
                   />
                 </button>
-                <button
-                  type="button"
-                  className="icon-button"
-                  aria-label={t("notebookCapture")}
-                  title={t("notebookCapture")}
-                  disabled={disabled || !!editor}
-                  onClick={() => {
-                    openEditor();
-                    onNavigate?.();
-                  }}
-                >
-                  <Plus size={16} aria-hidden />
-                </button>
               </span>
             </h1>
-            <p>{t("notebookCaption")}</p>
           </div>
-          <div className="source-tabs" role="group" aria-label={t("notebook")}>
-            {(["todo", "idea"] as const).map((value) => (
-              <button
-                key={value}
-                aria-pressed={kind === value}
-                className={kind === value ? "active" : ""}
-                onClick={() => {
-                  setKind(value);
-                  setOffset(0);
-                  setActionError(null);
-                }}
-              >
-                {value === "todo" ? (
-                  <CheckSquare size={14} />
-                ) : (
-                  <Lightbulb size={14} />
-                )}
-                {t(value === "todo" ? "notebookTodos" : "notebookIdeas")}
-              </button>
-            ))}
-          </div>
+          {kindTabs()}
           <form
             className="notebook-filters"
             onSubmit={(event) => {
@@ -331,6 +386,9 @@ export default function Notebook({
               setProject(projectDraft.trim());
               setOffset(0);
               setSelection({});
+              listScroll.current = 0;
+              if (scroll.current) scroll.current.scrollTop = 0;
+              onNavigate?.();
             }}
           >
             <label className="knowledge-search">
@@ -347,7 +405,7 @@ export default function Notebook({
               </button>
             </label>
             <label className="notebook-project-filter">
-              <span className="sr-only">{t("notebookProjectFilter")}</span>
+              <span>{t("notebookProject")}</span>
               <input
                 aria-label={t("notebookProjectFilter")}
                 placeholder={t("notebookAllProjects")}
@@ -365,157 +423,12 @@ export default function Notebook({
                     setProject(projectDraft.trim());
                     setOffset(0);
                     setSelection({});
+                    listScroll.current = 0;
                   }
                 }}
               />
             </label>
           </form>
-          <div className="list-section-label notebook-list-heading">
-            <span>
-              {t(scope === "archive" ? "notebookArchive" : "notebookCurrent")}
-            </span>
-            <button
-              className="text-action notebook-scope"
-              aria-pressed={scope === "archive"}
-              disabled={!!editor}
-              onClick={() => {
-                setScope(scope === "active" ? "archive" : "active");
-                setOffset(0);
-                setSelection({});
-                setActionError(null);
-              }}
-            >
-              <Archive size={14} />
-              {t(
-                scope === "active" ? "notebookArchive" : "notebookShowCurrent",
-              )}
-            </button>
-            {page.page && (
-              <span className="count-badge">{page.page.total}</span>
-            )}
-          </div>
-          <div className="notebook-navigator" aria-busy={page.loading}>
-            {page.error != null && (
-              <p className="navigator-error" role="alert">
-                {errorText(page.error, language)}{" "}
-                <button className="text-action" onClick={page.refresh}>
-                  {t("retry")}
-                </button>
-              </p>
-            )}
-            {!connected && (
-              <p className="navigator-empty">{t("waitingService")}</p>
-            )}
-            {connected && page.loading && !page.page && (
-              <div className="tree-skeleton">
-                <i />
-                <i />
-                <i />
-              </div>
-            )}
-            {page.page && !page.page.total && (
-              <p className="navigator-empty">
-                {t(query || project ? "notebookNoMatches" : "notebookEmpty")}
-              </p>
-            )}
-            <ul className="notebook-list">
-              {page.page?.items.map((record) => (
-                <li
-                  key={record.id}
-                  className={`notebook-row ${selected === record.id ? "selected" : ""}`}
-                >
-                  {isTodo(record) ? (
-                    <input
-                      type="checkbox"
-                      aria-label={
-                        record.closed_at
-                          ? `${t("notebookReopen")}：${record.text}`
-                          : t("notebookComplete", { text: record.text })
-                      }
-                      checked={!!record.closed_at}
-                      disabled={disabled || !!editor}
-                      onChange={() =>
-                        void write({
-                          type: "todo",
-                          action: "update",
-                          id: record.id,
-                          status: record.closed_at ? "open" : "done",
-                        })
-                      }
-                    />
-                  ) : (
-                    <Lightbulb size={15} />
-                  )}
-                  <button
-                    className="notebook-row-content"
-                    aria-pressed={selected === record.id}
-                    disabled={!!editor}
-                    onClick={() => {
-                      setSelection((current) => ({
-                        ...current,
-                        [kind]: record.id,
-                      }));
-                      setActionError(null);
-                      onNavigate?.();
-                    }}
-                  >
-                    <span className="notebook-project">
-                      {projectLabel(record.project, language)}
-                    </span>
-                    <span
-                      className="notebook-row-title"
-                      data-cancelled={
-                        isTodo(record) && record.status === "cancelled"
-                      }
-                    >
-                      {record.text}
-                    </span>
-                    {isTodo(record) && record.progress.length > 0 && (
-                      <span className="notebook-row-preview">
-                        {record.progress.at(-1)!.text}
-                      </span>
-                    )}
-                    {isTodo(record) && record.status !== "open" && (
-                      <span className="notebook-row-status">
-                        {t(statuses[record.status])}
-                      </span>
-                    )}
-                    {isTodo(record) && record.due_date && (
-                      <span className="notebook-row-preview">
-                        {t("notebookDue", { date: record.due_date })}
-                      </span>
-                    )}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-          {page.page && page.page.total > page.page.limit && (
-            <nav className="resource-pagination" aria-label={t("navigation")}>
-              <button
-                className="icon-button"
-                aria-label={t("previousPage")}
-                disabled={!offset || !!editor}
-                onClick={() => setOffset(Math.max(0, offset - 20))}
-              >
-                <ChevronLeft size={16} />
-              </button>
-              <span>
-                {t("pageLabel", {
-                  page: Math.floor(offset / 20) + 1,
-                  total: Math.ceil(page.page.total / 20),
-                })}
-              </span>
-              <button
-                className="icon-button"
-                aria-label={t("nextPage")}
-                disabled={offset + 20 >= page.page.total || !!editor}
-                onClick={() => setOffset(offset + 20)}
-              >
-                <ChevronRight size={16} />
-              </button>
-            </nav>
-          )}
         </>
       }
     >
@@ -534,7 +447,7 @@ export default function Notebook({
             </button>
           </div>
         )}
-        <div className="notebook-scroll">
+        <div className="notebook-scroll" ref={scroll}>
           {editor ? (
             <RecordEditor
               kind={kind}
@@ -552,52 +465,253 @@ export default function Notebook({
                 setEditors((current) => ({ ...current, [kind]: undefined }))
               }
             />
-          ) : item ? (
-            <RecordDetail
-              key={`${kind}:${item.id}`}
-              item={item}
-              language={language}
-              busy={disabled}
-              canCreateTodo={!editors.todo}
-              active={ready}
-              revision={revision}
-              draft={progressDrafts[item.id] ?? ""}
-              onDraft={(value) =>
-                setProgressDrafts((current) => ({
-                  ...current,
-                  [item.id]: value,
-                }))
-              }
-              onEdit={() => openEditor(item)}
-              onWrite={write}
-              onOpen={(targetKind, target) => {
-                setKind(targetKind);
-                setScope(target.closed_at ? "archive" : "active");
-                setOffset(0);
-                setQuery("");
-                setQueryDraft("");
-                setProject("");
-                setProjectDraft("");
-                setSelection((current) => ({
-                  ...current,
-                  [targetKind]: target.id,
-                }));
-                setActionError(null);
-              }}
-            />
-          ) : detailLoading && selected ? (
-            <p className="document-loading">{t("documentLoading")}</p>
+          ) : selected ? (
+            <>
+              <div className="notebook-back">
+                <button className="text-action" onClick={openList}>
+                  <ArrowLeft size={15} aria-hidden />
+                  {t("notebookBackToList")}
+                </button>
+              </div>
+              {item ? (
+                <RecordDetail
+                  key={`${kind}:${item.id}`}
+                  item={item}
+                  language={language}
+                  busy={disabled}
+                  canCreateTodo={!editors.todo}
+                  active={ready}
+                  revision={revision}
+                  draft={progressDrafts[item.id] ?? ""}
+                  onDraft={(value) =>
+                    setProgressDrafts((current) => ({
+                      ...current,
+                      [item.id]: value,
+                    }))
+                  }
+                  onEdit={() => openEditor(item)}
+                  onCloseTodo={openCloseDialog}
+                  onWrite={write}
+                  onOpen={(targetKind, target) => {
+                    listScroll.current = 0;
+                    setKind(targetKind);
+                    setScope(target.closed_at ? "archive" : "active");
+                    setOffset(0);
+                    setQuery("");
+                    setQueryDraft("");
+                    setProject("");
+                    setProjectDraft("");
+                    setSelection((current) => ({
+                      ...current,
+                      [targetKind]: target.id,
+                    }));
+                    setActionError(null);
+                  }}
+                />
+              ) : detailLoading ? (
+                <p className="document-loading">{t("documentLoading")}</p>
+              ) : null}
+            </>
           ) : (
-            <div className="knowledge-empty notebook-empty">
-              <Leaf size={40} strokeWidth={1.2} />
-              <h2>{t("notebookSelect")}</h2>
-              <p>{t("notebookSelectHint")}</p>
+            <div className="notebook-overview">
+              {kindTabs("notebook-compact-tabs")}
+              <header className="notebook-masthead">
+                <div className="notebook-masthead-icon" aria-hidden>
+                  {archived ? <Archive size={21} /> : <KindIcon size={22} />}
+                </div>
+                <h1>{listHeading}</h1>
+                <button
+                  className="primary notebook-new"
+                  disabled={disabled}
+                  onClick={() => openEditor()}
+                >
+                  <Plus size={16} aria-hidden />
+                  {newLabel}
+                </button>
+              </header>
+              <div className="notebook-list-toolbar">
+                <div
+                  className="notebook-scope-tabs"
+                  role="group"
+                  aria-label={t("navigation")}
+                >
+                  {(["active", "archive"] as const).map((value) => (
+                    <button
+                      type="button"
+                      key={value}
+                      aria-pressed={scope === value}
+                      onClick={() => {
+                        if (scope === value) return;
+                        listScroll.current = 0;
+                        setScope(value);
+                        setOffset(0);
+                        setActionError(null);
+                      }}
+                    >
+                      {value === "archive" && <Archive size={14} aria-hidden />}
+                      {value === "archive" ? archiveLabel : currentLabel}
+                    </button>
+                  ))}
+                </div>
+                {page.page && (
+                  <span className="notebook-list-summary">
+                    {(todo || archived) && (
+                      <CalendarDays size={14} aria-hidden />
+                    )}
+                    {orderLabel} ·{" "}
+                    {t("notebookResultCount", { count: page.page.total })}
+                  </span>
+                )}
+              </div>
+              <div aria-busy={ready && page.loading}>
+                {page.error != null && (
+                  <p className="navigator-error" role="alert">
+                    {errorText(page.error, language)}{" "}
+                    <button className="text-action" onClick={page.refresh}>
+                      {t("retry")}
+                    </button>
+                  </p>
+                )}
+                {!connected && (
+                  <p className="notebook-list-empty">{t("waitingService")}</p>
+                )}
+                {ready && page.loading && !page.page && (
+                  <div className="tree-skeleton">
+                    <i />
+                    <i />
+                    <i />
+                  </div>
+                )}
+                {page.page && !page.page.total && (
+                  <div className="notebook-list-empty">
+                    <KindIcon size={24} aria-hidden />
+                    <p>
+                      {query || project ? t("notebookNoMatches") : emptyLabel}
+                    </p>
+                  </div>
+                )}
+                {page.page && page.page.items.length > 0 && (
+                  <NotebookList
+                    items={page.page.items}
+                    kind={kind}
+                    archived={archived}
+                    language={language}
+                    disabled={disabled}
+                    onOpen={(record) => {
+                      listScroll.current = scroll.current?.scrollTop ?? 0;
+                      setSelection((current) => ({
+                        ...current,
+                        [kind]: record.id,
+                      }));
+                      setActionError(null);
+                    }}
+                    onToggleTodo={(record) => {
+                      if (record.status !== "closed") {
+                        openCloseDialog(record);
+                        return;
+                      }
+                      void write({
+                        type: "todo",
+                        action: "update",
+                        id: record.id,
+                        status: "pending",
+                      });
+                    }}
+                  />
+                )}
+              </div>
+              {page.page && page.page.total > page.page.limit && (
+                <nav
+                  className="resource-pagination"
+                  aria-label={t("navigation")}
+                >
+                  <button
+                    className="icon-button"
+                    aria-label={t("previousPage")}
+                    disabled={!offset}
+                    onClick={() => {
+                      listScroll.current = 0;
+                      setOffset(Math.max(0, offset - PAGE_SIZE));
+                    }}
+                  >
+                    <ChevronLeft size={16} />
+                  </button>
+                  <span>
+                    {t("pageLabel", {
+                      page: Math.floor(offset / PAGE_SIZE) + 1,
+                      total: Math.ceil(page.page.total / PAGE_SIZE),
+                    })}
+                  </span>
+                  <button
+                    className="icon-button"
+                    aria-label={t("nextPage")}
+                    disabled={offset + PAGE_SIZE >= page.page.total}
+                    onClick={() => {
+                      listScroll.current = 0;
+                      setOffset(offset + PAGE_SIZE);
+                    }}
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+                </nav>
+              )}
             </div>
           )}
         </div>
         <div className="notebook-notice" role="status" aria-live="polite">
           {saving ? t("notebookSaving") : notice}
         </div>
+        <dialog
+          ref={closeDialog}
+          className="workspace-dialog notebook-close-dialog"
+          aria-labelledby={closeTitleId}
+          onClose={() => {
+            setClosingTodo(undefined);
+            setCloseNote("");
+          }}
+          onCancel={(event) => {
+            if (saving) event.preventDefault();
+          }}
+        >
+          <h2 id={closeTitleId}>{t("notebookCloseTodo")}</h2>
+          <p>{closingTodo?.text}</p>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void closeTodo();
+            }}
+          >
+            <label>
+              <span>{t("notebookCloseNoteOptional")}</span>
+              <textarea
+                autoFocus
+                rows={3}
+                maxLength={100000}
+                value={closeNote}
+                disabled={saving}
+                onChange={(event) => setCloseNote(event.target.value)}
+              />
+            </label>
+            {actionError != null && (
+              <p className="action-error" role="alert">
+                {errorText(actionError, language)}
+              </p>
+            )}
+            <footer>
+              <button
+                type="button"
+                className="secondary"
+                disabled={saving}
+                onClick={() => closeDialog.current?.close()}
+              >
+                {t("notebookCancel")}
+              </button>
+              <button className="primary" disabled={disabled || !closingTodo}>
+                {t(saving ? "notebookSaving" : "notebookCloseTodo")}
+              </button>
+            </footer>
+          </form>
+        </dialog>
       </section>
     </SplitPane>
   );

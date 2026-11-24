@@ -19,7 +19,7 @@ from ....core.registry import R
 from ....enumeration import ChunkEnum
 from ....schema import TokenUsage, collect_reply
 from ....schema.proactive_runtime import AgentReminder
-from ....schema.proactive_agent import CRON_EVENT_SOURCE, ProactiveRecordDecision
+from ....schema.proactive_agent import ProactiveRecordDecision
 from ....utils.async_utils import complete_in_thread
 from ....utils.counter import global_counter_add_many
 from ....utils.documents.markdown_parser import markdown_link_targets
@@ -63,7 +63,7 @@ class ProactiveAgentStep(BaseAgentStep):
             record = manager.files.checked(day / f"{stem}_{collision}.md")
         return {"daily_dir": daily, "task_path": manager.registry.task_path(agent), "record_path": record}
 
-    def session_options(self, agent, _events):
+    def session_options(self, agent):
         """Build tool bindings and permissions for an automatic run."""
         options = {
             "config": {"skills.include_instructions": False},
@@ -174,8 +174,17 @@ class ProactiveAgentStep(BaseAgentStep):
                 reason = str(exc)
             self.logger.warning(f"Proactive local link source={path} target={target!r}: {reason}")
 
-    def _read_record(self, path: Path, reply_text: str | None, *, is_cron: bool) -> AgentReminder | None:
+    def _read_record(
+        self,
+        record: RoundRecord,
+        reply_text: str | None,
+        *,
+        is_cron: bool,
+        original_body: str | None,
+    ) -> AgentReminder | None:
         """Validate the round record or an explicit event skip."""
+        path = record.path
+        record.check_version(path)
         files = self.proactive_manager.files
         try:
             text = files.read(path)
@@ -184,7 +193,9 @@ class ProactiveAgentStep(BaseAgentStep):
                 return None
             raise
         metadata, body = split_record(text)
-        decision = ProactiveRecordDecision.model_validate(metadata)
+        if original_body is not None and body != original_body:
+            raise RuntimeError(f"Markdown body changed during repair: {path}")
+        decision = ProactiveRecordDecision.parse(metadata)
         self._warn_local_links(path, body)
         reminder = decision.reminder(path.relative_to(files.workspace).as_posix())
         if reminder is not None:
@@ -229,23 +240,10 @@ class ProactiveAgentStep(BaseAgentStep):
                 )
         return self.context.response
 
-    def _validate_output(self, record, reply, *, is_cron, repairing):
-        """Validate the saved record or replace its invalid frontmatter."""
-        if repairing:
-            decision = ProactiveRecordDecision.model_validate(reply["structured_output"])
-            record.replace_frontmatter(decision.model_dump())
-        else:
-            record.check_version(record.path)
-        return self._read_record(
-            record.path,
-            reply["result"] if reply is not None and not repairing else None,
-            is_cron=is_cron,
-        )
-
     async def _execute(self, agent, events, *, record):
         """Run the workflow and allow one follow-up to repair the saved record."""
-        is_cron = events[0]["source"] == CRON_EVENT_SOURCE
-        agent_type = "cron" if is_cron else "proactive"
+        is_cron = agent.cron is not None
+        agent_type = "time" if is_cron else "event"
         stats = {
             "agent_type": agent_type,
             "session_id": None,
@@ -269,8 +267,7 @@ class ProactiveAgentStep(BaseAgentStep):
         task_content = await asyncio.to_thread(manager.files.read, paths["task_path"])
         if not task_content.strip():
             raise ValueError("TASK.md must not be blank")
-        options = self.session_options(agent, events)
-        writes_record = "output_schema" not in options
+        options = self.session_options(agent)
         query = await asyncio.to_thread(
             self._query,
             events,
@@ -333,13 +330,17 @@ class ProactiveAgentStep(BaseAgentStep):
             publish(chunk)
 
         deadline = asyncio.get_running_loop().time() + self.timeout_seconds
+        original_body = None
         try:
             for attempt in range(2):
                 turn_ids[attempt] = None
                 reply = model_error = None
                 try:
                     async with asyncio.timeout_at(deadline):
-                        if attempt == 0:
+                        if attempt:
+                            async with await get_path_lock(record.path):
+                                original_body = await complete_in_thread(record.read_body_for_repair)
+                        else:
                             session_id = await manager.sessions.ensure(
                                 agent.agent_name,
                                 manager.agent_wrapper,
@@ -356,24 +357,23 @@ class ProactiveAgentStep(BaseAgentStep):
                                     on_chunk=partial(observe, attempt=attempt, publish=publish),
                                 )
                             finally:
-                                if attempt == 0 and writes_record:
-                                    async with await get_path_lock(record.path):
-                                        await complete_in_thread(record.capture)
+                                async with await get_path_lock(record.path):
+                                    await complete_in_thread(record.capture)
                         if reply["status"] != "completed":
                             raise RuntimeError(reply.get("error") or f"Proactive agent {reply['status']}")
                 except Exception as exc:
-                    model_error = exc
                     stats["model_status"] = "timeout" if isinstance(exc, TimeoutError) else "failed"
-                if attempt and model_error is not None:
-                    raise model_error
+                    if attempt:
+                        raise
+                    model_error = exc
                 try:
                     async with await get_path_lock(record.path):
                         reminder = await complete_in_thread(
-                            self._validate_output,
+                            self._read_record,
                             record,
-                            reply if model_error is None else None,
+                            reply["result"] if not attempt and model_error is None else None,
                             is_cron=is_cron,
-                            repairing=bool(attempt),
+                            original_body=original_body,
                         )
                 except Exception as validation_error:
                     if model_error is not None:
@@ -385,12 +385,8 @@ class ProactiveAgentStep(BaseAgentStep):
                         "repair_record_query",
                         record_path=record_path,
                         error=str(validation_error)[:2000],
+                        yaml_check=self.prompt_format("record_yaml_check", record_path=shlex.quote(record_path)),
                     )
-                    options = {
-                        **options,
-                        "sandbox": "read-only",
-                        "output_schema": options.get("output_schema") or ProactiveRecordDecision.model_json_schema(),
-                    }
                     self.logger.info(f"{label} result=repairing_record path={record.path}")
                 else:
                     break

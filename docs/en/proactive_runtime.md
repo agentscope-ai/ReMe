@@ -11,7 +11,7 @@ The [full illustrated guide is available in Chinese](../zh/proactive_runtime.md)
 
 ## How a task keeps running
 
-Start ReMe with `reme start config=proactive`. Collectors send observations to event-driven tasks through `append_task_events(task_names, events)`. A task with `cron` receives scheduled triggers from the runtime. Use an event-driven task to check new experiment logs and a separate scheduled task to summarize progress every day at 18:00.
+Start ReMe with `reme start config=proactive`. Collectors send observations to event-triggered tasks through `append_task_events(task_names, events)`. Time-triggered tasks run on a `cron` schedule. Use an event-triggered task to check new experiment logs and a separate time-triggered task to summarize progress every day at 18:00.
 
 Each run opens a fresh native session and reads `TASK.md`. Consecutive observations can be processed together. Each scheduled trigger gets its own run in queue order. The prompt shows both the planned time of a scheduled trigger in **Events for this run** and the actual start time in **Background**. A trigger planned for 08:00 and processed at 08:07 shows both times.
 
@@ -24,14 +24,17 @@ The agent writes to `daily/YYYY-MM-DD/{agent_name}_HHMMSS.md` by default. A nume
 The Markdown body contains new information and its sources. It may be empty. Local links are relative to the record's directory. The agent writes two frontmatter fields:
 
 - `reminder_priority` is `P0` for a due reminder or a decision that needs immediate attention, `P1` for important progress, `P2` for a useful discovery, or `skip`.
-- `reminder_message` contains the reminder, the requested result, or a brief reason for skipping delivery.
+- `reminder_message` contains the reminder or requested result. With `skip`, it can be empty or give a brief reason.
+
+The reader accepts leading blank lines and uses only these two fields for delivery. The proactive Notebook writes
+the same Markdown format and loads the `manage-todos-ideas` skill with the `todo` and `idea` tools.
 
 The task can specify its own delivery conditions and priority. The agent checks historical records for repeated information and reminders.
 
 ### Commit and delivery
 
-After a completed turn, ReMe can correct invalid frontmatter with one read-only follow-up in the same session.
-ReMe applies the validated correction only if the record version still matches and preserves the Markdown body.
+If the YAML frontmatter fails validation after a completed turn, the agent gets one follow-up in the same session to
+fix it directly in the record and keep the existing body. ReMe validates the saved file before committing the run.
 
 ReMe holds the file lock while checking the record, acknowledging its inputs, and registering any reminder in the
 task outbox. A valid record can complete after a model error or timeout. If acknowledgement fails before the receipt
@@ -43,13 +46,13 @@ Chat message IDs. Remy's inbox reads the same registrations and loads the remind
 Remy selects reminders by priority and delivery time within the configured limits and notification window. A Chat decision
 rechecks the current reminder under the file write lock so an edit can invalidate a stale decision.
 
-Earlier native sessions remain available as history. Task questions use a temporary read-only fork of the latest task session, including while a run is in progress. The built-in Codex configuration sets `project_doc_max_bytes=0` and disables automatic skill injection for task runs. Global instructions under `CODEX_HOME` load independently.
+Earlier native sessions remain available as history. Task questions use a temporary read-only fork of the latest task session, including while a run is in progress. The built-in Codex configuration sets `project_doc_max_bytes=0` and disables automatic skill injection by default. Global instructions under `CODEX_HOME` load independently.
 
 ## Remy and reminders {#chat-and-reminders}
 
 Remy brings background tasks and reminders into the main Chat conversation. Users manage tasks through Chat and can change their requirements, inspect progress, pause execution, or end a task.
 
-Each Agent has one stable `agent_name`. Background tasks use an optional `cron` schedule, which also determines their display type. `Remy` is reserved for the main Chat Agent. Creation writes `task_description` verbatim when `TASK.md` is absent. Use `task_document action=read/save` to edit requirements and pass the `mtime` returned by read as `expected_mtime` when saving. Use `manage_proactive_agent action=update` to change execution settings.
+Each Agent has one stable `agent_name`. The trigger type of a background task is fixed at creation. `Remy` is reserved for the main Chat Agent. Creation writes `task_description` verbatim when `TASK.md` is absent. Use `task_document action=read/save` to edit requirements and pass the `mtime` returned by read as `expected_mtime` when saving. Use `manage_proactive_agent action=update` to change execution settings.
 
 Committed reminders reach the Chat Inbox. Priority, Chat idle time, and the task's notification window determine when reminders become eligible for processing. A temporary read-only fork receives the selected inbox entries in its prompt. It uses the current conversation to decide which entries warrant reading the source record, and leaves links inside the record unopened. It skips known, duplicate, handled or outdated information without assigning a new priority or adding action requirements. Explicit requests for reminders at a specified time or condition still apply. A silent Chat decision marks the reminder as processed in its source record.
 
@@ -69,8 +72,8 @@ See [Services and Deployment](./services.md#proactive-runtime) for configuration
 
 ## Task storage
 
-Set `cron` to receive scheduled triggers, or `cron=null` to receive external observations. Agent views derive the display field `agent_type` from the configured trigger.
-Queued inputs keep their original trigger type after a schedule change. The runtime processes each scheduled trigger in its own round and batches consecutive observations separately.
+When creating a task, set `cron` for time-triggered execution or leave it unset or `null` for event-triggered execution. Agent views report the types as `agent_type=time` and `agent_type=event`.
+Time-triggered tasks can change their schedules. Events already in the queue keep their original planned time. The runtime processes each time trigger in its own round and can batch consecutive observations.
 The observation cooldown starts after the last successful run. A scheduled trigger at the front of the queue can run during that cooldown. A trigger behind waiting observations keeps its place in the queue.
 
 Each task owns a directory under `reme_agent_dir`. Deleting a task stops its execution and preserves its files. Temporary query sessions are recorded as independent branches.

@@ -70,7 +70,7 @@ async def test_all_actions_expose_only_their_results_and_keep_task_files(tmp_pat
         }
         created = (await tool(**arguments)).answer
         assert created == (await runtime.read_agent("tech_news"))["agent"]
-        assert created["agent_type"] == "cron" and created["cron"] == "0 8 * * *"
+        assert created["agent_type"] == "time" and created["cron"] == "0 8 * * *"
         assert created["next_trigger_at"] == "2026-11-17T08:00:00+08:00"
         task_file = tmp_path / created["task_path"]
         assert task_file.read_text() == arguments["task_description"]
@@ -99,35 +99,38 @@ async def test_all_actions_expose_only_their_results_and_keep_task_files(tmp_pat
 
 
 @pytest.mark.asyncio
-async def test_schedule_and_observation_interval_can_be_updated_independently(tmp_path):
+@pytest.mark.parametrize("cron, other_cron, agent_type", [(None, "0 * * * *", "event"), ("0 * * * *", None, "time")])
+async def test_trigger_type_is_fixed_after_creation_and_on_restore(tmp_path, cron, other_cron, agent_type):
     async with running_manager(tmp_path) as (runtime, context, _):
         tool = ManageProactiveAgentStep(app_context=context)
-        await tool(
-            action="create",
-            agent_name="experiment_watch",
-            task_description="跟进实验",
-            min_trigger_interval_seconds=30,
-        )
-        scheduled = (await tool(action="update", agent_name="experiment_watch", cron="0 * * * *")).answer
-        assert scheduled["agent_type"] == "cron"
-        assert scheduled["min_trigger_interval_seconds"] == 30
-        changed = (
-            await tool(
-                action="update",
-                agent_name="experiment_watch",
-                cron="0 8 * * *",
-                min_trigger_interval_seconds=60,
-            )
-        ).answer
-        assert changed["cron"] == "0 8 * * *" and changed["min_trigger_interval_seconds"] == 60
-        cleared = (await tool(action="update", agent_name="experiment_watch", cron=None)).answer
-        assert cleared["agent_type"] == "proactive" and cleared["cron"] is None
-        assert cleared["min_trigger_interval_seconds"] == 60
-        await tool(action="update", agent_name="experiment_watch", notify_window={"start": "09:00", "end": "18:00"})
-        assert (await runtime.definition("experiment_watch")).notify_window.start == "09:00"
-        cleared = (await tool(action="update", agent_name="experiment_watch", notify_window=None)).answer
+        name = "experiment_watch"
+        task = {"agent_name": name, "task_description": "跟进实验", "cron": cron}
+        created = (await tool(action="create", **task)).answer
+        assert created["agent_type"] == agent_type
+        path = runtime.registry.path(name) / "config.json"
+        before = path.read_bytes()
+        with pytest.raises(ValueError, match="trigger type cannot change"):
+            await tool(action="update", agent_name=name, cron=other_cron, enabled=False)
+        assert path.read_bytes() == before
+
+        changes = {"min_trigger_interval_seconds": 60}
+        if cron is not None:
+            changes["cron"] = "0 8 * * *"
+        updated = (await tool(action="update", agent_name=name, **changes)).answer
+        assert updated["agent_type"] == agent_type and updated["cron"] == changes.get("cron")
+        assert updated["min_trigger_interval_seconds"] == 60
+        await tool(action="update", agent_name=name, notify_window={"start": "09:00", "end": "18:00"})
+        assert (await runtime.definition(name)).notify_window.start == "09:00"
+        cleared = (await tool(action="update", agent_name=name, notify_window=None)).answer
         assert cleared["notify_window"] is None
-        assert (await runtime.definition("experiment_watch")).notify_window is None
+
+        await tool(action="delete", agent_name=name)
+        deleted = path.read_bytes()
+        with pytest.raises(ValueError, match="trigger type cannot change"):
+            await tool(action="create", **{**task, "cron": other_cron})
+        assert path.read_bytes() == deleted
+        restored = (await tool(action="create", **task)).answer
+        assert restored["agent_type"] == agent_type and restored["cron"] == cron
 
 
 @pytest.mark.asyncio

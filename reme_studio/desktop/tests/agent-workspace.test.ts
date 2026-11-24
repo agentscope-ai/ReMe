@@ -58,6 +58,12 @@ test("main Chat and task workspaces expose their scoped pages and current conver
           agents: [
             makeAgent("Remy"),
             { ...makeAgent("finance"), status: "error", error: "Agent error" },
+            {
+              ...makeAgent("tech_news"),
+              agent_type: "time",
+              cron: "0 8 * * *",
+            },
+            makeAgent("work"),
           ],
           sessionId: "session",
         },
@@ -77,27 +83,56 @@ test("main Chat and task workspaces expose their scoped pages and current conver
       sidebarStart,
       html.indexOf("</nav>", sidebarStart),
     );
-    assert.match(sidebar, /class="agent-sections"/);
-    assert.match(sidebar, />收件箱<\/button>/);
     if (agentName === "Remy") {
+      assert.match(sidebar, /class="agent-sections"/);
+      assert.match(sidebar, />收件箱<\/button>/);
       assert.match(sidebar, /aria-current="page"[^>]*>.*>对话<\/button>/);
       assert.match(sidebar, />提醒<\/button>/);
       assert.match(sidebar, />MEMORY\.md<\/button>/);
+      assert.deepEqual(
+        [
+          ...sidebar.matchAll(
+            /aria-label="([^"]+)操作" aria-haspopup="menu" aria-expanded="false"/g,
+          ),
+        ].map(([, name]) => name),
+        ["对话", "提醒", "MEMORY.md", "收件箱"],
+      );
       assert.doesNotMatch(sidebar, /finance|管理任务|TASK\.md|发件箱/);
       assert.match(html, /<dialog[^>]*>.*清空当前对话的上下文？.*<\/dialog>/);
-      assert.match(sidebar, /class="agent-status"/);
-    } else {
-      assert.match(sidebar, />管理任务<\/button>/);
-      assert.match(sidebar, />TASK\.md<\/button>/);
-      assert.match(sidebar, />发件箱<\/button>/);
-      assert.doesNotMatch(
-        sidebar,
-        /你的个人助手|>提醒<\/button>|>MEMORY\.md<\/button>/,
-      );
-      assert.doesNotMatch(html, /清空当前对话的上下文/);
       assert.match(
         sidebar,
-        /data-tone="error"[^>]*aria-label="异常"[^>]*title="Agent error"/,
+        /class="agent-status"[^>]*data-badge="true"[^>]*>空闲<\/span>/,
+      );
+    } else {
+      assert.match(sidebar, /<ul class="agent-list">/);
+      assert.deepEqual(
+        [
+          ...sidebar.matchAll(
+            /class="agent-trigger"[^>]*>([^<]+)<\/span><span class="agent-name">([^<]+)</g,
+          ),
+        ].map(([, label, name]) => [label, name]),
+        [
+          ["Event", "finance"],
+          ["Time", "tech_news"],
+          ["Event", "work"],
+        ],
+      );
+      assert.equal([...sidebar.matchAll(/aria-label="新建任务"/g)].length, 1);
+      assert.match(sidebar, /aria-current="true" title="finance"/);
+      assert.match(sidebar, /aria-label="管理 tech_news" aria-haspopup="menu"/);
+      assert.doesNotMatch(
+        sidebar,
+        /agent-sections|>管理任务<\/button>|>TASK\.md<\/button>|>收件箱<\/button>|>发件箱<\/button>/,
+      );
+      assert.doesNotMatch(html, /清空当前对话的上下文/);
+      const descriptionId = sidebar.match(
+        /data-tone="error"[^>]*aria-label="异常"[^>]*aria-describedby="([^"]+)"/,
+      )?.[1];
+      assert.ok(descriptionId);
+      assert.ok(
+        sidebar.includes(
+          `id="${descriptionId}" class="agent-status-detail" popover="hint" role="tooltip">Agent error</span>`,
+        ),
       );
     }
   }

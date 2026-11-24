@@ -30,7 +30,7 @@ def validate_agent_name(value: str) -> str:
 
 
 AgentName = Annotated[str, Field(min_length=1, max_length=80, pattern=r"^[\w-]+$"), AfterValidator(validate_agent_name)]
-AgentType = Literal["chat", "proactive", "cron"]
+AgentType = Literal["chat", "event", "time"]
 ChatMessageId = Annotated[str, Field(pattern=r"^[a-zA-Z0-9_-]{1,128}$")]
 InboxPriority = Literal["P0", "P1", "P2"]
 

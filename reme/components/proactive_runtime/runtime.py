@@ -101,11 +101,11 @@ class ProactiveRuntime:
                 await self.mount(agent)
                 if self.retry_items:
                     self.recover_receipt((await manager.inbox.snapshot(agent_name))["receipt"])
+                is_cron = agent.cron is not None
                 batch = await manager.inbox.claim(
                     agent_name,
-                    limit=agent.max_batch_events,
+                    limit=1 if is_cron else agent.max_batch_events,
                     item_ids=self.retry_items,
-                    batch_key=lambda item: item["id"] if item["source"] == CRON_EVENT_SOURCE else None,
                 )
                 if batch is None:
                     return {"agent_name": agent_name, "processed": 0}
@@ -123,6 +123,8 @@ class ProactiveRuntime:
                     started_at=self.started_at,
                     phase="working",
                 )
+                if any((item["source"] == CRON_EVENT_SOURCE) != is_cron for item in batch["items"]):
+                    raise ValueError(f"Inbox inputs do not match the trigger type for {agent_name}")
                 reminder, session_id = await execute(agent, batch["items"])
                 manager.activities[agent_name] = manager.activities[agent_name].model_copy(
                     update={"session_id": session_id},
@@ -223,14 +225,12 @@ class ProactiveRuntime:
             return
         receipt = snapshot["receipt"]
         if (
-            receipt is not None
+            definition.cron is None
+            and receipt is not None
             and definition.min_trigger_interval_seconds
             and (manager.now() - receipt.consume_ts).total_seconds() < definition.min_trigger_interval_seconds
         ):
-            self.recover_receipt(receipt)
-            item = await manager.inbox.peek(self.agent_name, item_ids=self.retry_items)
-            if item is None or item["source"] != CRON_EVENT_SOURCE:
-                return
+            return
         self.worker = asyncio.create_task(self._work(run_job), name=f"agent:{self.agent_name}")
 
     async def _work(self, run_job):

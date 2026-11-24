@@ -33,7 +33,6 @@ export interface AnimationIntent {
 export interface Behavior {
   animation: AnimationIntent;
   label: string;
-  error: string;
 }
 
 export type PlaybackStatus = "started" | "ended" | "failed";
@@ -151,6 +150,7 @@ export interface StudioState {
   sessionId: string | null;
   status: SessionStatus | null;
   messages: DisplayMessage[];
+  taskRunStatus?: StatusNotice;
   reminders: DisplayMessage[];
   pending: PendingTurn | null;
   surface: CompanionSurface | null;

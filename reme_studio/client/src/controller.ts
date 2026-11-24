@@ -2,7 +2,7 @@ import { errorText, languages, translate, UiError } from "./i18n.ts";
 import { BubbleQueue } from "./bubbles.ts";
 import type { Reminder } from "./bubbles.ts";
 import { PresentationController } from "./presentation.ts";
-import { displayMessages } from "./messages.ts";
+import { activityNotice, displayMessages } from "./messages.ts";
 import { surfaceKey, replyText } from "./surface.ts";
 import { NotificationPolicy } from "./notifications.ts";
 import { emptySpeech, SpeechController } from "./speech-controller.ts";
@@ -168,7 +168,6 @@ export class ClientController {
       behavior: behavior?.value ?? {
         animation: { id: 0, clip: "idle", mode: "hold" },
         label: "",
-        error: "",
       },
       speech: emptySpeech(),
     };
@@ -720,7 +719,15 @@ export class ClientController {
     }
     const selected = this.state.selectedAgentName ?? "Remy";
     const child = this.children.get(selected);
+    this.state.taskRunStatus = undefined;
     if (selected !== "Remy" && child) {
+      const activity = child.model.activities[selected];
+      const taskRun = activity?.source === "task";
+      if (taskRun && child.connected && activity.phase !== "completed")
+        this.state.taskRunStatus = activityNotice(
+          activity,
+          this.state.settings.language,
+        );
       this.state.sessionId = child.model.sessionId;
       this.state.status = child.connected ? child.model.status : "error";
       this.state.pending = child.pending;
@@ -732,7 +739,7 @@ export class ClientController {
           reply: child.reply,
           task: true,
         },
-        child.pending ? undefined : child.model.activities[selected],
+        child.pending || taskRun ? undefined : activity,
         this.state.settings.language,
       );
       if (child.error)

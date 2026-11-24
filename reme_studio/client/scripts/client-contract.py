@@ -64,6 +64,7 @@ def render():
         for name, model, field in (
             ("sessionStatus", "AgentView", "status"),
             ("activityPhase", "ClientActivity", "phase"),
+            ("activitySource", "ClientActivity", "source"),
             ("itemStatus", "TextItem", "status"),
             ("messageRole", "AgentMessage", "role"),
             ("messageSource", "AgentMessage", "source"),

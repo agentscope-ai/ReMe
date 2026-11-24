@@ -9,6 +9,7 @@ from pydantic import (
     ConfigDict,
     Field,
     StrictBool,
+    ValidationInfo,
     field_validator,
     model_validator,
 )
@@ -117,6 +118,13 @@ class ProactiveRuntimeConfig(ProactiveRuntimeSettings):
             raise ValueError(f"{CHAT_AGENT_NAME} is a reserved agent name")
         return value
 
+    @model_validator(mode="after")
+    def validate_notebook_trigger(self):
+        """Run the Notebook step only on observed events."""
+        if self.step_backend == "proactive_notebook_step" and self.cron is not None:
+            raise ValueError("Notebook runs only on events and cannot have a cron schedule")
+        return self
+
 
 class CreateProactiveRuntimeConfig(ProactiveRuntimeConfig):
     """Accept initial task text only when creating an Agent."""
@@ -149,11 +157,18 @@ class ProactiveRecordDecision(BaseModel):
     reminder_priority: Literal[InboxPriority, "skip"]
     reminder_message: str = Field(max_length=100000)
 
-    @field_validator("reminder_message")
     @classmethod
-    def nonblank_reminder_message(cls, value):
-        """Require the inbox message or the reason for skipping delivery."""
-        if not value.strip():
+    def parse(cls, value):
+        """Read only the fields used by the round, including after structured generation."""
+        return cls.model_validate(value, extra="ignore")
+
+    @field_validator("reminder_message", mode="before")
+    @classmethod
+    def validate_reminder_text(cls, value, info: ValidationInfo):
+        """Accept an empty YAML value for a skipped reminder."""
+        if info.data.get("reminder_priority") == "skip":
+            return "" if value is None else value
+        if isinstance(value, str) and not value.strip():
             raise ValueError("reminder_message must not be blank")
         return value
 

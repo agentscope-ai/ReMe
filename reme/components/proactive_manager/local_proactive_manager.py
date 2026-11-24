@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 from watchfiles import awatch
 
 from ...constants import CHAT_AGENT_NAME
-from .base_proactive_manager import BaseProactiveManager, ScheduledTaskDeliveryError
+from .base_proactive_manager import BaseProactiveManager, TimeTriggeredTaskDeliveryError
 from ...utils.files.workspace_files import WorkspaceFiles
 from ._internal.notifications import ChatNotifications
 from ._internal.outbox import ReminderOutbox
@@ -210,7 +210,7 @@ class LocalProactiveManager(BaseProactiveManager):
             return {"agent_name": agent.agent_name, "deleted": True, "files_retained": True}
 
     async def append_events(self, agent_name: str, events: list[Event]) -> dict:
-        """Accept external observations for an event-driven task."""
+        """Accept external observations for an event-triggered task."""
         if any(event.source == CRON_EVENT_SOURCE for event in events):
             raise ValueError("cron is a reserved framework source")
         async with self.management_lock:
@@ -218,7 +218,7 @@ class LocalProactiveManager(BaseProactiveManager):
                 raise RuntimeError("Proactive Manager is closed")
             agent = await self.definition(agent_name)
             if agent.cron is not None:
-                raise ScheduledTaskDeliveryError(f"Scheduled task cannot receive observations: {agent_name}")
+                raise TimeTriggeredTaskDeliveryError(f"Time-triggered task cannot receive observations: {agent_name}")
             runtime = self._runtime(agent)
             await runtime.mount(agent)
             identifiers = await runtime.append(events)

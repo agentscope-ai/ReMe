@@ -113,18 +113,18 @@ async def create_agent(runtime):
 @pytest.mark.asyncio
 async def test_prompt_uses_the_event_id_and_paths_selected_by_the_sender(tmp_path):
     async with running_manager(tmp_path) as (runtime, context, _):
-        attachments = ["finance_news/metadata.json", "finance_news/news.jsonl", "finance_news/news.md"]
+        attachments = ["resource/gold_quotes/metadata.json", "resource/gold_quotes/gold.jsonl"]
         event = Event(
-            id="news-1",
+            id="quote-1",
             event_ts=runtime.now(),
-            source="finance_news",
+            source="gold_quotes",
             description="External observations",
             paths=attachments,
         ).model_dump(mode="json")
         step = ProactiveAgentStep(app_context=context)
         paths = {"daily_dir": tmp_path / "daily", "record_path": tmp_path / "daily/record.md"}
         query = step._query([event], paths, runtime.now(), "Monitor events", is_cron=False)
-        assert "`news-1`" in query
+        assert "`quote-1`" in query
         assert all(f"- {path}" in query for path in attachments)
         assert event["paths"] == attachments
 
@@ -220,9 +220,19 @@ def test_builtin_agent_configurations_resolve_steps_and_keep_internal_jobs_priva
     if backend == "claude_code":
         assert json.loads(wrapper["settings"])["permissions"]["blockWritesOutsideWorkingDirectories"] is True
     jobs = config["jobs"]
-    for job_name, job in jobs.items():
-        if job_name in {"finance_news_cron", "stock_quotes_cron", "btc_quotes_cron"}:
-            continue
+    finance_jobs = {
+        job_name
+        for job_name, job in jobs.items()
+        if any("finance" in step.get("task_names", []) for step in job.get("steps", []))
+    }
+    assert finance_jobs == {
+        "finance_news_cron",
+        "gold_quotes_cron",
+        "oil_quotes_cron",
+        "nasdaq_quotes_cron",
+        "btc_quotes_cron",
+    }
+    for job in jobs.values():
         for step in job.get("steps", []):
             assert R.get(ComponentEnum.STEP, step["backend"]) is not None
     for job_name in ("run_proactive_agent", "process_chat_reminders", "submit_chat_reminder"):
@@ -254,15 +264,6 @@ def test_builtin_agent_configurations_resolve_steps_and_keep_internal_jobs_priva
     assert properties.keys() == ManageProactiveAgentRequest.model_json_schema()["properties"].keys()
 
 
-@pytest.mark.parametrize("agent_type", ["cron", "proactive"])
-def test_agent_configuration_rejects_legacy_type(agent_type):
-    values = {"name": "monitor", "description": "Monitor", "type": agent_type}
-    if agent_type == "cron":
-        values["cron"] = "0 * * * *"
-    with pytest.raises(ValueError, match="Extra inputs"):
-        ProactiveRuntimeConfig(**values)
-
-
 @pytest.mark.asyncio
 async def test_automatic_agent_uses_wrapper_sandbox_and_denies_approvals(tmp_path):
     config = resolve_app_config(config="proactive", log_config=False)
@@ -273,7 +274,7 @@ async def test_automatic_agent_uses_wrapper_sandbox_and_denies_approvals(tmp_pat
         agent = await runtime.definition("monitor")
         step_config = config["jobs"]["run_proactive_agent"]["steps"][0]
         step = ProactiveAgentStep(app_context=context, **step_config)
-        options = step.session_options(agent, [])
+        options = step.session_options(agent)
         assert "sandbox" not in options
         assert options["approval_mode"] == "deny_all"
 
@@ -321,17 +322,16 @@ async def test_chat_tools_are_selected_only_from_step_configuration(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_trigger_updates_create_fresh_sessions(tmp_path):
+@pytest.mark.parametrize("cron, agent_type", [(None, "event"), ("0 8 * * *", "time")])
+async def test_task_runs_create_fresh_sessions_after_settings_update(tmp_path, cron, agent_type):
     async with running_manager(tmp_path) as (runtime, context, wrapper):
-        await create_agent(runtime)
+        await runtime.create({"agent_name": "monitor", "task_description": "Observe", "cron": cron})
         tool = ManageProactiveAgentStep(app_context=context)
         previous = None
-        for agent_type in ("proactive", "cron", "proactive"):
-            await tool(
-                action="update",
-                agent_name="monitor",
-                cron="0 * * * *" if agent_type == "cron" else None,
-            )
+        changes = {"cron": "0 9 * * *"} if cron is not None else {"min_trigger_interval_seconds": 30}
+        for settings in ({}, changes):
+            if settings:
+                await tool(action="update", agent_name="monitor", **settings)
             agent = await runtime.definition("monitor")
             assert (await runtime.view_agent("monitor"))["agent_type"] == agent_type
             step = ProactiveAgentStep(app_context=context)
@@ -339,7 +339,7 @@ async def test_trigger_updates_create_fresh_sessions(tmp_path):
             current = await runtime.sessions.ensure(
                 "monitor",
                 wrapper,
-                step.session_options(agent, []),
+                step.session_options(agent),
                 now,
                 new=True,
             )
@@ -348,7 +348,7 @@ async def test_trigger_updates_create_fresh_sessions(tmp_path):
             assert not {"resume", "fork_session"} & wrapper.created[-1].keys()
             previous = current
         saved = json.loads((runtime.registry.path("monitor") / "config.json").read_text())
-        assert "agent_type" not in saved and saved["cron"] is None
+        assert "agent_type" not in saved and saved["cron"] == changes.get("cron")
 
 
 @pytest.mark.asyncio

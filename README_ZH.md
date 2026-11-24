@@ -32,7 +32,7 @@
 🧠 ReMe 将对话和资料持续沉淀为可读、可编辑、可检索、相互链接的 Markdown 记忆。QwenPaw、DeepSeek Harness 等 Agent
 可以共享同一个 workspace，共同检索、维护和演化知识，而持久文件始终由用户掌控。
 
-**主动智能运行时（Proactive Runtime）** 把这些长期记忆用于持续任务。它接收外部事件或定时触发，交给 Codex 等 Agent Runtime 执行，并在工作区记录结果和提醒。
+**主动智能运行时（Proactive Runtime）** 把这些长期记忆用于持续任务。它支持事件触发和时间触发，交给 Codex 等 Agent Runtime 执行，并在工作区记录结果和提醒。
 
 - **Memory as File, File as Memory**：ReMe 使用带 frontmatter 和 wikilink 的普通 Markdown 保存持久记忆。用户和 Agent
   都可以使用熟悉的工具查看、编辑、移动、同步和备份；索引及生成的元数据均可重建。
@@ -52,7 +52,7 @@
 <!-- 最新动态最多展开 5 条；新增条目时，将超出的旧条目移入下方“更多更新”折叠区。 -->
 
 - [ROADMAP] - **[ReMe5 前瞻 · Proactive Runtime](docs/zh/reme5_preview.md)**。ReMe 将以文件化记忆为核心，
-  支持事件驱动和定时 Agent。你可以把需要持续跟进的事交给 ReMe，有新进展时它会记下来，并在需要时提醒你。
+  支持事件触发和时间触发的后台任务。你可以把需要持续跟进的事交给 ReMe，有新进展时它会记下来，并在需要时提醒你。
   我们计划在 **2026 年底前**发布 ReMe5，欢迎先看我们的设计方案、开发计划和里程碑。
 - [2026.10] - **[基于决策模型的上下文压缩](docs/zh/context_compaction.md)**：根据下一步任务判断旧工具证据的保留价值，
   保护关键历史，并返回可回溯的压缩建议；提供 SVG 流程图、两个真实模型集成场景和 14-query 固定摘要实验，包含强制 Hermes 摘要基线。

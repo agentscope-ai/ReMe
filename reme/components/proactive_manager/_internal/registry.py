@@ -100,6 +100,12 @@ class RuntimeRegistry:
         return self.files.checked(self.directory_for(agent) / "TASK.md")
 
     @staticmethod
+    def _validate_trigger_type(current: ProactiveRuntimeConfig, candidate: ProactiveRuntimeConfig) -> None:
+        """Keep the trigger type fixed for a task's lifetime, including restoration."""
+        if (current.cron is None) != (candidate.cron is None):
+            raise ValueError("Task trigger type cannot change after creation")
+
+    @staticmethod
     def _validate_cron(config: ProactiveRuntimeConfig, now: datetime) -> None:
         """Reject schedules without a next occurrence before publishing configuration."""
         if config.cron is not None:
@@ -121,6 +127,7 @@ class RuntimeRegistry:
         else:
             if previous.agent_name != config.agent_name or previous.deleted_at is None:
                 raise ValueError(f"proactive agent name already exists: {config.agent_name}")
+            self._validate_trigger_type(previous, config)
             config = config.model_copy(
                 update={name: getattr(previous, name) for name in ("step_backend", "max_batch_events")},
             )
@@ -143,6 +150,7 @@ class RuntimeRegistry:
             raise ValueError("agent_name is immutable")
         values = agent.model_dump(include=set(ProactiveRuntimeConfig.model_fields))
         config = ProactiveRuntimeConfig.model_validate({**values, **patch})
+        self._validate_trigger_type(agent, config)
         if config.cron != agent.cron or (config.enabled and not agent.enabled):
             self._validate_cron(config, now)
         agent = agent.model_copy(update={key: getattr(config, key) for key in ProactiveRuntimeConfig.model_fields})

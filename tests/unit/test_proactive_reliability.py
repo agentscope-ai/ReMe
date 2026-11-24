@@ -204,7 +204,7 @@ async def test_session_setup_preserves_workspace_documents(tmp_path):
         step = ProactiveAgentStep(app_context=context)
         documents = (
             ("Remy", "MEMORY.md", AskAgentStep(app_context=context).session_options()),
-            ("monitor", "TASK.md", step.session_options(agent, [])),
+            ("monitor", "TASK.md", step.session_options(agent)),
         )
         for name, filename, item in documents:
             path = runtime.registry.path(name) / filename

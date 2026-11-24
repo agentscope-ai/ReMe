@@ -9,6 +9,7 @@ import type { ResourcePage } from "../../../client/src/protocol.ts";
 import {
   isTodo,
   projectLabel,
+  splitNotebookText,
   type Idea,
   type NotebookItem,
   type NotebookKind,
@@ -19,11 +20,10 @@ import {
 import { formatDate, useResource } from "../resources.ts";
 
 const statuses = {
-  open: "notebookOpen",
-  partial: "notebookPartial",
-  done: "notebookDone",
-  cancelled: "notebookCancelled",
-} as const;
+  pending: "notebookPending",
+  in_progress: "notebookInProgress",
+  closed: "notebookClosed",
+} as const satisfies Record<TodoStatus, string>;
 
 export default function RecordDetail({
   item,
@@ -35,6 +35,7 @@ export default function RecordDetail({
   draft,
   onDraft,
   onEdit,
+  onCloseTodo,
   onWrite,
   onOpen,
 }: {
@@ -47,12 +48,14 @@ export default function RecordDetail({
   draft: string;
   onDraft: (value: string) => void;
   onEdit: () => void;
+  onCloseTodo: (item: Todo) => void;
   onWrite: (request: NotebookRequest) => Promise<boolean>;
   onOpen: (kind: NotebookKind, item: Idea) => void;
 }) {
   const requestResource = useResource();
   const t = translator(language);
   const todo = isTodo(item);
+  const { title, body } = splitNotebookText(item.text);
   const [source, setSource] = useState<Idea>();
   const [linked, setLinked] = useState<ResourcePage<Todo>>();
   const [linkOffset, setLinkOffset] = useState(0);
@@ -108,7 +111,7 @@ export default function RecordDetail({
           {t("notebookEdit")}
         </button>
       </div>
-      <h1>{item.text}</h1>
+      <h1>{title}</h1>
       <div className="notebook-record-meta">
         {todo && (
           <label>
@@ -117,14 +120,19 @@ export default function RecordDetail({
               aria-label={t("notebookStatus")}
               value={item.status}
               disabled={busy}
-              onChange={(event) =>
+              onChange={(event) => {
+                const status = event.target.value as TodoStatus;
+                if (status === "closed") {
+                  onCloseTodo(item);
+                  return;
+                }
                 void onWrite({
                   type: "todo",
                   action: "update",
                   id: item.id,
-                  status: event.target.value as TodoStatus,
-                })
-              }
+                  status,
+                });
+              }}
             >
               {Object.entries(statuses).map(([value, key]) => (
                 <option key={value} value={value}>
@@ -139,12 +147,19 @@ export default function RecordDetail({
         )}
         {item.closed_at && (
           <span>
-            {t("notebookClosed", {
+            {t("notebookArchivedAt", {
               date: formatDate(item.closed_at, language),
             })}
           </span>
         )}
       </div>
+      {body && <p className="notebook-record-body">{body}</p>}
+      {todo && item.close_note && (
+        <section className="notebook-close-note">
+          <h2>{t("notebookCloseNote")}</h2>
+          <p>{item.close_note}</p>
+        </section>
+      )}
       {source && (
         <section className="notebook-source">
           <h2>{t("notebookFromIdea")}</h2>

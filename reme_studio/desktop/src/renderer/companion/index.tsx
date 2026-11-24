@@ -331,7 +331,7 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
           </button>
         )}
       </div>
-      {(error !== null || state.behavior.error) && (
+      {error !== null && (
         <button
           className="companion-error"
           data-interactive
@@ -340,7 +340,7 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
             run({ type: "chat.open" });
           }}
         >
-          {state.behavior.error || t("openStatus")}
+          {t("openStatus")}
         </button>
       )}
     </main>

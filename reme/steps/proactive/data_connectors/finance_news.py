@@ -7,8 +7,6 @@ import json
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-import httpx
-
 from ._finance import FinanceCollectorStep
 from ....core.registry import R
 from ....schema.finance import FinanceNewsItem
@@ -57,6 +55,10 @@ class FinanceNewsStep(FinanceCollectorStep):
     source = "finance_news"
     description = "New CLS financial news. Read news.md for headlines, publication times, text and source links."
 
+    def __init__(self, request_interval=1, **kwargs):
+        super().__init__(**kwargs)
+        self.request_interval = request_interval
+
     def event_payloads(self, _metadata):
         return ["news.md"]
 
@@ -90,7 +92,7 @@ class FinanceNewsStep(FinanceCollectorStep):
     def _fetch(self, start, end):
         cursor = int(end.timestamp())
         records = {}
-        with httpx.Client(headers=_HEADERS, timeout=httpx.Timeout(self.request_timeout, connect=5)) as client:
+        with self.client(headers=_HEADERS) as client:
             while True:
                 payload = json.loads(self.request(client, _URL, params=self._params(cursor)))
                 if not isinstance(payload, dict) or payload.get("errno") != 0:

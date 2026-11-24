@@ -34,8 +34,8 @@ class TaskNotFoundError(ValueError):
     """A named task is missing or deleted."""
 
 
-class ScheduledTaskDeliveryError(ValueError):
-    """A scheduled task cannot receive external observations."""
+class TimeTriggeredTaskDeliveryError(ValueError):
+    """A time-triggered task cannot receive external observations."""
 
 
 class BaseProactiveManager(BaseComponent):
@@ -80,14 +80,14 @@ class BaseProactiveManager(BaseComponent):
 
     @abstractmethod
     async def append_events(self, agent_name: str, events: list[Event]) -> dict:
-        """Persist external observations for an event-driven task."""
+        """Persist external observations for an event-triggered task."""
 
     async def deliver_events(self, task_names: list[str], events: list[Event]) -> dict:
         """Deliver independently and distinguish rejected targets from retryable failures."""
         results = await gather(*(self.append_events(name, events) for name in task_names), return_exceptions=True)
         deliveries, rejected, errors = {}, {}, {}
         for name, result in zip(task_names, results, strict=True):
-            if isinstance(result, (TaskNotFoundError, ScheduledTaskDeliveryError, InvalidInboxBatchError)):
+            if isinstance(result, (TaskNotFoundError, TimeTriggeredTaskDeliveryError, InvalidInboxBatchError)):
                 rejected[name] = str(result)
             elif isinstance(result, CancelledError):
                 errors[name] = "Delivery interrupted"

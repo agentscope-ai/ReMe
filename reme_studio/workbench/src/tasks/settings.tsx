@@ -1,15 +1,17 @@
 import type { Language } from "../../../client/src/i18n.ts";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { translator } from "../../../client/src/i18n.ts";
 import type { ProactiveRuntimeSettings } from "../../../client/src/tasks.ts";
 import { Switch } from "../ui.tsx";
 
 export default function TaskSettingsFields({
+  create,
   value,
   onChange,
   timezone,
   language,
 }: {
+  create: boolean;
   value: ProactiveRuntimeSettings;
   onChange: (value: ProactiveRuntimeSettings) => void;
   timezone: string | null;
@@ -29,23 +31,37 @@ export default function TaskSettingsFields({
         : "custom",
   );
   const daily = kind === "daily" || kind === "weekdays";
+  const trigger = value.cron === null ? "event" : "time";
+  const triggerId = useId();
   return (
     <>
-      <label className="task-field">
-        <span>{t("taskTriggers")}</span>
-        <select
-          value={value.cron === null ? "events" : "scheduled"}
-          onChange={(event) => {
-            setKind("daily");
-            patch({
-              cron: event.target.value === "scheduled" ? "0 8 * * *" : null,
-            });
-          }}
-        >
-          <option value="events">{t("taskObserve")}</option>
-          <option value="scheduled">{t("taskScheduled")}</option>
-        </select>
-      </label>
+      <div className="task-field">
+        <label htmlFor={triggerId}>{t("taskTriggers")}</label>
+        {create ? (
+          <select
+            id={triggerId}
+            value={trigger}
+            onChange={(event) => {
+              setKind("daily");
+              patch({
+                cron: event.target.value === "time" ? "0 8 * * *" : null,
+                min_trigger_interval_seconds: 0,
+              });
+            }}
+          >
+            <option value="time">{t("taskTimeTrigger")}</option>
+            <option value="event">{t("taskEventTrigger")}</option>
+          </select>
+        ) : (
+          <input
+            id={triggerId}
+            readOnly
+            value={t(
+              trigger === "time" ? "taskTimeTrigger" : "taskEventTrigger",
+            )}
+          />
+        )}
+      </div>
       {value.cron !== null && (
         <div className="task-field">
           <label htmlFor="task-schedule">{t("taskSchedule")}</label>
@@ -113,8 +129,7 @@ export default function TaskSettingsFields({
           onCheckedChange={(enabled) => patch({ enabled })}
         />
       </label>
-      <details className="task-advanced">
-        <summary>{t("taskAdvanced")}</summary>
+      {trigger === "event" && (
         <label className="task-field">
           <span>{t("taskMinInterval")}</span>
           <input
@@ -130,44 +145,42 @@ export default function TaskSettingsFields({
             }
           />
         </label>
-        <label className="task-switch">
-          <span>{t("taskLimitNotifications")}</span>
-          <Switch
-            checked={value.notify_window !== null}
-            onCheckedChange={(limited) =>
-              patch({
-                notify_window: limited
-                  ? { start: "09:00", end: "18:00" }
-                  : null,
-              })
-            }
-          />
-        </label>
-        {value.notify_window && (
-          <div className="task-field-row">
-            {(["start", "end"] as const).map((key) => (
-              <label className="task-field" key={key}>
-                <span>
-                  {t(key === "start" ? "taskWindowStart" : "taskWindowEnd")}
-                </span>
-                <input
-                  type="time"
-                  required
-                  value={value.notify_window![key]}
-                  onChange={(event) =>
-                    patch({
-                      notify_window: {
-                        ...value.notify_window!,
-                        [key]: event.target.value,
-                      },
-                    })
-                  }
-                />
-              </label>
-            ))}
-          </div>
-        )}
-      </details>
+      )}
+      <label className="task-switch">
+        <span>{t("taskLimitNotifications")}</span>
+        <Switch
+          checked={value.notify_window !== null}
+          onCheckedChange={(limited) =>
+            patch({
+              notify_window: limited ? { start: "09:00", end: "18:00" } : null,
+            })
+          }
+        />
+      </label>
+      {value.notify_window && (
+        <div className="task-field-row">
+          {(["start", "end"] as const).map((key) => (
+            <label className="task-field" key={key}>
+              <span>
+                {t(key === "start" ? "taskWindowStart" : "taskWindowEnd")}
+              </span>
+              <input
+                type="time"
+                required
+                value={value.notify_window![key]}
+                onChange={(event) =>
+                  patch({
+                    notify_window: {
+                      ...value.notify_window!,
+                      [key]: event.target.value,
+                    },
+                  })
+                }
+              />
+            </label>
+          ))}
+        </div>
+      )}
     </>
   );
 }

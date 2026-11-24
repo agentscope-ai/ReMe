@@ -14,7 +14,6 @@ import pytest
 from reme.enumeration import ChunkEnum
 from reme.schema import Event, StreamChunk
 from reme.steps.proactive.agent import ProactiveAgentStep
-from reme.steps.proactive.tools.manage_proactive_agent import ManageProactiveAgentStep
 from .test_proactive_runtime import create_agent, running_manager
 
 
@@ -30,7 +29,7 @@ async def queue_cron_trigger(runtime, name, monkeypatch):
 
 
 async def create_round_task(runtime, monkeypatch, agent_type):
-    if agent_type == "cron":
+    if agent_type == "time":
         await runtime.create({"agent_name": "monitor", "task_description": "Monitor", "cron": "0 * * * *"})
         await queue_cron_trigger(runtime, "monitor", monkeypatch)
     else:
@@ -51,18 +50,15 @@ def install_round(
     failed=False,
     error=None,
     reply_text="Finished",
-    repaired_metadata=None,
+    repaired_text=None,
 ):
     calls = []
 
     async def generate(query, **options):
         calls.append((query, options))
-        repairing = "output_schema" in options
-        if repairing:
-            assert options["sandbox"] == "read-only"
-            assert options["job_tools"] == []
-        elif text is not None:
-            runtime.files.write(paths["record_path"], text)
+        contents = text if len(calls) == 1 else repaired_text
+        if contents is not None:
+            runtime.files.write(paths["record_path"], contents)
         if error is not None:
             raise error
         result = {
@@ -70,7 +66,7 @@ def install_round(
             "status": "failed" if failed else "completed",
             "error": "Model failed" if failed else None,
             "result": reply_text,
-            "structured_output": repaired_metadata if repairing else {"notifications": [{"message": "Ignore this"}]},
+            "structured_output": {"notifications": [{"message": "Ignore this"}]},
             "usage": None,
             "raw": {},
         }
@@ -83,10 +79,10 @@ def install_round(
 @pytest.mark.parametrize(
     "agent_type,language,priority,body",
     [
-        ("proactive", "zh", "P1", "\n\n    indented code\n\n"),
-        ("proactive", "en", "P2", "\n"),
-        ("cron", "zh", "P1", "\n"),
-        ("cron", "en", "P2", "\n"),
+        ("event", "zh", "P1", "\n\n    indented code\n\n"),
+        ("event", "en", "P2", "\n"),
+        ("time", "zh", "P1", "\n"),
+        ("time", "en", "P2", "\n"),
     ],
 )
 @pytest.mark.asyncio
@@ -123,7 +119,7 @@ async def test_round_publishes_and_acknowledges_the_same_note(
         ((query, options),) = queries
         assert options["sandbox"] == "workspace-write"
         assert runtime.files.read(paths["task_path"]) in query
-        assert ("Finished" in query) == (agent_type == "proactive")
+        assert ("Finished" in query) == (agent_type == "event")
         assert list((tmp_path / "daily").rglob("*.md")) == [path]
 
         (ref,) = runtime.outbox.entries
@@ -151,11 +147,47 @@ async def test_round_publishes_and_acknowledges_the_same_note(
         assert [item["id"]] == related and item["read_at"]
 
 
+@pytest.mark.parametrize("agent_type", ["event", "time"])
+@pytest.mark.asyncio
+async def test_extra_frontmatter_does_not_control_reminder_state(tmp_path, monkeypatch, agent_type):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
+        await create_round_task(runtime, monkeypatch, agent_type)
+        now = runtime.now()
+        monkeypatch.setattr(runtime, "now", lambda: now)
+        step = ProactiveAgentStep(app_context=context)
+        paths = step._paths(await runtime.definition("monitor"), now)
+        path = paths["record_path"]
+        text = (
+            "\n  \n---\n"
+            "reminder_priority: P1\n"
+            "reminder_message: Verified result\n"
+            "topic: experiment\n"
+            "delivered_at: '2000-01-01T00:00:00Z'\n"
+            "read_at: '2000-01-01T00:00:00Z'\n"
+            "chat_message_ids: [reme-proactive-old]\n"
+            "---\nNew progress\n"
+        )
+        calls = install_round(runtime, wrapper, monkeypatch, paths, text=text)
+
+        assert (await step(agent_name="monitor")).answer["processed"] == 1
+        assert len(calls) == 1
+        assert path.read_text() == text
+
+    async with running_manager(tmp_path) as (runtime, _, _):
+        ref = path.relative_to(tmp_path).as_posix()
+        item = await runtime.outbox.read("monitor", ref)
+        assert datetime.fromisoformat(item["delivered_at"]) == now
+        assert item["read_at"] is None
+        assert item["chat_message_ids"] == []
+        assert ref in runtime.notifications.pending
+        assert path.read_text() == text
+
+
 @pytest.mark.parametrize(
     "agent_type,language,invalid_message,error",
     [
-        ("proactive", "zh", "Updated palette\n  to blue #20774D\n  and white", "while parsing"),
-        ("cron", "en", "", "reminder_message"),
+        ("event", "zh", "Updated palette\n  to blue #20774D\n  and white", "while parsing"),
+        ("time", "en", "''", "reminder_message"),
     ],
 )
 @pytest.mark.parametrize("edit_during_repair", [False, True])
@@ -178,6 +210,8 @@ async def test_record_format_is_repaired_in_the_same_session(
         path = paths["record_path"]
         body = "\n# Progress\n"
         repaired = REMIND.format(priority="P2", body=body).replace("Verified result", "'Palette #20774D'")
+        if agent_type == "time":
+            repaired = repaired.replace("---\n", "---\ntopic: palette\n", 1)
         draft = repaired.replace("'Palette #20774D'", invalid_message)
         calls = install_round(
             runtime,
@@ -185,7 +219,7 @@ async def test_record_format_is_repaired_in_the_same_session(
             monkeypatch,
             paths,
             text=draft,
-            repaired_metadata={"reminder_priority": "P2", "reminder_message": "Palette #20774D"},
+            repaired_text=repaired,
         )
         original = wrapper.reply_stream
         user_edit = repaired + "User's own edit.\n"
@@ -194,8 +228,6 @@ async def test_record_format_is_repaired_in_the_same_session(
             attempt = len(calls)
             assert (await runtime.inbox.snapshot("monitor"))["receipt"] is None
             assert not runtime.outbox.entries
-            if attempt and edit_during_repair:
-                runtime.files.write(path, user_edit)
             yield StreamChunk(
                 chunk_type=ChunkEnum.TOOL_CALL,
                 turn_id=f"turn-{attempt}",
@@ -204,13 +236,15 @@ async def test_record_format_is_repaired_in_the_same_session(
             )
             yield StreamChunk(chunk_type=ChunkEnum.USAGE, chunk={"output_tokens": 5})
             async for chunk in original(query, **options):
+                if attempt and edit_during_repair:
+                    runtime.files.write(path, user_edit)
                 yield chunk
 
         monkeypatch.setattr(wrapper, "reply_stream", stream)
         saved_calls = AsyncMock(return_value=[{"id": "write", "name": "apply_patch"}])
         monkeypatch.setattr(wrapper, "get_tool_calls", saved_calls)
         if edit_during_repair:
-            with pytest.raises(RuntimeError, match="Agent output changed outside this round"):
+            with pytest.raises(RuntimeError, match="Markdown body changed during repair"):
                 await step(agent_name="monitor")
             assert path.read_text() == user_edit
             assert (await runtime.status("monitor"))["pending_events"] == 1
@@ -223,11 +257,16 @@ async def test_record_format_is_repaired_in_the_same_session(
         assert len(runtime.outbox.entries) == len(wrapper.created) == 1
         assert (await runtime.status("monitor"))["pending_events"] == 0
         assert path.read_text().endswith(f"---{body}")
+        metadata = frontmatter.loads(path.read_text()).metadata
+        assert "read_at" not in metadata
+        if agent_type == "time":
+            assert metadata["topic"] == "palette"
         (_, initial), (repair, followup) = calls
         assert initial["resume"] == followup["resume"] == "session-1"
         assert path.relative_to(tmp_path).as_posix() in repair
         assert error in repair
-        assert followup["output_schema"]["required"] == ["reminder_priority", "reminder_message"]
+        assert followup == initial
+        assert "output_schema" not in followup
         assert [call.args for call in saved_calls.await_args_list] == [("session-1", "turn-0"), ("session-1", "turn-1")]
         stats = result.metadata["reme.agent_run"]
         assert stats["tool_calls"] == 2 and stats["usage"]["output_tokens"] == 10
@@ -267,14 +306,14 @@ async def test_delivery_recovers_from_a_committed_input_receipt(tmp_path, monkey
 
 
 @pytest.mark.asyncio
-async def test_failed_record_with_delivery_frontmatter_never_enters_the_inbox(tmp_path, monkeypatch):
+async def test_failed_record_with_invalid_priority_never_enters_the_inbox(tmp_path, monkeypatch):
     async with running_manager(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)
         step = ProactiveAgentStep(app_context=context)
         paths = step._paths(await runtime.definition("monitor"), now)
-        text = REMIND.format(priority="P0", body="\nCopied result\n")
+        text = REMIND.format(priority="P3", body="\nCopied result\n")
         text = text.replace("---\n", f"---\ndelivered_at: '{now.isoformat()}'\n", 1)
         install_round(runtime, wrapper, monkeypatch, paths, text=text, failed=True)
         reply_stream = wrapper.reply_stream
@@ -307,12 +346,13 @@ async def test_cron_can_finish_with_a_skip_record(tmp_path, monkeypatch):
         old_record = paths["daily_dir"] / "2000-01-01" / "monitor_100000.md"
         runtime.files.write(old_record, SKIP + "private old body")
         record = paths["record_path"]
-        queries = install_round(runtime, wrapper, monkeypatch, paths, text=SKIP)
+        draft = SKIP.replace("reminder_message: No new information", "reminder_message:")
+        queries = install_round(runtime, wrapper, monkeypatch, paths, text=draft)
 
         result = await step(agent_name="monitor")
         assert result.success and result.answer["processed"] == 1
         assert result.answer["notifications"] == []
-        assert record.read_text() == SKIP
+        assert record.read_text() == draft
         assert (await runtime.status("monitor"))["pending_events"] == 0
         ((query, _),) = queries
         assert old_record.name not in query and "private old body" not in query
@@ -323,8 +363,8 @@ async def test_cron_can_finish_with_a_skip_record(tmp_path, monkeypatch):
     "draft,error",
     [
         (SKIP.replace("skip", "P3"), ValueError),
-        (SKIP.replace("No new information", "'  '"), ValueError),
-        (SKIP.replace("---\n", "---\ndelivered_at: 2026-11-22T08:00:00+08:00\n", 1), ValueError),
+        (SKIP.replace("skip", "P1").replace("No new information", "'  '"), ValueError),
+        (SKIP.replace("reminder_message: No new information\n", ""), ValueError),
         (REMIND.format(priority="P1", body="\nNew result\n"), OSError),
     ],
 )
@@ -385,11 +425,11 @@ async def test_event_round_can_finish_without_an_inbox_message(tmp_path, monkeyp
 @pytest.mark.parametrize(
     "agent_type,reply_text,model_error,expected_error",
     [
-        ("proactive", "还没有写入结果", None, FileNotFoundError),
-        ("proactive", "NO_KEY_INFORMATION, but writing failed", None, FileNotFoundError),
-        ("proactive", None, RuntimeError("model failed"), RuntimeError),
-        ("proactive", None, TimeoutError("model timed out"), TimeoutError),
-        ("cron", "NO_KEY_INFORMATION", None, FileNotFoundError),
+        ("event", "还没有写入结果", None, FileNotFoundError),
+        ("event", "NO_KEY_INFORMATION, but writing failed", None, FileNotFoundError),
+        ("event", None, RuntimeError("model failed"), RuntimeError),
+        ("event", None, TimeoutError("model timed out"), TimeoutError),
+        ("time", "NO_KEY_INFORMATION", None, FileNotFoundError),
     ],
 )
 @pytest.mark.asyncio
@@ -473,38 +513,19 @@ async def test_broken_local_links_warn_without_rejecting_the_record(tmp_path, mo
 
 
 @pytest.mark.asyncio
-async def test_queued_observations_run_before_cron_trigger_after_switch(tmp_path, monkeypatch):
+async def test_mismatched_trigger_preserves_pending_inputs(tmp_path):
     async with running_manager(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
-        attachment = "resource/alert.txt"
-        runtime.files.write(runtime.files.path(attachment), "Evidence")
-        await runtime.append_events(
-            "monitor",
-            [
-                Event(
-                    id="observation",
-                    event_ts=runtime.now(),
-                    source="experiment",
-                    description="Alarm from the experiment",
-                    paths=[attachment],
-                ),
-            ],
-        )
-        await ManageProactiveAgentStep(app_context=context)(action="update", agent_name="monitor", cron="* * * * *")
-        now = await queue_cron_trigger(runtime, "monitor", monkeypatch)
-        step = ProactiveAgentStep(app_context=context)
-        paths = step._paths(await runtime.definition("monitor"), now)
-        calls = install_round(runtime, wrapper, monkeypatch, paths, text=None, reply_text="NO_KEY_INFORMATION")
+        pending = await runtime.inbox.pending_ids("monitor")
+        agent = await runtime.definition("monitor")
+        runtime.registry.save(agent.model_copy(update={"cron": "* * * * *"}))
+        with pytest.raises(ValueError, match="Inbox inputs do not match the trigger type"):
+            await ProactiveAgentStep(app_context=context)(agent_name="monitor")
 
-        response = await step(agent_name="monitor")
-
-        assert response.success and response.answer["processed"] == 2
-        assert response.metadata["reme.agent_run"]["agent_type"] == "proactive"
-        query = calls[0][0]
-        assert "Alarm from the experiment" in query and attachment in query
+        assert not wrapper.created
         snapshot = await runtime.inbox.snapshot("monitor")
-        assert snapshot["receipt"].item_ids == ["event-1", "observation"]
-        assert await runtime.inbox.pending_ids("monitor") == {f"cron-monitor-{int(now.timestamp())}"}
+        assert snapshot["receipt"] is None and snapshot["in_flight_count"] == 0
+        assert await runtime.inbox.pending_ids("monitor") == pending
 
 
 @pytest.mark.parametrize("language", ["en", "zh"])
@@ -516,7 +537,6 @@ async def test_backlogged_cron_processes_each_trigger_with_current_time(tmp_path
         second = await queue_cron_trigger(runtime, "timer", monkeypatch)
         now = second + timedelta(minutes=30)
         monkeypatch.setattr(runtime, "now", lambda: now)
-        await ManageProactiveAgentStep(app_context=context)(action="update", agent_name="timer", cron=None)
         agent = await runtime.definition("timer")
 
         for due in (first, second):
@@ -534,19 +554,14 @@ async def test_backlogged_cron_processes_each_trigger_with_current_time(tmp_path
             assert receipt.item_ids == [f"cron-timer-{int(due.timestamp())}"]
 
 
-@pytest.mark.parametrize("switch_to_event", [False, True])
+@pytest.mark.parametrize("has_later_inputs", [False, True])
 @pytest.mark.asyncio
-async def test_cron_skip_record_keeps_trigger_pending_after_model_failure(tmp_path, monkeypatch, switch_to_event):
+async def test_cron_skip_record_keeps_trigger_pending_after_model_failure(tmp_path, monkeypatch, has_later_inputs):
     async with running_manager(tmp_path) as (runtime, context, wrapper):
         await runtime.create({"agent_name": "timer", "task_description": "Save progress", "cron": "* * * * *"})
         trigger = await queue_cron_trigger(runtime, "timer", monkeypatch)
-        if switch_to_event:
+        if has_later_inputs:
             await queue_cron_trigger(runtime, "timer", monkeypatch)
-            await ManageProactiveAgentStep(app_context=context)(action="update", agent_name="timer", cron=None)
-            await runtime.append_events(
-                "timer",
-                [Event(event_ts=runtime.now(), source="experiment", description="Later observation")],
-            )
         pending = await runtime.inbox.pending_ids("timer")
 
         step = ProactiveAgentStep(app_context=context)

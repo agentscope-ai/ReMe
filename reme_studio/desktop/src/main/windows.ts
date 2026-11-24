@@ -149,6 +149,8 @@ export class DesktopWindows {
     if (process.platform === "darwin")
       this.companion.setVisibleOnAllWorkspaces(true, {
         visibleOnFullScreen: true,
+        // Keep the app in the Dock while the panel joins fullscreen spaces.
+        skipTransformProcessType: true,
       });
     this.companion.once("ready-to-show", this.reposition);
     const updateVisibility = () => {

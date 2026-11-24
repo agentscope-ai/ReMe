@@ -101,7 +101,7 @@ def devices(monkeypatch):
 
 
 @asynccontextmanager
-async def runtime(tmp_path):
+async def runtime(tmp_path, *, work_cron=None):
     context = ApplicationContext(workspace_dir=str(tmp_path / "workspace"), language="zh")
     Path(context.app_config.workspace_dir).mkdir(exist_ok=True)
     inbox = AgentEventInbox(app_context=context)
@@ -111,6 +111,7 @@ async def runtime(tmp_path):
             {
                 "agent_name": "work",
                 "task_description": "跟踪项目进展和难点",
+                "cron": work_cron,
             },
             {"agent_name": "proactive_notebook", "task_description": "跟进随记"},
         ],
@@ -566,11 +567,9 @@ async def test_partial_delivery_retries_only_the_pending_recipient(tmp_path, sou
 
 
 @pytest.mark.asyncio
-async def test_collectors_finish_a_batch_when_one_target_is_scheduled(tmp_path, source, devices):
+async def test_collectors_finish_a_batch_when_one_target_is_time_triggered(tmp_path, source, devices):
     home, path = source
-    async with runtime(tmp_path) as (context, inbox, _):
-        manager = context.components["proactive_manager"]["default"]
-        await manager.update("work", {"cron": "0 * * * *"})
+    async with runtime(tmp_path, work_cron="0 * * * *") as (context, inbox, _):
         await CodexDialogueInitStep(**options(context, home))()
         targets = ["work", "proactive_notebook"]
         for message in ("first", "later"):

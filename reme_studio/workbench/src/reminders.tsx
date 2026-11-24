@@ -7,12 +7,19 @@ import { plainText } from "./resources.ts";
 import ResourcePane, { ResourceMessage } from "./resource-pane.tsx";
 import { watchReadReceipt } from "./read-receipt.ts";
 
-export default function Reminders({ state }: { state: StudioState }) {
+export default function Reminders({
+  state,
+  canMarkAllRead,
+  onMarkAllRead,
+}: {
+  state: StudioState;
+  canMarkAllRead: boolean;
+  onMarkAllRead: () => void;
+}) {
   const { action } = useHost();
   const t = translator(state.settings.language);
   const [selected, setSelected] = useState("");
   const [error, setError] = useState<unknown>(null);
-  const [marking, setMarking] = useState(false);
   const message = state.reminders.find((item) => item.id === selected);
   const read = state.readMessageIds.includes(selected);
   useEffect(() => {
@@ -69,15 +76,8 @@ export default function Reminders({ state }: { state: StudioState }) {
         controls={
           <button
             className="subtle"
-            disabled={
-              marking || state.connection !== "connected" || !state.unread
-            }
-            onClick={() => {
-              setMarking(true);
-              void action({ type: "items.read" })
-                .catch(setError)
-                .finally(() => setMarking(false));
-            }}
+            disabled={!canMarkAllRead}
+            onClick={onMarkAllRead}
           >
             <CheckCheck size={15} />
             {t("markAllRead")}

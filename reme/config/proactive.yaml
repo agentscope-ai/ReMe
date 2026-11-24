@@ -22,7 +22,9 @@ jobs:
     description: >-
       Manage one-sentence tasks: create/list/get/update. Use list_projects to count Todo and Idea records per project.
       IDs and progress timestamps are generated automatically.
-      Update appends progress_text; done/cancelled archives the task, open/partial restores it.
+      Pass progress_text to append progress, or use progress_match to edit or remove an existing note.
+      Set status=closed to archive with an optional close_note.
+      Set status=pending or in_progress to reopen and clear the closure details.
       source_idea links an existing idea; create inherits omitted project/text from that idea.
       Follow the manage-todos-ideas skill for workflows and examples.
     parameters:
@@ -33,13 +35,21 @@ jobs:
         id: &record_id {type: string, minLength: 1, description: "Existing record ID; never supplied on create."}
         project: &record_project {type: string, description: "Project name. Defaults to 随笔 (Notes in English); blank also means 随笔. Omit on create to inherit the source Idea's project. Omit on update to retain. Exact filter for list; use 随笔 for Notes."}
         text: &record_text {type: string, minLength: 1, description: "One-sentence content; create/update only."}
-        status: {type: string, enum: [open, partial, done, cancelled], description: "Task state; exact filter for list."}
+        status: {type: string, enum: [pending, in_progress, closed], description: "Task state. Defaults to pending on create; exact filter for list."}
         due_date: {type: [string, "null"], format: date, description: "Optional deadline. Update with null to clear; omit to retain."}
         source_idea: {type: [string, "null"], minLength: 1, description: "Idea ID to link or filter by; null removes the link on update."}
-        progress_text: {type: string, minLength: 1, description: "Append one progress note; create/update only."}
-        event_id: &notebook_event_id {type: string, minLength: 1, description: "Automatic update only. ID of a current proactive event."}
+        progress_text: {type: string, minLength: 1, description: "Append one progress note, or replace the note selected by progress_match."}
         progress_time: {type: [string, "null"], format: date-time, description: "Optional explicit progress time with timezone; requires progress_text."}
-        scope: {type: string, enum: [active, archive, all], description: "Defaults to active for list and all for list_projects."}
+        progress_match:
+          type: object
+          additionalProperties: false
+          description: "On update, use the original time and text from get. Omit progress_text to remove this note."
+          properties:
+            time: {type: string, format: date-time}
+            text: {type: string, minLength: 1}
+          required: [time, text]
+        close_note: {type: [string, "null"], minLength: 1, description: "Confirmed outcome or reason for closure. Requires status=closed; null clears the note."}
+        scope: {type: string, enum: [active, archive, all], description: "Active lists by earliest target date with undated tasks last. Archive lists newest closures first. Defaults to active for list and all for list_projects."}
         query: &record_query {type: string, description: "List only; case-insensitive substring search."}
         offset: &record_offset {type: integer, minimum: 0, description: "List only; defaults to 0."}
         limit: &record_limit {type: integer, minimum: 1, maximum: 100, description: "List only; defaults to 20."}
@@ -62,8 +72,7 @@ jobs:
         id: *record_id
         project: *record_project
         text: *record_text
-        event_id: *notebook_event_id
-        scope: {type: string, enum: [active, archive, all], description: "List only; defaults to active."}
+        scope: {type: string, enum: [active, archive, all], description: "List only; defaults to active (latest writes first). Archive lists newest archives first."}
         query: *record_query
         offset: *record_offset
         limit: *record_limit
@@ -135,18 +144,33 @@ jobs:
       - backend: finance_news_step
         task_names: [finance]
 
-  stock_quotes_cron:
+  gold_quotes_cron:
     backend: cron
     cron: "*/5 * * * *"
-    # The collector checks each market's trading calendar and skips closed sessions.
     steps:
-      - backend: stock_quotes_step
+      - backend: tencent_quotes_step
+        instrument: gold
+        task_names: [finance]
+
+  oil_quotes_cron:
+    backend: cron
+    cron: "*/5 * * * *"
+    steps:
+      - backend: tencent_quotes_step
+        instrument: oil
+        task_names: [finance]
+
+  nasdaq_quotes_cron:
+    backend: cron
+    cron: "*/5 * * * *"
+    steps:
+      - backend: tencent_quotes_step
+        instrument: nasdaq
         task_names: [finance]
 
   btc_quotes_cron:
     backend: cron
     cron: "*/5 * * * *"
-    # BTC trades continuously; stock trading calendars do not apply.
     steps:
       - backend: btc_quotes_step
         task_names: [finance]
@@ -155,7 +179,8 @@ jobs:
     backend: base
     description: >-
       Manage background tasks: list/create/status/update/delete/query. All parameters are top-level.
-      Create requires agent_name and task_description. Set cron to run on a schedule; scheduled tasks cannot receive observations.
+      Create requires agent_name and task_description. Supply cron for a time-triggered task or omit it for an event-triggered task.
+      The trigger type is fixed after creation, including when restoring a deleted task. Only event-triggered tasks receive observations.
       Other actions except list require agent_name; query also requires question and an existing queryable task session.
       Update changes execution settings; edit task requirements in TASK.md at the returned task_path.
       Follow the manage-proactive-agent skill for workflows and examples.
@@ -176,7 +201,7 @@ jobs:
           maxLength: 100000
           description: "Create only: task description written verbatim to TASK.md."
         enabled: {type: boolean}
-        cron: {type: [string, "null"], description: "Optional cron expression in the application timezone. Null selects event-driven execution."}
+        cron: {type: [string, "null"], description: "At creation, an expression selects time-triggered execution in the application timezone. Omission or null selects event-triggered execution. A time-triggered task can update its expression."}
         min_trigger_interval_seconds: {type: number, minimum: 0, description: "Minimum interval before processing observations, in seconds."}
         notify_window:
           type: [object, "null"]
@@ -193,7 +218,7 @@ jobs:
 
   append_task_events:
     backend: base
-    description: "Append observations to existing event-driven tasks. Each recipient is handled independently."
+    description: "Append observations to existing event-triggered tasks. Each recipient is handled independently."
     parameters:
       type: object
       additionalProperties: false
@@ -240,7 +265,7 @@ jobs:
     track_execution: true
     steps:
       - backend: run_proactive_agent_step
-        effort: low  # Scheduled and event-driven runs.
+        effort: low  # Time- and event-triggered runs.
         timeout_seconds: 1200
         max_local_search_calls: 10
         recent_history_hours: 24
@@ -592,9 +617,9 @@ components:
           min_trigger_interval_seconds: 10
           max_batch_events: 20
           task_description: |
-            帮我关注 AI 领域的大新闻，以及小米、阿里巴巴、腾讯、苹果、亚马逊、Meta 和 BTC/USDT 的行情。
-            出现重大 AI 新闻，或这些标的日内振幅超过 5% 时提醒我，结合财联社新闻简单说明发生了什么、可能的影响和来源。
-            其他信息正常记录，不用提醒。同一件事避免重复提醒，数据有延迟或不完整时请注明。
+            关注现货黄金（XAU/USD）、WTI 原油期货（CL）、BTC/USDT 和纳斯达克综合指数（IXIC）。用财联社电报补充与这四项行情直接相关的背景。
+            以最新有效报价为准，涨跌幅绝对值达到 3% 才提醒。黄金、原油和纳指以昨收为基准，BTC 使用滚动 24 小时涨跌幅。
+            提醒说明标的、价格或点位、涨跌幅、报价时间和来源。有依据时补充新闻背景。同一波变动只提醒一次，报价有延迟时注明。
         - agent_name: work
           max_batch_events: 2
           enabled: true
@@ -605,8 +630,7 @@ components:
           enabled: true
           max_batch_events: 2
           task_description: |
-            我负责帮主人更新 Todo 和 Idea。我把有明确依据的进展补进已有 Todo，修正有明确依据的 Idea。
-            能改的用工具改完。要新增、关闭、改关联或继续执行的事，我一项一条写成 Markdown 交给 Remy。
+            跟进 Todo 和 Idea，更新有依据的 Todo 状态和进展，把需要用户决定的事项交给 Remy。
         - agent_name: tech_news
           enabled: true
           cron: "0 8 * * *"

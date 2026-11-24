@@ -22,7 +22,8 @@ export function projectValue(value: string, language: Language): string {
 }
 
 export type NotebookKind = "todo" | "idea";
-export type TodoStatus = "open" | "partial" | "done" | "cancelled";
+const todoStatuses = ["pending", "in_progress", "closed"] as const;
+export type TodoStatus = (typeof todoStatuses)[number];
 
 export interface Idea {
   id: string;
@@ -37,10 +38,16 @@ export interface Todo extends Idea {
   progress_count?: number;
   due_date?: string | null;
   source_idea?: string | null;
+  close_note?: string | null;
 }
 
 export type NotebookItem = Todo | Idea;
 export const isTodo = (item: NotebookItem): item is Todo => "status" in item;
+
+export function splitNotebookText(text: string) {
+  const [title, ...lines] = text.trim().split(/\r?\n/);
+  return { title, body: lines.join("\n").trim() };
+}
 
 interface ListOptions {
   action: "list";
@@ -61,6 +68,7 @@ interface TodoFields extends ContentFields {
   due_date?: string | null;
   source_idea?: string | null;
   progress_text?: string;
+  close_note?: string | null;
 }
 
 export type NotebookRequest =
@@ -103,7 +111,13 @@ export function notebookPayload(
             "text",
             ...(value.action === "update" ? ["id"] : []),
             ...(value.type === "todo"
-              ? ["status", "due_date", "source_idea", "progress_text"]
+              ? [
+                  "status",
+                  "due_date",
+                  "source_idea",
+                  "progress_text",
+                  "close_note",
+                ]
               : []),
           ]
         : ["id"];
@@ -119,7 +133,7 @@ export function notebookPayload(
       )
         throw new Error("Invalid notebook pagination");
     } else if (
-      (key === "due_date" || key === "source_idea") &&
+      (key === "due_date" || key === "source_idea" || key === "close_note") &&
       field === null
     ) {
       body[key] = null;
@@ -127,15 +141,14 @@ export function notebookPayload(
     } else if (
       typeof field !== "string" ||
       field.length > 100000 ||
-      (["id", "text", "source_idea", "progress_text"].includes(key) &&
+      (["id", "text", "source_idea", "progress_text", "close_note"].includes(
+        key,
+      ) &&
         !field.trim())
     ) {
       throw new Error("Invalid notebook value");
     }
-    if (
-      key === "status" &&
-      !["open", "partial", "done", "cancelled"].includes(field as string)
-    )
+    if (key === "status" && !todoStatuses.includes(field as TodoStatus))
       throw new Error("Invalid notebook status");
     if (
       key === "scope" &&
@@ -153,5 +166,7 @@ export function notebookPayload(
     throw new Error("Notebook text is required");
   if (value.action === "update" && Object.keys(body).length < 3)
     throw new Error("Notebook update is empty");
+  if ("close_note" in body && body.status !== "closed")
+    throw new Error("A close note requires a closed todo");
   return body;
 }

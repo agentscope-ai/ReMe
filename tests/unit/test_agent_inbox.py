@@ -540,11 +540,8 @@ async def test_selected_claim_preserves_older_inputs_and_later_arrivals(tmp_path
     async with make_inbox(tmp_path) as inbox:
         await inbox.create("mail")
         await inbox.append("mail", [{"id": "low"}, {"id": "urgent"}])
-        assert await inbox.peek("mail") == {"id": "low"}
-        assert await inbox.peek("mail", item_ids=["urgent", "low"]) == {"id": "low"}
-        assert await inbox.peek("mail", item_ids=["urgent"]) == {"id": "urgent"}
         batch = await inbox.claim("mail", item_ids=["urgent"])
-        assert await inbox.peek("mail") is None
+        assert await inbox.claim("mail") is None
         await inbox.append("mail", {"id": "new"})
         assert [item["item"]["id"] for item in (await inbox.read("mail", state="processing"))["items"]] == ["urgent"]
         assert (await inbox.snapshot("mail"))["in_flight_count"] == 1

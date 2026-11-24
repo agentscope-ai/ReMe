@@ -57,12 +57,8 @@ decision = [
 web = [
     "reme_studio==0.4.3",
 ]
-finance = [
-    "exchange-calendars>=4.13.3,<5",
-]
 core = [
     "reme-ai[as]",
-    "reme-ai[finance]",
     "dashscope>=1.26.0",
     "pillow>=13.0.0",
     "mss>=10.2.0",

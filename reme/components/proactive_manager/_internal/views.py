@@ -46,7 +46,7 @@ class AgentViews:
         else:
             facts = await manager.status(agent_name) if task_status is None else task_status
             config = facts["config"]
-            agent_type = "cron" if config.get("cron") is not None else "proactive"
+            agent_type = "time" if config.get("cron") is not None else "event"
             directory = manager.files.path(PurePosixPath(facts["task_path"]).parent.as_posix())
             document = {"task_path": facts["task_path"]}
             running = facts["running"]
@@ -135,14 +135,17 @@ class AgentViews:
         """Keep native reconciliation internal; publish only canonical display messages."""
         current = self.manager.live_turns.overlay(agent_name, value)
         activities = {}
+        workers = self.manager.workers if agent_name == CHAT_AGENT_NAME else {}
         for name, activity in self.manager.activities.items():
-            if name != agent_name and (agent_name != CHAT_AGENT_NAME or name not in self.manager.workers):
+            if name != agent_name and name not in workers:
                 continue
-            if name == agent_name and activity.session_id != current["session_id"]:
+            task_without_session = activity.source == "task" and not activity.session_id
+            if name == agent_name and activity.session_id != current["session_id"] and not task_without_session:
                 continue
             activities[name] = ClientActivity(
                 session_id=activity.session_id,
                 turn_id=activity.turn_id,
+                source=activity.source,
                 phase=activity.phase,
                 tool=activity.tool,
                 started_at=activity.started_at.isoformat() if activity.started_at else None,

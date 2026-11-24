@@ -43,7 +43,7 @@ export type AgentView = {
   min_trigger_interval_seconds: number;
   notify_window: NotificationWindow | null;
   agent_name: string;
-  agent_type: "chat" | "proactive" | "cron";
+  agent_type: "chat" | "event" | "time";
   status: "active" | "idle" | "not_loaded" | "error";
   session_id: string | null;
   memory_path: string | null;
@@ -69,6 +69,7 @@ export type ArtifactItem = {
 export type ClientActivity = {
   session_id: string;
   turn_id: string;
+  source: "chat" | "proactive" | "task";
   phase: "thinking" | "working" | "remembering" | "answering" | "waiting" | "completed" | "failed" | "interrupted";
   tool: string | null;
   started_at: string | null;
@@ -153,6 +154,11 @@ export const clientEnums = {
     "completed",
     "failed",
     "interrupted"
+  ],
+  "activitySource": [
+    "chat",
+    "proactive",
+    "task"
   ],
   "itemStatus": [
     "running",

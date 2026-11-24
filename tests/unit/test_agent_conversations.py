@@ -9,7 +9,7 @@ import pytest
 
 from reme.core.context import RuntimeContext
 from reme.enumeration import ChunkEnum
-from reme.schema import SessionMessage, SessionSnapshot, SessionStatus, StreamChunk
+from reme.schema import AgentActivity, SessionMessage, SessionSnapshot, SessionStatus, StreamChunk
 from reme.components.proactive_manager._internal.views import AgentViews
 from reme.steps.proactive.agent import AskAgentStep
 from .test_proactive_runtime import create_agent, running_manager
@@ -128,6 +128,7 @@ async def test_subscription_reports_portable_tool_activity_and_cancellation(tmp_
             try:
                 value = await anext(events)
                 activity = value["activities"]["Remy"]
+                assert activity["source"] == "chat"
                 assert activity["phase"] == "working" and activity["tool"] == "read_file"
                 assert activity["turn_id"] == "turn" and value["agent"]["status"] == "active"
                 task.cancel()
@@ -187,7 +188,7 @@ async def test_task_views_keep_only_latest_turn_without_mutating_native_history(
         assert (await runtime.sessions.current(agent_name)).session_id == sid
 
 
-@pytest.mark.parametrize("agent_type", ["proactive", "cron"])
+@pytest.mark.parametrize("agent_type", ["event", "time"])
 @pytest.mark.asyncio
 async def test_task_subscription_atomically_replaces_turns_and_reconnects_without_old_messages(tmp_path, agent_type):
     async with running_manager(tmp_path) as (runtime, _, wrapper):
@@ -195,7 +196,7 @@ async def test_task_subscription_atomically_replaces_turns_and_reconnects_withou
             {
                 "agent_name": "monitor",
                 "task_description": "Report",
-                **({"cron": "0 8 * * *"} if agent_type == "cron" else {}),
+                **({"cron": "0 8 * * *"} if agent_type == "time" else {}),
             },
         )
         sid = await runtime.sessions.ensure("monitor", wrapper, {}, runtime.now())
@@ -209,7 +210,21 @@ async def test_task_subscription_atomically_replaces_turns_and_reconnects_withou
         views = AgentViews(runtime)
         events = views.events("monitor", interval=0, heartbeat=0)
         try:
-            assert (await anext(events))["messages"][0]["id"] == "old:assistant"
+            old = await anext(events)
+            assert old["messages"][0]["id"] == "old:assistant"
+            run = AgentActivity(
+                session_id="",
+                turn_id="batch",
+                source="task",
+                task_id="monitor",
+                started_at=runtime.now(),
+                phase="working",
+            )
+            runtime.activities["monitor"] = run
+            working = await anext(events)
+            assert working["activities"]["monitor"]["source"] == "task"
+            assert working["activities"]["monitor"]["session_id"] == ""
+            assert working["messages"] == []
             snapshot.last_turn_id = "new"
             empty = await anext(events)
             assert empty["type"] == "snapshot" and empty["messages"] == []
@@ -228,10 +243,19 @@ async def test_task_subscription_atomically_replaces_turns_and_reconnects_withou
             latest = await anext(events)
             assert latest["type"] == "update"
             assert [message["id"] for message in latest["messages"]] == ["new-user", "new:assistant"]
+            runtime.activities["monitor"] = run.model_copy(update={"session_id": sid, "phase": "completed"})
+            committed = await anext(events)
+            assert committed["activities"]["monitor"]["turn_id"] == "batch"
+            assert committed["activities"]["monitor"]["phase"] == "completed"
+            assert committed["messages"] == []
             assert (await anext(events))["type"] == "heartbeat"
             reconnected = views.events("monitor", interval=0)
             try:
-                assert (await anext(reconnected)) == {**latest, "type": "snapshot"}
+                assert (await anext(reconnected)) == {
+                    **committed,
+                    "type": "snapshot",
+                    "messages": latest["messages"],
+                }
             finally:
                 await reconnected.aclose()
             next_sid = await runtime.sessions.ensure("monitor", wrapper, {}, runtime.now(), new=True)
@@ -239,5 +263,6 @@ async def test_task_subscription_atomically_replaces_turns_and_reconnects_withou
             snapshot.state.session_id = next_sid
             changed = await anext(events)
             assert changed["type"] == "snapshot" and changed["agent"]["session_id"] == next_sid
+            assert changed["activities"] == {}
         finally:
             await events.aclose()

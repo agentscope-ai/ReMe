@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
-from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -558,22 +557,12 @@ class LocalAgentInbox(BaseAgentInbox):
             raise ValueError("unknown pending item ID")
         return (pending for pending in inbox.pending if pending.item["id"] in selected)
 
-    async def peek(self, name: str, *, item_ids: list[str] | None = None) -> dict | None:
-        """Inspect the first selected item without creating a claim."""
-        async with self._changed:
-            inbox = self._inbox(name)
-            if inbox.claim is not None or not inbox.pending:
-                return None
-            pending = next(self._claim_candidates(inbox, item_ids), None)
-            return deepcopy(pending.item) if pending is not None else None
-
     async def claim(
         self,
         name: str,
         limit: int | None = None,
         *,
         item_ids: list[str] | None = None,
-        batch_key: Callable[[dict], str | None] | None = None,
     ) -> dict | None:
         """Claim selected IDs or the next FIFO batch; release ownership on ack, nack or restart."""
         if limit is not None:
@@ -583,18 +572,12 @@ class LocalAgentInbox(BaseAgentInbox):
             if inbox.claim is not None or not inbox.pending:
                 return None
             items, size = [], 0
-            first_key = None
             for pending in self._claim_candidates(inbox, item_ids):
                 if (
                     len(items) >= min(limit or self.claim_max_items, self.claim_max_items, self.max_read_items)
                     or size + pending.size > self.claim_max_bytes
                 ):
                     break
-                if batch_key is not None:
-                    key = batch_key(pending.item)
-                    if items and key != first_key:
-                        break
-                    first_key = key
                 items.append(deepcopy(pending.item))
                 size += pending.size
             if not items:

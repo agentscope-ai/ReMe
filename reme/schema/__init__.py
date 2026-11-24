@@ -42,7 +42,7 @@ from .proactive import (
 from .emb_node import EmbNode
 from .event import Event
 from .agent_inbox import InboxItem, InboxReceipt
-from .finance import CryptoQuote, FinanceNewsItem, StockQuote
+from .finance import CryptoQuote, FinanceNewsItem, MarketQuote
 from .proactive_agent import (
     CreateProactiveRuntimeConfig,
     ManageProactiveAgentRequest,
@@ -102,7 +102,7 @@ __all__ = [
     "InboxReceipt",
     "InboxItem",
     "FinanceNewsItem",
-    "StockQuote",
+    "MarketQuote",
     "CryptoQuote",
     "AgentView",
     "AgentRequest",

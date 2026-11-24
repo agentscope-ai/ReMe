@@ -1,56 +1,34 @@
-.task-dialog {
-  width: min(600px, calc(100vw - 40px));
-  max-height: calc(100vh - 48px);
-  padding: 0;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  background: var(--page-opaque);
-  color: var(--ink);
-  box-shadow: 0 24px 80px #1c1e2130;
+.task-editor {
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-6) clamp(16px, 4vw, 40px);
   overflow: auto;
   font-size: var(--text-ui);
 }
-.task-dialog::backdrop {
-  background: var(--scrim);
-  backdrop-filter: blur(3px);
+.task-editor > * {
+  max-width: 44rem;
+  margin-inline: auto;
 }
-.task-dialog > header {
+.task-editor-tabs {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 24px 28px 18px;
-}
-.task-dialog h2 {
-  margin: 0;
-  font-size: var(--text-title);
-  font-weight: var(--weight-medium);
-}
-.task-dialog header p {
-  margin: 6px 0 0;
-  color: var(--muted);
-  overflow-wrap: anywhere;
-}
-.task-dialog-tabs {
-  display: flex;
+  flex-wrap: wrap;
   gap: 4px;
-  padding: 0 28px 12px;
+  padding-bottom: 12px;
+  margin-bottom: 22px;
   border-bottom: 1px solid var(--line);
 }
-.task-dialog-tabs button {
+.task-editor-tabs button {
   padding: 7px 12px;
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--muted);
 }
-.task-dialog-tabs button[aria-current] {
+.task-editor-tabs button[aria-current] {
   background: var(--accent-soft);
   color: var(--accent);
 }
-.task-dialog-body {
-  padding: 22px 28px 26px;
-}
-.task-dialog fieldset {
+.task-editor fieldset {
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -73,9 +51,7 @@
   flex: 1;
   min-width: 0;
 }
-.task-dialog input,
-.task-dialog select,
-.task-dialog textarea {
+.task-editor :is(input, select, textarea) {
   width: 100%;
   min-width: 0;
   border: 1px solid var(--line);
@@ -85,14 +61,12 @@
   color: var(--ink);
   font: inherit;
 }
-.task-dialog textarea {
+.task-editor textarea {
   resize: vertical;
   line-height: 1.65;
   min-height: 140px;
 }
-.task-dialog input:focus-visible,
-.task-dialog select:focus-visible,
-.task-dialog textarea:focus-visible {
+.task-editor :is(input, select, textarea):focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
@@ -102,13 +76,6 @@
   justify-content: space-between;
   gap: 16px;
 }
-.task-advanced summary {
-  color: var(--muted);
-  cursor: pointer;
-}
-.task-advanced > :not(summary) {
-  margin-top: 18px;
-}
 .task-hint,
 .task-field small {
   color: var(--muted);
@@ -116,18 +83,18 @@
   line-height: 1.65;
   margin: 0;
 }
-.task-dialog footer {
+.task-editor footer {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 12px;
   margin-top: 24px;
 }
-.task-dialog footer [role="status"] {
+.task-editor footer [role="status"] {
   margin-right: auto;
   color: var(--accent);
 }
-.task-dialog footer button {
+.task-editor footer button {
   min-height: 34px;
   padding: 7px 18px;
   border-radius: var(--radius-sm);
@@ -137,20 +104,16 @@
   background: var(--error);
   color: white;
 }
-.task-dialog-error {
-  margin: 16px 28px 0;
+.task-editor-error {
+  margin-bottom: 16px;
   color: var(--error);
   overflow-wrap: anywhere;
   display: flex;
   gap: 12px;
   align-items: center;
 }
-.task-dialog-error button {
+.task-editor-error button {
   flex-shrink: 0;
-}
-.task-dialog-loading {
-  padding: 22px 28px;
-  color: var(--muted);
 }
 .task-facts {
   display: grid;
