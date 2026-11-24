@@ -116,14 +116,14 @@ def trace_query_evidence(home, spec):
         None,
     )
     outcome = payload["queries"][result_index] if result_index is not None else {}
-    rubric = metadata.get("rubric")
-    expected_is_rubric = manifest.get("dataset") == "beam" and isinstance(query.get("golden_answer"), list)
-    if rubric is None and expected_is_rubric:
-        rubric = query["golden_answer"]
+    groundtruth = outcome.get("groundtruth", query["groundtruth"])
+    rubric = groundtruth["rubric"]
+    expected = groundtruth["golden_answer"]
+    expected_is_rubric = expected is None and bool(rubric)
     response = {
         "query": {
             "question": _preview(outcome.get("question", query.get("question")), 2000),
-            "expected": _preview(outcome.get("golden_answer", query.get("golden_answer")), 2000),
+            "expected": _preview(rubric if expected_is_rubric else expected, 2000),
             "expected_kind": "rubric" if expected_is_rubric else "reference_answer",
             "actual": _preview(outcome.get("answer"), 2000),
             "score": outcome.get("score"),
@@ -146,10 +146,9 @@ def trace_query_evidence(home, spec):
         },
     }
     judged = ((outcome.get("judge_result") or {}).get("metadata") or {}).get("llm_judge_responses")
-    if isinstance(rubric, list):
-        field = "metadata/rubric" if metadata.get("rubric") is not None else "golden_answer"
-        response["locations"]["rubric"] = f"/queries/{query_index}/{field}"
-    if isinstance(rubric, list) and isinstance(judged, list) and len(rubric) == len(judged):
+    if rubric:
+        response["locations"]["rubric"] = f"/queries/{query_index}/groundtruth/rubric"
+    if rubric and isinstance(judged, list) and len(rubric) == len(judged):
         response["criteria"] = [
             {
                 "requirement": _preview(requirement),

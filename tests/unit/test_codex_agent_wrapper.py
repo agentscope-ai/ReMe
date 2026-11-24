@@ -1943,7 +1943,8 @@ async def test_sessions_use_current_configuration_without_sidecar_files(system, 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("restore", ["live", "persisted", "restart"])
-async def test_empty_source_fork_uses_current_configuration(system, restore):
+@pytest.mark.parametrize("ephemeral", [False, True])
+async def test_empty_source_fork_uses_current_configuration(system, restore, ephemeral):
     first, second, server, job = system
     source_id = await first.create_session(model="old-model", effort="low")
     native = _Codex.instances[0]
@@ -1957,11 +1958,17 @@ async def test_empty_source_fork_uses_current_configuration(system, restore):
         server.jobs_mcp.scopes.clear()
         native.loaded.clear()
     second.kwargs.update(model="current-model", effort="high", job_tools=[job.name])
-    result = await second.reply("fork", resume=source_id, fork_session=True)
+    result = await second.reply("fork", resume=source_id, fork_session=True, ephemeral=ephemeral)
     assert result["status"] == "completed" and result["session_id"] != source_id
     assert source.inputs == []
-    assert native.opened[-1][0] == ("start" if restore == "live" else "fork")
-    assert native.opened[-1][2]["model"] == "current-model"
+    operation, _, options = native.opened[-1]
+    assert operation == ("start" if restore == "live" else "fork")
+    assert options["model"] == "current-model"
+    assert options["ephemeral"] is ephemeral
+    if ephemeral and operation == "fork":
+        assert options["include_turns"] is False
+    else:
+        assert "include_turns" not in options
     assert native.threads[result["session_id"]].options[-1]["effort"].value == "high"
     token = server._threads[result["session_id"]].token
     await server.jobs_mcp.scopes[token][0].fn(query="memory")

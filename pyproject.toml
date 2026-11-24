@@ -55,7 +55,7 @@ decision = [
     "agentscope[classifier-jev]==2.0.11",
 ]
 web = [
-    "reme_studio",
+    "reme_studio==0.4.3",
 ]
 finance = [
     "exchange-calendars>=4.13.3,<5",
@@ -78,7 +78,7 @@ core = [
     "networkx>=3.6; python_full_version == '3.14.1'",
     "networkx>=3.7; python_version >= '3.12' and python_full_version != '3.14.1'",
     "polars>=2.1.0",
-    "reme_studio",
+    "reme-ai[web]",
 ]
 qwen-tokenizer = [
     "tokenizers>=0.23.3,<1",

@@ -107,6 +107,8 @@ From a host CLI, supply the published address explicitly, for example `reme heal
 Host process discovery cannot reconstruct a container's startup arguments. Configure agent integrations to use the
 published HTTP or MCP endpoint instead of starting a second native ReMe on the same workspace.
 
+Set `REME_CONFIG=proactive` in the container environment to use the shared Studio workbench.
+
 ## Networking and optional tools
 
 `127.0.0.1` inside a container refers to that container. A model server on the host needs a reachable host address, such as

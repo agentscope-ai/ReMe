@@ -203,6 +203,20 @@ async def test_search_rrf_merges_vector_and_keyword_by_chunk_id(step_cls):
 
 
 @pytest.mark.asyncio
+async def test_search_request_can_disable_configured_link_expansion():
+    """Studio can skip graph lookups without changing the default for other callers."""
+    chunk = _chunk("hit", "digest/a.md", "alpha", "keyword", 1.0)
+    step = SearchStep(file_store=FakeSearchStore(keyword_results=[chunk]), expand_links=True)
+
+    default = await step(RuntimeContext(query="alpha"))
+    disabled = await step(RuntimeContext(query="alpha", expand_links=False))
+
+    assert set(default.metadata["link_expansion"]) == {chunk.path}
+    assert disabled.metadata["link_expansion"] == {}
+    assert disabled.metadata["results"] == default.metadata["results"]
+
+
+@pytest.mark.asyncio
 async def test_lme_plain_search_steps_use_ten_times_limit_candidates():
     """LME vector/bm25 tools fetch a wider candidate pool before truncating."""
 

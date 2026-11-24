@@ -26,7 +26,11 @@ class StreamJob(BaseJob):
             except Exception as e:
                 context.response.success = False
                 context.response.answer = _describe_exception(e)
+                self.logger.exception(f"Stream job '{self.name}' failed: {context.response.answer}")
                 await context.add_stream_string(str(e), ChunkEnum.ERROR)
                 context.stream_error = context.response.answer
+            else:
+                if context.stream_error is not None:
+                    self.logger.error(f"Stream job '{self.name}' failed: {context.stream_error}")
             # Always emit DONE so consumers can detach even after an error.
             await context.add_stream_done()

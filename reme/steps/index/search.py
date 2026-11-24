@@ -217,7 +217,9 @@ class SearchStep(_ToolContextMixin, BaseStep):
             vector_weight = float(self.kwargs.get("vector_weight", 0.7))
         vector_weight = max(0.0, min(1.0, vector_weight))
         candidate_multiplier: float = float(self.kwargs.get("candidate_multiplier", 5.0))
-        expand_links_enabled: bool = bool(self.kwargs.get("expand_links", True))
+        expand_links_enabled = self.context.get("expand_links")
+        if not isinstance(expand_links_enabled, bool):
+            expand_links_enabled = bool(self.kwargs.get("expand_links", True))
         max_links_per_direction: int = int(self.kwargs.get("max_links_per_direction", 10))
         tool_context_id: str = (self.context.get("tool_context_id", "") or "").strip()
         max_search_calls = self.context.get("max_search_calls")

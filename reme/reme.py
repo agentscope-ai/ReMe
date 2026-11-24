@@ -60,7 +60,8 @@ def _pid_on_port(port: int) -> int | None:
             for conn in proc.net_connections(kind="tcp"):
                 if conn.status == psutil.CONN_LISTEN and conn.laddr and conn.laddr.port == port:
                     return proc.info["pid"]
-        except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
+        except (psutil.Error, RuntimeError):
+            # macOS can fail to enumerate descriptors while a process is closing them.
             continue
     return None
 

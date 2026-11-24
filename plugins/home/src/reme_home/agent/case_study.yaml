@@ -15,7 +15,7 @@ system_prompt: |-
   - Case: {case_id}; authoritative case artifacts: {case_path}
   - Normalized source case: {source_case}
   - Candidate repository: {code_repository}; evaluated commit: {candidate_commit}
-  - Read architecture-guide.md and validation-artifact-guide.md in {docs} when needed.
+  - Read architecture-guide.md and evaluation-artifact-guide.md in {docs} when needed.
 
   Investigate no other case. Do not modify code or evidence, run validation, execute ReMe, or prescribe fixes.
   Treat construction partial_success as requiring repair even when answers succeed. Distinguish infrastructure,

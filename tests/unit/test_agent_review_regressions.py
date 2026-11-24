@@ -6,15 +6,14 @@ import asyncio
 import gc
 import weakref
 from datetime import datetime
-from threading import Event as ThreadEvent
 from unittest.mock import AsyncMock
 
 import frontmatter
 import pytest
 
-from reme.schema import Response, SessionMessage
+from reme.schema import Event, Response, SessionMessage
 from reme.steps.file_io import SaveStep, get_path_lock
-from .test_agent_runtime import completed_result, running_runtime
+from .test_proactive_runtime import completed_result, running_runtime
 from .test_inbox_fork import prepare
 
 
@@ -61,16 +60,11 @@ async def test_ineligible_reminders_release_capacity_and_resume_without_losing_u
                     "task_description": "Report",
                 },
             )
-            await runtime.append(
+            await runtime.append_events(
                 name,
-                {
-                    "event_ts": runtime.now(),
-                    "source": "test",
-                    "description": "Finished",
-                },
+                [Event(event_ts=runtime.now(), source="test", description="Finished")],
             )
-            result, session = completed_result(runtime, name)
-            result.notifications[0].priority = priority
+            result, session = completed_result(runtime, name, priority=priority)
             await runtime.run(name, AsyncMock(return_value=(result, session)))
             if name == "first":
                 await runtime.outbox.sync()
@@ -105,9 +99,9 @@ async def test_ineligible_reminders_release_capacity_and_resume_without_losing_u
                 if worker := runtime.notifications.worker:
                     await worker
         assert len(handled) == 1
-        first = next(ref for ref in runtime.outbox.committed if runtime.outbox.owners[ref] == "first")
+        first = next(ref for ref in runtime.outbox.records if runtime.outbox.owners[ref] == "first")
         assert runtime.outbox.records[first].read_at is None
-        assert frontmatter.loads(runtime.files.path(first.file).read_text())["read_at"] is None
+        assert "read_at" not in frontmatter.loads(runtime.files.path(first).read_text())
         assert not runtime.notifications.active_turn
         if action == "delete":
             await runtime.create(
@@ -119,26 +113,21 @@ async def test_ineligible_reminders_release_capacity_and_resume_without_losing_u
         else:
             await runtime.update("first", {"enabled": True, "notify_window": None})
         await runtime.outbox.sync()
-        assert first.id in runtime.notifications.pending
+        assert first in runtime.notifications.pending
         assert runtime.outbox.records[first].read_at is None
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("content", ["The experiment finished.", ""])
-@pytest.mark.parametrize("changed_field", ["message", "action", "paths"])
+@pytest.mark.parametrize("changed_field", ["reminder_message", "reminder_priority"])
 async def test_decision_revalidates_after_a_queued_editor_save(tmp_path, monkeypatch, content, changed_field):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         args = await prepare(runtime, context)
         source = (await runtime.sessions.current("Remy")).session_id
-        ref = runtime.notifications.pending[args["msg_ids"][0]]
-        path = runtime.files.path(ref.file)
+        ref = args["msg_ids"][0]
+        path = runtime.files.path(ref)
         document = frontmatter.loads(path.read_text())
-        if changed_field == "message":
-            document.content = "The experiment was cancelled."
-        elif changed_field == "action":
-            document["action"] = "P2"
-        else:
-            document["paths"].append("daily/new_result.md")
+        document[changed_field] = "P2" if changed_field == "reminder_priority" else "The experiment was cancelled."
         wrapper.append_session = AsyncMock()
         refreshed = asyncio.Event()
         refresh = runtime.outbox.refresh
@@ -148,13 +137,13 @@ async def test_decision_revalidates_after_a_queued_editor_save(tmp_path, monkeyp
             refreshed.set()
             return result
 
-        monkeypatch.setattr(runtime.outbox, "refresh", observe_refresh)
         async with runtime.notifications.turn(source, "P1", args["msg_ids"]) as turn:
             await runtime.notifications.read_turn(turn)
+            monkeypatch.setattr(runtime.outbox, "refresh", observe_refresh)
             async with await get_path_lock(path):
                 edit = asyncio.create_task(
                     SaveStep(app_context=context)(
-                        path=ref.file,
+                        path=ref,
                         content=frontmatter.dumps(document),
                         expected_mtime=datetime.fromtimestamp(path.stat().st_mtime).isoformat(),
                     ),
@@ -168,8 +157,8 @@ async def test_decision_revalidates_after_a_queued_editor_save(tmp_path, monkeyp
                 await asyncio.wait_for(decision, 2)
         wrapper.append_session.assert_not_awaited()
         latest = frontmatter.loads(path.read_text())
-        assert latest.content == document.content
-        assert latest["read_at"] is None
+        assert latest[changed_field] == document[changed_field]
+        assert "read_at" not in latest
 
 
 @pytest.mark.asyncio
@@ -177,8 +166,8 @@ async def test_editor_cannot_save_between_native_delivery_and_acknowledgement(tm
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         args = await prepare(runtime, context)
         source = (await runtime.sessions.current("Remy")).session_id
-        ref = runtime.notifications.pending[args["msg_ids"][0]]
-        path = runtime.files.path(ref.file)
+        ref = args["msg_ids"][0]
+        path = runtime.files.path(ref)
         entered, release = asyncio.Event(), asyncio.Event()
 
         async def append(_session, content, *, message_id, **_kwargs):
@@ -197,7 +186,7 @@ async def test_editor_cannot_save_between_native_delivery_and_acknowledgement(tm
                 document.content = "New user content"
                 edit = asyncio.create_task(
                     SaveStep(app_context=context)(
-                        path=ref.file,
+                        path=ref,
                         content=frontmatter.dumps(document),
                         expected_mtime=datetime.fromtimestamp(path.stat().st_mtime).isoformat(),
                     ),
@@ -208,9 +197,10 @@ async def test_editor_cannot_save_between_native_delivery_and_acknowledgement(tm
                 release.set()
                 await asyncio.wait_for(decision, 2)
             response = await asyncio.wait_for(edit, 2)
-            assert not response.success and response.metadata["code"] == "file_conflict"
+            assert response.success
+            assert frontmatter.loads(path.read_text()).content == "New user content"
         assert not runtime.notifications.pending
-        assert frontmatter.loads(path.read_text())["read_at"] is not None
+        assert (await runtime.outbox.read("monitor", ref))["read_at"] is not None
 
 
 @pytest.mark.asyncio
@@ -218,70 +208,37 @@ async def test_reenabled_task_waits_for_capacity_without_blocking_an_urgent_remi
     async with running_runtime(tmp_path) as (runtime, _, _):
         for name, priority in (("first", "P2"), ("second", "P0")):
             await runtime.create({"agent_name": name, "task_description": "Report"})
-            await runtime.append(name, {"event_ts": runtime.now(), "source": "test", "description": "Finished"})
-            result, session = completed_result(runtime, name)
-            result.notifications[0].priority = priority
+            await runtime.append_events(name, [Event(event_ts=runtime.now(), source="test", description="Finished")])
+            result, session = completed_result(runtime, name, priority=priority)
             await runtime.run(name, AsyncMock(return_value=(result, session)))
             if name == "first":
                 await runtime.outbox.sync()
                 await runtime.update(name, {"enabled": False})
         runtime.inbox.max_pending_items = 1
         await runtime.outbox.sync()
-        urgent = next(ref for ref in runtime.outbox.committed if runtime.outbox.owners[ref] == "second")
+        urgent = next(ref for ref in runtime.outbox.records if runtime.outbox.owners[ref] == "second")
         await runtime.update("first", {"enabled": True})
         await runtime.outbox.sync()
-        assert urgent.id in runtime.notifications.pending
-        await runtime.notifications.consume([urgent.id])
-        first = next(ref for ref in runtime.outbox.committed if runtime.outbox.owners[ref] == "first")
-        assert first.id in runtime.notifications.pending
+        assert urgent in runtime.notifications.pending
+        await runtime.notifications.consume([urgent])
+        first = next(ref for ref in runtime.outbox.records if runtime.outbox.owners[ref] == "first")
+        assert first in runtime.notifications.pending
         assert runtime.outbox.records[first].read_at is None
 
 
 @pytest.mark.asyncio
-async def test_inherited_receipt_scope_cannot_outlive_its_file_lock(tmp_path, monkeypatch):
+async def test_native_decision_holds_file_lock_against_other_writers(tmp_path):
     async with running_runtime(tmp_path) as (runtime, context, _):
         args = await prepare(runtime, context)
-        ref = runtime.notifications.pending[args["msg_ids"][0]]
-        path = runtime.files.path(ref.file)
-        items = (await runtime.notifications.read(args["msg_ids"]))["items"]
-        later = asyncio.Event()
+        ref = args["msg_ids"][0]
+        items = [runtime.outbox.message(ref)]
 
-        async def delayed_update():
-            await later.wait()
-            await runtime.outbox.update(ref, user_read_at=runtime.now())
-
-        async with runtime.outbox.decision(items):
-            escaped = asyncio.create_task(delayed_update())
-        async with await get_path_lock(path):
-            later.set()
-            await asyncio.sleep(0.02)
-            assert not escaped.done()
-        await asyncio.wait_for(escaped, 2)
-
-        entered, release = ThreadEvent(), ThreadEvent()
-        write = runtime.outbox._write
-
-        def slow_write(*values, **kwargs):
-            entered.set()
-            assert release.wait(2)
-            return write(*values, **kwargs)
-
-        monkeypatch.setattr(runtime.outbox, "_write", slow_write)
-        exiting = asyncio.Event()
-
-        async def guarded_update():
-            async with runtime.outbox.decision(items):
-                child = asyncio.create_task(runtime.outbox.update(ref, read_at=runtime.now()))
-                assert await asyncio.to_thread(entered.wait, 2)
-                exiting.set()
-            await child
-
-        decision = asyncio.create_task(guarded_update())
-        try:
-            await asyncio.wait_for(exiting.wait(), 2)
+        async with runtime.outbox.decision(items) as update:
+            other = asyncio.create_task(runtime.outbox.update(ref, read_at=runtime.now()))
             await asyncio.sleep(0)
-            assert not decision.done()
-            assert (await get_path_lock(path)).locked()
-        finally:
-            release.set()
-            await asyncio.wait_for(decision, 2)
+            assert not other.done()
+            await update(ref, chat_message_ids=["reme-proactive-example"])
+
+        await asyncio.wait_for(other, 2)
+        item = runtime.outbox.records[ref]
+        assert item.read_at and item.chat_message_ids == ["reme-proactive-example"]

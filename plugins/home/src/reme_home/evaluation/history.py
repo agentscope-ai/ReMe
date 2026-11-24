@@ -76,6 +76,12 @@ def result_record(home: Path, run: Path) -> EvaluationRecord | None:
     )
 
 
+def _has_result_files(home: Path, key: str) -> bool:
+    """Check whether a started attempt still has its result artifacts in place."""
+    run = contained(home, f"evaluations/{key}", directory=True)
+    return contained(run, "manifest.json").is_file() and contained(run, "summary.json").is_file()
+
+
 def read_state(home: Path) -> dict:
     """Read a derived cache; started plans and scored artifacts retain its source evidence."""
     path = contained(home, "sampling/state.json")
@@ -92,7 +98,7 @@ def read_state(home: Path) -> dict:
         payload.setdefault(name, {})
     if not isinstance(payload.get("processed_validations"), list):
         raise ValueError("Invalid processed validations")
-    if payload["schema_version"] == 1 or "successful_round" not in payload:
+    if payload["schema_version"] == 1 or "successful_round" not in payload or "unavailable_results" not in payload:
         return rebuild_sampling_state(home, persist=False)
     if (
         not isinstance(payload["successful_round"], int)
@@ -100,6 +106,13 @@ def read_state(home: Path) -> dict:
         or (payload["successful_round"] < 0)
     ):
         raise ValueError("Invalid successful-history round")
+    if not isinstance(payload["unavailable_results"], list):
+        raise ValueError("Invalid unavailable sampling results")
+    if any(not _has_result_files(home, key) for key in payload["processed_validations"]) or any(
+        _has_result_files(home, key) for key in payload["unavailable_results"]
+    ):
+        # Evaluation artifacts can be archived or restored outside of HoMe.
+        return rebuild_sampling_state(home, persist=False)
     return payload
 
 
@@ -143,6 +156,7 @@ def start_validation(home: Path, run: Path, policy: SamplingPolicy, plan: dict |
     cache.unlink(missing_ok=True)
     if key not in state["started_validations"]:
         write_json(contained(home, relative), plan)
+        state["unavailable_results"].append(key)
     manifest["sampling"] = {"round": plan["round"], "mode": plan["mode"], "plan_path": relative}
     manifest["sandbox_started_at"] = plan["sandbox_started_at"]
     write_json(run / "manifest.json", manifest)
@@ -236,30 +250,26 @@ def rebuild_sampling_state(home: Path, *, persist: bool = True) -> dict:
         "queries": {},
         "started_validations": {},
         "processed_validations": [],
+        "unavailable_results": [],
     }
-    runs = []
-    for path in contained(home, "evaluations", directory=True).glob("*/*/*/manifest.json"):
-        manifest = read_json(contained(home, path))
-        if (
-            manifest.get("mode") == "debug"
-            or manifest.get("dataset_kind") != "training-set"
-            or manifest.get("options", {}).get("record_history") is False
-        ):
-            continue
-        key = path.parent.relative_to(home / "evaluations").as_posix()
-        plan_path = contained(home, manifest.get("sampling", {}).get("plan_path", f"sampling/plans/{key}.json"))
-        if not manifest.get("sandbox_started_at") and not plan_path.is_file():
-            continue
-        plan = read_json(plan_path)
-        # A started plan is independent evidence even if the process stopped
-        # before publishing the manifest's start fields.
+    plans = contained(home, "sampling/plans", directory=True)
+    starts = []
+    for path in plans.glob("*/*/*.json"):
+        plan = read_json(contained(home, path))
         if not plan.get("sandbox_started_at"):
             continue
-        runs.append((plan["round"], path.parent, plan["validation_key"]))
-    for round_id, run, key in sorted(runs):
+        key = path.relative_to(plans).with_suffix("").as_posix()
+        if key != plan["validation_key"]:
+            raise ValueError(f"Sampling plan key does not match its path: {path}")
+        starts.append((plan["round"], key))
+    for round_id, key in sorted(starts):
         state["round"] = max(state["round"], round_id)
         state["started_validations"][key] = round_id
-        update_sampling_state(home, run, _state=state)
+        # Archiving a run removes its observations, while the started plan still charges the budget.
+        if _has_result_files(home, key):
+            update_sampling_state(home, home / "evaluations" / key, _state=state)
+        else:
+            state["unavailable_results"].append(key)
     if persist:
         write_json(contained(home, "sampling/state.json"), state)
     return state

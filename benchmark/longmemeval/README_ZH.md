@@ -2,28 +2,11 @@
 
 [English version](./README.md)
 
-LongMemEval 是一个面向**多轮多会话历史的长期记忆能力**的评测基准。每个条目提供一组按时间
-顺序排列的用户与助手之间的会话，以及一个只能通过推理用户自有记忆才能回答的探测问题。ReMe
-将会话摄入按条目隔离的工作区，以 agentic（ReAct）模式回答问题，最后由 LLM-as-judge 打分。
+LongMemEval 是一个面向**多轮多会话历史的长期记忆能力**的评测基准。每个条目提供一组按时间顺序排列的用户与助手之间的会话，以及一个只能通过推理用户自有记忆才能回答的探测问题。
+
+## 1. 数据准备
 
 题型包括单会话（user / assistant / preference）、多会话推理、知识更新与时间推理等。
-
-在仓库根目录以 editable 模式安装 ReMe 和 LongMemEval 插件：
-
-```bash
-python -m pip install -e ".[as]"
-reme plugins install ./plugins/lme --editable
-reme plugins install ./plugins/lme-judge --editable
-reme plugins validate lme
-```
-
-runner 显式启用已安装的 `lme` 插件，并将插件默认配置与 ReMe 内置的 `benchmark` 配置组合。
-editable 安装会让 [`plugins/lme`](../../plugins/lme/README_ZH.md) 下的源码修改直接生效，无需重复安装。
-本目录继续保留评测参数、数据集及输出。自定义完整应用配置路径仍可通过 `reme.config` 指定，
-并可使用 `extends: benchmark`。
-模型凭据通过公共 benchmark 配置中声明的环境变量设置。
-
-## 1. 获取数据集
 
 ReMe 仅使用 **cleaned-S** 版本，数据托管在 HuggingFace：
 [agentscope-ai/ReMe_longmemeval_clean_s_v2](https://huggingface.co/datasets/agentscope-ai/ReMe_longmemeval_clean_s_v2)。
@@ -37,28 +20,31 @@ python download.py            # 保存为 dataset/longmemeval_s_reme_cleaned.jso
 
 ground truth 已内嵌在数据文件中。
 
-## 2. 运行
+## 2. 使用 LME 插件
 
-在仓库根目录执行：
+### 2.1 简介
+
+LME 插件加载内嵌 ground truth 的数据集，为每个条目创建独立工作区并按时间顺序摄入会话，再以 agentic（ReAct）模式回答探测问题，通过 LLM-as-judge 的 `answer_judge` 任务做二元（yes/no）评判并输出各类型准确率。若自定义应用配置启用了 `auto_dream`，会在相邻会话跨越配置时刻（默认 23:00）时触发；插件预设保持关闭。
+
+### 2.2 如何使用
+
+#### 安装与环境配置
+
+在仓库根目录以 editable 模式安装 ReMe 和 LongMemEval 插件：
 
 ```bash
-python benchmark/longmemeval/run.py
-python benchmark/longmemeval/run.py --config benchmark/longmemeval/config.yaml
-python benchmark/longmemeval/run.py -q                        # 安静模式：仅评测级日志
-python benchmark/longmemeval/run.py --log-level WARNING       # 降低评测 runner 日志
-python benchmark/longmemeval/run.py --reme-log-level WARNING  # 降低 reme 内部日志
-python benchmark/longmemeval/run.py --eval_only               # 复用已有工作区，仅执行查询 + 评判
+python -m pip install -e ".[as]"
+reme plugins install ./plugins/lme --editable
+reme plugins install ./plugins/lme-judge --editable
+reme plugins validate lme
 ```
 
-## 3. 流程
+runner 显式启用已安装的 `lme` 插件，并将插件默认配置与 ReMe 内置的 `benchmark` 配置组合。
+editable 安装会让 [`plugins/lme`](../../plugins/lme/README_ZH.md) 下的源码修改直接生效，无需重复安装。
+自定义完整应用配置路径可通过 `reme.config` 指定，并可使用 `extends: benchmark`。
+模型凭据通过公共 benchmark 配置中声明的环境变量设置。
 
-1. 加载数据集（ground truth 已内嵌在数据文件中）。
-2. 为每个条目创建独立工作区，按时间顺序摄入会话。
-3. 若自定义应用配置启用了 `auto_dream`，在相邻会话跨越配置时刻（默认 23:00）时触发；插件预设保持关闭。
-4. 以 agentic（ReAct）模式回答每个问题。
-5. 通过 `answer_judge` 任务对答案做二元（yes/no）评判，并输出各类型准确率。
-
-## 4. 关键配置 —— `benchmark/longmemeval/config.yaml`
+#### 关键配置 — `benchmark/longmemeval/config.yaml`
 
 | 配置项 | 含义 |
 | --- | --- |
@@ -72,20 +58,28 @@ python benchmark/longmemeval/run.py --eval_only               # 复用已有工�
 | `reme.dream_trigger_hour` / `dream_scan_days` / `dream_max_units` | dream 触发行为。 |
 | `output.dir` | 结果目录（`benchmark/longmemeval/results`）。 |
 
-## 5. 输出
+#### 运行评测
+
+在仓库根目录执行：
+
+```bash
+python benchmark/longmemeval/run.py
+python benchmark/longmemeval/run.py --config benchmark/longmemeval/config.yaml
+python benchmark/longmemeval/run.py -q                        # 安静模式：仅评测级日志
+python benchmark/longmemeval/run.py --log-level WARNING       # 降低评测 runner 日志
+python benchmark/longmemeval/run.py --reme-log-level WARNING  # 降低 reme 内部日志
+python benchmark/longmemeval/run.py --eval_only               # 复用已有工作区，仅执行查询 + 评判
+```
+
+### 2.3 结果
 
 结果以 JSON 文件写入 `output.dir`，文件名为 `results_<timestamp>.json`，
 同时控制台会打印含各类型准确率的汇总。日志约定在各基准间通用，见
 [总说明](../README_ZH.md#输出与日志)。
 
-## 6. 参考结果
+**参考结果**
 
-### cleaned-s
-
-**基础设置**
-
-1. 使用修改后的 auto-memory prompt，关闭 auto-dream 机制
-2. reme-memory 中的全部 session 的时间一定早于 question 的时间
+#### cleaned-s
 
 **结果**
 
@@ -94,96 +88,80 @@ agentscope==2.0.4.post1, conda reme env, 32 workers, eval-only（复用预构建
 
 | 类型 | Agentic | input tok/q | output tok/q | total tok/q | tool calls/q |
 |---|---|---|---|---|---|
-| knowledge-update | 0.910 | 31,581 | 589 | 32,169 | 2.90 |
-| multi-session | 0.842 | 52,837 | 1,474 | 54,311 | 4.21 |
-| single-session-assistant | 1.000 | 15,596 | 279 | 15,875 | 1.89 |
-| single-session-preference | 0.633 | 36,802 | 818 | 37,620 | 3.60 |
-| single-session-user | 0.986 | 27,433 | 359 | 27,792 | 2.60 |
-| temporal-reasoning | 0.902 | 62,674 | 985 | 63,659 | 4.97 |
-| **OVERALL** | **0.894** | **43,448** | **876** | **44,324** | **3.69** |
+| **总体** | **0.894** | **43.4K** | **0.9K** | **44.3K** | **3.69** |
+| knowledge-update | 0.910 | 31.6K | 0.6K | 32.2K | 2.90 |
+| multi-session | 0.842 | 52.8K | 1.5K | 54.3K | 4.21 |
+| single-session-assistant | 1.000 | 15.6K | 0.3K | 15.9K | 1.89 |
+| single-session-preference | 0.633 | 36.8K | 0.8K | 37.6K | 3.60 |
+| single-session-user | 0.986 | 27.4K | 0.4K | 27.8K | 2.60 |
+| temporal-reasoning | 0.902 | 62.7K | 1.0K | 63.7K | 4.97 |
 
+## 3. 使用 HoMe 优化插件
 
-## 准备 Home 实验
+### 3.1 简介
 
-安装 Home 插件后，在仓库根目录执行：
+HoMe 从数据集和指定的 Git 版本准备实验工作区，评测基线后迭代优化 LME 插件代码，并返回候选版本的 `commit_sha`；随后可用该版本在配置的评测集上进行独立评测。
+
+### 3.2 如何使用
+
+#### 实验准备
+
+按上文获取数据集，并参照 [HoMe 运行指南](../../plugins/home/README.md#4-run-a-benchmark-experiment) 完成安装。
+[config_home.yaml](config_home.yaml) 默认在 `benchmark/longmemeval/workspaces/home-groups-1-5` 使用
+**group_1–group_5 的 250 个 case** 进行优化。训练 ID 和[独立审阅的证据标注](home_evidence_sessions.jsonl)来自
+`dev_meta` 提交 `b53048e44833937df80a52fccceea78d054790e8`。原始划分使用 seed 42，按问题类型分层抽样。
+
+[config_home_eval.yaml](config_home_eval.yaml) 默认使用 `benchmark/longmemeval/workspaces/home-test-held-out`，
+排除来源实验实际使用的训练 ID。使用默认训练集时，评测 **group_6–group_10 的 250 个 case**。
+若要显式选择 case，将 `exclude_training_cases` 设为 `false`，并把 `all_cases: true` 替换为 `case_ids: [...]`。
+
+从仓库根目录准备优化工作区：
 
 ```bash
-reme plugins install plugins/home
 python benchmark/longmemeval/run_home.py
 ```
 
-该入口只创建工作区、准备数据和代码，不运行评测或优化。
-参数见 [config_home.yaml](config_home.yaml)，路径相对仓库根目录；
-可通过 `--config` 更换配置，通过 `--workspace-dir` 指定新工作区。
-默认工作区为 `benchmark/longmemeval/workspaces/home-groups-1-5`。
-代码从 `source_ref: HEAD` 对应的 Git 提交导出，不包含未提交修改。
-准备失败会回滚；成功后禁止再次准备同一工作区。
-Python 中也可调用 `await benchmark.longmemeval.run_home.run(workspace_dir=...)`。
+#### 实验运行
 
-顶层 `sampling_policy` 配置采样默认值：`max_cases`、`max_queries`（null 表示不限）、
-`temperature`、`ewma_alpha` 和 `uniform_exploration`。入口校验后将其传给宿主
-`home.evaluation` Component，仍只准备、不执行评测；每次评测分别控制 `sampling`
-和 `record_history`。
-
-顶层 `validation_cycle_time_budget_minutes` 配置宿主 optimizer 两次已完成正式评测之间的
-建议用时，默认 150 分钟；可改为其他正数，或设为 null 关闭时间提醒。
-
-顶层 `max_evaluations` 配置 optimizer 的正式评测次数预算，必须为正整数，默认 10。
-首次成功启动 sandbox 时扣一次，之后失败或取消也不退还；初始 baseline 和 debug 不计入。
-
-顶层 `memory_limit_mib` 配置优化、诊断、case study 和评估审查的宿主 agent 沙箱内存限制。
-在 runner YAML 中设置 `memory_limit_mib: 0` 可关闭 Linux cgroup 内存限制；
-省略或设为 null 时保留平台默认值（Linux 为 4096 MiB），macOS 不执行内存限制。
-
-准备完成后，用同一份配置进行本地一次性优化：
+运行本地一次性优化：
 
 ```bash
 python benchmark/longmemeval/run_home.py --optimize
 ```
 
-若准备时指定了 `--config` 或 `--workspace-dir`，优化时传入相同参数。
-可用 `--instruction "优化检索质量"` 指定目标。该入口将配置中的两个预算和采样策略
-应用到实际 `home_optimize` 调用，不重复准备；Python 可调用同模块的 `await optimize(...)`。
-不加 `--optimize` 时仍只准备。
-
-默认使用 `dev_meta` 已保存的 **group_1–group_5，共 250 个 case**，
-ID 已按原顺序直接写入 [config_home.yaml](config_home.yaml) 的 `benchmark.case_ids`，
-运行时无需读取分组文件，group_6–group_10 保持为留出集。
-独立审阅的证据标注保存在
-[home_evidence_sessions.jsonl](home_evidence_sessions.jsonl)，来源见英文说明。
-
-
-## 独立测试集评测
-
-默认从完整数据中排除来源工作区实际使用的训练 ID；使用默认 250 个训练 case 时，测试集为
-**group_6–group_10，共 250 个 case**。若要显式选取测试 case，可在
-[config_home_eval.yaml](config_home_eval.yaml) 设置 `exclude_training_cases: false`，
-并把 `all_cases: true` 替换为 `case_ids: [...]`。留出集为空时会直接报错。
-
-入口从已有 Home 优化工作区导出指定候选提交，接受完整 SHA 或无歧义的十六进制短 SHA，
-并复制该实验已准备的固定 runtime。无需原始 ReMe 源码仓库，也不会切换或修改优化工作区。
-配置内路径均相对仓库根目录。
-
-先准备测试工作区，再分别在两个终端启动服务和调用评测（替换 `CANDIDATE_SHA`）：
+将 `CANDIDATE_SHA` 设为优化器返回的 `commit_sha` 或其唯一十六进制前缀，再运行本地一次性评测：
 
 ```bash
-python benchmark/longmemeval/run_home_eval.py --commit CANDIDATE_SHA --prepare-only
-# 终端 1：
-reme start workspace_dir=benchmark/longmemeval/workspaces/home-test-held-out 'plugins=["home","lme-judge"]'
-# 终端 2：
-reme home_evaluate workspace_dir=benchmark/longmemeval/workspaces/home-test-held-out record_history=false
+python benchmark/longmemeval/run_home_eval.py --commit "$CANDIDATE_SHA"
 ```
 
-### 本地一次性测试评测
+服务方式见 [HoMe 评测指南](../../plugins/home/README.md#evaluate-through-the-service)。
 
-```bash
-python benchmark/longmemeval/run_home_eval.py --commit CANDIDATE_SHA
-# 可选：--config /path/to/test.yaml --source-workspace /path/to/search --test-workspace /path/to/test
-```
+### 3.3 结果
 
-Python 可调用 `await benchmark.longmemeval.run_home_eval.run(commit="CANDIDATE_SHA")`。
-入口完整重建记忆并对所选 case 的全部 query 评分，关闭采样与优化历史记录，使用现有 Docker
-评测环境和宿主 judge 配置；实际评测需要模型凭证。结果保存在测试工作区的 `home/evaluations/`，
-manifest 的 `test_evaluation` 记录来源候选，导出后的本地提交另记为 `evaluation_commit_sha`。
-相同请求可复用未改动的准备结果并新增一次评测；更换候选或数据选择时需使用新测试工作区。
-测试工作区与来源工作区必须互不包含。
+HoMe 在 LongMemEval-S 的 250 个训练 case 上优化。ReMe 基线和 HoMe 均在同一组 250 个留出 case 上评测。
+Token 用量和 LLM 调用次数均为问答阶段的每题平均值。
+
+#### ReMe 基线
+
+| 题型 | 得分 | 总 Token | 输入 Token | 输出 Token | LLM 调用 |
+|---|---:|---:|---:|---:|---:|
+| **总体** | **0.888** | **43.9K** | **43.2K** | **0.8K** | **4.7** |
+| Knowledge Update | 0.921 | 29.0K | 28.5K | 0.6K | 3.8 |
+| Multi-session | 0.836 | 54.5K | 53.2K | 1.3K | 5.2 |
+| Single-session Assistant | 1.000 | 15.8K | 15.5K | 0.3K | 2.9 |
+| Single-session Preference | 0.667 | 31.4K | 30.6K | 0.7K | 4.1 |
+| Single-session User | 0.971 | 26.6K | 26.3K | 0.3K | 3.5 |
+| Temporal Reasoning | 0.882 | 65.7K | 64.8K | 0.9K | 6.2 |
+
+#### HoMe
+
+| 题型 | 得分 | 总 Token | 输入 Token | 输出 Token | LLM 调用 |
+|---|---:|---:|---:|---:|---:|
+| **总体** | **0.916** | **17.9K** | **17.2K** | **0.6K** | **3.0** |
+| Knowledge Update | 0.974 | 9.7K | 9.3K | 0.5K | 2.2 |
+| Multi-session | 0.806 | 19.3K | 18.3K | 1.0K | 3.3 |
+| Single-session Assistant | 1.000 | 9.8K | 9.5K | 0.3K | 2.2 |
+| Single-session Preference | 0.933 | 11.8K | 11.0K | 0.9K | 2.7 |
+| Single-session User | 0.971 | 11.2K | 11.0K | 0.2K | 2.3 |
+| Temporal Reasoning | 0.940 | 29.2K | 28.5K | 0.7K | 4.0 |

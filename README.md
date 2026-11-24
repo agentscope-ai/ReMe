@@ -33,6 +33,8 @@
 such as QwenPaw and DeepSeek Harness can share the same workspace to retrieve, maintain, and evolve knowledge, while
 users retain control of the durable files.
 
+The **Proactive Runtime** uses that memory in ongoing tasks. It schedules work from new events or a cron expression, delegates execution to an agent runtime such as Codex, and records results and reminders in the workspace.
+
 - **Memory as File, File as Memory**: ReMe stores durable memory as ordinary Markdown with frontmatter and wikilinks.
   Users and agents can inspect, edit, move, sync, and back it up with familiar tools, while indexes and generated
   metadata remain rebuildable.
@@ -53,7 +55,7 @@ users retain control of the durable files.
 
 - [2026.11] - **`NEW`** **[HoMe](plugins/home/README.md) released**: an evaluation-driven framework that automatically
   optimizes ReMe's code, prompts, and configuration, raising LongMemEval and BEAM scores while reducing query-time tokens.
-- [2026.11] - **[ReMe5 Preview — Proactive Runtime](docs/en/reme5_preview.md)**. ReMe puts file-native memory at
+- [ROADMAP] - **[ReMe5 Preview — Proactive Runtime](docs/en/reme5_preview.md)**. ReMe puts file-native memory at
   the core of its event-driven and scheduled agents. Give ReMe a task to follow, and it will record new developments
   and let you know when your attention is needed. We aim to release ReMe5 **by the end of 2026**. Read the preview
   for the design, development plan, and milestones.
@@ -129,7 +131,7 @@ Install from source:
 ```bash
 git clone https://github.com/agentscope-ai/ReMe.git
 cd ReMe
-pip install -e reme_studio -e ".[core]"
+pip install -e reme_studio/web/python -e ".[core]"
 cd reme_studio
 npm ci
 npm run build:static
@@ -240,9 +242,9 @@ Related: [[digest/wiki/memory-as-file.md]]
 
 ### ReMe Studio (Optional)
 
-The `core` installation includes Studio. After starting ReMe, open <http://127.0.0.1:2333/> to browse, edit, and search
-the workspace. To add Studio to a base installation, use `pip install "reme-ai[web]"`. See the
-[ReMe Studio guide](https://reme.agentscope.io/en/workspace/studio) for source builds, configuration, and development.
+The `core` installation includes Studio. Run `reme start config=proactive`, then open <http://127.0.0.1:2333/> for
+Remy, Proactive AI, Notebook, and Knowledge. To add Studio to a base installation, use `pip install "reme-ai[web]"`. See the
+[ReMe Studio guide](https://github.com/agentscope-ai/ReMe/blob/main/reme_studio/README.md) for source builds and development.
 
 ## 🤝 Use ReMe with Your Agent
 
@@ -432,6 +434,7 @@ These guides cover the main user workflows and the runtime contracts implemented
 | [Auto Dream](https://reme.agentscope.io/en/auto_dream) and [Auto Link](https://reme.agentscope.io/en/auto_link) | Consolidate daily notes into evolving digest nodes and readable wikilink relationships.             |
 | [Memory Search](https://reme.agentscope.io/en/memory_search)                                 | Use BM25, optional vectors, RRF fusion, line-range recall, and progressive link expansion.          |
 | [Proactive](https://reme.agentscope.io/en/proactive)                                         | Read interest topics safely and integrate them into a host agent's decision flow.                   |
+| [Proactive Runtime](https://reme.agentscope.io/en/proactive_runtime) | Use long-term memory to follow tasks, act on events and schedules, and deliver reminders. |
 | [Application Scenarios](https://reme.agentscope.io/en/reme_scene)                            | Follow concrete financial research, coding-memory, and personal knowledge-base examples.           |
 | [Framework](https://reme.agentscope.io/en/framework)                                         | Understand Application, Job, Step, Component, service, configuration, and lifecycle boundaries.     |
 | [Agent Integrations](https://reme.agentscope.io/en/integrations)                             | Choose an interface and connect DSH, Claude Code, Codex, Qoder, OpenClaw, Hermes, or another agent. |

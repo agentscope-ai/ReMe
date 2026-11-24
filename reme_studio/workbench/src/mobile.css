@@ -1,0 +1,616 @@
+html:is([data-platform="android"], [data-platform="ios"]) {
+  --mobile-page: var(--page-opaque);
+  --mobile-quick: 150ms;
+  --mobile-motion: 285ms;
+  --mobile-ease: cubic-bezier(0.22, 0.75, 0.22, 1);
+  background: var(--mobile-page);
+}
+
+/* Keep explicit themes in CSS so the bundle's light-dark() fallback follows them. */
+html[data-theme="light"] {
+  color-scheme: light;
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+html[data-android-insets="pending"] .mobile-workbench {
+  visibility: hidden;
+}
+
+.mobile-workbench {
+  --mobile-drawer: var(--glass-opaque);
+  --mobile-width: min(324px, calc(100% - 64px));
+  --mobile-progress: var(--mobile-drag-progress, 0);
+  --mobile-offset: var(--mobile-drag-offset, 0px);
+  --page: var(--mobile-page);
+  --glass: var(--mobile-drawer);
+  --surface: var(--surface-opaque);
+  --text-body: 15px;
+  --text-caption: 13px;
+  position: relative;
+  isolation: isolate;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+  color: var(--ink);
+  background: var(--mobile-page);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mobile-workbench[data-menu] {
+  --mobile-offset: var(--mobile-drag-offset, var(--mobile-width));
+  --mobile-progress: var(--mobile-drag-progress, 1);
+}
+
+.mobile-workbench > .workspace-shell {
+  --titlebar-height: 57px;
+  --rail-width: 0px;
+  --glass-opaque: var(--mobile-page);
+  position: relative;
+  z-index: 2;
+  display: flex;
+  min-width: 0;
+  padding: var(--mobile-safe-top, 0px) var(--mobile-safe-right, 0px)
+    var(--mobile-safe-bottom, 0px) var(--mobile-safe-left, 0px);
+  background: var(--mobile-page);
+  transform: translateX(var(--mobile-offset));
+  border-radius: calc(26px * var(--mobile-progress)) 0 0
+    calc(26px * var(--mobile-progress));
+  transition:
+    transform var(--mobile-motion) var(--mobile-ease),
+    border-radius var(--mobile-motion) var(--mobile-ease);
+}
+
+.mobile-workbench[data-dragging]
+  > :is(.workspace-shell, .mobile-drawer, .mobile-drawer-dismiss) {
+  transition: none;
+}
+
+.mobile-workbench :is(.workspace-content, .settings-page, .settings-layout) {
+  width: 100%;
+  height: 100%;
+}
+
+.mobile-workbench .workspace-main {
+  background: var(--mobile-page);
+}
+
+.mobile-workbench .mobile-titlebar {
+  inset: 0 0 auto;
+  display: flex;
+  gap: 8px;
+  border: 0;
+  padding: 3px 16px 3px 10px;
+  background: var(--mobile-page);
+}
+
+.mobile-titlebar button,
+.mobile-menu-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 48px;
+  min-height: 48px;
+  border: 0;
+  border-radius: 15px;
+  color: var(--ink);
+  background: transparent;
+}
+
+.mobile-titlebar > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.mobile-drawer {
+  position: absolute;
+  z-index: 1;
+  inset: 0 auto 0 0;
+  width: var(--mobile-width);
+  overflow: hidden;
+  background: var(--mobile-drawer);
+  transform: translateX(calc((var(--mobile-progress) - 1) * 44px));
+  transition: transform var(--mobile-motion) var(--mobile-ease);
+}
+
+.mobile-menu-panel {
+  position: absolute;
+  inset: calc(var(--mobile-safe-top, 0px) + 10px) 13px
+    calc(var(--mobile-safe-bottom, 0px) + 12px)
+    calc(var(--mobile-safe-left, 0px) + 14px);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  transition:
+    transform var(--mobile-motion) var(--mobile-ease),
+    opacity var(--mobile-motion) var(--mobile-ease),
+    visibility 0s;
+}
+
+.mobile-menu-secondary {
+  visibility: hidden;
+  opacity: 0;
+  transform: translateX(24px);
+  transition-delay: 0s, 0s, var(--mobile-motion);
+}
+
+.mobile-workbench[data-menu="secondary"] .mobile-menu-primary {
+  visibility: hidden;
+  opacity: 0;
+  transform: translateX(-24px);
+  transition-delay: 0s, 0s, var(--mobile-motion);
+}
+
+.mobile-workbench[data-menu="secondary"] .mobile-menu-secondary {
+  visibility: visible;
+  opacity: 1;
+  transform: translateX(0);
+  transition-delay: 0s;
+}
+
+.mobile-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 6px 7px 23px;
+  font-size: 23px;
+  letter-spacing: -0.035em;
+}
+
+.mobile-brand > span {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border-radius: 13px 13px 13px 5px;
+  color: var(--accent-ink);
+  background: var(--accent);
+  font-weight: 650;
+}
+
+.mobile-modules {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  gap: 5px;
+  padding: 3px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.mobile-modules button {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+  min-height: 55px;
+  padding: 7px 11px;
+  border: 0;
+  border-radius: 16px;
+  color: var(--ink);
+  background: transparent;
+  font-size: 15px;
+  text-align: start;
+}
+
+.mobile-modules button[aria-current="page"] {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.mobile-modules button[data-module="settings"] {
+  margin-top: auto;
+}
+
+.mobile-module-icon {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: 12px;
+  color: var(--accent);
+  background: var(--surface-opaque);
+}
+
+.mobile-module-status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+}
+
+.mobile-unread {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.mobile-drawer-dismiss {
+  position: absolute;
+  z-index: 3;
+  inset: 0;
+  padding: 0;
+  border: 0;
+  border-radius: calc(26px * var(--mobile-progress)) 0 0
+    calc(26px * var(--mobile-progress));
+  background: var(--scrim);
+  opacity: var(--mobile-progress);
+  pointer-events: none;
+  transform: translateX(var(--mobile-offset));
+  transition:
+    transform var(--mobile-motion) var(--mobile-ease),
+    border-radius var(--mobile-motion) var(--mobile-ease),
+    opacity var(--mobile-motion) var(--mobile-ease);
+}
+
+.mobile-workbench[data-menu] .mobile-drawer-dismiss {
+  pointer-events: auto;
+}
+
+.mobile-menu-back {
+  align-self: flex-start;
+  padding: 0 10px;
+  color: var(--muted);
+}
+
+.mobile-sidebar-host {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.mobile-sidebar-host > .workspace-sidebar {
+  width: 100%;
+  min-width: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.mobile-sidebar-host .sidebar-heading {
+  padding: 10px 10px 13px;
+}
+
+.mobile-sidebar-host :is(.agent-row, .settings-nav button, .file-tree-row) {
+  min-height: 44px;
+}
+
+.mobile-sidebar-host .disclosure-chevron {
+  transition: rotate var(--mobile-motion) var(--mobile-ease);
+}
+
+.mobile-disclosure {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows var(--mobile-motion) var(--mobile-ease),
+    opacity var(--mobile-quick);
+}
+
+.mobile-disclosure[data-open="true"] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.mobile-disclosure > div {
+  min-height: 0;
+  overflow: clip;
+}
+
+.mobile-workbench details::details-content {
+  block-size: 0;
+  overflow: clip;
+  interpolate-size: allow-keywords;
+  transition:
+    block-size var(--mobile-motion) var(--mobile-ease),
+    content-visibility var(--mobile-motion) allow-discrete;
+}
+
+.mobile-workbench details[open]::details-content {
+  block-size: auto;
+}
+
+html:is([data-platform="android"], [data-platform="ios"]) .context-menu {
+  border-radius: 16px;
+  animation: mobile-content-in var(--mobile-quick) var(--mobile-ease);
+}
+
+html:is([data-platform="android"], [data-platform="ios"]) .context-menu button {
+  min-height: 44px;
+}
+
+.mobile-sidebar-host .eyebrow,
+.mobile-workbench .settings-detail .eyebrow {
+  display: none;
+}
+
+.mobile-workbench .conversation-pane {
+  gap: 0;
+}
+
+.mobile-workbench .conversation-pane[data-home="true"] {
+  justify-content: flex-start;
+}
+
+.mobile-workbench .conversation-pane[data-home="true"] .empty-chat {
+  width: min(calc(100% - 40px), 480px);
+  flex: 1;
+  min-height: min-content;
+  justify-content: center;
+  align-items: center;
+  padding: 20px 0 33px;
+  text-align: center;
+}
+
+.mobile-workbench .empty-chat::before {
+  content: "";
+  width: clamp(92px, 31vw, 138px);
+  aspect-ratio: 1;
+  margin-bottom: 16px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background:
+    url("./assets/remy-avatar.png") center / 104% auto no-repeat,
+    radial-gradient(
+      ellipse at 48% 52%,
+      var(--accent-soft) 34%,
+      transparent 73%
+    );
+}
+
+.mobile-workbench .conversation-pane[data-home="true"] .empty-chat h2 {
+  margin: 0;
+  font-size: clamp(23px, 5.8vw, 29px);
+  font-weight: 600;
+  letter-spacing: -0.045em;
+  line-height: 1.4;
+  text-wrap: balance;
+}
+
+.mobile-workbench .empty-chat > p:not(.start-hint) {
+  display: none;
+}
+
+.mobile-workbench .conversation-pane[data-home="true"] .conversation-prompts {
+  order: 1;
+  width: min(calc(100% - 36px), 734px);
+  justify-content: safe center;
+  flex-wrap: nowrap;
+  gap: 7px;
+  overflow-x: auto;
+  padding-block: 3px;
+  scrollbar-width: none;
+}
+
+.mobile-workbench
+  .conversation-pane[data-home="true"]
+  .conversation-prompts
+  button {
+  gap: 6px;
+  min-height: 44px;
+  padding-inline: 12px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--soft);
+}
+
+.mobile-workbench .conversation-prompts svg {
+  color: var(--accent);
+}
+
+.mobile-workbench .chat-composer {
+  order: 2;
+  width: min(100%, 770px);
+  margin-inline: auto;
+  padding: 9px 16px 11px;
+}
+
+.mobile-workbench .conversation-pane .chat-composer form {
+  min-height: 56px;
+  gap: 3px;
+  border-radius: 26px;
+  padding: 5px 6px 5px 15px;
+  transition:
+    border-color var(--mobile-quick),
+    box-shadow var(--mobile-quick);
+}
+
+.mobile-workbench .chat-composer form:focus-within {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.mobile-workbench .chat-composer textarea {
+  field-sizing: content;
+  min-height: 44px;
+  max-height: 112px;
+  padding-block: 10px;
+  font-size: 16px;
+  line-height: 24px;
+}
+
+.mobile-workbench .chat-composer :is(.send-button, .stop-button, .mic-button) {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  border-radius: 50%;
+}
+
+.mobile-workbench .send-button:disabled {
+  opacity: 1;
+  color: var(--muted);
+  background: var(--soft);
+}
+
+.mobile-workbench .chat-composer .composer-meta {
+  display: none;
+}
+
+.mobile-workbench .chat-history {
+  padding: 12px 16px 5px;
+  overscroll-behavior-y: contain;
+}
+
+.mobile-workbench .message {
+  margin-bottom: 23px;
+}
+
+.mobile-workbench .message.user {
+  border-radius: 20px 20px 5px 20px;
+  padding: 10px 15px;
+}
+
+.mobile-workbench .conversation-pane > :is(.connection-banner, .action-error) {
+  align-items: center;
+  margin: 5px 16px 6px;
+  padding: 8px 11px 8px 13px;
+  border-radius: 14px;
+}
+
+.mobile-workbench .conversation-pane > .action-error button {
+  min-width: 34px;
+  min-height: 32px;
+  text-decoration: none;
+  font-size: 17px;
+}
+
+.mobile-workbench .settings-detail-inner {
+  padding: 17px 16px 30px;
+}
+
+.mobile-workbench .resource-pane,
+.mobile-workbench .document-content {
+  padding-inline: 16px;
+}
+
+.mobile-workbench :where(button:not(.mobile-drawer-dismiss), .notebook-row) {
+  transition:
+    background-color var(--mobile-quick),
+    color var(--mobile-quick),
+    border-color var(--mobile-quick),
+    opacity var(--mobile-quick),
+    scale var(--mobile-quick) var(--mobile-ease);
+}
+
+.mobile-workbench :where(button:not(.mobile-drawer-dismiss, :disabled):active) {
+  scale: 0.95;
+}
+
+.mobile-workbench :is(.mobile-titlebar button, .mobile-menu-back):active {
+  background: var(--soft);
+}
+
+.mobile-workbench
+  :is(
+    .workspace-page > .split-pane > .workspace-main,
+    .settings-page > .settings-layout,
+    .agent-resource-page,
+    .agent-chat:not([hidden]),
+    .document-content,
+    .conversation-pane > .connection-banner,
+    .conversation-pane > .action-error,
+    .voice-status,
+    .chat-command-menu,
+    .jump-to-latest,
+    .message:last-child,
+    .message-actions,
+    .conversation-prompts,
+    .send-button,
+    .stop-button
+  ) {
+  animation: mobile-content-in 220ms var(--mobile-ease) backwards;
+}
+
+.mobile-workbench .empty-chat {
+  animation: mobile-content-in 360ms var(--mobile-ease) backwards;
+}
+
+@keyframes mobile-content-in {
+  from {
+    opacity: 0;
+    translate: 0 6px;
+  }
+}
+
+.mobile-workbench dialog {
+  max-height: calc(
+    100% - var(--mobile-safe-top, 0px) - var(--mobile-safe-bottom, 0px) - 24px
+  );
+  border-radius: 23px;
+  opacity: 0;
+  transform: translateY(10px) scale(0.975);
+  transition:
+    opacity var(--mobile-quick),
+    transform var(--mobile-motion) var(--mobile-ease),
+    overlay var(--mobile-motion) allow-discrete,
+    display var(--mobile-motion) allow-discrete;
+}
+
+.mobile-workbench dialog[open] {
+  opacity: 1;
+  transform: none;
+}
+
+.mobile-workbench dialog::backdrop {
+  background: var(--scrim);
+  opacity: 0;
+  transition:
+    opacity var(--mobile-motion),
+    overlay var(--mobile-motion) allow-discrete,
+    display var(--mobile-motion) allow-discrete;
+}
+
+.mobile-workbench dialog[open]::backdrop {
+  opacity: 1;
+}
+
+@starting-style {
+  .mobile-workbench dialog[open] {
+    opacity: 0;
+    transform: translateY(10px) scale(0.975);
+  }
+
+  .mobile-workbench dialog[open]::backdrop {
+    opacity: 0;
+  }
+}
+
+@media (max-height: 480px) {
+  .mobile-workbench .empty-chat::before {
+    width: 73px;
+    margin-bottom: 9px;
+  }
+
+  .mobile-workbench .conversation-pane[data-home="true"] .empty-chat {
+    padding-block: 8px;
+  }
+}
+
+html[data-keyboard="true"] .mobile-workbench .chat-composer {
+  padding-bottom: 7px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-workbench,
+  .mobile-workbench *,
+  .mobile-workbench *::before,
+  .mobile-workbench *::after,
+  .mobile-workbench *::backdrop,
+  html:is([data-platform="android"], [data-platform="ios"]) .context-menu {
+    transition: none !important;
+    animation: none !important;
+    scale: none !important;
+  }
+
+  .mobile-workbench details::details-content {
+    transition: none;
+  }
+}

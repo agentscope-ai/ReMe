@@ -68,6 +68,8 @@ def _init_loguru(log_dir: str, level: str, log_to_console: bool, log_to_file: bo
             level=level,
             format=_LOGURU_FORMAT,
             colorize=True,
+            backtrace=False,
+            diagnose=False,
         )
 
     if log_to_file:
@@ -84,6 +86,8 @@ def _init_loguru(log_dir: str, level: str, log_to_console: bool, log_to_file: bo
                 compression="zip",
                 encoding="utf-8",
                 format=_LOGURU_FORMAT,
+                backtrace=False,
+                diagnose=False,
             )
         except Exception as e:
             logger.error(f"Error configuring file logging: {e}")

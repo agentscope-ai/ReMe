@@ -1,21 +1,29 @@
 """Tree-based repetition checks through real Jobs with fake Docker/model boundaries."""
 
 # pylint: disable=missing-function-docstring,redefined-outer-name,unused-argument
+# pylint: disable=protected-access
 
 import asyncio
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from agentscope.state import AgentState
 
+from reme_home.agent import optimizer
+from reme_home.evaluation import repetition
+from reme_home.evaluation.artifacts import write_json
 from reme_home.evaluation.repetition import retryable_result
 from test_evaluation import (  # noqa: F401  # pylint: disable=unused-import
     FakeFactory,
+    commit_candidate,
     command,
     home_application,
     preparation_inputs,
     prepared_home,
+    rebuild_review,
 )
 
 
@@ -24,8 +32,206 @@ def artifacts(home):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["init_to_candidate", "candidate_to_init", "branch", "commit"])
+async def test_optimizer_rejects_checkout_changes_before_admission(app, prepared, monkeypatch, change):
+    from reme_home.agent import candidate_gate
+
+    repo = prepared / "code/repo"
+    if change != "init_to_candidate":
+        commit_candidate(prepared)
+    expected = optimizer.evaluation_checkout(prepared)
+    review = AsyncMock(side_effect=AssertionError("Stale requests must not invoke an admission model"))
+    monkeypatch.setattr(candidate_gate, "review_candidate", review)
+    evaluate_job = app.context.jobs["home_evaluate"]
+
+    class SwitchingJob:
+        """Switch after the optimizer binds its request, before the real Job starts."""
+
+        enabled = is_started = True
+
+        async def __call__(self, **kwargs):
+            assert kwargs["expected_commit"] == expected["expected_commit"]
+            assert kwargs["expected_branch"] == expected["expected_branch"]
+            assert kwargs["sampling"] == expected["sampling"]
+            if change in {"init_to_candidate", "commit"}:
+                commit_candidate(prepared)
+            else:
+                if change == "candidate_to_init":
+                    command(repo, "switch", "init")
+                else:
+                    command(repo, "switch", "-c", "other")
+            return await evaluate_job(**kwargs)
+
+    wrapper = SimpleNamespace(app_context=SimpleNamespace(jobs={"home_evaluate": SwitchingJob()}))
+    tool = optimizer.evaluation_tool(
+        wrapper,
+        {"sampling_policy": {"max_cases": 1}},
+        home=prepared,
+    )
+    response = await tool._func(_agent_state=AgentState())
+    assert not response["success"]
+    assert "Checkout changed before evaluation" in str(response["answer"])
+    review.assert_not_called()
+    assert not FakeFactory.instances
+    assert not list((prepared / "evaluations").glob("*/*/*/manifest.json"))
+
+
+@pytest.mark.asyncio
+async def test_bound_checkout_is_rechecked_when_snapshot_is_fixed(app, prepared, monkeypatch):
+    from reme_home.evaluation import component
+
+    expected = optimizer.evaluation_checkout(prepared)
+    original = component.snapshot_code
+
+    def switch_before_snapshot(*args, **kwargs):
+        # The early check passed; simulate a switch before the snapshot lock was acquired.
+        commit_candidate(prepared)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(component, "snapshot_code", switch_before_snapshot)
+    response = await app.run_job("home_evaluate", **expected, max_evaluations=10)
+    assert not response.success
+    assert "Checkout changed before evaluation" in str(response.answer)
+    assert not FakeFactory.instances
+
+
+@pytest.mark.parametrize("binding", [{"expected_commit": "abc"}, {"expected_branch": "init"}])
+def test_checkout_binding_requires_both_commit_and_branch(binding):
+    from reme_home.evaluation.inputs import EvaluationSpec
+
+    with pytest.raises(ValueError, match="must be supplied together"):
+        EvaluationSpec(**binding)
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("rebuild_review")
+async def test_bound_checkout_preserves_init_full_and_candidate_sampled(app, prepared):
+    initial = optimizer.evaluation_checkout(prepared)
+    assert not initial["sampling"] and initial["expected_branch"] == "init"
+    response = await app.run_job("home_evaluate", **initial, sampling_policy={"max_cases": 1})
+    assert response.success, response.answer
+    assert len(json.loads((Path(response.answer["result_dir"]) / "manifest.json").read_text())["case_ids"]) == 2
+    commit_candidate(prepared)
+    candidate = optimizer.evaluation_checkout(prepared)
+    assert candidate["sampling"]
+    response = await app.run_job("home_evaluate", **candidate, sampling_policy={"max_cases": 1})
+    assert response.success, response.answer
+    assert len(json.loads((Path(response.answer["result_dir"]) / "manifest.json").read_text())["case_ids"]) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("direct", [False, True])
+@pytest.mark.parametrize("alias", [False, True])
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"sampling": True},
+        {"case_ids": ["1"]},
+        {"case_ids": ["1"], "query_ids": {"1": ["fact:1"]}},
+        {"reuse_construction_from": "evaluations/init/old/1"},
+    ],
+)
+async def test_init_rejects_partial_formal_evaluation_before_sandbox(app, prepared, options, direct, alias):
+    if alias:
+        response = await app.run_job("home_create_candidate_branch", branch_name="initial-alias")
+        assert response.success, response.answer
+    before = len(FakeFactory.instances)
+    if direct:
+        with pytest.raises(ValueError, match="init requires all training cases and queries"):
+            await app.context.components["home.evaluation"]["default"].evaluate(**options)
+    else:
+        response = await app.run_job("home_evaluate", **options)
+        assert not response.success
+        assert "init requires all training cases and queries" in str(response.answer)
+    assert len(FakeFactory.instances) == before
+    assert not list((prepared / "evaluations").glob("*/*/*/manifest.json"))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("infra_error", [False, True])
+async def test_legacy_init_subset_cannot_block_or_narrow_full_baseline(app, prepared, infra_error):
+    response = await app.run_job("home_evaluate")
+    assert response.success, response.answer
+    run = Path(response.answer["result_dir"])
+    manifest = json.loads((run / "manifest.json").read_text())
+    full_queries = manifest["query_ids"]
+    manifest["case_ids"] = ["1"]
+    manifest["query_ids"] = {"1": full_queries["1"]}
+    write_json(run / "manifest.json", manifest)
+    if infra_error:
+        summary = json.loads((run / "summary.json").read_text())
+        summary["case_status_counts"]["infra_error"] = 1
+        write_json(run / "summary.json", summary)
+    response = await app.run_job("home_evaluate")
+    assert response.success, response.answer
+    new_manifest = json.loads((Path(response.answer["result_dir"]) / "manifest.json").read_text())
+    assert new_manifest["query_ids"] == full_queries
+    assert new_manifest["case_ids"] == list(full_queries)
+
+
+@pytest.mark.asyncio
+async def test_init_rejects_partial_queries_even_when_all_cases_are_selected(app, inputs):
+    source = Path(inputs[0]["benchmark"]["source"])
+    for path in source.glob("chats/*/*/probing_questions/probing_questions.json"):
+        raw = json.loads(path.read_text())
+        raw["fact"].append(dict(raw["fact"][0], question="second question", rubric=["says hello"]))
+        path.write_text(json.dumps(raw))
+    assert (await app.run_job("home_prepare", spec=inputs[0])).success
+    response = await app.run_job("home_evaluate", query_ids={"1": ["fact:1"]})
+    assert not response.success
+    assert "init requires all training cases and queries" in str(response.answer)
+
+
+def test_tree_lookup_is_cached_without_skipping_attempts(tmp_path, monkeypatch):
+    repo = tmp_path / "code/repo"
+    repo.mkdir(parents=True)
+    runs = {
+        commit: [tmp_path / f"evaluations/{commit}/{commit}/{attempt}" for attempt in (1, 2)]
+        for commit in ("current", "other")
+    }
+    for commit, attempts in runs.items():
+        for run in attempts:
+            write_json(run / "manifest.json", {"commit_sha": commit})
+
+    lookups = []
+
+    def git_tree(repository, *args):
+        assert repository == repo and args[:3] == ("rev-parse", "--verify", "--end-of-options")
+        lookups.append(args[-1])
+        return args[-1]
+
+    monkeypatch.setattr(repetition, "git", git_tree)
+    assert repetition.previous_candidate_result(tmp_path, "current") == runs["current"][1]
+    assert lookups == ["current^{tree}", "other^{tree}"]
+
+    completed = runs["current"][0]
+    write_json(completed / "summary.json", {"cases": {"1": {"status": "completed"}}})
+    with pytest.raises(repetition.UnchangedCandidateError) as error:
+        repetition.previous_candidate_result(tmp_path, "current")
+    assert error.value.path == completed
+
+
+def test_recovery_order_uses_attempt_ids_within_branch_and_start_time_across_branches(tmp_path, monkeypatch):
+    (tmp_path / "code/repo").mkdir(parents=True)
+    monkeypatch.setattr(repetition, "git", lambda _repo, *args: args[-1])
+
+    def attempt(branch, number, started_at):
+        run = tmp_path / f"evaluations/{branch}/current/{number}"
+        write_json(run / "manifest.json", {"commit_sha": "current", "started_at": started_at})
+        return run
+
+    attempt("z", 9, "2026-11-20T00:00:00+00:00")
+    tenth = attempt("z", 10, "2026-11-20T00:00:00+00:00")
+    assert repetition.previous_candidate_result(tmp_path, "current") == tenth
+
+    other_branch = attempt("a", 1, "2026-11-20T01:00:00+00:00")
+    assert repetition.previous_candidate_result(tmp_path, "current") == other_branch
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("options", [{}, {"sampling": True}, {"record_history": False}, {"case_ids": ["1"]}])
 async def test_completed_tree_rejected_before_pool_allocation_or_history_changes(app, prepared, options):
+    commit_candidate(prepared)
     baseline = await app.run_job("home_evaluate")
     assert baseline.success
     before = artifacts(prepared)
@@ -165,6 +371,7 @@ async def test_cancelled_evaluation_retries_after_pool_cleanup(app, prepared, mo
 
 @pytest.mark.asyncio
 async def test_replay_and_corrupt_sampling_cache_cannot_bypass_guard(app, prepared):
+    commit_candidate(prepared)
     baseline = await app.run_job("home_evaluate")
     assert baseline.success
     (prepared / "sampling/state.json").write_text("invalid cache")
@@ -190,6 +397,7 @@ async def test_sampled_recovery_preserves_cases_queries_and_order(
         raw["fact"] = [dict(raw["fact"][0], question=f"question {i}", rubric=["says hello"]) for i in range(4)]
         path.write_text(json.dumps(raw))
     assert (await app.run_job("home_prepare", spec=inputs[0])).success
+    commit_candidate(Path(app.config.workspace_dir) / "home")
     monkeypatch.setattr("reme_home.evaluation.component.DockerReMeSandboxFactory", FakeFactory)
     FakeFactory.instances = []
     monkeypatch.setattr(
@@ -246,6 +454,7 @@ async def test_sampled_recovery_preserves_cases_queries_and_order(
 
 @pytest.mark.asyncio
 async def test_recovery_before_sandbox_start_keeps_original_explicit_selection(app, prepared, monkeypatch):
+    commit_candidate(prepared)
     original = FakeFactory.create_cases
 
     async def fail(*args, **kwargs):
@@ -269,6 +478,7 @@ async def test_recovery_before_sandbox_start_keeps_original_explicit_selection(a
     [{"case_ids": None}, {"query_ids": None}, {"query_ids": {}}, {"query_ids": {"1": ["missing"]}}],
 )
 async def test_invalid_saved_recovery_selection_fails_before_allocation(app, prepared, monkeypatch, mutation):
+    commit_candidate(prepared)
     monkeypatch.setattr(FakeFactory, "bad_export", True)
     assert not (await app.run_job("home_evaluate", case_ids=["1"])).success
     path = next((prepared / "evaluations").glob("*/*/*/manifest.json"))

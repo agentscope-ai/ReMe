@@ -9,10 +9,10 @@ from unittest.mock import Mock
 import pytest
 
 from reme.enumeration import ChunkEnum
-from reme.schema import Response, StreamChunk
+from reme.schema import Event, Response, StreamChunk
 from reme.steps.proactive.agent import ProactiveAgentStep
 from reme.utils.counter import global_counter_get
-from .test_agent_runtime import create_agent, running_runtime
+from .test_proactive_runtime import create_agent, running_runtime
 from .test_proactive_run import create_round_task, install_round, queue_cron_trigger
 
 
@@ -26,9 +26,9 @@ async def test_statistics_separate_agent_types_and_count_snapshots_once(tmp_path
                 await queue_cron_trigger(runtime, mode, monkeypatch)
             else:
                 await runtime.create(config)
-                await runtime.append(
+                await runtime.append_events(
                     mode,
-                    {"id": mode, "event_ts": runtime.now(), "source": "experiment", "description": "Done"},
+                    [Event(id=mode, event_ts=runtime.now(), source="experiment", description="Done")],
                 )
             now = runtime.now()
             monkeypatch.setattr(runtime, "now", lambda current=now: current)
@@ -85,7 +85,7 @@ async def test_run_result_is_distinct_from_model_status(tmp_path, monkeypatch, f
         paths = step._paths(await runtime.definition("monitor"), now)
         install_round(runtime, wrapper, monkeypatch, paths, failed=failure == "model")
         if failure == "commit":
-            monkeypatch.setattr(runtime.outbox, "save", AsyncMock(side_effect=OSError("Commit failed")))
+            monkeypatch.setattr(runtime.inbox, "ack", AsyncMock(side_effect=OSError("Commit failed")))
             with pytest.raises(OSError, match="Commit failed"):
                 await step(agent_name="monitor")
         else:
@@ -206,7 +206,7 @@ async def test_local_search_budget_warns_once_without_interrupting(tmp_path, mon
 
         monkeypatch.setattr(wrapper, "reply_stream", stream)
         response = await step(agent_name="monitor")
-        assert response.success and paths["today_summary_path"].exists()
+        assert response.success and paths["record_path"].exists()
         stats = response.metadata["reme.agent_run"]
         assert stats["tool_calls"] == 13
         assert stats["web_lookup_calls"] == 4 and stats["local_search_calls"] == 5

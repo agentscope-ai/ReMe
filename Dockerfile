@@ -1,11 +1,11 @@
 # syntax=docker/dockerfile:1
 
 FROM node:22-bookworm-slim AS studio-builder
-WORKDIR /build/reme_studio
-COPY reme_studio/package.json reme_studio/package-lock.json ./
-RUN --mount=type=cache,target=/root/.npm npm ci
-COPY reme_studio/ ./
-RUN npm run build:static && test -f dist-static/index.html
+WORKDIR /build
+COPY reme/_version.py reme/_version.py
+COPY reme_studio/ reme_studio/
+RUN --mount=type=cache,target=/root/.npm npm ci --prefix reme_studio --ignore-scripts
+RUN npm run build:static --prefix reme_studio && test -f reme_studio/web/dist-static/index.html
 
 FROM python:3.11-slim-bookworm AS python-builder
 RUN apt-get update \
@@ -14,15 +14,14 @@ RUN apt-get update \
 WORKDIR /build
 COPY pyproject.toml README.md LICENSE ./
 COPY reme/ reme/
-COPY reme_studio/pyproject.toml reme_studio/README.md reme_studio/LICENSE reme_studio/
-COPY reme_studio/src/ reme_studio/src/
-COPY --from=studio-builder /build/reme_studio/dist-static/ reme_studio/dist-static/
+COPY reme_studio/web/python/ reme_studio/web/python/
+COPY --from=studio-builder /build/reme_studio/web/dist-static/ reme_studio/web/dist-static/
 COPY scripts/package_studio.py scripts/package_studio.py
 RUN python scripts/package_studio.py && python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
 RUN --mount=type=cache,target=/root/.cache/pip \
     python -m pip install --upgrade pip \
-    && python -m pip install ./reme_studio ".[core,image-heif]" \
+    && python -m pip install ./reme_studio/web/python ".[core,image-heif]" \
     && python -m pip check
 # Check installed resources away from the checkout, so source files cannot mask
 # incomplete wheels or a Studio package fetched accidentally from PyPI.

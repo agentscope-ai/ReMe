@@ -306,6 +306,8 @@ components:
 
 修改 embedding 模型或维度后，应重新构建 embedding 索引。
 
+配置 `components.proactive_runtime.default` 可选择 Inbox、执行 Wrapper、Remy 初始记忆、后台任务和提醒延迟。参见[主动智能运行时](./services.md#proactive-runtime)。
+
 ## Service 和 Job
 
 最小 HTTP 配置：

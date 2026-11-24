@@ -50,7 +50,7 @@ class HttpService(BaseService):
         self,
         host: str = REME_DEFAULT_HOST,
         port: int = REME_DEFAULT_PORT,
-        web_enabled: bool = True,
+        web_enabled: bool = False,
         web_static_dir: str | None = None,
         mcp_enabled: bool = True,
         mcp_path: str = DEFAULT_MCP_PATH,

@@ -28,7 +28,18 @@ def prepare_equivalence_scope(home, context, spec, cases, fingerprints, *, root)
     runtime = contained(home, "code/runtime", directory=True)
     if tree_fingerprint(runtime) != record["code"]["runtime_fingerprint"]:
         raise ValueError("Fixed runtime has changed since preparation")
-    _, archives = reuse_inputs(home, spec, cases, fingerprints)
+    hashes = context.get("workspace_sha256")
+    if hashes is None:
+        _, archives = reuse_inputs(home, spec, cases, fingerprints)
+    else:
+        source = contained(home, context["source_validation"], directory=True)
+        archives = {
+            case.case_id: (
+                contained(source, f"cases/{case.case_id}/memory_construction/reme_workspace.tar.gz"),
+                hashes[case.case_id],
+            )
+            for case in cases
+        }
     scope = prepare_review_scope(home, context, root=root)
     shutil.copytree(runtime, root / "runtime")
     write_json(root / "configuration.json", record["code"])
@@ -44,9 +55,12 @@ def prepare_equivalence_scope(home, context, spec, cases, fingerprints, *, root)
         # Validate every member, even excluded Git entries. Never copy query
         # outputs, follow links, or trust the previously extracted workspace.
         extracted = target / "workspace"
-        inspect_archive(archive, spec.max_artifact_bytes, extracted)
-        if file_sha256(archive) != expected_sha:
-            raise ValueError(f"Construction source changed during review export: {case_id}")
+        retained = target / "reme_workspace.tar.gz"
+        shutil.copyfile(archive, retained)
+        if file_sha256(retained) != expected_sha:
+            raise ValueError(f"Construction source changed before review export: {case_id}")
+        inspect_archive(retained, spec.max_artifact_bytes, extracted)
+        retained.unlink()
         for path in sorted(extracted.rglob(".git"), key=lambda value: len(value.parts), reverse=True):
             if path.is_dir():
                 shutil.rmtree(path)

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ReMe</string>
+    <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/studio_surface</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:colorAccent">#1C1E21</item>
+    </style>
+</resources>
