@@ -57,11 +57,10 @@ The **Proactive Runtime** uses that memory in ongoing tasks. It schedules work f
   the core of its event-driven and scheduled agents. Give ReMe a task to follow, and it will record new developments
   and let you know when your attention is needed. We aim to release ReMe5 **by the end of 2026**. Read the preview
   for the design, development plan, and milestones.
-- [2026.11] - **`NEW`** **[HoMe](plugins/home/README.md) released**: an evaluation-driven framework that automatically
+- [2026.11] - **`NEW`** **[HoMe](docs/en/blog_20261124.md) released**: an evaluation-driven framework that automatically
   optimizes ReMe's code, prompts, and configuration. Compared with the base ReMe plugins, HoMe raises the score on the
-  LongMemEval test set (250 questions) from 88.8% to 91.6% (+2.8 percentage points), while reducing average query-time
-  tokens by 59.2%. On BEAM 1M, the score rises from 65.0% to 70.4% (+5.4 percentage points), with 40.7% fewer average
-  query-time tokens.
+  LongMemEval test set (250 questions) by 2.8 percentage points and reduces average query-time tokens by 59.2%.
+  On BEAM 1M, the score rises by 5.4 percentage points and average query-time tokens drop by 40.7%.
 - [2026.10] - **[Decision-model context compaction](docs/en/context_compaction.md)**: score old tool calls and results
   against the next action, preserve protected history, and return a recoverable compaction proposal. Includes an SVG
   walkthrough, two live-model integration scenarios, and a 14-query fixed-summary Top-N benchmark with a forced Hermes summary baseline.

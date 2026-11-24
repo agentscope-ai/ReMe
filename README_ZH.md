@@ -54,9 +54,9 @@
 - [ROADMAP] - **[ReMe5 前瞻 · Proactive Runtime](docs/zh/reme5_preview.md)**。ReMe 将以文件化记忆为核心，
   支持事件驱动和定时 Agent。你可以把需要持续跟进的事交给 ReMe，有新进展时它会记下来，并在需要时提醒你。
   我们计划在 **2026 年底前**发布 ReMe5，欢迎先看我们的设计方案、开发计划和里程碑。
-- [2026.11] - **`NEW`** **[HoMe](plugins/home/README.md) 上线**：评测驱动的记忆系统自动优化框架，自动改进 ReMe 的代码、prompt 与配置，
-  相比 ReMe 基础插件，在 LongMemEval 测试集（250 题）上，Score 从 88.8% 提升至 91.6%（+2.8 个百分点），平均 query token 降低 59.2%；
-  在 BEAM 1M 上，Score 从 65.0% 提升至 70.4%（+5.4 个百分点），平均 query token 降低 40.7%。
+- [2026.11] - **`NEW`** **[HoMe](docs/zh/blog_20261124.md) 上线**：评测驱动的记忆系统自动优化框架，自动改进 ReMe 的代码、prompt 与配置，
+  相比 ReMe 基础插件，在 LongMemEval 测试集（250 题）上，Score 提升 2.8 个百分点，平均 query token 降低 59.2%；
+  在 BEAM 1M 上，Score 提升 5.4 个百分点，平均 query token 降低 40.7%。
 - [2026.10] - **[基于决策模型的上下文压缩](docs/zh/context_compaction.md)**：根据下一步任务判断旧工具证据的保留价值，
   保护关键历史，并返回可回溯的压缩建议；提供 SVG 流程图、两个真实模型集成场景和 14-query 固定摘要实验，包含强制 Hermes 摘要基线。
 - [2026.10] - **[ReMe 多模态记忆更新](https://reme.agentscope.io/zh/blog_20261009)**：Auto Memory 将会话图片和上下文一起

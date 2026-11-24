@@ -203,7 +203,6 @@ function pluginsSidebar(language: "zh" | "en"): DefaultTheme.SidebarItem[] {
       { text: zh ? "插件开发" : "Plugin Development", link: `/${language}/plugin_development` },
       { text: zh ? "每日论文" : "Daily Paper", link: `/${language}/plugins/daily-paper` },
       { text: "Auto Fin", link: `/${language}/plugins/auto-fin` },
-      { text: "HoMe", link: `/${language}/plugins/home` },
       { text: "LME", link: `/${language}/plugins/lme` },
       { text: "BEAM", link: `/${language}/plugins/beam` },
     ],
@@ -237,6 +236,7 @@ function singlePageSidebar(language: "zh" | "en", page: "blog" | "faq"): Default
         { text: zh ? "ReMe介绍" : "About ReMe", link: `/${language}/reme-blog` },
         { text: zh ? "记忆标签" : "Memory Tags", link: `/${language}/blog_20260920` },
         { text: zh ? "图片记忆" : "Image Memory", link: `/${language}/blog_20261009` },
+        { text: "HoMe", link: `/${language}/blog_20261124` },
       ],
     }];
   }

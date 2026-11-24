@@ -60,6 +60,8 @@ const requiredFiles = [
   "en/blog_20260920.html",
   "zh/blog_20261009.html",
   "en/blog_20261009.html",
+  "zh/blog_20261124.html",
+  "en/blog_20261124.html",
   "zh/benchmarks/memlens.html",
   "en/benchmarks/memlens.html",
   "zh/benchmarks/mobilemem.html",
@@ -119,7 +121,10 @@ assert.doesNotMatch(EnglishBlog, /full article is currently available in Chinese
 
 for (const language of ["zh", "en"]) {
   const multimodalBlog = await readFile(path.join(outputDir, language, "blog_20261009.html"), "utf8");
+  const homeBlogRoute = `/${language}/blog_20261124`;
+  assert.ok(multimodalBlog.includes(`href="${homeBlogRoute}"`), "the blog sidebar must link to the HoMe article");
   const overview = await readFile(path.join(outputDir, language, "overview.html"), "utf8");
+  assert.match(overview, /href="\.\/blog_20261124">HoMe<\/a>/, "the project overview must link to the HoMe article");
   const configLink = overview.match(/<a\b[^>]*href="([^"]+)"[^>]*>\s*<code>reme\/config\/default\.yaml<\/code>\s*<\/a>/);
   assert.equal(
     configLink?.[1],
