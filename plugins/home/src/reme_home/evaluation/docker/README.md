@@ -1,6 +1,6 @@
-# Benchmark Docker runner
+# Home benchmark Docker runner
 
-This package runs ReMe benchmark jobs directly inside isolated AgentScope
+Home runs ReMe benchmark jobs directly inside isolated AgentScope
 Docker workspaces. It does not start the ReMe HTTP service. Use AgentScope
 **2.0.11** on the host and in the image.
 
@@ -8,11 +8,11 @@ Rebuild the base image when upgrading from an older AgentScope image;
 existing images must also use 2.0.11 to pass candidate validation. New runs use
 the `reme-benchmark-base:agentscope-2.0.11` tag by default, including Home evaluations.
 
-From the repository root:
+From the repository root, install ReMe and HoMe together and build the base image.
 
 ```bash
-pip install -e '.[benchmark-docker]'
-docker build -f deploy/benchmark_docker/Dockerfile.base \
+python -m pip install -e . ./plugins/home
+docker build -f plugins/home/src/reme_home/evaluation/docker/Dockerfile.base \
   -t reme-benchmark-base:agentscope-2.0.11 .
 ```
 
@@ -26,7 +26,7 @@ The included `Dockerfile.candidate` is an example of that image mode.
 import asyncio
 from pathlib import Path
 
-from deploy.benchmark_docker import (
+from reme_home.evaluation.docker import (
     BenchmarkDockerPool, CasePlan, DockerReMeSandboxFactory,
     EvaluationQuery, JobRequest, SourceCandidate, SourceSnapshot,
 )
@@ -145,12 +145,12 @@ archives reject links, special files, duplicate paths, and traversal paths.
 Source snapshots exclude VCS state, credentials, benchmark data, and generated
 artifacts; review custom source trees for other secrets before uploading.
 
-`tests/unit/test_benchmark_docker.py` runs without Docker. The credential-free
+`plugins/home/tests/benchmark_docker/` contains the unit tests. The credential-free
 container smoke tests build the base image and temporary candidate images when
 explicitly enabled:
 
 ```bash
-REME_DOCKER_INTEGRATION=1 pytest tests/integration/test_benchmark_docker.py -v
+REME_DOCKER_INTEGRATION=1 pytest plugins/home/tests/benchmark_docker/test_integration.py -v
 ```
 
 The host must have AgentScope 2.0.11 and a working Docker daemon. To use an

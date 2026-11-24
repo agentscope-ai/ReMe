@@ -6,7 +6,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from deploy.docker import reme_container
+from scripts import reme_container
 from reme.config import parse_kwargs, resolve_app_config
 
 

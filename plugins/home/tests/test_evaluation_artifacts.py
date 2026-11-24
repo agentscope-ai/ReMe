@@ -381,7 +381,7 @@ async def test_judge_interruption_preserves_all_frozen_answers_and_compacts_each
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
 
-    from deploy.benchmark_docker.pool import CaseResult
+    from reme_home.evaluation.docker.pool import CaseResult
     from reme_home.evaluation.component import HomeEvaluation
     from reme_home.evaluation.inputs import EvaluationSpec
 
