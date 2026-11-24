@@ -1,16 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { errorText, translator } from "../../../client/src/i18n.ts";
 import type { AgentView, StudioState } from "../../../client/src/protocol.ts";
-import type {
-  TaskDocument,
-  ProactiveRuntimeSettings,
-} from "../../../client/src/tasks.ts";
-import { formatDate, useResource } from "../resources.ts";
-import TaskSettingsFields from "./settings.tsx";
 import {
   changedTaskSettings,
   taskSettings,
+  type TaskDocument,
 } from "../../../client/src/tasks.ts";
+import { formatDate, useResource } from "../resources.ts";
+import { taskSettingsDraft, toRuntimeSettings } from "./settings-draft.ts";
+import TaskSettingsFields from "./settings.tsx";
 import "./tasks.css";
 
 const tabs = [
@@ -37,15 +35,7 @@ export default function TaskEditor({
   const [content, setContent] = useState("");
   const [document, setDocument] = useState<TaskDocument>();
   const [baseline, setBaseline] = useState(() => agent && taskSettings(agent));
-  const [settings, setSettings] = useState<ProactiveRuntimeSettings>(
-    () =>
-      baseline ?? {
-        enabled: true,
-        cron: null,
-        min_trigger_interval_seconds: 0,
-        notify_window: null,
-      },
-  );
+  const [settings, setSettings] = useState(() => taskSettingsDraft(baseline));
   const [tab, setTab] = useState<(typeof tabs)[number][0]>("description");
   const [loading, setLoading] = useState(!create);
   const [retry, setRetry] = useState(0);
@@ -97,7 +87,7 @@ export default function TaskEditor({
           action: "create",
           agent_name: name,
           task_description: content,
-          settings,
+          settings: toRuntimeSettings(settings),
         });
         if (live.current) onCreated(result.agent_name);
       } else if (tab === "description" && document) {
@@ -115,7 +105,8 @@ export default function TaskEditor({
           setSaved(true);
         }
       } else if (tab === "settings" && baseline) {
-        const changes = changedTaskSettings(baseline, settings);
+        const updated = toRuntimeSettings(settings, baseline);
+        const changes = changedTaskSettings(baseline, updated);
         if (Object.keys(changes).length)
           await requestResource({
             type: "task",
@@ -124,7 +115,7 @@ export default function TaskEditor({
             settings: changes,
           });
         if (live.current) {
-          setBaseline(settings);
+          setBaseline(updated);
           setSaved(true);
         }
       }
@@ -167,7 +158,7 @@ export default function TaskEditor({
                 setSaved(false);
                 const value = taskSettings(agent);
                 setBaseline(value);
-                setSettings(value);
+                setSettings(taskSettingsDraft(value));
                 setRetry((value) => value + 1);
               }}
             >
@@ -237,7 +228,6 @@ export default function TaskEditor({
             )}
             {(create || tab === "settings") && (
               <TaskSettingsFields
-                key={retry}
                 create={create}
                 value={settings}
                 timezone={state.clientInfo?.timezone ?? null}

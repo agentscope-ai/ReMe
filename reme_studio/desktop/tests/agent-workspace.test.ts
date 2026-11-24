@@ -97,13 +97,26 @@ test("main Chat and task workspaces expose their scoped pages and current conver
         ].map(([, name]) => name),
         ["对话", "提醒", "MEMORY.md", "收件箱"],
       );
-      assert.doesNotMatch(sidebar, /finance|管理任务|TASK\.md|发件箱/);
+      assert.doesNotMatch(sidebar, /finance|管理任务|TASK\.md|发件箱|搜索任务/);
       assert.match(html, /<dialog[^>]*>.*清空当前对话的上下文？.*<\/dialog>/);
       assert.match(
         sidebar,
         /class="agent-status"[^>]*data-badge="true"[^>]*>空闲<\/span>/,
       );
     } else {
+      assert.match(sidebar, /role="searchbox" aria-label="搜索任务"/);
+      assert.deepEqual(
+        [
+          ...sidebar.matchAll(
+            /aria-pressed="(true|false)"[^>]*>(全部|事件触发|时间触发)</g,
+          ),
+        ].map(([, pressed, label]) => [label, pressed]),
+        [
+          ["全部", "true"],
+          ["事件触发", "false"],
+          ["时间触发", "false"],
+        ],
+      );
       assert.match(sidebar, /<ul class="agent-list">/);
       assert.deepEqual(
         [

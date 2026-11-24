@@ -1840,6 +1840,15 @@ html[data-view] .workspace-titlebar {
   min-height: 0;
   padding-block-end: var(--sidebar-inset);
 }
+.task-filter-tabs {
+  --source-tab-count: 3;
+}
+.task-filter-tabs[data-filter="event"] {
+  --source-tab-index: 1;
+}
+.task-filter-tabs[data-filter="time"] {
+  --source-tab-index: 2;
+}
 .agent-navigation {
   flex: 1;
   min-height: 0;
@@ -1873,6 +1882,14 @@ html[data-view] .workspace-titlebar {
 .agent-row-menu[aria-expanded="true"] {
   background: var(--accent-soft);
   color: var(--ink);
+}
+.agent-list .agent-row-controls > .agent-row {
+  min-height: 44px;
+  padding-inline-end: 40px;
+}
+.agent-list .agent-row-menu {
+  width: 34px;
+  height: 36px;
 }
 .agent-trigger {
   flex-shrink: 0;

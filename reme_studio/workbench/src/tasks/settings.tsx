@@ -1,8 +1,103 @@
-import type { Language } from "../../../client/src/i18n.ts";
-import { useId, useState } from "react";
-import { translator } from "../../../client/src/i18n.ts";
-import type { ProactiveRuntimeSettings } from "../../../client/src/tasks.ts";
+import { useId } from "react";
+import { type Language, translator } from "../../../client/src/i18n.ts";
 import { Switch } from "../ui.tsx";
+import {
+  changeSchedulePreset,
+  cronAtTime,
+  defaultTaskTrigger,
+  parseScheduleTime,
+  type ScheduleDraft,
+  type SchedulePreset,
+  type TaskSettingsDraft,
+} from "./settings-draft.ts";
+
+type Translate = ReturnType<typeof translator>;
+
+function ScheduleFields({
+  value,
+  onChange,
+  timezone,
+  t,
+}: {
+  value: ScheduleDraft;
+  onChange: (schedule: ScheduleDraft) => void;
+  timezone: string | null;
+  t: Translate;
+}) {
+  const id = useId();
+  const { preset, cron } = value;
+  return (
+    <div className="task-field">
+      <label htmlFor={id}>{t("taskSchedule")}</label>
+      <div className="task-field-row">
+        <select
+          id={id}
+          value={preset}
+          onChange={(event) =>
+            onChange(
+              changeSchedulePreset(value, event.target.value as SchedulePreset),
+            )
+          }
+        >
+          <option value="daily">{t("taskDaily")}</option>
+          <option value="weekdays">{t("taskWeekdays")}</option>
+          <option value="hourly">{t("taskHourly")}</option>
+          <option value="custom">{t("taskCustomSchedule")}</option>
+        </select>
+        {(preset === "daily" || preset === "weekdays") && (
+          <input
+            type="time"
+            aria-label={t("taskTime")}
+            required
+            value={parseScheduleTime(cron)?.time ?? ""}
+            onChange={(event) =>
+              onChange({ preset, cron: cronAtTime(preset, event.target.value) })
+            }
+          />
+        )}
+      </div>
+      {preset === "custom" && (
+        <input
+          aria-label={t("taskCron")}
+          value={cron}
+          required
+          placeholder="0 8 * * *"
+          onChange={(event) => onChange({ preset, cron: event.target.value })}
+        />
+      )}
+      <small>
+        {t("taskTimezone", { timezone: timezone ?? t("taskSystemTimezone") })}
+      </small>
+    </div>
+  );
+}
+
+function EventFields({
+  minIntervalSeconds,
+  onChange,
+  t,
+}: {
+  minIntervalSeconds: number;
+  onChange: (seconds: number) => void;
+  t: Translate;
+}) {
+  return (
+    <>
+      <p className="task-hint">{t("taskEventsHint")}</p>
+      <label className="task-field">
+        <span>{t("taskMinInterval")}</span>
+        <input
+          type="number"
+          min="0"
+          step="any"
+          required
+          value={minIntervalSeconds}
+          onChange={(event) => onChange(Number(event.target.value))}
+        />
+      </label>
+    </>
+  );
+}
 
 export default function TaskSettingsFields({
   create,
@@ -12,27 +107,16 @@ export default function TaskSettingsFields({
   language,
 }: {
   create: boolean;
-  value: ProactiveRuntimeSettings;
-  onChange: (value: ProactiveRuntimeSettings) => void;
+  value: TaskSettingsDraft;
+  onChange: (value: TaskSettingsDraft) => void;
   timezone: string | null;
   language: Language;
 }) {
   const t = translator(language);
-  const patch = (settings: Partial<ProactiveRuntimeSettings>) =>
-    onChange({ ...value, ...settings });
-  const parts = value.cron?.split(/\s+/) ?? [];
-  const [kind, setKind] = useState(() =>
-    /^\d+ \d+ \* \* (\*|1-5)$/.test(value.cron ?? "")
-      ? parts[4] === "*"
-        ? "daily"
-        : "weekdays"
-      : value.cron === "0 * * * *"
-        ? "hourly"
-        : "custom",
-  );
-  const daily = kind === "daily" || kind === "weekdays";
-  const trigger = value.cron === null ? "event" : "time";
   const triggerId = useId();
+  const { trigger, enabled, notify_window: notifyWindow } = value;
+  const patch = (settings: Partial<TaskSettingsDraft>) =>
+    onChange({ ...value, ...settings });
   return (
     <>
       <div className="task-field">
@@ -40,14 +124,14 @@ export default function TaskSettingsFields({
         {create ? (
           <select
             id={triggerId}
-            value={trigger}
-            onChange={(event) => {
-              setKind("daily");
+            value={trigger.type}
+            onChange={(event) =>
               patch({
-                cron: event.target.value === "time" ? "0 8 * * *" : null,
-                min_trigger_interval_seconds: 0,
-              });
-            }}
+                trigger: defaultTaskTrigger(
+                  event.target.value === "time" ? "time" : "event",
+                ),
+              })
+            }
           >
             <option value="time">{t("taskTimeTrigger")}</option>
             <option value="event">{t("taskEventTrigger")}</option>
@@ -57,99 +141,40 @@ export default function TaskSettingsFields({
             id={triggerId}
             readOnly
             value={t(
-              trigger === "time" ? "taskTimeTrigger" : "taskEventTrigger",
+              trigger.type === "time" ? "taskTimeTrigger" : "taskEventTrigger",
             )}
           />
         )}
       </div>
-      {value.cron !== null && (
-        <div className="task-field">
-          <label htmlFor="task-schedule">{t("taskSchedule")}</label>
-          <div className="task-field-row">
-            <select
-              id="task-schedule"
-              value={kind}
-              onChange={(event) => {
-                setKind(event.target.value);
-                patch({
-                  cron:
-                    {
-                      daily: "0 8 * * *",
-                      weekdays: "0 8 * * 1-5",
-                      hourly: "0 * * * *",
-                      custom: value.cron,
-                    }[event.target.value] ?? "",
-                });
-              }}
-            >
-              <option value="daily">{t("taskDaily")}</option>
-              <option value="weekdays">{t("taskWeekdays")}</option>
-              <option value="hourly">{t("taskHourly")}</option>
-              <option value="custom">{t("taskCustomSchedule")}</option>
-            </select>
-            {daily && (
-              <input
-                type="time"
-                aria-label={t("taskTime")}
-                required
-                value={`${parts[1].padStart(2, "0")}:${parts[0].padStart(2, "0")}`}
-                onChange={(event) => {
-                  const [hour, minute] = event.target.value.split(":");
-                  if (hour && minute)
-                    patch({
-                      cron: `${Number(minute)} ${Number(hour)} * * ${parts[4]}`,
-                    });
-                }}
-              />
-            )}
-          </div>
-          {kind === "custom" && (
-            <input
-              aria-label={t("taskCron")}
-              value={value.cron ?? ""}
-              required
-              placeholder="0 8 * * *"
-              onChange={(event) => patch({ cron: event.target.value })}
-            />
-          )}
-          <small>
-            {t("taskTimezone", {
-              timezone: timezone ?? t("taskSystemTimezone"),
-            })}
-          </small>
-        </div>
-      )}
-      {value.cron === null && (
-        <p className="task-hint">{t("taskEventsHint")}</p>
+      {trigger.type === "time" ? (
+        <ScheduleFields
+          value={trigger.schedule}
+          onChange={(schedule) =>
+            patch({ trigger: { type: "time", schedule } })
+          }
+          timezone={timezone}
+          t={t}
+        />
+      ) : (
+        <EventFields
+          minIntervalSeconds={trigger.minIntervalSeconds}
+          onChange={(minIntervalSeconds) =>
+            patch({ trigger: { type: "event", minIntervalSeconds } })
+          }
+          t={t}
+        />
       )}
       <label className="task-switch">
         <span>{t("taskEnabled")}</span>
         <Switch
-          checked={value.enabled}
+          checked={enabled}
           onCheckedChange={(enabled) => patch({ enabled })}
         />
       </label>
-      {trigger === "event" && (
-        <label className="task-field">
-          <span>{t("taskMinInterval")}</span>
-          <input
-            type="number"
-            min="0"
-            step="any"
-            required
-            value={value.min_trigger_interval_seconds}
-            onChange={(event) =>
-              patch({
-                min_trigger_interval_seconds: Number(event.target.value),
-              })
-            }
-          />
-        </label>
-      )}
       <label className="task-switch">
         <span>{t("taskLimitNotifications")}</span>
         <Switch
-          checked={value.notify_window !== null}
+          checked={notifyWindow !== null}
           onCheckedChange={(limited) =>
             patch({
               notify_window: limited ? { start: "09:00", end: "18:00" } : null,
@@ -157,7 +182,7 @@ export default function TaskSettingsFields({
           }
         />
       </label>
-      {value.notify_window && (
+      {notifyWindow && (
         <div className="task-field-row">
           {(["start", "end"] as const).map((key) => (
             <label className="task-field" key={key}>
@@ -167,11 +192,11 @@ export default function TaskSettingsFields({
               <input
                 type="time"
                 required
-                value={value.notify_window![key]}
+                value={notifyWindow[key]}
                 onChange={(event) =>
                   patch({
                     notify_window: {
-                      ...value.notify_window!,
+                      ...notifyWindow,
                       [key]: event.target.value,
                     },
                   })

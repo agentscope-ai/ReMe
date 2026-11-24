@@ -10,8 +10,10 @@ import {
   Pause,
   Play,
   Plus,
+  Search,
   Send,
   SlidersHorizontal,
+  X,
 } from "lucide-react";
 import type { AgentView, StudioState } from "../../client/src/protocol.ts";
 import { translator } from "../../client/src/i18n.ts";
@@ -36,6 +38,12 @@ export const taskSections = [
 export type RemySection = (typeof remySections)[number][0];
 export type AgentSection =
   RemySection | "create" | (typeof taskSections)[number][0];
+
+const taskFilters = [
+  ["all", "resourceAll"],
+  ["event", "taskEventTrigger"],
+  ["time", "taskTimeTrigger"],
+] as const;
 
 interface SidebarRow {
   id: string;
@@ -150,6 +158,16 @@ export default function AgentSidebar({
   const agents = state.agents ?? [];
   const remy = agents.find((agent) => agent.agent_name === "Remy");
   const tasks = agents.filter((agent) => agent.agent_type !== "chat");
+  const [taskFilter, setTaskFilter] =
+    useState<(typeof taskFilters)[number][0]>("all");
+  const [taskQuery, setTaskQuery] = useState("");
+  const taskSearchInput = useRef<HTMLInputElement>(null);
+  const query = taskQuery.trim().toLowerCase();
+  const visibleTasks = tasks.filter(
+    (agent) =>
+      (taskFilter === "all" || agent.agent_type === taskFilter) &&
+      agent.agent_name.toLowerCase().includes(query),
+  );
   const active = state.activePage === page;
   const [menu, setMenu] = useState<{
     rowId: string;
@@ -201,7 +219,7 @@ export default function AgentSidebar({
             </>
           ),
         }))
-      : tasks.map((agent) => {
+      : visibleTasks.map((agent) => {
           const name = agent.agent_name;
           const timeTriggered = agent.agent_type === "time";
           return {
@@ -311,6 +329,58 @@ export default function AgentSidebar({
           </button>
         )}
       </SidebarHeading>
+      {page === "tasks" && (
+        <div className="sidebar-controls">
+          <div className="sidebar-search" role="search">
+            <Search size={15} aria-hidden />
+            <input
+              ref={taskSearchInput}
+              role="searchbox"
+              aria-label={t("taskSearch")}
+              placeholder={t("taskSearch")}
+              value={taskQuery}
+              onChange={(event) => {
+                setTaskQuery(event.target.value);
+                closeMenu();
+              }}
+            />
+            {taskQuery && (
+              <button
+                type="button"
+                aria-label={t("taskClearSearch")}
+                title={t("taskClearSearch")}
+                onClick={() => {
+                  setTaskQuery("");
+                  taskSearchInput.current?.focus();
+                }}
+              >
+                <X size={14} aria-hidden />
+              </button>
+            )}
+          </div>
+          <div
+            className="source-tabs task-filter-tabs"
+            data-filter={taskFilter}
+            role="group"
+            aria-label={t("taskTriggers")}
+          >
+            {taskFilters.map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={taskFilter === value}
+                className={taskFilter === value ? "active" : ""}
+                onClick={() => {
+                  setTaskFilter(value);
+                  closeMenu();
+                }}
+              >
+                {t(label)}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="agent-navigation">
         {rows.length ? (
           <ul
@@ -322,7 +392,9 @@ export default function AgentSidebar({
             {rows.map(row)}
           </ul>
         ) : (
-          <p className="agent-list-empty">{t("noAgents")}</p>
+          <p className="agent-list-empty" role="status">
+            {t(tasks.length ? "taskNoMatches" : "noAgents")}
+          </p>
         )}
       </div>
       {active && menu?.position && menuRow && (
