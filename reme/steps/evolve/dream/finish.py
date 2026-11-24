@@ -135,6 +135,8 @@ def render_summary(state: DreamState) -> str:
         lines.append(
             f"- Changed during failed units (left in place, review): {', '.join(state.failed_unit_changed_paths)}",
         )
+    if state.failed_unit_removed_paths:
+        lines.append(f"- Removed during failed units (review): {', '.join(state.failed_unit_removed_paths)}")
     if state.warnings:
         lines.append(f"- Warnings: {'; '.join(state.warnings)}")
     if state.errors:

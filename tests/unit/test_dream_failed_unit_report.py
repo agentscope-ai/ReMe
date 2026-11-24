@@ -82,6 +82,29 @@ async def test_files_saved_by_the_user_during_a_failed_unit_are_never_removed(tm
 
 
 @pytest.mark.asyncio
+async def test_files_removed_during_a_failed_unit_are_reported_as_removed(tmp_path):
+    """A pre-existing file that is gone after a failed unit is listed as removed, not as left in place."""
+    removed = _touch(tmp_path / _OUT_OF_BUCKET, "original")
+    edited = _touch(tmp_path / "digest" / "workflow" / "kept.md", "v0")
+
+    def remove_and_edit():
+        removed.unlink()
+        edited.write_text("v1", encoding="utf-8")
+        return {"result": "{}"}
+
+    context = await _run(tmp_path, _SequenceAgent(remove_and_edit, {"result": "{}"}))
+
+    dream = context.response.metadata["dream"]
+    assert not removed.exists()
+    assert dream["failed_unit_changed_paths"] == ["digest/workflow/kept.md"]
+    assert dream["failed_unit_removed_paths"] == [_OUT_OF_BUCKET]
+    assert dream["failed_units"][0]["changed_paths"] == [_OUT_OF_BUCKET, "digest/workflow/kept.md"]
+    assert f"{_REPORT_LINE}digest/workflow/kept.md" in dream["summary"]
+    assert f"- Removed during failed units (review): {_OUT_OF_BUCKET}" in dream["summary"]
+    assert dream["summary"].count(_OUT_OF_BUCKET) == 1
+
+
+@pytest.mark.asyncio
 async def test_in_bucket_edits_from_a_failed_unit_are_kept_and_listed(tmp_path):
     """Existing behaviour is kept: durable in-bucket output stays, and is now listed too."""
     kept = "digest/wiki/kept.md"  # a cross-bucket create: never recovered as this unit's result
