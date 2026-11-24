@@ -2,15 +2,40 @@
 
 # LongMemEval Benchmark
 
-LongMemEval is a benchmark for **long-term memory over multi-session chat
-histories**. Each item provides a chronologically ordered set of chat sessions
-between a user and an assistant, followed by a probing question whose answer is
-only recoverable by reasoning over the user-owned memory. ReMe ingests the
-sessions into an isolated per-item workspace, answers the question via an
-agentic (ReAct) mode, and scores the answer with an LLM-as-judge.
+LongMemEval is a benchmark for **long-term memory over multi-session chat histories**. Each item provides
+chronologically ordered user–assistant sessions and a probing question whose answer is only recoverable by
+reasoning over the user-owned memory.
+
+## 1. Data preparation
 
 Question types include single-session (user / assistant / preference),
 multi-session reasoning, knowledge update, and temporal reasoning.
+
+ReMe uses only the **cleaned-S** split, hosted on HuggingFace:
+[agentscope-ai/ReMe_longmemeval_clean_s_v2](https://huggingface.co/datasets/agentscope-ai/ReMe_longmemeval_clean_s_v2).
+The download script fetches it via the hf-mirror.com mirror; to use a different
+mirror, modify `BASE_URL` in [`download.py`](./download.py).
+
+```bash
+cd benchmark/longmemeval
+python download.py            # saves dataset/longmemeval_s_reme_cleaned.json; skips if already present
+```
+
+Ground truth is embedded in the data file.
+
+## 2. Use the LME plugin
+
+### 2.1 Overview
+
+The LME plugin loads the dataset with embedded ground truth, creates an isolated workspace per item, ingests
+sessions chronologically, and answers probing questions via agentic (ReAct) mode. Its LLM-as-judge
+`answer_judge` job gives binary (yes/no) judgments and reports per-type accuracy. If a custom application
+configuration enables `auto_dream`, it triggers when sessions cross the configured hour (default 23:00); the
+packaged preset leaves it disabled.
+
+### 2.2 How to use
+
+#### Installation and environment
 
 Install ReMe and the LongMemEval plugin in editable mode from the repository root:
 
@@ -25,50 +50,9 @@ The runner explicitly enables the installed `lme` plugin and combines its defaul
 ReMe's built-in `benchmark` preset. Editable installation keeps changes under
 [`plugins/lme`](../../plugins/lme/README.md) visible without reinstalling the plugin.
 Custom application config paths still work through `reme.config` and can use `extends: benchmark`.
-This directory continues to own the runner, evaluation settings, dataset and outputs.
 Model credentials use the environment variables declared by the shared benchmark configuration.
 
-The shared preset keeps `python_execute` private (`enable_serve: false`); in-process benchmark jobs
-remain callable. Python sandbox requirements and credential placement are described in the
-[BEAM benchmark guide](../beam/README.md).
-
-## 1. Get the Dataset
-
-ReMe uses only the **cleaned-S** split, hosted on HuggingFace:
-[agentscope-ai/ReMe_longmemeval_clean_s_v2](https://huggingface.co/datasets/agentscope-ai/ReMe_longmemeval_clean_s_v2).
-The download script fetches it via the hf-mirror.com mirror; to use a different
-mirror, modify `BASE_URL` in [`download.py`](./download.py).
-
-```bash
-cd benchmark/longmemeval
-python download.py            # saves dataset/longmemeval_s_reme_cleaned.json; skips if already present
-```
-
-Ground truth is embedded in the data file.
-
-## 2. Run
-
-From the repository root:
-
-```bash
-python benchmark/longmemeval/run.py
-python benchmark/longmemeval/run.py --config benchmark/longmemeval/config.yaml
-python benchmark/longmemeval/run.py -q                        # quiet: only eval-level logs
-python benchmark/longmemeval/run.py --log-level WARNING       # reduce eval runner logs
-python benchmark/longmemeval/run.py --reme-log-level WARNING  # reduce reme internal logs
-python benchmark/longmemeval/run.py --eval_only               # reuse existing workspaces, query + judge only
-```
-
-## 3. Pipeline
-
-1. Load the dataset (ground truth is embedded in the data file).
-2. For each item, create an isolated workspace and ingest sessions in chronological order.
-3. If a custom application configuration enables `auto_dream`, trigger it when sessions cross the configured hour
-   (default 23:00). The packaged preset leaves it disabled.
-4. Answer each question via agentic (ReAct) mode.
-5. Judge the answer (binary yes/no) with the `answer_judge` job and print per-type accuracy.
-
-## 4. Key config — `benchmark/longmemeval/config.yaml`
+#### Key configuration — `benchmark/longmemeval/config.yaml`
 
 | Key | Meaning |
 | --- | --- |
@@ -82,21 +66,29 @@ python benchmark/longmemeval/run.py --eval_only               # reuse existing w
 | `reme.dream_trigger_hour` / `dream_scan_days` / `dream_max_units` | Dream triggering behavior. |
 | `output.dir` | Results directory (`benchmark/longmemeval/results`). |
 
-## 5. Outputs
+#### Run the benchmark
+
+From the repository root:
+
+```bash
+python benchmark/longmemeval/run.py
+python benchmark/longmemeval/run.py --config benchmark/longmemeval/config.yaml
+python benchmark/longmemeval/run.py -q                        # quiet: only eval-level logs
+python benchmark/longmemeval/run.py --log-level WARNING       # reduce eval runner logs
+python benchmark/longmemeval/run.py --reme-log-level WARNING  # reduce reme internal logs
+python benchmark/longmemeval/run.py --eval_only               # reuse existing workspaces, query + judge only
+```
+
+### 2.3 Results
 
 Results are JSON files written to `output.dir` as `results_<timestamp>.json`,
 with a per-type accuracy summary also printed to the console. Logging
 conventions are shared across benchmarks — see the
 [top-level README](../README.md#outputs--logs).
 
-## 6. Reference Results
+**Reference results**
 
-### cleaned-s
-
-**Basic settings**
-
-1. Modified auto-memory prompt, auto-dream disabled.
-2. All sessions in reme-memory are strictly earlier than the question time.
+#### cleaned-s
 
 **Results**
 
@@ -105,118 +97,88 @@ agentscope==2.0.4.post1, conda reme env, 32 workers, eval-only (reusing prebuilt
 
 | Type | Agentic | input tok/q | output tok/q | total tok/q | tool calls/q |
 |---|---|---|---|---|---|
-| knowledge-update | 0.910 | 31,581 | 589 | 32,169 | 2.90 |
-| multi-session | 0.842 | 52,837 | 1,474 | 54,311 | 4.21 |
-| single-session-assistant | 1.000 | 15,596 | 279 | 15,875 | 1.89 |
-| single-session-preference | 0.633 | 36,802 | 818 | 37,620 | 3.60 |
-| single-session-user | 0.986 | 27,433 | 359 | 27,792 | 2.60 |
-| temporal-reasoning | 0.902 | 62,674 | 985 | 63,659 | 4.97 |
-| **OVERALL** | **0.894** | **43,448** | **876** | **44,324** | **3.69** |
+| **Overall** | **0.894** | **43.4K** | **0.9K** | **44.3K** | **3.69** |
+| knowledge-update | 0.910 | 31.6K | 0.6K | 32.2K | 2.90 |
+| multi-session | 0.842 | 52.8K | 1.5K | 54.3K | 4.21 |
+| single-session-assistant | 1.000 | 15.6K | 0.3K | 15.9K | 1.89 |
+| single-session-preference | 0.633 | 36.8K | 0.8K | 37.6K | 3.60 |
+| single-session-user | 0.986 | 27.4K | 0.4K | 27.8K | 2.60 |
+| temporal-reasoning | 0.902 | 62.7K | 1.0K | 63.7K | 4.97 |
 
+## 3. Optimize the plugin with HoMe
 
-## Prepare a Home experiment
+### 3.1 Overview
 
-`run_home.py` prepares the fixed **group_1–group_5** training split (250 cases), the workspace, and committed candidate
-code. It exits after preparation; it does not evaluate cases or start optimization.
-Run from the repository root after obtaining the dataset described above:
+HoMe prepares an experiment workspace from the dataset and a Git revision, evaluates the baseline, and
+iteratively improves the LME plugin code. The optimizer returns a candidate `commit_sha`, which can then be
+evaluated independently on the configured evaluation set.
+
+### 3.2 How to use
+
+#### Experiment setup
+
+Get the dataset above and follow the [HoMe setup and run
+guide](../../plugins/home/README.md#4-run-a-benchmark-experiment).
+[config_home.yaml](config_home.yaml) defaults to `benchmark/longmemeval/workspaces/home-groups-1-5`
+with 250 cases from **groups 1–5** for optimization.
+The training IDs and [reviewed evidence annotations](home_evidence_sessions.jsonl) come from
+`dev_meta` commit `b53048e44833937df80a52fccceea78d054790e8`. The original split used seed 42
+and stratified the dataset by question type.
+
+[config_home_eval.yaml](config_home_eval.yaml) defaults to `benchmark/longmemeval/workspaces/home-test-held-out`
+and excludes the source experiment's training IDs. With the default training split, this selects 250 cases
+from **groups 6–10**. To choose cases explicitly, set `exclude_training_cases: false` and replace
+`all_cases: true` with `case_ids: [...]`.
+
+Prepare the optimization workspace from the repository root:
 
 ```bash
-reme plugins install plugins/home
 python benchmark/longmemeval/run_home.py
-# Optional separate workspace (a successful preparation cannot be repeated):
-python benchmark/longmemeval/run_home.py --workspace-dir /path/to/new-workspace
 ```
 
-[config_home.yaml](config_home.yaml) controls the preparation. Its paths are
-repository-relative regardless of the current working directory; `--config`
-accepts an alternative runner YAML file. The default workspace is
-`benchmark/longmemeval/workspaces/home-groups-1-5`. The evaluated runtime loads `lme`;
-the host application loads `home`. `source_ref: HEAD` exports committed source
-only, excluding uncommitted modifications. Preparation failure rolls back its
-outputs; after success, another call fails instead of resetting the experiment.
+#### Run the experiment
 
-The top-level `sampling_policy` configures Home evaluation defaults: `max_cases`,
-`max_queries` (null means unlimited), `temperature`, `ewma_alpha` and
-`uniform_exploration`. The runner validates these and passes them to the host
-`home.evaluation` Component. It still only prepares; it does not run evaluations.
-Each evaluation controls `sampling` and `record_history` separately.
-
-The top-level `validation_cycle_time_budget_minutes` configures the host optimizer's
-advisory time between completed formal evaluations. It defaults to 150 minutes;
-set a positive number to change it or null to disable timed reminders.
-
-The top-level `max_evaluations` sets the optimizer's formal-evaluation budget
-(positive integer, default 10). A slot is consumed at first sandbox startup,
-including later failures or cancellations; initial baseline and debug are excluded.
-
-The top-level `memory_limit_mib` sets the host agent sandbox memory limit for
-optimization, diagnosis, case studies and evaluation reviews. Set `memory_limit_mib: 0`
-in the runner YAML to disable the Linux cgroup limit. Null or omission keeps platform
-defaults (4096 MiB on Linux); macOS does not enforce memory limits.
-
-After preparation, run local one-shot optimization with the same configuration:
+Run local one-shot optimization:
 
 ```bash
 python benchmark/longmemeval/run_home.py --optimize
-# Use the same --config and --workspace-dir overrides as preparation, if supplied.
-python benchmark/longmemeval/run_home.py --optimize --instruction "Improve retrieval quality"
 ```
 
-This starts a fresh application, applies both budgets and the sampling policy,
-runs `home_optimize`, and closes the application. It does not repeat preparation.
-Python callers can use `await optimize(config_path, workspace_dir=...)` from the
-same module. The default `run()` and CLI behavior remain preparation only.
-
-Python callers can use the same lifecycle:
-
-```python
-from benchmark.longmemeval.run_home import run
-
-result = await run(workspace_dir="/path/to/new-workspace")
-```
-
-The 250 `benchmark.case_ids` in [config_home.yaml](config_home.yaml) are copied
-in order from groups 1–5 of `dataset/groups.json` at `dev_meta` commit
-`b53048e44833937df80a52fccceea78d054790e8`. The original splitter used seed 42
-and type-stratified allocation into ten 50-case groups; groups 6–10 remain held
-out. The runner reads the IDs directly from YAML without loading group files.
-[home_evidence_sessions.jsonl](home_evidence_sessions.jsonl) is a byte-for-byte
-copy of that revision's `dataset/longmemeval_evidence_sessions.jsonl`;
-reviewed evidence-session annotations are preserved during normalization.
-
-
-## Evaluate a candidate on an independent test set
-
-The default excludes the source experiment's actual training IDs from the full dataset. With the default
-250-case training workspace this selects held-out groups 6–10. For an explicit selection, set
-`exclude_training_cases: false` and replace `all_cases: true` with `case_ids: [...]` in
-[config_home_eval.yaml](config_home_eval.yaml). An empty held-out selection fails before preparation.
-
-The entry point imports a full candidate SHA or unambiguous hexadecimal prefix from an existing Home
-optimization workspace and copies its prepared fixed runtime. It does not require the original ReMe source
-repository or change the optimizer's checkout. Paths in the configuration are repository-relative.
-
-Prepare first, then use the service from two terminals (replace `CANDIDATE_SHA`):
+Set `CANDIDATE_SHA` to the optimizer's `commit_sha` or a unique hexadecimal prefix, then run local one-shot evaluation:
 
 ```bash
-python benchmark/longmemeval/run_home_eval.py --commit CANDIDATE_SHA --prepare-only
-# Terminal 1:
-reme start workspace_dir=benchmark/longmemeval/workspaces/home-test-held-out 'plugins=["home","lme-judge"]'
-# Terminal 2:
-reme home_evaluate workspace_dir=benchmark/longmemeval/workspaces/home-test-held-out record_history=false
+python benchmark/longmemeval/run_home_eval.py --commit "$CANDIDATE_SHA"
 ```
 
-### Local one-shot test evaluation
+See the [HoMe evaluation guide](../../plugins/home/README.md#evaluate-through-the-service) for service-based
+evaluation.
 
-```bash
-python benchmark/longmemeval/run_home_eval.py --commit CANDIDATE_SHA
-# Optional overrides: --config /path/to/test.yaml --source-workspace /path/to/search --test-workspace /path/to/test
-```
+### 3.3 Results
 
-Python callers can use `await benchmark.longmemeval.run_home_eval.run(commit="CANDIDATE_SHA")`.
-The runner rebuilds construction and scores every selected query with sampling and history recording disabled.
-It uses the existing Docker evaluation runtime and host judge configuration; model credentials are required
-for evaluation. Results stay in the test workspace's `home/evaluations/`, with original candidate provenance
-in each manifest's `test_evaluation`. The exported snapshot has its own local `evaluation_commit_sha`.
-Rerunning the same request reopens unchanged prepared inputs and creates another evaluation result. Use a
-new test workspace for another candidate or selection. Source and test workspaces must not overlap.
+HoMe is optimized on 250 LongMemEval-S training cases. ReMe and HoMe are evaluated on the same 250 held-out
+cases.
+Token counts and LLM calls are per-query averages for the answering stage.
+
+#### ReMe baseline
+
+| Question category | Score | Total tokens | Input tokens | Output tokens | LLM calls |
+|---|---:|---:|---:|---:|---:|
+| **Overall** | **0.888** | **43.9K** | **43.2K** | **0.8K** | **4.7** |
+| Knowledge Update | 0.921 | 29.0K | 28.5K | 0.6K | 3.8 |
+| Multi-session | 0.836 | 54.5K | 53.2K | 1.3K | 5.2 |
+| Single-session Assistant | 1.000 | 15.8K | 15.5K | 0.3K | 2.9 |
+| Single-session Preference | 0.667 | 31.4K | 30.6K | 0.7K | 4.1 |
+| Single-session User | 0.971 | 26.6K | 26.3K | 0.3K | 3.5 |
+| Temporal Reasoning | 0.882 | 65.7K | 64.8K | 0.9K | 6.2 |
+
+#### HoMe
+
+| Question category | Score | Total tokens | Input tokens | Output tokens | LLM calls |
+|---|---:|---:|---:|---:|---:|
+| **Overall** | **0.916** | **17.9K** | **17.2K** | **0.6K** | **3.0** |
+| Knowledge Update | 0.974 | 9.7K | 9.3K | 0.5K | 2.2 |
+| Multi-session | 0.806 | 19.3K | 18.3K | 1.0K | 3.3 |
+| Single-session Assistant | 1.000 | 9.8K | 9.5K | 0.3K | 2.2 |
+| Single-session Preference | 0.933 | 11.8K | 11.0K | 0.9K | 2.7 |
+| Single-session User | 0.971 | 11.2K | 11.0K | 0.2K | 2.3 |
+| Temporal Reasoning | 0.940 | 29.2K | 28.5K | 0.7K | 4.0 |

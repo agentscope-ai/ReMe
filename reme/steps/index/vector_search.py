@@ -1,7 +1,7 @@
 """Plain vector search with tool-context deduplication."""
 
 from ._single_search import _SingleSearchStep
-from ...components import R
+from ...core.registry import R
 from ...schema import FileChunk
 
 

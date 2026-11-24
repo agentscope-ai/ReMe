@@ -12,10 +12,10 @@ import pytest
 import yaml
 from agentscope.message import DataBlock, Msg, TextBlock
 
-from reme.application import Application
-from reme.components import ApplicationContext, R
+from reme import Application
+from reme.core.context import ApplicationContext, RuntimeContext
+from reme.core.registry import R
 from reme.components.agent_wrapper import AsAgentWrapper
-from reme.components.runtime_context import RuntimeContext
 from reme.enumeration import ComponentEnum
 from reme.steps.evolve.auto_image_resource import AutoImageResourceStep
 from reme.steps.evolve.auto_resource import AutoResourceStep

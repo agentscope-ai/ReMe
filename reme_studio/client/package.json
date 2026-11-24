@@ -1,0 +1,13 @@
+{
+  "name": "@agentscope-ai/reme-client",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --experimental-transform-types --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "mdast-util-from-markdown": "^2.1.0",
+    "remark-gfm": "^4.0.1",
+    "yaml": "^2.9.1"
+  }
+}

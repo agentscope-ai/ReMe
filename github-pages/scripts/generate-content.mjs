@@ -23,8 +23,6 @@ const externalDocuments = [
   ["en/integrations/dsh.md", "integrations/dsh/README.md"],
   ["zh/integrations/openclaw.md", "integrations/openclaw/README_ZH.md"],
   ["en/integrations/openclaw.md", "integrations/openclaw/README.md"],
-  ["zh/workspace/studio.md", "reme_studio/README_ZH.md"],
-  ["en/workspace/studio.md", "reme_studio/README.md"],
   ["zh/plugins/daily-paper.md", "plugins/daily_paper/README_ZH.md"],
   ["en/plugins/daily-paper.md", "plugins/daily_paper/README.md"],
   ["zh/plugins/auto-fin.md", "plugins/auto-fin/README_ZH.md"],
@@ -110,18 +108,6 @@ const externalDocumentRewrites = {
   "integrations/hermes_agent/README.md": [
     ["(README_ZH.md)", "(/zh/integrations/hermes)"],
     ["(figures/", "(/figures/hermes/"],
-  ],
-  "reme_studio/README.md": [
-    ["(./README_ZH.md)", "(/zh/workspace/studio)"],
-    ["(./figures/", "(/figures/studio/"],
-    ["(https://github.com/agentscope-ai/ReMe/blob/main/reme_studio/README_ZH.md)", "(/zh/workspace/studio)"],
-    ["(https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/", "(/figures/studio/"],
-  ],
-  "reme_studio/README_ZH.md": [
-    ["(./README.md)", "(/en/workspace/studio)"],
-    ["(./figures/", "(/figures/studio/"],
-    ["(https://github.com/agentscope-ai/ReMe/blob/main/reme_studio/README.md)", "(/en/workspace/studio)"],
-    ["(https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/", "(/figures/studio/"],
   ],
 };
 
@@ -315,9 +301,6 @@ await cp(path.join(repoDir, "integrations/openclaw/figures"), path.join(outputDi
   recursive: true,
 });
 await cp(path.join(repoDir, "integrations/hermes_agent/figures"), path.join(outputDir, "public/figures/hermes"), {
-  recursive: true,
-});
-await cp(path.join(repoDir, "reme_studio/figures"), path.join(outputDir, "public/figures/studio"), {
   recursive: true,
 });
 

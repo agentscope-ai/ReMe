@@ -5,7 +5,7 @@ import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ...utils.file_sync import sync_directory, sync_file
+from ...utils.files.file_sync import sync_directory, sync_file
 
 if TYPE_CHECKING:
     from claude_agent_sdk import SessionKey, SessionListSubkeysKey, SessionStoreEntry, SessionStoreListEntry

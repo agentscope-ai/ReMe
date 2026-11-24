@@ -3,24 +3,22 @@
 from .application_config import ApplicationConfig, ComponentConfig, JobConfig
 from .agent_reply import AgentReply, collect_reply, replay_reply
 from .agent_session import SessionMessage, SessionSnapshot, SessionStatus
-from .agent_runtime import (
+from .proactive_runtime import (
     AgentName,
     AgentType,
-    AgentNotification,
     AgentSession,
     ChatAgentConfig,
     NotificationConfig,
     AgentReminder,
-    ReminderRef,
-    SendChatMessageRequest,
+    SubmitChatReminderRequest,
 )
 from .agent_activity import AgentActivity
 from .agent_message import AgentMessage, ArtifactItem, SummaryItem, TextItem, ToolAction, ToolItem
 from .agent_view import (
-    AgentChatRequest,
+    AskAgentRequest,
     AgentRequest,
     AgentSessionView,
-    AgentTaskRequest,
+    TaskDocumentRequest,
     AgentView,
     AgentSnapshot,
     AgentUpdate,
@@ -51,7 +49,6 @@ from .proactive_agent import (
     NotificationWindow,
     ProactiveAgent,
     ProactiveAgentConfig,
-    ProactiveRunResult,
     TaskSettings,
 )
 from .file_chunk import FileChunk
@@ -109,8 +106,8 @@ __all__ = [
     "CryptoQuote",
     "AgentView",
     "AgentRequest",
-    "AgentChatRequest",
-    "AgentTaskRequest",
+    "AskAgentRequest",
+    "TaskDocumentRequest",
     "AgentSessionView",
     "AgentSession",
     "ChatAgentConfig",
@@ -120,13 +117,10 @@ __all__ = [
     "ProactiveAgentConfig",
     "CreateProactiveAgentConfig",
     "AgentReminder",
-    "ReminderRef",
-    "AgentNotification",
     "AgentName",
     "AgentType",
     "NotificationConfig",
-    "SendChatMessageRequest",
-    "ProactiveRunResult",
+    "SubmitChatReminderRequest",
     "FileChunk",
     "FileFrontMatter",
     "FileLink",

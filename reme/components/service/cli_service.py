@@ -6,14 +6,14 @@ import sys
 from typing import TYPE_CHECKING, Any
 
 from .base_service import BaseService
-from ..component_registry import R
+from ...core.registry import R
 from ..job import BaseJob
 from ...config import resolve_app_config
 from ...schema import ApplicationConfig
-from ...utils import get_logger
+from ...utils.logger_utils import get_logger
 
 if TYPE_CHECKING:
-    from ...application import Application
+    from ...core.application import Application
 
 _APP_CONFIG_KEYS = set(ApplicationConfig.model_fields)
 

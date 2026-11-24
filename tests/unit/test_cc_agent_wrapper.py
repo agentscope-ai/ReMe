@@ -10,7 +10,7 @@ import pytest
 from reme.components.agent_wrapper.as_agent_wrapper import AsAgentWrapper
 from reme.components.agent_wrapper.cc_agent_wrapper import CcAgentWrapper
 from reme.components.agent_wrapper.cc_session_store import CcFileSessionStore
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.components.outbound_proxy import FixedHttpOutboundProxy
 from reme.enumeration import ChunkEnum, ComponentEnum
 

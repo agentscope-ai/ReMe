@@ -4,7 +4,7 @@ from typing import Final
 
 from ._tool_context import _ToolContextMixin
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 
 
 @R.register("add_draft_step")

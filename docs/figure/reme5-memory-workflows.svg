@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1260" height="505" viewBox="0 0 1260 505" role="img" aria-labelledby="title desc">
+  <title id="title">Memory workflows planned for ReMe5</title>
+  <desc id="desc">Configured harness logs and sessions trigger Work, which takes on Auto Memory and saves sourced project records and summaries. Daily records and other workspace evidence feed Personal, Procedural, and Wiki, the three scheduled Auto Dream agents. Their outputs are long-term memory files with source links.</desc>
+  <defs>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; fill: #22383F; }
+      .title { font-size: 36px; font-weight: 700; }
+      .label { font-size: 18px; font-weight: 650; }
+      .heading { font-size: 26px; font-weight: 650; }
+      .body { font-size: 20px; fill: #4E656C; }
+      .teal { fill: #146F72; }
+      .purple { fill: #6F509B; }
+      .arrow { fill: none; stroke: #607C82; stroke-width: 2; marker-end: url(#arrow); }
+    </style>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+      <path d="M1 1l5 3-5 3" fill="none" stroke="#607C82" stroke-width="1.4" stroke-linejoin="round" />
+    </marker>
+  </defs>
+
+  <rect width="1260" height="505" rx="16" fill="#F8FAFA" />
+  <text x="36" y="57" class="title">Memory workflows planned for ReMe5</text>
+
+  <rect x="36" y="83" width="1188" height="180" rx="14" fill="#EBF5F4" />
+  <text x="56" y="117" class="label teal">When a new event arrives</text>
+  <rect x="56" y="136" width="328" height="105" rx="10" fill="#FFFFFF" stroke="#CBDDDD" />
+  <text x="74" y="172" class="heading">Configured harnesses</text>
+  <text x="74" y="204" class="body">Logs and session updates</text>
+  <rect x="456" y="136" width="348" height="105" rx="10" fill="#FFFFFF" stroke="#CBDDDD" />
+  <text x="474" y="172" class="heading teal">Work</text>
+  <text x="474" y="204" class="body">Includes Auto Memory</text>
+  <rect x="876" y="136" width="328" height="105" rx="10" fill="#FFFFFF" stroke="#CBDDDD" />
+  <text x="894" y="172" class="heading">Daily memory</text>
+  <text x="894" y="204" class="body">Sourced records and summaries</text>
+  <path d="M395 189h50" class="arrow" />
+  <path d="M815 189h50" class="arrow" />
+
+  <rect x="36" y="284" width="1188" height="185" rx="14" fill="#F2EDF8" />
+  <text x="56" y="318" class="label purple">When a schedule is due</text>
+  <rect x="56" y="337" width="328" height="110" rx="10" fill="#FFFFFF" stroke="#DDD4E9" />
+  <text x="74" y="374" class="heading">Workspace evidence</text>
+  <text x="74" y="406" class="body">Daily notes and related sources</text>
+  <rect x="456" y="337" width="348" height="110" rx="10" fill="#FFFFFF" stroke="#DDD4E9" />
+  <text x="474" y="374" class="heading purple">Auto Dream</text>
+  <text x="474" y="406" class="body">Personal · Procedural · Wiki</text>
+  <rect x="876" y="337" width="328" height="110" rx="10" fill="#FFFFFF" stroke="#DDD4E9" />
+  <text x="894" y="374" class="heading">Long-term memory</text>
+  <text x="894" y="406" class="body">Consolidated, with source links</text>
+  <path d="M395 392h50" class="arrow" />
+  <path d="M815 392h50" class="arrow" />
+</svg>

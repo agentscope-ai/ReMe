@@ -15,7 +15,7 @@ from claude_agent_sdk import project_key_for_directory
 from reme.components.agent_wrapper.cc_agent_wrapper import CcAgentWrapper
 from reme.components.agent_wrapper.cc_session_store import CcFileSessionStore
 from reme.components.agent_wrapper.cc_sessions import native_id
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext
 
 # pylint: disable=protected-access,redefined-outer-name
 

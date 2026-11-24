@@ -20,7 +20,6 @@ on:
       - "integrations/hermes_agent/figures/**"
       - "README.md"
       - "README_ZH.md"
-      - "reme_studio/**"
       - "integrations/dsh/README*.md"
       - "integrations/dsh/figures/**"
       - "integrations/openclaw/README*.md"

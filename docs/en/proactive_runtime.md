@@ -1,67 +1,59 @@
 ---
-title: Proactive Agent
+title: Proactive Runtime
 description: How ReMe follows ongoing tasks, saves progress, and brings useful reminders into a conversation.
 ---
 
-# ReMe Proactive
+# Proactive Runtime
 
-ReMe supports agents that follow an ongoing task across multiple runs. New information or a scheduled trigger starts a run. The agent reads its requirements and previous progress, processes the inputs, saves its findings, and decides whether a reminder is needed. Between runs, it waits without continuously calling the model.
+ReMe gives agents local, file-native long-term memory. Its Proactive Runtime brings that memory into ongoing tasks. It accepts new information or schedules a run, delegates execution to an agent runtime such as Codex through an `AgentWrapper`, saves the results, and lets the user know when their attention is needed. One Proactive Runtime coordinates multiple tasks and Remy's conversation.
 
 The [full illustrated guide is available in Chinese](../zh/proactive_runtime.md).
 
 ## How a task keeps running
 
-Five parts support the workflow:
+Start ReMe with `reme start config=proactive`. Outside collectors can send observations through `append_task_events(agent_name, events)`. An optional `cron` schedule appends a trigger to the same task inbox. For example, one task can check new experiment logs as they arrive and summarize progress every day at 18:00.
 
-- **Event inbox:** stores inputs in workspace files. Each agent processes one batch at a time; successful runs acknowledge their inputs, while failed runs leave them available for retry.
-- **Scheduled triggers:** add a timer event to the task inbox when a configured schedule is due. The task prompt supplies the planned trigger time, actual execution time, and application timezone.
-- **Workspace files:** keep task requirements in `TASK.md`, progress and evidence in daily records, and previous reminders in reminder files. Each run reads the latest requirements and progress before continuing.
-- **Permissions:** the framework and Harness control file access, tools, and network access. Chat, event tasks, and scheduled tasks can search the web and open pages.
-- **Outbox:** publishes reminder references after the reminder has been saved and input completion has been committed. Failed delivery can be retried independently of task execution. A full Chat Inbox defers publication while already queued reminders continue to be consumed.
+Each run opens a fresh native session and reads `TASK.md`. Consecutive observations can be processed together. Each scheduled trigger gets its own run in queue order. The prompt shows both the planned time of a scheduled trigger in **Events for this run** and the actual start time in **Background**. A trigger planned for 08:00 and processed at 08:07 shows both times.
 
-Users own the workspace files and can inspect or edit them. Each automatic event or scheduled run starts a fresh native session and rebuilds context from the task description and daily summaries. Earlier sessions remain available as history. Task questions fork the latest task session and ask directly with its existing instructions and context, including while it is running. Query forks are read-only and do not replace the task session; the main Chat Agent continues its own conversation.
+The agent searches the shared `daily_dir` for earlier findings and reminders. It checks the latest `recent_history_hours` first (24 hours by default) and makes up to `max_local_search_calls` keyword or regex searches per run (10 by default). The search budget is a prompt instruction. If the agent exceeds it, ReMe logs one warning and lets the run finish. Diagnostics under `reme.agent_run` include tool calls, model status, and the run outcome. Failed rounds preserve written records and retain their inputs for retry. The retry delay starts at 5 seconds and increases to at most 5 minutes by default.
 
-Event tasks use `proactive_query` to analyze incoming material, record new information and decide whether to remind. Scheduled tasks use `cron_query` to perform the task, record what happened, decide whether to report and update today's summary on every run. The prompts share environment and path aliases. Code validates the final files before committing the run, and logs distinguish validation, successful commits and delivery.
+### One record per run
 
-Failed task runs retry with increasing delays, starting at `retry_seconds` (5 seconds by default) and normally capped at 5 minutes. A successful run resets the delay. Per-run diagnostics are in response metadata `reme.agent_run`; process-local counters under `agent_runs` group runs, tokens, tool calls and elapsed time by `agent_type`. Model status and run result are separate, so valid artifacts accepted after a model error still count as a completed run.
+The agent writes to `daily/YYYY-MM-DD/{agent_name}_HHMMSS.md` by default. A numeric suffix prevents same-second collisions. Observation runs with no key information can finish without a file by successfully replying `NO_KEY_INFORMATION`. A scheduled run always requires a record.
 
-The model writes records, reminders and summaries to private round drafts. After validation, publication uses the file jobs' per-path locks and checks the original content and file versions. Concurrent user edits are preserved and reported as conflicts. Links between drafts are rewritten to their final destinations.
+The Markdown body contains new information and its sources. It may be empty. Local links are relative to the record's directory. The agent writes two frontmatter fields:
 
-Complete, valid drafts can be committed even if the model times out or reports failure afterward. Failed rounds restore only files they published whose versions still match. After uncertain receipt I/O, recovery checks the durable consumption log: uncommitted outputs are restored, while committed results are retained. Explicit cancellation stops the round and cleans up drafts. This recovery does not cover forced process termination.
+- `reminder_priority` is `P0` for a due reminder or a decision that needs immediate attention, `P1` for important progress, `P2` for a useful discovery, or `skip`.
+- `reminder_message` contains the reminder, the requested result, or a brief reason for skipping delivery.
 
-Event tasks compare incoming material with existing summaries and related records, distinguishing facts from inference. A newly met reminder condition also counts as new information. Both task types require a nonblank `TASK.md`; missing daily summaries are optional.
+The task can specify its own delivery conditions and priority. The agent checks historical records for repeated information and reminders.
 
-Both task types allow ten local keyword or regex search calls using `rg`/`grep` per run by default. Multiple searches in one tool call count once. Ordinary file reads, image viewing and writes are excluded. Once enough information is available or the search limit is reached, the agent finishes with the available information and marks or omits unverified details.
+### Commit and delivery
 
-The `proactive_agent_step` parameters `max_local_search_calls` and `max_timeline_entries` set the prompt limits for local search calls and appended timeline entries. Both default to 10 and accept positive integers. Exceeding the search limit logs one warning per run and execution continues. Diagnostics report `tool_calls`, `web_lookup_calls`, and `local_search_calls`. Codex's saved calls fill gaps in live events, including rejected calls. Local search accounting covers named search tools, native search actions, and explicit `rg`/`grep` commands, including pipelines. `rg --files` counts as a file listing.
+After a completed turn, ReMe can correct invalid frontmatter with one read-only follow-up in the same session.
+ReMe applies the validated correction only if the record version still matches and preserves the Markdown body.
 
-For event tasks, the record uses frontmatter `action: write` for new information and includes a nonempty body. With no new information, the agent writes `action: skip` with an empty body and ends the run without creating a reminder or changing the summary. The decision file is retained. Missing required outputs, invalid actions and blank bodies where content is required fail the run and leave inputs available for retry.
+ReMe holds the file lock while checking the record, acknowledging its inputs, and registering any reminder in the
+task outbox. A valid record can complete after a model error or timeout. If acknowledgement fails before the receipt
+is durable, the Markdown stays in place and the inputs remain pending. Once the receipt is durable, ReMe can resume
+registration after a restart.
 
-Every record with `action: write` requires a nonempty, updated daily summary. For event tasks, this also applies when the reminder is skipped; the skipped reminder explains why no notification is needed. “Today's records” merges related items and retains necessary background and record links. “Today's reminders” preserves earlier entries and adds generated reminders without treating them as received or read.
+The workspace-relative record path is the reminder ID. The task outbox stores `delivered_at`, `read_at`, and linked
+Chat message IDs. Remy's inbox reads the same registrations and loads the reminder text from the original daily record.
+Remy selects reminders by priority and delivery time within the configured limits and notification window. A Chat decision
+rechecks the current reminder under the file write lock so an edit can invalidate a stale decision.
 
-Scheduled tasks report every run at P0 by default. Explicit delivery conditions and priorities in `TASK.md` override those defaults. The scheduled prompt requires an execution record with `action: write` each run. Both task types use the same reminder file format. Set `action` to `P0`, `P1` or `P2` to submit the body for delivery. Set `action: skip` and give a brief reason to skip delivery. Briefings and summaries describe the actual results and include necessary sources and result links.
+Earlier native sessions remain available as history. Task questions use a temporary read-only fork of the latest task session, including while a run is in progress. The built-in Codex configuration sets `project_doc_max_bytes=0` and disables automatic skill injection for task runs. Global instructions under `CODEX_HOME` load independently.
 
-Event tasks follow `TASK.md` and first exclude content that does not need a reminder, then select the first matching level in P0/P1/P2 order. They do not guess what the user knows from other conversations. Their reminders use one natural, concise sentence. After final validation of the reminder priority and updated summary, Outbox adds related paths, the reminder ID, creation time and acknowledgement fields before committing input completion. A generated reminder has not necessarily been delivered.
+## Remy and reminders {#chat-and-reminders}
 
-Before adding reminder metadata, Outbox checks the round's published file version under the file jobs' shared path lock. A concurrent user save preserves the user's file and leaves the input available for retry.
+Remy brings background tasks and reminders into the main Chat conversation. Users manage tasks through Chat and can change their requirements, inspect progress, pause execution, or end a task.
 
-Remy's inbox is derived from committed reminder files and their acknowledgement fields. It selects one eligible batch by priority and creation time within the configured item and byte limits. Reminders outside the selected batch remain available for later evaluation. Disabled tasks, deleted tasks and notification windows affect eligibility.
+Each Agent has one stable `agent_name`. Background tasks use an optional `cron` schedule, which also determines their display type. `Remy` is reserved for the main Chat Agent. Creation writes `task_description` verbatim when `TASK.md` is absent. Use `task_document action=read/save` to edit requirements and pass the `mtime` returned by read as `expected_mtime` when saving. Use `manage_proactive_agent action=update` to change execution settings.
 
-Sending and silent decisions revalidate the reminder's message, priority and related paths under the file jobs' shared path locks, held through decision commit and acknowledgement. If the user has saved new content, the stale decision fails and the updated reminder remains unprocessed.
+Committed reminders reach the Chat Inbox. Priority, Chat idle time, and the task's notification window determine when reminders become eligible for processing. A temporary read-only fork receives the selected inbox entries in its prompt. It uses the current conversation to decide which entries warrant reading the source record, and leaves links inside the record unopened. It skips known, duplicate, handled or outdated information without assigning a new priority or adding action requirements. Explicit requests for reminders at a specified time or condition still apply. A silent Chat decision marks the reminder as processed in its source record.
 
-The default `proactive` configuration sets `project_doc_max_bytes=0` on the shared Codex app-server, disabling automatic
-repository `AGENTS.md` loading for all Agents. Event and scheduled task execution sessions do not automatically inject
-skill instructions; the main Chat Agent retains skills. Global instructions under `CODEX_HOME` load independently of this setting.
-
-## Personal Runtime
-
-Personal Runtime connects the main Chat Agent, background tasks, and reminder handling. Users manage tasks through Chat and can change their requirements, inspect progress, pause execution, or end a task.
-
-Each Agent has one stable `agent_name`. Background tasks use an optional `cron` schedule, which also determines their display type. `Remy` is reserved for the main Chat Agent. Creation writes `task_description` verbatim when `TASK.md` is absent. Use the returned `task_path` to read and edit requirements. Use `manage_proactive_agent action=update` to change execution settings.
-
-Committed reminders reach the Chat Inbox. Priority, Chat idle time, and the task's notification window determine when reminders become eligible for processing. A temporary Reminder fork receives the selected batch and uses the current conversation and the backend's read-only mode to decide whether the user still needs to be told. It skips known, duplicate, handled or outdated information without assigning a new priority or adding action requirements. Explicit requests for reminders at a specified time or condition still apply. A silent Chat decision preserves the task's generated record, reminder and summary.
-
-User feedback can update the relevant task description or configuration for later runs. Reminder creation, delivery, Chat processing, and actual user reading are tracked separately.
+User feedback can update the relevant task description or configuration for later runs. The same record provides the reminder and its processing state.
 
 ## Current work observations
 
@@ -71,22 +63,24 @@ all displays. Both run every five minutes and send observations to the `work` Ag
 execution trajectories require additional connectors. Collected observations must distinguish requested work, attempted
 actions, and verified results.
 
-See [Services and Deployment](./services.md#agent-runtime) for configuration and interfaces.
+See [Services and Deployment](./services.md#proactive-runtime) for configuration and interfaces.
 
 
 ## Task storage
 
-The optional `cron` field determines when a task runs. Omit it for event-driven tasks, set an expression for scheduled tasks, and set it to null to return to event-driven execution. Agent views derive `agent_type` from the schedule.
+Tasks can receive observations with or without a schedule. Set the optional `cron` field to add scheduled triggers and set it to `null` to stop producing new ones. Agent views derive the display field `agent_type` from the presence of a schedule.
 Queued inputs keep their original trigger type after a schedule change. The runtime processes each scheduled trigger in its own round and batches consecutive observations separately.
-The configured cooldown applies when the next batch contains observations. A scheduled trigger at the front of the queue can run during that cooldown.
+The observation cooldown starts after the last successful run. A scheduled trigger at the front of the queue can run during that cooldown. A trigger behind waiting observations keeps its place in the queue.
 
 Each task owns a directory under `reme_agent_dir`. Deleting a task stops its execution and preserves its files. Temporary query sessions are recorded as independent branches.
 
-Remy's Inbox reads committed reminder Markdown and its acknowledgement fields. It holds the active batch in memory and applies the configured count and byte limits. Task input inboxes use durable claim, acknowledgement and retry. Link workspace files with `[[path/to/file.md|Label]]` in task artifacts.
+Remy's inbox holds the active batch in memory and applies the configured count and byte limits. Task input inboxes use durable claim, acknowledgement and retry.
 
-## Desktop protocol
+`list_agent_inbox` returns input events for background tasks and reminder records for Remy. Remy's reminder records have the same fields as `list_task_reminders`, including the source path as `id` and the current `state`. Remy's inbox also reports `processing` for reminders in an active batch.
 
-The desktop reads `get_client_info` for workspace settings, served jobs and speech capabilities. Task create, status
+## Studio protocol
+
+Studio reads `get_client_info` for workspace settings, served jobs and speech capabilities. Task create, status
 and update return the same Agent view as the sidebar; the list action wraps these views in `items` and `total`.
 `status` is authoritative for execution state; clients derive the running indicator from `status=active`.
 
@@ -100,5 +94,5 @@ session subscription carries live message updates and `ask_agent` reports turn b
 questions, `ask_agent` streams complete message upserts in DATA chunks. DONE closes the stream. Native transcripts
 and workspace files remain authoritative.
 
-Python client schemas generate `reme_desktop/src/shared/wire.ts` and an executable serialization fixture. Regenerate
-with `python -m reme_desktop.scripts.client-contract`; `--check` verifies that committed artifacts match the schemas.
+From the repository root, run `python reme_studio/client/scripts/client-contract.py` to regenerate
+`reme_studio/client/src/wire.ts` and the serialization fixture from the Python schemas. Add `--check` to verify them.

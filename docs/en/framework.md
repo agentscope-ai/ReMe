@@ -28,7 +28,7 @@ already occurred and persists the information with long-term value.
 flowchart LR
     CLI["reme CLI<br/>reme/reme.py"] --> Client["Client<br/>http / mcp"]
     Client --> Service["Service<br/>HTTP / MCP"]
-    Service --> App["Application<br/>reme/application.py"]
+    Service --> App["Application<br/>reme/core/application.py"]
     App --> Jobs["Jobs<br/>base / stream / background / cron"]
     Jobs --> Steps["Steps<br/>reme/steps/**"]
     Steps --> Ctx["RuntimeContext<br/>data + Response + stream queue"]
@@ -42,7 +42,7 @@ Core layers:
 |-------------|----------------------------|---------------------------------------------------------------------------------------------------|
 | CLI         | `reme/reme.py`             | Parse commands; `start` launches the service; other actions call the service through a client.    |
 | Service     | `reme/components/service/` | Register Jobs as HTTP endpoints or MCP tools.                                                     |
-| Application | `reme/application.py`      | Assemble configured objects, start them in dependency order, close them, and invoke Jobs.         |
+| Application | `reme/core/application.py`      | Assemble configured objects, start them in dependency order, close them, and invoke Jobs.         |
 | Job         | `reme/components/job/`     | Orchestrate Steps and select normal, streaming, background, or scheduled execution.               |
 | Step        | `reme/steps/`              | Atomic business operations such as file I/O, retrieval, indexing, and self-evolution.             |
 | Component   | `reme/components/`         | Reusable infrastructure such as file_store, file_graph, keyword_index, and agent_wrapper.         |
@@ -54,16 +54,17 @@ Core layers:
 ```text
 reme/
   reme.py                    # CLI entry point
-  application.py             # Application assembly and lifecycle
-  plugin.py                  # installed plugin contract and entry-point loader
+  core/
+    application.py           # Application assembly and lifecycle
+    context.py               # application state and per-Job execution context
+    registry.py              # backend registry and application-local copies
+  plugin/                    # installed plugin contract and entry-point loader
   config/
     default.yaml             # default service / jobs / components
     cookbook.yaml            # Auto Fin + Daily Paper + DingTalk composition
     config_parser.py         # config=, dot notation, and env placeholder parsing
   components/
-    component_registry.py    # backend registry and application-local copies
-    base_component.py        # ComponentMixin / BaseComponent / bind dependency declarations
-    runtime_context.py       # context for one Job execution
+    base.py                  # ComponentMixin / BaseComponent / bind dependency declarations
     job/                     # BaseJob / StreamJob / BackgroundJob / CronJob
     service/                 # HTTP / MCP services
     client/                  # HTTP / MCP clients
@@ -77,7 +78,7 @@ reme/
     agent_wrapper/           # AgentScope / Claude Code / Codex wrappers
     codex_app_server/        # BaseCodexAppServer / SDK backend / shared session ownership
     agent_inbox/             # BaseAgentInbox / local storage and Agent event inputs
-    agent_runtime/           # BaseAgentRuntime / local Agent coordination
+    proactive_runtime/           # BaseProactiveRuntime / local Agent coordination
   steps/
     base_step.py             # BaseStep, Ref, dispatch_steps
     common/                  # version, help, health_check, status, chat
@@ -121,7 +122,7 @@ flowchart LR
     C -->|" start "| D["load_env()"]
     D --> E["resolve_app_config(**kwargs)"]
     E --> F["precheck_start(service)"]
-    F --> G["ReMe(**config).run_app()"]
+    F --> G["Application(**config).run_app()"]
     C -->|" find_reme "| H["cli_find_reme()"]
     C -->|" other actions "| I["call_server(action, **kwargs)"]
     I --> J["R.get(ComponentEnum.CLIENT, backend)"]
@@ -180,10 +181,10 @@ HTTP service behavior:
 | `StreamJob`                               | `POST /<job.name>` returning `text/event-stream`. |
 | `enable_serve: false`                     | No endpoint is registered.                        |
 
-After registering Job endpoints, the HTTP service can also mount the ReMe Studio single-page application. The default is
+After registering Job endpoints, the HTTP service can mount ReMe Studio. The `proactive` preset enables it with
 `service.web_enabled=true`. Builds are resolved from `service.web_static_dir`, `REME_WEB_STATIC_DIR`, the optional
 `reme_studio` package installed by the `web` and `core` extras, and source-tree locations such as
-`reme_studio/dist-static`. If no `index.html` is found, only the frontend is skipped and the Job API remains available. The
+`reme_studio/web/dist-static`. If no `index.html` is found, only the frontend is skipped and the Job API remains available. The
 Studio `GET` fallback does not replace existing `POST /<job.name>` routes.
 
 MCP service behavior:
@@ -205,7 +206,7 @@ ReMe uses the process-wide singleton `R = ComponentRegistry()`. Every component,
 `@R.register("name")`.
 
 ```python
-from ...components import R
+from ...core.registry import R
 
 
 @R.register("version_step")
@@ -610,14 +611,14 @@ thread with the current configuration. Rejected or cancelled preparation retains
 `output_schema` applies only to the current invocation; omission uses the calling wrapper's default, and explicit
 `None` disables that default for this invocation.
 
-Proactive reminders are evaluated in a disposable read-only fork with only `read_chat_reminders` and `submit_chat_reminder` tools.
+A disposable read-only fork receives the selected Chat inbox entries in its prompt. It reads relevant source records and submits its decision through `submit_chat_reminder`.
 Only explicitly submitted text is appended to the foreground conversation; fork reasoning and ordinary replies stay
 outside it. Codex stores injected content in its native rollout without a second application-authored message copy.
-`reme_agents/` contains task configuration, event inboxes, reminder Markdown, personal memory and session
-references. Remy's inbox derives its state from reminder files and their acknowledgement fields. Native
+`reme_agents/` contains task configuration, event inboxes, personal memory and session references.
+Remy's inbox derives its state from reminders and acknowledgement fields in the daily records. Native
 conversation histories retain the conversation content.
 
-The Agent runtime owns transient execution activity and live output. Desktop clients observe `watch_agent_session`; native Codex status notifications remain internal to operation completion and disconnect handling.
+The Proactive Runtime owns transient execution activity and live output. Desktop clients observe `watch_agent_session`; native Codex status notifications remain internal to operation completion and disconnect handling.
 All three wrappers support `append_session(..., role="user" | "assistant")` without generating a reply; the default role
 is `assistant`. Retries with the same `message_id` must retain both content and role. Injected messages keep
 `source="proactive"` independently of their role, including after reload or fork.
@@ -698,7 +699,7 @@ Create a file such as `reme/steps/common/uppercase.py`:
 
 ```python
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 
 
 @R.register("uppercase_step")
@@ -773,7 +774,7 @@ A Step can be instantiated directly and passed a `RuntimeContext`:
 ```python
 import pytest
 
-from reme.components.runtime_context import RuntimeContext
+from reme.core.context import RuntimeContext
 from reme.steps.common.uppercase import UppercaseStep
 
 
@@ -896,7 +897,7 @@ Example streaming Step:
 
 ```python
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 from ...enumeration import ChunkEnum
 
 
@@ -973,7 +974,7 @@ Minimal shape of a new Job backend:
 
 ```python
 from .base_job import BaseJob
-from ..component_registry import R
+from ...core.registry import R
 
 
 @R.register("my_job_backend")

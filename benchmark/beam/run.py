@@ -123,7 +123,7 @@ def _configure_worker(
         logging.getLogger().addHandler(file_handler)
 
     # Re-initialize loguru for reme internals at the desired level
-    from reme.utils import get_logger
+    from reme.utils.logger_utils import get_logger
 
     reme_log_dir = log_dir or "logs"
     get_logger(log_dir=reme_log_dir, level=reme_log_level.upper(), force_init=True)
@@ -380,7 +380,7 @@ async def evaluate_case(eval_config: dict, case_id: str, eval_only: bool = False
     if output_cfg.get("log_to_file", False):
         reme_log_dir = os.environ.get("REME_LOG_DIR")
         if reme_log_dir:
-            from reme.utils import get_logger
+            from reme.utils.logger_utils import get_logger
 
             get_logger(
                 log_dir=reme_log_dir,

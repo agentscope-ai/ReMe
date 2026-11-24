@@ -6,7 +6,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from deploy.docker import reme_container
+from scripts import reme_container
 from reme.config import parse_kwargs, resolve_app_config
 
 
@@ -112,7 +112,7 @@ def test_entrypoint_executes_start_and_preserves_cli_action_syntax(action, tmp_p
     monkeypatch.setattr(reme_container, "HEALTH_STATE_PATH", tmp_path / "health.json")
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setenv("REME_WORKSPACE_DIR", str(tmp_path / "data"))
-    monkeypatch.setattr("reme.utils.load_env", Mock())
+    monkeypatch.setattr("reme.utils.env_utils.load_env", Mock())
     state_writer = Mock()
     monkeypatch.setattr(reme_container, "write_health_state", state_writer)
     exec_command = Mock(side_effect=RuntimeError("exec called"))

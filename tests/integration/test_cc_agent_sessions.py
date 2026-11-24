@@ -10,7 +10,7 @@ from uuid import uuid4
 import pytest
 
 from reme.components.agent_wrapper import CcAgentWrapper
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.utils.env_utils import parse_env_file
 
 pytestmark = pytest.mark.skipif(

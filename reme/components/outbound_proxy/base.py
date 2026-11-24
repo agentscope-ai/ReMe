@@ -3,10 +3,11 @@
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from ..base_component import BaseComponent
+from ...constants import REME_IPV4_LOOPBACK_HOST, REME_IPV6_LOOPBACK_HOST
+from ..base import BaseComponent
 from ...enumeration import ComponentEnum
 
-_LOCAL_BYPASS = "127.0.0.1,localhost,::1"
+_LOCAL_BYPASS = f"{REME_IPV4_LOOPBACK_HOST},localhost,{REME_IPV6_LOOPBACK_HOST}"
 _PROXY_VARIABLES = (
     "HTTP_PROXY",
     "HTTPS_PROXY",

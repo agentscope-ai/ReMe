@@ -13,7 +13,7 @@ import sys
 from typing import Any, TYPE_CHECKING
 
 from .base_codex_app_server import BaseCodexAppServer
-from ..component_registry import R
+from ...core.registry import R
 from ...constants import normalize_connect_host
 from ...utils.async_utils import finish_cleanup
 from ...schema import SessionMessage, SessionSnapshot, SessionStatus, TokenUsage
@@ -532,6 +532,7 @@ class SdkCodexAppServer(BaseCodexAppServer):
                                 and (source_path is None or not await asyncio.to_thread(source_path.exists))
                             )
                             if empty:
+                                options.pop("include_turns", None)
                                 thread = await codex.thread_start(**options)
                                 state.token_usage = TokenUsage()
                             else:

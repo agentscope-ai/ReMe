@@ -29,7 +29,7 @@ export REME_GID=$(id -g)
 docker compose up --build -d
 ```
 
-需要模型驱动的记忆演化时，如果尚无 `.env`，将 `deploy/docker/example.env` 复制为 `.env`，再填写模型凭证。
+需要模型驱动的记忆演化时，如果尚无 `.env`，将仓库根目录的 `example.env` 复制为 `.env`，再填写模型凭证。
 Compose 在运行时注入这个可选文件；Docker 构建排除 `.env` 文件。Compose 的 `--env-file` 用于配置变量替换，
 `REME_ENV_FILE` 则选择实际注入容器的环境文件。
 
@@ -101,6 +101,8 @@ docker compose exec reme reme status
 
 宿主机 CLI 应明确指定发布地址，例如 `reme health_check host=127.0.0.1 port=2444`；宿主机的进程发现无法还原容器内
 启动参数。Agent 集成应连接发布的 HTTP 或 MCP 地址，避免对同一工作区再启动第二个本机 ReMe。
+
+使用共用 Studio 工作台时，请在容器环境中设置 `REME_CONFIG=proactive`。
 
 ## 网络和可选工具
 

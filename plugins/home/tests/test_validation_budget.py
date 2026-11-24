@@ -9,6 +9,7 @@ from reme_home.agent.optimizer import OptimizerAgentWrapper, validation_budget_t
 from reme_home.evaluation import component as evaluation
 from reme_home.evaluation.artifacts import write_json
 from reme_home.evaluation.budget import validation_budget_status
+from reme_home.evaluation.history import rebuild_sampling_state
 from reme_home.evaluation.inputs import EvaluationSpec
 from test_evaluation import (  # noqa: F401  # pylint: disable=unused-import
     FakeFactory,
@@ -23,18 +24,17 @@ pytestmark = pytest.mark.usefixtures("rebuild_review")
 
 
 def seed_history(home, keys):
-    write_json(
-        home / "sampling/state.json",
-        {
-            "schema_version": 2,
-            "round": len(keys),
-            "successful_round": 0,
-            "cases": {},
-            "queries": {},
-            "started_validations": {key: index for index, key in enumerate(keys, 1)},
-            "processed_validations": [],
-        },
-    )
+    # Seed the source evidence so cache rebuilds retain the validation charges.
+    for index, key in enumerate(keys, 1):
+        write_json(
+            home / "sampling/plans" / f"{key}.json",
+            {
+                "round": index,
+                "validation_key": key,
+                "sandbox_started_at": "2026-10-31T00:00:00Z",
+            },
+        )
+    rebuild_sampling_state(home)
 
 
 @pytest.mark.parametrize(

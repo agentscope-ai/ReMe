@@ -3,6 +3,7 @@
 # pylint: disable=protected-access,too-many-lines
 
 import asyncio
+from hashlib import sha256
 import json
 from types import SimpleNamespace
 
@@ -828,16 +829,15 @@ async def test_cache_is_saved_and_restored_per_vector_space(monkeypatch, tmp_pat
     store.as_embedding = embedding
     await store.load()
 
-    key = store._cache_key("hello")
+    key = sha256(b"hello").hexdigest()
     store._cache_put(key, np.array([1.0, 0.0], dtype=np.float16))
     v3_path = store.cache_path
 
     embedding.model = FakeProviderModel("v4")
     await store._sync_cache_space()
 
-    assert store._cache_key("hello") == key
     assert store.cache_path != v3_path
-    assert store._cache_get(store._cache_key("hello")) is None
+    assert store._cache_get(key) is None
     assert v3_path.exists()
 
     embedding.model = FakeProviderModel("v3")
@@ -863,7 +863,7 @@ async def test_cache_space_is_rechecked_after_async_load(monkeypatch, tmp_path):
     v4_space = embedding.vector_space_id
     np.savez(
         store._cache_path(v4_space),
-        keys=np.array([store._cache_key("hello")]),
+        keys=np.array([sha256(b"hello").hexdigest()]),
         embeddings=np.array([[4.0, 0.0]], dtype=np.float16),
     )
     original_to_thread = asyncio.to_thread
@@ -921,7 +921,7 @@ async def test_whole_request_rereads_cache_after_vector_space_changes(monkeypatc
     store = LocalEmbeddingStore(name="t_local_cache_race", enable_cache=True)
     store.as_embedding = embedding
     store._cache_space = embedding.vector_space_id
-    first_key = store._cache_key("first")
+    first_key = sha256(b"first").hexdigest()
     store._cache[first_key] = np.array([3.0, 0.0], dtype=np.float16)
     calls = 0
 

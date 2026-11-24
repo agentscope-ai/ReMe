@@ -7,12 +7,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from reme.components import RuntimeContext
+from reme.core.context import RuntimeContext
 from reme.enumeration import ChunkEnum
 from reme.schema import SessionMessage, SessionSnapshot, SessionStatus, StreamChunk
-from reme.components.agent_runtime._internal.views import AgentViews
-from reme.steps.proactive.agent import AgentChatStep
-from .test_agent_runtime import create_agent, running_runtime
+from reme.components.proactive_runtime._internal.views import AgentViews
+from reme.steps.proactive.agent import AskAgentStep
+from .test_proactive_runtime import create_agent, running_runtime
 
 
 @pytest.mark.parametrize("agent_name", ["Remy", "monitor"])
@@ -61,7 +61,7 @@ async def test_conversation_streams_preserve_outcomes_metadata_and_caller_inputs
         monkeypatch.setattr(wrapper, "reply_stream", reply_stream)
         request = RuntimeContext(stream_queue=asyncio.Queue())
         request.response.metadata["previous_step"] = "retained"
-        response = await AgentChatStep(app_context=context)(request, query="Hello", agent_name=agent_name)
+        response = await AskAgentStep(app_context=context)(request, query="Hello", agent_name=agent_name)
 
         assert response is request.response
         assert response.success is (status == "completed" and not stream_error)
@@ -120,7 +120,7 @@ async def test_subscription_reports_portable_tool_activity_and_cancellation(tmp_
             ),
         )
         task = asyncio.create_task(
-            AgentChatStep(app_context=context)(RuntimeContext(stream_queue=asyncio.Queue()), query="Hello"),
+            AskAgentStep(app_context=context)(RuntimeContext(stream_queue=asyncio.Queue()), query="Hello"),
         )
         try:
             await entered.wait()

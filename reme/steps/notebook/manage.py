@@ -4,8 +4,8 @@ from abc import abstractmethod
 from datetime import datetime, timezone
 
 from ..base_step import BaseStep
-from ..file_io import get_path_lock
-from ...components import R
+from ...utils.files.path_lock import get_path_lock
+from ...core.registry import R
 from ...schema import Idea, Todo, TodoProgress
 from ...schema.notebook import IdeaRequest, TodoRequest
 from ._store import RecordStore
@@ -25,27 +25,41 @@ class _RecordStep(BaseStep):
         }
         request = self.request_model.model_validate(arguments)
         async with await get_path_lock(self.workspace_path.resolve() / ".notebook.lock"):
-            store = RecordStore(self.workspace_path, self.kind, self.context.get("_allowed_paths"))
-            await store.load(archives=request.action != "list" or request.scope != "active")
-            if request.action == "list":
-                answer = self.list_records(store, request)
-            elif request.action == "get":
-                answer = store.get(request.id).model_dump(mode="json", exclude_none=True)
-            else:
-                record = await self.change_record(store, request)
-                await store.put(record)
-                answer = record.model_dump(mode="json", exclude_none=True)
-        self.context.response.answer = answer
+            self.context.response.answer = await self.handle_request(request)
         return self.context.response
 
+    async def handle_request(self, request):
+        """Run the shared record actions under the notebook lock."""
+        store = self._record_store(self.kind)
+        await store.load(archives=request.action != "list" or request.scope != "active")
+        if request.action == "list":
+            return self.list_records(store, request)
+        if request.action == "get":
+            return store.get(request.id).model_dump(mode="json", exclude_none=True)
+        record = await self.change_record(store, request)
+        await store.put(record)
+        return record.model_dump(mode="json", exclude_none=True)
+
+    def _record_store(self, kind: str) -> RecordStore:
+        return RecordStore(
+            self.workspace_path,
+            self.config_value("notebook_dir"),
+            kind,
+            self.context.get("_allowed_paths"),
+        )
+
     @staticmethod
-    def list_records(store, request):
+    def records_in_scope(store, scope):
+        """Yield records in reverse file order for the requested scope."""
+        for record in reversed(store.records.values()):
+            archived = store.locations[record.id].startswith("archive/")
+            if scope == "all" or archived == (scope == "archive"):
+                yield record
+
+    def list_records(self, store, request):
         """Return bounded summaries; get returns the complete progress history."""
         items = []
-        for record in reversed(list(store.records.values())):
-            archived = store.locations[record.id].startswith("archive/")
-            if request.scope != "all" and archived != (request.scope == "archive"):
-                continue
+        for record in self.records_in_scope(store, request.scope):
             if "project" in request.model_fields_set and record.project != request.project:
                 continue
             if isinstance(request, TodoRequest):
@@ -77,16 +91,34 @@ class _RecordStep(BaseStep):
 
 @R.register("todo_step")
 class TodoStep(_RecordStep):
-    """Patch task fields and append progress without replacing previous notes."""
+    """Manage tasks and discover projects across the notebook."""
 
     kind = "todos"
     request_model = TodoRequest
+
+    async def handle_request(self, request):
+        """Aggregate project counts across both record collections."""
+        if request.action != "list_projects":
+            return await super().handle_request(request)
+
+        scope = request.scope if "scope" in request.model_fields_set else "all"
+        projects = {}
+        for kind, count_field in (("todos", "todo_count"), ("ideas", "idea_count")):
+            store = self._record_store(kind)
+            await store.load(archives=scope != "active")
+            for record in self.records_in_scope(store, scope):
+                project = projects.setdefault(
+                    record.project,
+                    {"project": record.project, "todo_count": 0, "idea_count": 0},
+                )
+                project[count_field] += 1
+        return {"items": [projects[name] for name in sorted(projects)], "total": len(projects)}
 
     async def change_record(self, store, request):
         fields = {"project", "text", "status", "due_date", "source_idea"}
         changes = request.model_dump(include=fields, exclude_unset=True)
         if request.source_idea:
-            ideas = RecordStore(self.workspace_path, "ideas", self.context.get("_allowed_paths"))
+            ideas = self._record_store("ideas")
             await ideas.load()
             idea = ideas.get(request.source_idea)
             if request.action == "create":

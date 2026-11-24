@@ -12,11 +12,11 @@ from watchfiles import Change
 
 from ._change_batch import bucket_changes
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 from ...components.file_chunker import BaseFileChunker
 from ...enumeration import ComponentEnum
 from ...schema import FileChunk, FileNode
-from ...utils.file_utils import FileChangedDuringChunkingError, check_file_version
+from ...utils.files.file_version import FileChangedDuringChunkingError, check_file_version
 
 _SOURCE_CHANGE_RETRY_MARKER = "_source_changed"
 _INITIAL_SCAN_RECOVERY_PASSES = 1

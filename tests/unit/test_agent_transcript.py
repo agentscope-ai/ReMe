@@ -177,6 +177,6 @@ def test_grouped_history_matches_live_identity_without_mutating_native_messages(
 
 def test_generated_client_contract_matches_public_schemas_and_real_projection():
     root = Path(__file__).resolve().parents[2]
-    generator = runpy.run_path(str(root / "reme_desktop/scripts/client-contract.py"))
-    assert (root / "reme_desktop/src/shared/wire.ts").read_text() == generator["render"]()
-    assert (root / "reme_desktop/tests/contract-fixture.ts").read_text() == generator["fixture"]()
+    generator = runpy.run_path(str(root / "reme_studio/client/scripts/client-contract.py"))
+    assert (root / "reme_studio/client/src/wire.ts").read_text() == generator["render"]()
+    assert (root / "reme_studio/client/tests/contract-fixture.ts").read_text() == generator["fixture"]()

@@ -4,8 +4,8 @@
 
 import pytest
 
-from reme.components.base_component import BaseComponent
-from reme.components.component_registry import ComponentRegistry, R, create_application_registry
+from reme.components.base import BaseComponent
+from reme.core.registry import ComponentRegistry, R, create_application_registry
 from reme.enumeration import ComponentEnum
 
 

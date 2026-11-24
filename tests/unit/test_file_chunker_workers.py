@@ -16,12 +16,11 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from watchfiles import Change
 
-from reme.application import Application
-from reme.components.application_context import ApplicationContext
+from reme import Application
+from reme.core.context import ApplicationContext, RuntimeContext
 from reme.components.file_chunker import DefaultFileChunker, JsonFileChunker, JsonlFileChunker, MarkdownFileChunker
 from reme.components.file_store import LocalFileStore
 from reme.components.job import BaseJob, StreamJob
-from reme.components.runtime_context import RuntimeContext
 from reme.components.service import HttpService
 from reme.enumeration import ChunkEnum, ComponentEnum
 from reme.schema import FileChunk, FileNode, Response, StreamChunk

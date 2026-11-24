@@ -6,10 +6,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext, RuntimeContext
 from reme.components.as_decision_model import BaseAsDecisionModel
 from reme.components.job import BaseJob
-from reme.components.runtime_context import RuntimeContext
 from reme.enumeration import ComponentEnum
 from reme.steps.base_step import BaseStep
 from reme.steps.common.decision_demo import DecisionDemoStep

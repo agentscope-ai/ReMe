@@ -3,7 +3,7 @@
 import base64
 
 from ..base_step import BaseStep, Ref
-from ...components import R
+from ...core.registry import R
 from ...components.asr import BaseASR
 from ...components.tts import BaseTTS
 from ...enumeration import ComponentEnum

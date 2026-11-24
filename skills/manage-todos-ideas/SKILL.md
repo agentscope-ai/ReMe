@@ -1,6 +1,6 @@
 ---
 name: manage-todos-ideas
-description: 通过 ReMe 的 todo 和 idea 工具记录项目待办与灵感、追加进展、查找未完成工作，并关联 Todo 与 Idea。
+description: 通过 ReMe 的 todo 和 idea 工具查找项目、记录待办与灵感、追加进展，并关联 Todo 与 Idea。
 ---
 
 # 管理待办和想法
@@ -16,6 +16,10 @@ description: 通过 ReMe 的 todo 和 idea 工具记录项目待办与灵感、�
   进展和状态可以在同一次 `update` 中保存。期限可选，`due_date` 使用 YYYY-MM-DD。
 
 ## 找回记录
+
+项目名不明确或需要查看有哪些项目时，调用 `todo`，传 `{"action":"list_projects"}`。它从 Todo 和 Idea 汇总
+项目，返回每个项目的 `project`、`todo_count`、`idea_count`。默认 `scope="all"`，包含活跃和归档记录，也可选
+`active` 或 `archive`。用返回的 `project` 原样查询项目明细。
 
 两个工具均支持 `create/list/get/update`。列表可按 `project`、`query` 和 `scope` 筛选，
 默认 `scope="active"`，也可选 `archive` 或 `all`。省略 `project` 查询所有项目。使用 `offset`、`limit` 和

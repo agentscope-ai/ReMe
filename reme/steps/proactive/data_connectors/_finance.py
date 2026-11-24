@@ -1,4 +1,4 @@
-"""File-backed collection and retryable delivery through the existing append_agent_events Job."""
+"""File-backed collection and retryable delivery through the existing append_task_events Job."""
 
 import asyncio
 from datetime import datetime
@@ -9,10 +9,11 @@ from pathlib import Path
 import httpx
 
 from .base_connector import BaseConnectorStep
-from ...file_io import check_path_permission, get_path_lock
-from ....utils.workspace_files import WorkspaceFiles
+from ...file_io import check_path_permission
+from ....utils.files.path_lock import get_path_lock
+from ....utils.files.workspace_files import WorkspaceFiles
 from ....schema import Event, ResourceMetadata
-from ....schema.agent_runtime import validate_agent_name
+from ....schema.proactive_runtime import validate_agent_name
 from ....utils.async_utils import complete_in_thread
 
 
@@ -47,8 +48,8 @@ class FinanceCollectorStep(BaseConnectorStep):
         self.resource_root = self.files.checked(target.parent.parent)
         self.require_path(self.resource_root)
         self.require_path(self.files.path(self.config_value("reme_agent_dir")))
-        if self.get_job("append_agent_events") is None:
-            raise RuntimeError("Finance collectors require the append_agent_events Job")
+        if self.get_job("append_task_events") is None:
+            raise RuntimeError("Finance collectors require the append_task_events Job")
         async with await get_path_lock(self.resource_root):
             await self._deliver_pending()
             await super().execute()
@@ -123,7 +124,7 @@ class FinanceCollectorStep(BaseConnectorStep):
                 paths=[item.relative_to(self.workspace_path).as_posix() for item in payloads],
             )
             response = await self.run_job(
-                "append_agent_events",
+                "append_task_events",
                 agent_name=self.agent_name,
                 events=[event.model_dump(mode="json")],
                 _allowed_paths=self.context.get("_allowed_paths"),

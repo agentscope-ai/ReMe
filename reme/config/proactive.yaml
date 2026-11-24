@@ -1,20 +1,27 @@
-# LocalAgentRuntime with Chat and Proactive Agent steps.
+# LocalProactiveRuntime with Chat and Proactive Agent steps.
 # Start with LLM_API_KEY, LLM_BASE_URL and optionally REME_MODEL_NAME.
 # reme start config=proactive
-# Desktop jobs and their runtime dependencies. Examples live in demo.yaml.
+# Studio jobs and their runtime dependencies. Examples live in demo.yaml.
 language: zh
 reme_agent_dir: reme_agents
 
 service:
   backend: http
-  web_enabled: false
+  web_enabled: true
   mcp_enabled: true
 
 jobs:
+  health_check:
+    backend: base
+    description: "Return a health snapshot of ReMe components."
+    steps:
+      - backend: health_check_step
+
   todo:
     backend: base
     description: >-
-      Manage one-sentence tasks: create/list/get/update. IDs and progress timestamps are generated automatically.
+      Manage one-sentence tasks: create/list/get/update. Use list_projects to count Todo and Idea records per project.
+      IDs and progress timestamps are generated automatically.
       Update appends progress_text; done/cancelled archives the task, open/partial restores it.
       source_idea links an existing idea; create inherits omitted project/text from that idea.
       Follow the manage-todos-ideas skill for workflows and examples.
@@ -22,7 +29,7 @@ jobs:
       type: object
       additionalProperties: false
       properties:
-        action: {type: string, enum: [create, list, get, update]}
+        action: {type: string, enum: [create, list, list_projects, get, update]}
         id: &record_id {type: string, minLength: 1, description: "Existing record ID; never supplied on create."}
         project: &record_project {type: string, description: "Project name. Defaults to 随笔 (Notes in English); blank also means 随笔. Omit on create to inherit the source Idea's project. Omit on update to retain. Exact filter for list; use 随笔 for Notes."}
         text: &record_text {type: string, minLength: 1, description: "One-sentence content; create/update only."}
@@ -31,7 +38,7 @@ jobs:
         source_idea: {type: [string, "null"], minLength: 1, description: "Idea ID to link or filter by; null removes the link on update."}
         progress_text: {type: string, minLength: 1, description: "Append one progress note; create/update only."}
         progress_time: {type: [string, "null"], format: date-time, description: "Optional explicit progress time with timezone; requires progress_text."}
-        scope: &record_scope {type: string, enum: [active, archive, all], description: "List only; defaults to active."}
+        scope: {type: string, enum: [active, archive, all], description: "Defaults to active for list and all for list_projects."}
         query: &record_query {type: string, description: "List only; case-insensitive substring search."}
         offset: &record_offset {type: integer, minimum: 0, description: "List only; defaults to 0."}
         limit: &record_limit {type: integer, minimum: 1, maximum: 100, description: "List only; defaults to 20."}
@@ -54,7 +61,7 @@ jobs:
         id: *record_id
         project: *record_project
         text: *record_text
-        scope: *record_scope
+        scope: {type: string, enum: [active, archive, all], description: "List only; defaults to active."}
         query: *record_query
         offset: *record_offset
         limit: *record_limit
@@ -94,7 +101,7 @@ jobs:
     backend: base
     enable_serve: false
     steps:
-      - backend: inbox_chat_step
+      - backend: process_chat_reminders_step
         job_tools: &chat_tools [manage_proactive_agent, todo, idea]
         timeout_seconds: 120
 
@@ -146,8 +153,8 @@ jobs:
   manage_proactive_agent:
     backend: base
     description: >-
-      Manage scheduled and event-driven tasks: list/create/status/update/delete/query. All parameters are top-level.
-      Create requires agent_name and task_description; supply cron for scheduled tasks.
+      Manage background tasks: list/create/status/update/delete/query. All parameters are top-level.
+      Create requires agent_name and task_description. Set cron to add automatic time-based triggers.
       Other actions except list require agent_name; query also requires question and an existing queryable task session.
       Update changes execution settings; edit task requirements in TASK.md at the returned task_path.
       Follow the manage-proactive-agent skill for workflows and examples.
@@ -161,17 +168,18 @@ jobs:
           minLength: 1
           maxLength: 80
           pattern: '^[\w-]+$'
-          description: "Stable Agent name; for new tasks prefer simple lowercase words joined by underscores. Remy is reserved for Chat."
+          description: "Stable Agent name. New task names should use simple lowercase words joined by underscores."
         task_description:
           type: string
           minLength: 1
           maxLength: 100000
           description: "Create only: task description written verbatim to TASK.md."
         enabled: {type: boolean}
-        cron: {type: [string, "null"], description: "Cron expression in the application timezone."}
-        min_trigger_interval_seconds: {type: number, minimum: 0, description: "Event processing interval, not collection frequency."}
+        cron: {type: [string, "null"], description: "Optional cron expression in the application timezone. Null disables automatic triggers."}
+        min_trigger_interval_seconds: {type: number, minimum: 0, description: "Minimum interval before processing observations, in seconds."}
         notify_window:
           type: [object, "null"]
+          description: "Time window for automatic Chat processing and sending."
           properties:
             start: {type: string, pattern: '^(?:[01][0-9]|2[0-3]):[0-5][0-9]$'}
             end: {type: string, pattern: '^(?:[01][0-9]|2[0-3]):[0-5][0-9]$'}
@@ -182,14 +190,14 @@ jobs:
     steps:
       - backend: manage_proactive_agent_step
 
-  append_agent_events:
+  append_task_events:
     backend: base
-    description: "Durably append observations to a named agent; source belongs to each event."
+    description: "Append observations to the input queue of an existing background task."
     parameters:
       type: object
       additionalProperties: false
       properties:
-        agent_name: *agent_name
+        agent_name: &task_agent_name {<<: *agent_name, description: "Name of an existing background task."}
         events:
           type: array
           minItems: 1
@@ -206,20 +214,7 @@ jobs:
             additionalProperties: false
       required: [agent_name, events]
     steps:
-      - backend: append_event_step
-
-  read_chat_reminders:
-    backend: base
-    enable_serve: false
-    description: >-
-      Read the selected reminders as agent_name, created_at, message and supporting paths, excluding the reminder Markdown.
-      Successful submit_chat_reminder decisions consume the batch automatically.
-    parameters:
-      type: object
-      additionalProperties: false
-      properties: {}
-    steps:
-      - backend: read_inbox_step
+      - backend: append_task_events_step
 
   submit_chat_reminder:
     backend: base
@@ -232,7 +227,7 @@ jobs:
         content: {type: string, maxLength: 100000}
       required: [content]
     steps:
-      - backend: send_chat_msg_step
+      - backend: submit_chat_reminder_step
 
   run_proactive_agent:
     backend: base
@@ -240,29 +235,31 @@ jobs:
     track_execution: true
     steps:
       - backend: proactive_agent_step
+        effort: low  # Scheduled and event-driven runs.
         timeout_seconds: 1200
         max_local_search_calls: 10
-        max_timeline_entries: 10
+        recent_history_hours: 24
         sandbox: null  # Use the selected wrapper's sandbox setting.
 
   proactive_loop:
     backend: background
     steps:
-      - backend: agent_loop_step
+      - backend: proactive_loop_step
 
-  list_agent_outbox:
+  list_task_reminders:
     backend: base
+    description: "List reminders produced by an existing background task."
     parameters:
       type: object
       additionalProperties: false
       properties:
-        agent_name: *agent_name
+        agent_name: *task_agent_name
         offset: &page_offset {type: integer, minimum: 0, default: 0}
         limit: &page_limit {type: integer, minimum: 1, maximum: 100, default: 20}
         state: {type: string, enum: [all, pending, processed], default: all}
       required: [agent_name]
     steps:
-    - backend: agent_outbox_step
+    - backend: list_task_reminders_step
 
   read_agent_reminder:
     backend: base
@@ -270,15 +267,18 @@ jobs:
       type: object
       additionalProperties: false
       properties:
-        agent_name: &view_agent_name {<<: *agent_name, default: Remy}
-        message_id: {type: string, minLength: 1, maxLength: 128}
-        mark_read: {type: boolean, default: false}
+        agent_name: &view_agent_name
+          <<: *agent_name
+          default: Remy
+          description: "Name of a visible Agent. Defaults to Remy."
+        message_id: {type: string, minLength: 1, description: "Workspace-relative reminder path or Chat message ID."}
       required: [message_id]
     steps:
     - backend: agent_reminder_step
 
   list_agent_inbox:
     backend: base
+    description: "List a task's input events or Remy's incoming reminder records, with their processing state."
     parameters:
       type: object
       additionalProperties: false
@@ -309,26 +309,26 @@ jobs:
     steps:
     - backend: agent_session_step
 
-  agent_task:
+  task_document:
     backend: base
-    description: "Read or save a named task's TASK.md; saving requires the mtime returned by read."
+    description: "Read or save a named task's TASK.md. Pass the mtime from read as expected_mtime when saving."
     parameters:
       type: object
       additionalProperties: false
       properties:
         action: {type: string, enum: [read, save]}
-        agent_name: *agent_name
+        agent_name: *task_agent_name
         content: {type: string, minLength: 1, maxLength: 100000}
         expected_mtime: {type: string, minLength: 1, maxLength: 80}
       required: [action, agent_name]
     steps:
-    - backend: agent_task_step
+    - backend: task_document_step
 
   watch_agent_session:
     backend: stream
     parameters: *agent_request
     steps:
-    - backend: agent_events_step
+    - backend: watch_agent_session_step
     stream_queue_size: 1
 
   ask_agent:
@@ -345,7 +345,7 @@ jobs:
       required:
       - query
     steps:
-    - backend: agent_chat_step
+    - backend: ask_agent_step
       job_tools: *chat_tools
 
   create_chat_session:
@@ -484,6 +484,10 @@ jobs:
         end_date:
           type: string
           description: optional inclusive end date filter (YYYY-MM-DD); results later than this date are excluded
+        expand_links:
+          type: boolean
+          description: include wikilink neighbors for matching documents
+          default: true
       required:
       - query
     steps:
@@ -568,7 +572,7 @@ components:
   agent_inbox:
     default:
       backend: event
-  agent_runtime:
+  proactive_runtime:
     default:
       backend: local
       agent_wrapper: default

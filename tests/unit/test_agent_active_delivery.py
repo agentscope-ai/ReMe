@@ -7,13 +7,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from reme.schema import SessionSnapshot, SessionStatus
-from reme.schema.proactive_agent import ProactiveRunResult
-from reme.components import RuntimeContext
-from reme.steps.proactive.agent import AgentChatStep, InboxChatStep
-from reme.steps.proactive.tools.inbox import ReadInboxStep, SendChatMessageStep
+from reme.schema import Event, SessionSnapshot, SessionStatus
+from reme.core.context import RuntimeContext
+from reme.steps.proactive.agent import AskAgentStep, ProcessChatRemindersStep
+from reme.steps.proactive.tools.chat_reminders import SubmitChatReminderStep
 from reme.steps.proactive.tools.manage_proactive_agent import ManageProactiveAgentStep
-from .test_agent_runtime import create_agent, running_runtime
+from .test_proactive_runtime import create_agent, running_runtime
 from .test_inbox_fork import append_message, prepare
 
 
@@ -21,7 +20,7 @@ from .test_inbox_fork import append_message, prepare
 @pytest.mark.parametrize(
     "step_class, arguments",
     [
-        (AgentChatStep, {"query": "Current progress?"}),
+        (AskAgentStep, {"query": "Current progress?"}),
         (ManageProactiveAgentStep, {"action": "query", "question": "Current progress?"}),
     ],
 )
@@ -31,9 +30,9 @@ async def test_query_forks_latest_running_session_instead_of_previous_receipt(tm
         previous = await runtime.sessions.ensure("monitor", wrapper, {}, runtime.now())
         await runtime.run(
             "monitor",
-            AsyncMock(return_value=(ProactiveRunResult(notifications=[]), previous)),
+            AsyncMock(return_value=(None, previous)),
         )
-        await runtime.append("monitor", {"event_ts": runtime.now(), "source": "test", "description": "New"})
+        await runtime.append_events("monitor", [Event(event_ts=runtime.now(), source="test", description="New")])
         entered, release = asyncio.Event(), asyncio.Event()
         source = None
 
@@ -42,7 +41,7 @@ async def test_query_forks_latest_running_session_instead_of_previous_receipt(tm
             source = await runtime.sessions.ensure("monitor", wrapper, {}, runtime.now(), new=True)
             entered.set()
             await release.wait()
-            return ProactiveRunResult(notifications=[]), source
+            return None, source
 
         running = asyncio.create_task(runtime.run("monitor", execute))
         try:
@@ -100,14 +99,13 @@ async def test_p0_forks_and_appends_while_foreground_chat_keeps_running(tmp_path
         async def reply(_hint, **options):
             assert options["resume"] == source and options["fork_session"]
             bound = options["injected_job_kwargs"]
-            await ReadInboxStep(app_context=context)(**bound)
-            await SendChatMessageStep(app_context=context)(content="Urgent update", **bound)
+            await SubmitChatReminderStep(app_context=context)(content="Urgent update", **bound)
             return {"status": "completed", "result": ""}
 
         wrapper.append_session = AsyncMock(side_effect=append)
         wrapper.reply = AsyncMock(side_effect=reply)
         try:
-            response = await asyncio.wait_for(InboxChatStep(app_context=context)(**arguments), 1)
+            response = await asyncio.wait_for(ProcessChatRemindersStep(app_context=context)(**arguments), 1)
             assert response.answer == {"sent": True}
             assert not task.done() and not runtime.notifications.pending
             assert (await runtime.sessions.current("Remy")).session_id == source
@@ -123,7 +121,7 @@ async def test_nonurgent_forks_keep_waiting_for_chat_idle(tmp_path, priority):
         arguments = await prepare(runtime, context, priority=priority)
         wrapper.reply = AsyncMock()
         async with runtime.chat_lock:
-            response = await asyncio.wait_for(InboxChatStep(app_context=context)(**arguments), 1)
+            response = await asyncio.wait_for(ProcessChatRemindersStep(app_context=context)(**arguments), 1)
         assert response.answer == {"skipped": "busy"}
         wrapper.reply.assert_not_awaited()
         assert list(runtime.notifications.pending) == arguments["msg_ids"]
@@ -149,7 +147,7 @@ async def test_p0_defers_when_a_new_user_turn_is_already_queued(tmp_path):
         try:
             await asyncio.sleep(0)
             assert len(runtime.chat_tasks) == 2
-            response = await asyncio.wait_for(InboxChatStep(app_context=context)(**arguments), 1)
+            response = await asyncio.wait_for(ProcessChatRemindersStep(app_context=context)(**arguments), 1)
             assert response.answer == {"skipped": "busy"}
             wrapper.reply.assert_not_awaited()
         finally:

@@ -3,7 +3,7 @@
 from abc import abstractmethod
 from collections.abc import Collection, Set
 
-from ..base_component import BaseComponent
+from ..base import BaseComponent
 from ..tokenizer import BaseTokenizer
 from ...enumeration import ComponentEnum
 

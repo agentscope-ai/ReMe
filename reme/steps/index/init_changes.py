@@ -6,9 +6,9 @@ from typing import Iterable
 from ._change_batch import coalesce_changes
 from ._watch_rules import build_context_watch_rules
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 from ...schema import FileNode
-from ...utils.file_watch import WatchRule, collect_existing, diff_files
+from ...utils.files.file_watch import WatchRule, collect_existing, diff_files
 
 
 @R.register("init_changes_step")

@@ -26,9 +26,16 @@ from reme.components.file_graph import local_file_graph as local_file_graph_modu
 from reme.components.keyword_index import bm25_index as bm25_index_module
 from reme.components.embedding_store import LocalEmbeddingStore
 from reme.schema import FileChunk, FileNode
-from reme.utils.jsonl_zst import read_jsonl_zst, write_jsonl_zst
+from reme.utils.files.jsonl_zst import read_jsonl_zst, write_jsonl_zst
 
-from .file_store_test_support import FakeEmbeddingStore, _new_faiss_store, _new_zvec_store, _settle_reindex, chunk, node
+from .file_store_test_support import (
+    FakeEmbeddingStore,
+    _new_faiss_store,
+    _new_zvec_store,
+    _watch_reindex_publication,
+    chunk,
+    node,
+)
 
 
 class CountingFakeEmbeddingStore(FakeEmbeddingStore):
@@ -1873,7 +1880,7 @@ async def test_faiss_async_reindex_disabled_by_default():
 
 
 @pytest.mark.asyncio
-async def test_faiss_async_reindex_triggered_by_compaction():
+async def test_faiss_async_reindex_triggered_by_compaction(monkeypatch):
     """Crossing the tombstone threshold submits a background rebuild whose result
     matches a synchronous rebuild (deleted ids gone, tombstones cleared)."""
     with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
@@ -1886,9 +1893,10 @@ async def test_faiss_async_reindex_triggered_by_compaction():
         await store.upsert(files)
         assert store._reindex_worker_task is None  # below threshold, nothing submitted yet
 
+        published = _watch_reindex_publication(store, monkeypatch)
         await store.delete([f"n{i}.md" for i in range(3)])  # 3 tombstones >= 2 -> submit
         assert store._reindex_worker_task is not None
-        await _settle_reindex(store)
+        await asyncio.wait_for(published.wait(), timeout=5.0)
 
         assert set(store._id_to_row) == {"c3"}
         assert store._tombstones == set()
@@ -1897,7 +1905,7 @@ async def test_faiss_async_reindex_triggered_by_compaction():
 
 
 @pytest.mark.asyncio
-async def test_faiss_async_reindex_no_lost_writes_during_build():
+async def test_faiss_async_reindex_no_lost_writes_during_build(monkeypatch):
     """Writes that land while an async rebuild is in flight are not lost: a
     follow-up rebuild folds them in (eventual consistency)."""
     with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
@@ -1920,6 +1928,7 @@ async def test_faiss_async_reindex_no_lost_writes_during_build():
 
         store._build_index_blocking = gated_build
 
+        published = _watch_reindex_publication(store, monkeypatch)
         store._submit_reindex()  # snapshot == {a}
         while not started.is_set():
             await asyncio.sleep(0.005)
@@ -1929,7 +1938,7 @@ async def test_faiss_async_reindex_no_lost_writes_during_build():
         await store.upsert([(node("a.md"), [chunk("a", "a.md", "beta text")])])  # changed text
 
         release.set()
-        await _settle_reindex(store)
+        await asyncio.wait_for(published.wait(), timeout=5.0)
 
         # After the follow-up rebuild the index reflects both concurrent writes;
         # the changed chunk now embeds as "beta".
@@ -1942,7 +1951,7 @@ async def test_faiss_async_reindex_no_lost_writes_during_build():
 
 
 @pytest.mark.asyncio
-async def test_faiss_async_reindex_single_worker_coalesces():
+async def test_faiss_async_reindex_single_worker_coalesces(monkeypatch):
     """Only one reindex runs at a time; repeated submissions coalesce and the
     worker stays a single long-lived task."""
     with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
@@ -1970,6 +1979,7 @@ async def test_faiss_async_reindex_single_worker_coalesces():
 
         store._build_index_blocking = gated_build
 
+        published = _watch_reindex_publication(store, monkeypatch)
         store._submit_reindex()
         while not started.is_set():
             await asyncio.sleep(0.005)
@@ -1982,7 +1992,7 @@ async def test_faiss_async_reindex_single_worker_coalesces():
         assert store._reindex_worker_task is worker
 
         release.set()
-        await _settle_reindex(store)
+        await asyncio.wait_for(published.wait(), timeout=5.0)
 
         assert peak["n"] == 1  # never two builds at once
         assert set(store._id_to_row) == {"a"}

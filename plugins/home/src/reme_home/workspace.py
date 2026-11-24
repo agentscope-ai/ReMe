@@ -7,13 +7,14 @@ import tempfile
 import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from importlib.resources import files
 from pathlib import Path
 from typing import Literal
 from uuid import UUID, uuid4
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict
 
-from reme.components.base_component import BaseComponent
+from reme.components.base import BaseComponent
 
 DIRECTORIES = (
     "code/repo",
@@ -27,6 +28,7 @@ DIRECTORIES = (
     "logs",
 )
 ROOT_DIRECTORIES = tuple(dict.fromkeys(path.split("/", maxsplit=1)[0] for path in DIRECTORIES))
+EVALUATION_ARTIFACT_GUIDE = "evaluation-artifact-guide.md"
 
 
 class WorkspaceManifest(BaseModel):
@@ -115,6 +117,23 @@ def _publish_manifest(path: Path, manifest: WorkspaceManifest) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def _restore_evaluation_guide(docs: Path) -> None:
+    """Install the renamed guide alongside its legacy copy without overwriting files."""
+    legacy = docs / "validation-artifact-guide.md"
+    guide = docs / EVALUATION_ARTIFACT_GUIDE
+    if legacy.is_symlink() or not legacy.is_file() or guide.is_symlink() or guide.exists():
+        return
+    content = files("reme_home").joinpath("runtime_docs", guide.name).read_bytes()
+    with tempfile.TemporaryDirectory(prefix=".home-guide-", dir=docs) as directory:
+        staged = Path(directory) / guide.name
+        staged.write_bytes(content)
+        try:
+            # Publish complete bytes and preserve any file created after the check.
+            os.link(staged, guide)
+        except FileExistsError:
+            pass
+
+
 class HomeWorkspace(BaseComponent):
     """Create Home directories at application startup, preserving ReMe data."""
 
@@ -172,6 +191,9 @@ class HomeWorkspace(BaseComponent):
 
             recover_preparation(root, state)
             self._initialize(root, state / "workspace.json")
+            prepared = state / "preparation.json"
+            if not prepared.is_symlink() and prepared.is_file():
+                _restore_evaluation_guide(root / "docs")
 
     def _initialize(self, root: Path, marker: Path) -> None:
         if marker.is_symlink() or (marker.exists() and not marker.is_file()):

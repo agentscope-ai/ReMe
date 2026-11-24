@@ -13,10 +13,21 @@ from pydantic import (
     model_validator,
 )
 
-from .agent_runtime import AgentName, AgentNotification
+from ..constants import CHAT_AGENT_NAME
 from .agent_message import ClientModel
+from .event import Event
+from .proactive_runtime import AgentName, AgentReminder, InboxPriority
 
 CRON_EVENT_SOURCE = "cron"
+
+
+class AppendTaskEventsRequest(BaseModel):
+    """Append a nonempty batch of observations to one existing background task."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    agent_name: AgentName
+    events: list[Event] = Field(min_length=1)
 
 
 class NotificationWindow(BaseModel):
@@ -55,17 +66,16 @@ class TaskSettings(ClientModel):
             raise ValueError("min_trigger_interval_seconds must be a number")
         return value
 
-    @model_validator(mode="after")
-    def validate_trigger(self):
-        """Validate the final task after creation or a partial update."""
-        if self.cron is not None:
+    @field_validator("cron")
+    @classmethod
+    def validate_cron(cls, expression):
+        """Validate the optional schedule independently of observation processing."""
+        if expression is not None:
             from croniter import croniter
 
-            if not self.cron or not croniter.is_valid(self.cron):
-                raise ValueError("cron tasks require a valid cron expression")
-            if self.min_trigger_interval_seconds:
-                raise ValueError("cron tasks do not accept an event trigger interval")
-        return self
+            if not expression or not croniter.is_valid(expression):
+                raise ValueError("cron must be a valid expression")
+        return expression
 
 
 class ProactiveAgentConfig(TaskSettings):
@@ -74,17 +84,12 @@ class ProactiveAgentConfig(TaskSettings):
     agent_name: AgentName
     max_batch_events: int = Field(default=20, ge=1, strict=True)
 
-    @property
-    def agent_type(self) -> Literal["proactive", "cron"]:
-        """Classify tasks by their trigger."""
-        return "cron" if self.cron is not None else "proactive"
-
     @field_validator("agent_name")
     @classmethod
     def safe_name(cls, value: str) -> str:
         """Task names identify workspace files; Remy owns the main conversation."""
-        if value.casefold() == "remy":
-            raise ValueError("Remy is a reserved agent name")
+        if value.casefold() == CHAT_AGENT_NAME.casefold():
+            raise ValueError(f"{CHAT_AGENT_NAME} is a reserved agent name")
         return value
 
 
@@ -111,12 +116,27 @@ class ProactiveAgent(ProactiveAgentConfig):
     deleted_at: AwareDatetime | None = None
 
 
-class ProactiveRunResult(BaseModel):
-    """One successful round can intentionally produce no notifications."""
+class ProactiveRecordDecision(BaseModel):
+    """The inbox delivery decision in a daily record's frontmatter."""
 
     model_config = ConfigDict(extra="forbid")
 
-    notifications: list[AgentNotification]
+    reminder_priority: Literal[InboxPriority, "skip"]
+    reminder_message: str = Field(max_length=100000)
+
+    @field_validator("reminder_message")
+    @classmethod
+    def nonblank_reminder_message(cls, value):
+        """Require the inbox message or the reason for skipping delivery."""
+        if not value.strip():
+            raise ValueError("reminder_message must not be blank")
+        return value
+
+    def reminder(self, path: str) -> AgentReminder | None:
+        """Build the reminder identified by its source daily record."""
+        if self.reminder_priority == "skip":
+            return None
+        return AgentReminder(priority=self.reminder_priority, message=self.reminder_message, id=path)
 
 
 class ManageProactiveAgentRequest(TaskSettings):

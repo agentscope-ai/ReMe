@@ -1,0 +1,33 @@
+{
+  "name": "@agentscope-ai/reme_studio",
+  "version": "0.4.3",
+  "description": "ReMe Studio web workspace and static distribution",
+  "license": "Apache-2.0",
+  "type": "module",
+  "files": [
+    "dist-static"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.19",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "typescript": "~5.9.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/agentscope-ai/ReMe.git",
+    "directory": "reme_studio/web"
+  }
+}

@@ -1,7 +1,7 @@
 """Demo step that drives an Agent via the agent_wrapper component with streaming output."""
 
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 from ...schema import collect_reply
 
 

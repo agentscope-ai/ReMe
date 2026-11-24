@@ -52,11 +52,12 @@ class TodoRequest(_RecordRequest):
     action_fields = {
         "create": {"project", "text", "status", "due_date", "source_idea", "progress_text", "progress_time"},
         "list": {"project", "status", "source_idea", "scope", "query", "offset", "limit"},
+        "list_projects": {"scope"},
         "get": {"id"},
         "update": {"id", "project", "text", "status", "due_date", "source_idea", "progress_text", "progress_time"},
     }
 
-    action: Literal["create", "list", "get", "update"]
+    action: Literal["create", "list", "list_projects", "get", "update"]
     status: Literal["open", "partial", "done", "cancelled"] = "open"
     due_date: date | None = None
     source_idea: str | None = Field(default=None, min_length=1)

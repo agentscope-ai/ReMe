@@ -4,7 +4,7 @@ Kept dependency-light (stdlib + ``WikilinkHandler`` only) so ``tests/unit``
 can import it without LLM credentials or the integration workspace fixture.
 """
 
-from reme.utils.wikilink_handler import WikilinkHandler
+from reme.utils.documents.wikilink_handler import WikilinkHandler
 
 
 def targets_with_provenance(target_texts: dict[str, str], source_path: str) -> list[str]:

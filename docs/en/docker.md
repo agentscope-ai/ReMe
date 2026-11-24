@@ -30,8 +30,8 @@ export REME_GID=$(id -g)
 docker compose up --build -d
 ```
 
-For model-powered memory evolution, copy `deploy/docker/example.env` to `.env` if you do not already have one, then fill in
-your model credentials. Compose injects this optional file at runtime; Docker builds exclude `.env` files. Compose's
+For model-powered memory evolution, copy the repository's `example.env` to `.env` if you do not already have one, then
+fill in your model credentials. Compose injects this optional file at runtime; Docker builds exclude `.env` files. Compose's
 `--env-file` controls variable interpolation; `REME_ENV_FILE` selects the file injected into the container.
 
 ## Use a published image
@@ -106,6 +106,8 @@ docker compose exec reme reme status
 From a host CLI, supply the published address explicitly, for example `reme health_check host=127.0.0.1 port=2444`.
 Host process discovery cannot reconstruct a container's startup arguments. Configure agent integrations to use the
 published HTTP or MCP endpoint instead of starting a second native ReMe on the same workspace.
+
+Set `REME_CONFIG=proactive` in the container environment to use the shared Studio workbench.
 
 ## Networking and optional tools
 

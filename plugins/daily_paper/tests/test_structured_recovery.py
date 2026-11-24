@@ -11,7 +11,7 @@ import pytest
 from reme_daily_paper.analyze import DailyPaperAnalyzeStep
 from reme_daily_paper.base import markdown_output
 from reme_daily_paper.schema import PaperInfo, PaperPick
-from reme.components import ApplicationContext, RuntimeContext
+from reme.core.context import ApplicationContext, RuntimeContext
 from reme.components.agent_wrapper import AsAgentWrapper
 
 

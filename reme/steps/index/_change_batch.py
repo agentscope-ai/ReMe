@@ -6,13 +6,7 @@ from pathlib import Path
 
 from watchfiles import Change
 
-
-def _normalize_change(raw: object) -> Change | None:
-    if isinstance(raw, Change):
-        return raw
-    if isinstance(raw, str):
-        return Change.__members__.get(raw)
-    return None
+from ...utils.files.file_watch import normalize_change
 
 
 def coalesce_changes(
@@ -26,7 +20,7 @@ def coalesce_changes(
     for item in changes:
         if not isinstance(item, dict) or "path" not in item:
             continue
-        change = _normalize_change(item.get("change"))
+        change = normalize_change(item.get("change"))
         if change not in (Change.added, Change.modified, Change.deleted):
             continue
         path = item["path"]
@@ -58,7 +52,7 @@ def bucket_changes(
     """Group changes by watchfiles.Change."""
     buckets: dict[Change, list[str]] = {Change.added: [], Change.modified: [], Change.deleted: []}
     for item in coalesce_changes(changes, path_exists=path_exists, path_key=path_key):
-        change = _normalize_change(item["change"])
+        change = normalize_change(item["change"])
         if isinstance(change, Change) and change in buckets:
             buckets[change].append(item["path"])
     return buckets

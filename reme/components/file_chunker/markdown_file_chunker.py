@@ -11,12 +11,11 @@ configured section limit is exceeded; otherwise build a mistletoe AST →
 and merge adjacent small subtrees at their parent. Leaf blocks (table / code /
 list / paragraph) split on internal boundaries and each piece is annotated
 ``[Part X/N]``. Wikilink extraction is
-delegated to :class:`reme.utils.wikilink_handler.WikilinkHandler` —
+delegated to :class:`reme.utils.documents.wikilink_handler.WikilinkHandler` —
 the single source of truth for ``[[...]]`` syntax.
 """
 
 import re
-import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -26,22 +25,20 @@ from pydantic import ValidationError
 
 
 from .default_file_chunker import DefaultFileChunker, InvalidEncodingPolicy
-from ..component_registry import R
+from ...core.registry import R
 from ...schema import (
     FileChunk,
     FileFrontMatter,
     FileNode,
 )
-from ...utils.wikilink_handler import WikilinkHandler
+from ...utils.documents.markdown_parser import MARKDOWN_PARSE_LOCK
+from ...utils.documents.wikilink_handler import WikilinkHandler
 
 # -- AST node + helpers ---------------------------------------------------
 
 _ATX_HEADING_RE = re.compile(r"^ {0,3}#{1,6}(?:[ \t]+|$)")
 _SETEXT_HEADING_RE = re.compile(r"^ {0,3}(?:=+|-+)[ \t]*$")
 _FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
-
-# MarkdownRenderer changes mistletoe's process-wide token registry.
-_RENDERER_LOCK = threading.Lock()
 
 
 @dataclass
@@ -144,7 +141,7 @@ class MarkdownFileChunker(DefaultFileChunker):
                 from mistletoe.markdown_renderer import MarkdownRenderer
                 from mistletoe.block_token import Document
 
-                with _RENDERER_LOCK, MarkdownRenderer() as renderer:
+                with MARKDOWN_PARSE_LOCK, MarkdownRenderer() as renderer:
                     tree = self._build_tree(Document(content), renderer, line_offset=line_offset)
                     chunks = self._chunk_node(tree, (), rel_path, renderer)
             if self.include_frontmatter_in_metadata:

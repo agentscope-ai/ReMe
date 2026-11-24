@@ -7,7 +7,7 @@ from collections.abc import Callable
 
 from pydantic import BaseModel
 
-from ..base_component import BaseComponent
+from ..base import BaseComponent
 from ...enumeration import ComponentEnum
 from ...schema.agent_inbox import InboxReceipt
 
@@ -82,10 +82,6 @@ class BaseAgentInbox(BaseComponent):
     @abstractmethod
     async def receipts(self) -> dict[str, list[InboxReceipt]]:
         """Read retained execution receipts grouped by inbox identity."""
-
-    @abstractmethod
-    async def committed(self, name: str, item_ids: list[str]) -> bool:
-        """Inspect durable receipts after uncertain I/O, including while the inbox is failed."""
 
     @abstractmethod
     async def retain(self, name: str, item_ids: list[str], *, release: bool = False) -> None:

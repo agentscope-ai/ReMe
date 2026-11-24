@@ -8,17 +8,17 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from reme.enumeration import ComponentEnum
-from reme.application import Application
-from reme.components import ApplicationContext
-from reme.components.base_component import BaseComponent
-from reme.components.component_registry import ComponentRegistry, R
+from reme.enumeration import ChunkEnum, ComponentEnum
+from reme import Application
+from reme.core.context import ApplicationContext
+from reme.components.base import BaseComponent
+from reme.core.registry import ComponentRegistry, R
 from reme.components.job.background_job import BackgroundJob
 from reme.components.job.base_job import BaseJob
 from reme.components.job.cron_job import CronJob
 from reme.components.job.stream_job import StreamJob
 from reme.components.job import cron_job as cron_job_module
-from reme.schema import ComponentConfig
+from reme.schema import ComponentConfig, StreamChunk
 
 # -- helpers ------------------------------------------------------------------
 
@@ -151,6 +151,36 @@ def test_stream_job_merges_config_kwargs_into_context():
         assert seen["default_value"] == "from-config"
 
     asyncio.run(run())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["exception", "terminal", "retry"])
+async def test_stream_job_logs_terminal_failures(failure):
+    async def step(context):
+        if failure == "exception":
+            raise TimeoutError("provider timed out")
+        await context.add_stream_chunk(
+            StreamChunk(
+                chunk_type=ChunkEnum.ERROR,
+                chunk="provider timed out",
+                metadata={"will_retry": failure == "retry"},
+            ),
+        )
+
+    queue = asyncio.Queue()
+    job = StreamJob(name="ask_agent")
+    job.logger = MagicMock()
+    job._build_steps = lambda: [step]
+    await job(stream_queue=queue)
+
+    if failure == "exception":
+        job.logger.exception.assert_called_once_with("Stream job 'ask_agent' failed: TimeoutError: provider timed out")
+    elif failure == "terminal":
+        job.logger.error.assert_called_once_with("Stream job 'ask_agent' failed: provider timed out")
+    else:
+        assert not job.logger.method_calls
+    assert (await queue.get()).chunk == "provider timed out"
+    assert (await queue.get()).done
 
 
 # -- Job call counters -------------------------------------------------------
@@ -312,7 +342,7 @@ def test_supervisor_restarts_on_crash():
             backoff_base=0.01,
             backoff_cap=0.05,
         )
-        job._stop_event = stop
+        job._stop_event = stop  # pylint: disable=attribute-defined-outside-init
         await job._run_with_supervisor()
         assert call_count == 3
 
@@ -329,7 +359,7 @@ def test_supervisor_disabled_propagates_exception():
             name="bg",
             supervisor=False,
         )
-        job._stop_event = asyncio.Event()
+        job._stop_event = asyncio.Event()  # pylint: disable=attribute-defined-outside-init
         with pytest.raises(RuntimeError, match="fatal"):
             await job._run_with_supervisor()
 

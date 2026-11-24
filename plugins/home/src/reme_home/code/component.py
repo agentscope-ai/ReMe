@@ -2,7 +2,7 @@
 
 import asyncio
 
-from reme.components.base_component import BaseComponent
+from reme.components.base import BaseComponent
 from reme.utils.async_utils import finish_cleanup
 
 from ..workspace import HomeWorkspace, _initialization_lock, _validate_directory

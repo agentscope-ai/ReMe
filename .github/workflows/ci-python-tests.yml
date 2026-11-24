@@ -68,14 +68,19 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          pip install -e reme_studio -e ".[dev,core,decision,qwen-tokenizer]"
+          pip install -e reme_studio/web/python -e ".[dev,core,decision,qwen-tokenizer]" -e plugins/home coverage
+          python reme_studio/client/scripts/client-contract.py --check
           pip install --no-deps -e plugins/auto-fin
           pip install -e plugins/daily_paper
           pip install -e plugins/lme -e plugins/beam
-          pip install "safecmd>=0.1.16,<0.2" shfmt-py
-          # Keep the checkout's ReMe instead of resolving the plugin's published ReMe dependency.
-          pip install --no-deps -e plugins/home
-          pip install coverage
+
+      - name: Smoke test HoMe in Docker
+        if: matrix.python-version == '3.11'
+        env:
+          REME_DOCKER_INTEGRATION: "1"
+        run: >-
+          python -m pytest -q
+          plugins/home/tests/benchmark_docker/test_integration.py::test_real_docker_source_pool_workspace_reuse
 
       - name: Run unit tests
         env:

@@ -1,7 +1,0 @@
-sleep_reminder_rule: |
-  # Sleep and recovery
-  - Do not send reminders for data gaps, delays or disconnects caused by computer sleep or closing the lid. Do not send reminders for normal recovery either. Remind only when problems persist after the computer resumes and affect the task.
-
-sleep_reminder_rule_zh: |
-  # 休眠与恢复
-  - 电脑休眠或合盖造成的数据中断、延迟或断连，不用提醒。恢复正常时，也不用提醒。只有电脑恢复运行后，问题仍然持续并影响任务时，才需要提醒。

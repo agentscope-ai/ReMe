@@ -18,7 +18,7 @@ from reme_home.preparation.code import tree_fingerprint
 from reme_home.preparation.transaction import OUTPUTS, TRANSACTION, recover_preparation
 from reme_home.workspace import _initialization_lock
 
-from reme.application import Application
+from reme import Application
 
 
 def command(root, *args):
@@ -71,7 +71,14 @@ def preparation_inputs(tmp_path):
         (directory / "probing_questions/probing_questions.json").write_text(
             json.dumps(
                 {
-                    "fact": [{"question": "What?", "ideal_answer": "hello", "source_chat_ids": [1]}],
+                    "fact": [
+                        {
+                            "question": "What?",
+                            "ideal_answer": "hello",
+                            "rubric": ["says hello"],
+                            "source_chat_ids": [1],
+                        },
+                    ],
                 },
             ),
         )
@@ -110,7 +117,7 @@ async def home_application(tmp_path, monkeypatch, request):
         name: EntryPoint(name=name, value=value, group="reme.plugins")
         for name, value in [("home", "reme_home"), ("beam-judge", "judge_beam"), ("lme-judge", "judge_lme")]
     }
-    monkeypatch.setattr("reme.plugin.find_entry_points", lambda group, name: [entries[name]])
+    monkeypatch.setattr("reme.plugin.manager.find_entry_points", lambda group, name: [entries[name]])
     monkeypatch.setenv("LLM_API_KEY", "test")
     application = Application(
         workspace_dir=str(tmp_path / "workspace"),
@@ -145,14 +152,17 @@ async def test_python_job_prepares_once(app, inputs):
     assert response.success, response.answer
     assert response.answer["dataset"]["case_ids"] == ["2", "1"]
     assert response.answer["dataset"]["query_count"] == 2
+    assert response.answer["dataset"]["converter_version"] == 3
     assert (root / "home/code/repo/plugins/beam/src/reme_beam/__init__.py").read_text() == "value = 1\n"
     case = json.loads((root / "home/datasets/training-set/cases/000000.json").read_text())
     assert case["sessions"][0]["messages"][0]["id"] == "1"
     assert case["queries"][0]["metadata"]["evidence_session_ids"] == ["beam_100K_2_batch1"]
+    assert case["queries"][0]["groundtruth"] == {"golden_answer": "hello", "rubric": ["says hello"]}
+    assert "rubric" not in case["queries"][0]["metadata"]
     assert not (root / "home/datasets/debug-cases/derivation.json").exists()
     docs = root / "home/docs"
     resources = resource_files("reme_home").joinpath("runtime_docs")
-    assert sorted(path.name for path in docs.iterdir()) == ["architecture-guide.md", "validation-artifact-guide.md"]
+    assert sorted(path.name for path in docs.iterdir()) == ["architecture-guide.md", "evaluation-artifact-guide.md"]
     for path in docs.iterdir():
         assert path.read_bytes() == resources.joinpath(path.name).read_bytes()
     assert command(root / "home/code/repo", "branch", "--show-current") == "init"
@@ -162,6 +172,137 @@ async def test_python_job_prepares_once(app, inputs):
     assert not again.success
     assert "already prepared" in str(again.answer)
     assert snapshot(root) == before
+
+
+@pytest.mark.asyncio
+async def test_beam_missing_rubric_is_rejected_during_preparation(app, inputs):
+    """A missing BEAM rubric fails preparation without writing workspace state."""
+    spec, _ = inputs
+    source = Path(spec["benchmark"]["source"]) / "chats/100K/2/probing_questions/probing_questions.json"
+    data = json.loads(source.read_text())
+    del data["fact"][0]["rubric"]
+    source.write_text(json.dumps(data))
+    home = Path(app.config.workspace_dir) / "home"
+    before = snapshot(home)
+    response = await app.run_job("home_prepare", spec=spec)
+    assert not response.success
+    assert "BEAM case 2 query fact:1 requires a non-empty list of rubric strings" in str(response.answer)
+    assert snapshot(home) == before
+
+
+@pytest.mark.asyncio
+async def test_beam_unsafe_query_id_fails_before_publication(app, inputs):
+    """Normalized query IDs must be usable as evaluation artifact paths."""
+    spec, _ = inputs
+    source = Path(spec["benchmark"]["source"]) / "chats/100K/2/probing_questions/probing_questions.json"
+    data = json.loads(source.read_text())
+    data["invalid/group"] = data.pop("fact")
+    source.write_text(json.dumps(data))
+    home = Path(app.config.workspace_dir) / "home"
+    before = snapshot(home)
+
+    response = await app.run_job("home_prepare", spec=spec)
+
+    assert not response.success
+    assert "Invalid query_id 'invalid/group:1' in case '2'" in str(response.answer)
+    assert snapshot(home) == before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("app", ["lme-judge"], indirect=True)
+@pytest.mark.parametrize("answer", [" ", None, True, False, [], {}, float("nan"), float("inf"), -float("inf")])
+async def test_lme_invalid_answer_is_rejected_during_preparation(app, inputs, answer):
+    """Invalid LongMemEval answers fail preparation without writing workspace state."""
+    spec, lme_source = inputs
+    data = json.loads(lme_source.read_text())
+    data[0]["answer"] = answer
+    lme_source.write_text(json.dumps(data))
+    spec["benchmark"] = {"name": "longmemeval", "source": str(lme_source), "all_cases": True}
+    home = Path(app.config.workspace_dir) / "home"
+    before = snapshot(home)
+    response = await app.run_job("home_prepare", spec=spec)
+    assert not response.success
+    assert "LongMemEval case q1 query q1 requires a non-empty reference answer" in str(response.answer)
+    assert snapshot(home) == before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("app", ["lme-judge"], indirect=True)
+@pytest.mark.parametrize(
+    "invalid_id, field",
+    [("support/42", "case_id"), ("support 42", "case_id"), ("summary.json", "query_id"), ("result.json", "query_id")],
+)
+async def test_lme_invalid_id_fails_preparation_and_allows_retry(app, inputs, invalid_id, field):
+    """Preparation must roll back IDs that cannot be evaluated."""
+    spec, source = inputs
+    spec["benchmark"] = {"name": "longmemeval", "source": str(source), "all_cases": True}
+    items = json.loads(source.read_text())
+    items[0]["question_id"] = invalid_id
+    source.write_text(json.dumps(items))
+    home = Path(app.config.workspace_dir) / "home"
+    before = snapshot(home)
+
+    response = await app.run_job("home_prepare", spec=spec)
+
+    assert not response.success
+    assert f"Invalid {field} {invalid_id!r}" in str(response.answer)
+    assert snapshot(home) == before
+
+    items[0]["question_id"] = "support-42"
+    source.write_text(json.dumps(items))
+    response = await app.run_job("home_prepare", spec=spec)
+    assert response.success, response.answer
+    assert response.answer["dataset"]["case_ids"] == ["support-42"]
+    case = json.loads((home / "datasets/training-set/cases/000000.json").read_text())
+    assert case["queries"][0]["query_id"] == "support-42"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("questions", [{}, {"fact": []}])
+async def test_beam_case_without_questions_fails_preparation(app, inputs, questions):
+    """A selected BEAM case must contain at least one probing question."""
+    spec, _ = inputs
+    source = Path(spec["benchmark"]["source"]) / "chats/100K/1/probing_questions/probing_questions.json"
+    source.write_text(json.dumps(questions))
+    home = Path(app.config.workspace_dir) / "home"
+    before = snapshot(home)
+    response = await app.run_job("home_prepare", spec=spec)
+    assert not response.success
+    assert "BEAM case 1 has no probing questions" in str(response.answer)
+    assert snapshot(home) == before
+
+
+@pytest.mark.asyncio
+async def test_beam_variant_without_cases_fails_preparation(app, inputs):
+    """Selecting an empty BEAM variant fails preparation."""
+    spec, _ = inputs
+    source = spec["benchmark"]["source"]
+    (Path(source) / "chats/500K").mkdir()
+    spec["benchmark"] = {"name": "beam", "source": source, "variant": "500K", "all_cases": True}
+    home = Path(app.config.workspace_dir) / "home"
+    before = snapshot(home)
+    response = await app.run_job("home_prepare", spec=spec)
+    assert not response.success
+    assert "BEAM variant 500K has no cases" in str(response.answer)
+    assert snapshot(home) == before
+
+
+@pytest.mark.asyncio
+async def test_beam_import_accepts_legacy_list_of_criteria(app, inputs):
+    """BEAM imports use legacy ideal-answer criteria as the rubric."""
+    spec, _ = inputs
+    source = Path(spec["benchmark"]["source"]) / "chats/100K/2/probing_questions/probing_questions.json"
+    data = json.loads(source.read_text())
+    query = data["fact"][0]
+    query["ideal_answer"] = query.pop("rubric")
+    source.write_text(json.dumps(data))
+    response = await app.run_job("home_prepare", spec=spec)
+    assert response.success, response.answer
+    case = Path(app.config.workspace_dir) / "home/datasets/training-set/cases/000000.json"
+    assert json.loads(case.read_text())["queries"][0]["groundtruth"] == {
+        "golden_answer": None,
+        "rubric": ["says hello"],
+    }
 
 
 @pytest.mark.asyncio
@@ -284,7 +425,7 @@ async def test_failures_restore_original_workspace_and_allow_retry(app, inputs, 
             original_read = Path.read_bytes
 
             def read_bytes(path):
-                if path.name == "validation-artifact-guide.md":
+                if path.name == "evaluation-artifact-guide.md":
                     raise FileNotFoundError("missing packaged document")
                 return original_read(path)
 
@@ -388,6 +529,38 @@ async def test_success_survives_cleanup_failure_and_restart(app, inputs, monkeyp
     await workspace.start()
     assert not (root / "home/metadata" / TRANSACTION).exists()
     assert not (await app.run_job("home_prepare", spec=spec)).success
+
+
+@pytest.mark.asyncio
+async def test_upgrade_restores_renamed_guide_and_preserves_prepared_workspace(app, inputs):
+    """Restart restores the missing guide and preserves existing workspace files."""
+    spec, _ = inputs
+    assert (await app.run_job("home_prepare", spec=spec)).success
+    home = Path(app.config.workspace_dir) / "home"
+    guide = home / "docs/evaluation-artifact-guide.md"
+    legacy = home / "docs/validation-artifact-guide.md"
+    guide.rename(legacy)
+    legacy.write_text("Previous guide with local edits\n", encoding="utf-8")
+    summary = home / "evaluations/init/initial/1/summary.json"
+    summary.parent.mkdir(parents=True)
+    summary.write_text('{"mean_query_score": 0.5}\n', encoding="utf-8")
+    before = snapshot(home)
+
+    workspace = app.context.components["home.workspace"]["default"]
+    await workspace.close()
+    await workspace.start()
+    expected = resource_files("reme_home").joinpath("runtime_docs", guide.name).read_bytes()
+    assert guide.read_bytes() == expected
+    restored = snapshot(home)
+    restored.pop("docs/evaluation-artifact-guide.md")
+    assert restored == before
+    assert not (await app.run_job("home_prepare", spec=spec)).success
+
+    guide.write_text("Local edits to the new guide\n", encoding="utf-8")
+    after = snapshot(home)
+    await workspace.close()
+    await workspace.start()
+    assert snapshot(home) == after
 
 
 @pytest.mark.asyncio
@@ -598,8 +771,34 @@ async def test_lme_evidence_and_time_cutoff_debug_cases(app, inputs):
     root = Path(app.config.workspace_dir)
     case = json.loads((root / "home/datasets/training-set/cases/000000.json").read_text())
     assert case["queries"][0]["metadata"]["evidence_session_ids"] == ["s1"]
+    assert case["construction_cutoff"] == case["queries"][0]["query_time"] == "2024-01-02T00:00:00"
+    assert [session["session_id"] for session in case["sessions"]] == ["s1", "future"]
     debug = json.loads((root / "home/datasets/debug-cases/cases/000000.json").read_text())
     assert [session["session_id"] for session in debug["sessions"]] == ["s1"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("app", ["lme-judge"], indirect=True)
+async def test_lme_preparation_derives_debug_cases_for_long_ids(app, inputs):
+    """The default debug dataset preserves provenance for every valid training ID."""
+    spec, source = inputs
+    item = json.loads(source.read_text())[0]
+    case_ids = ["x" * 122, "x" * 123, "x" * 128, "long-1"]
+    source.write_text(json.dumps([{**item, "question_id": case_id} for case_id in case_ids]))
+    spec["benchmark"] = {"name": "longmemeval", "source": str(source), "all_cases": True}
+
+    response = await app.run_job("home_prepare", spec=spec)
+
+    assert response.success, response.answer
+    assert response.answer["dataset"]["case_ids"] == case_ids
+    folder = Path(app.config.workspace_dir) / "home/datasets/debug-cases/cases"
+    cases = [json.loads(path.read_text()) for path in sorted(folder.glob("*.json"))]
+    assert [case["metadata"]["source_case_id"] for case in cases] == case_ids
+    debug_ids = [case["case_id"] for case in cases]
+    assert len(set(debug_ids)) == 4
+    assert all(len(case_id) <= 128 for case_id in debug_ids)
+    assert debug_ids[0] == f"debug-{case_ids[0]}"
+    assert debug_ids[-1] == "debug-long-1"
 
 
 @pytest.mark.asyncio

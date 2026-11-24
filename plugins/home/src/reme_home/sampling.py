@@ -34,14 +34,19 @@ def create_sampling_plan(
     policy: SamplingPolicy,
     *,
     eligible_query_ids: Mapping[str, list[str]] | None = None,
+    target_queries: Mapping[str, list[str] | None] | None = None,
+    reusable_case_ids: set[str] | None = None,
+    seed: int | None = None,
 ) -> dict:
     """Draw without replacement, without advancing state or writing an attempted plan."""
+    seed = time.time_ns() if seed is None else seed
+    if target_queries:
+        return _targeted_plan(cases, state, policy, target_queries, eligible_query_ids, reusable_case_ids, seed)
     if eligible_query_ids is not None:
         cases = [case for case in cases if case.case_id in eligible_query_ids]
     if not cases:
         raise ValueError("training-set contains no cases to sample")
     round_id = int(state.get("round", 0)) + 1
-    seed = time.time_ns()
     rng = random.Random(seed)
     case_records = state.get("cases", {})
     case_weights = _mixed_weights(
@@ -96,6 +101,140 @@ def create_sampling_plan(
         "case_draw_weights": case_weights,
         "query_draw_weights": query_weights,
         "eligibility": dict(eligible_query_ids) if eligible_query_ids is not None else None,
+    }
+
+
+def _targeted_plan(cases, state, policy, requested, eligibility, reusable_case_ids, seed):
+    """Prioritize valid targets, trim within limits, then fill without replacement."""
+    available = {
+        case.case_id: [
+            query.query_id
+            for query in case.queries
+            if eligibility is None or query.query_id in eligibility.get(case.case_id, [])
+        ]
+        for case in cases
+    }
+    targets, invalid_cases, invalid_queries = {}, [], {}
+    for case_id, ids in requested.items():
+        if case_id not in available or not available[case_id]:
+            invalid_cases.append(case_id)
+            continue
+        if ids is None:
+            targets[case_id] = list(available[case_id])
+        else:
+            targets[case_id] = [query_id for query_id in dict.fromkeys(ids) if query_id in available[case_id]]
+            invalid = [query_id for query_id in dict.fromkeys(ids) if query_id not in available[case_id]]
+            if invalid:
+                invalid_queries[case_id] = invalid
+    details = {
+        "requested": dict(requested),
+        "invalid_case_ids": invalid_cases,
+        "invalid_query_ids": invalid_queries,
+    }
+    if not targets:
+        plan = create_sampling_plan(cases, state, policy, eligible_query_ids=eligibility, seed=seed)
+        details.update(retained_case_ids=[], retained_query_ids={}, trimmed_case_ids=[], trimmed_query_ids={})
+        plan["targets"] = details
+        return plan
+
+    round_id = int(state.get("round", 0)) + 1
+    rng = random.Random(seed)
+    available = {key: ids for key, ids in available.items() if ids}
+    case_weights = _mixed_weights(
+        {key: state.get("cases", {}).get(key, {}) for key in available},
+        round_id,
+        policy,
+    )
+    case_limit = min(policy.max_cases, policy.max_queries or policy.max_cases)
+    target_weights = _mixed_weights(
+        {key: state.get("cases", {}).get(key, {}) for key in targets},
+        round_id,
+        policy,
+    )
+    retained = _weighted_order(sorted(targets), target_weights, rng, lambda key: key)[:case_limit]
+    selected = {key: [] for key in retained}
+    remaining = policy.max_queries
+    query_weights = {}
+
+    def draw(case_id, ids):
+        weights = _mixed_weights(
+            {key: state.get("queries", {}).get(_query_key(case_id, key), {}) for key in ids},
+            round_id,
+            policy,
+        )
+        query_weights.setdefault(case_id, {}).update(weights)
+        return _weighted_order(ids, weights, rng, lambda key: key)
+
+    def take(case_id, query_id):
+        nonlocal remaining
+        selected[case_id].append(query_id)
+        if remaining is not None:
+            remaining -= 1
+
+    # Reserve one executable question per retained target case, including [] anchors.
+    target_order = {key: draw(key, targets[key] or available[key]) for key in retained}
+    for key in retained:
+        take(key, target_order[key].pop(0))
+    # Round-robin allocation prevents a long target list from starving another case.
+    while remaining is None or remaining > 0:
+        active = [key for key in retained if targets[key] and target_order[key]]
+        if not active:
+            break
+        for key in active:
+            if remaining == 0:
+                break
+            take(key, target_order[key].pop(0))
+
+    retained_queries = {key: [qid for qid in selected[key] if qid in targets[key]] for key in retained}
+    background = [key for key in available if key not in selected]
+    ordered_background = _weighted_order(background, case_weights, rng, lambda value: value)
+    prefer_reusable = reusable_case_ids is not None and set(retained) <= reusable_case_ids
+    if prefer_reusable:
+        # Preserve weighted order within each pool; rebuild only when reusable cases run out.
+        ordered_background.sort(key=lambda key: key not in reusable_case_ids)
+    for key in ordered_background:
+        if len(selected) >= case_limit or remaining == 0:
+            break
+        selected[key] = []
+        take(key, draw(key, available[key])[0])
+    fill = {
+        key: draw(key, [qid for qid in available[key] if qid not in ids])
+        for key, ids in selected.items()
+        if len(ids) < len(available[key])
+    }
+    while remaining is None or remaining > 0:
+        active = [key for key in selected if fill.get(key)]
+        if not active:
+            break
+        minimum = min(len(selected[key]) for key in active)
+        for key in active:
+            if remaining == 0:
+                break
+            if len(selected[key]) == minimum:
+                take(key, fill[key].pop(0))
+    details.update(
+        retained_case_ids=retained,
+        retained_query_ids=retained_queries,
+        trimmed_case_ids=[key for key in targets if key not in retained],
+        trimmed_query_ids={
+            key: [qid for qid in ids if qid not in selected.get(key, [])]
+            for key, ids in targets.items()
+            if set(ids) - set(selected.get(key, []))
+        },
+    )
+    return {
+        "mode": "targeted",
+        "round": round_id,
+        "seed": seed,
+        "policy": policy.model_dump(),
+        "case_ids": list(selected),
+        "query_ids": selected,
+        "targets": details,
+        "case_draw_weights": case_weights,
+        "target_case_draw_weights": target_weights,
+        "prefer_reusable_background": prefer_reusable,
+        "query_draw_weights": query_weights,
+        "eligibility": dict(eligibility) if eligibility is not None else None,
     }
 
 

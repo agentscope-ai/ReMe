@@ -6,19 +6,17 @@ import os
 
 import pytest
 
-from reme.components import R, RuntimeContext
-from reme.config import resolve_app_config
-from reme.enumeration import ComponentEnum
-from reme.schema.agent_view import AgentTaskRequest
-from reme.steps.proactive.agent.api import AgentTaskStep
-from .test_agent_runtime import running_runtime
+from reme.core.context import RuntimeContext
+from reme.schema.agent_view import TaskDocumentRequest
+from reme.steps.proactive.agent.api import TaskDocumentStep
+from .test_proactive_runtime import running_runtime
 
 
 @pytest.mark.asyncio
 async def test_task_editor_preserves_text_and_rejects_stale_writes(tmp_path):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         await runtime.create({"agent_name": "monitor", "task_description": "Original\n"})
-        step = AgentTaskStep(app_context=context)
+        step = TaskDocumentStep(app_context=context)
         opened = (await step(action="read", agent_name="monitor")).answer
         assert opened["content"] == "Original\n"
         assert opened["path"] == "reme_agents/monitor/TASK.md"
@@ -48,7 +46,7 @@ async def test_task_editor_preserves_text_and_rejects_stale_writes(tmp_path):
 @pytest.mark.asyncio
 async def test_task_editor_rejects_remy_deleted_agents_and_outside_paths(tmp_path):
     async with running_runtime(tmp_path) as (runtime, context, _):
-        step = AgentTaskStep(app_context=context)
+        step = TaskDocumentStep(app_context=context)
         await runtime.create({"agent_name": "monitor", "task_description": "Original"})
         for agent_name in ("Remy", "missing"):
             with pytest.raises(ValueError):
@@ -86,10 +84,4 @@ async def test_task_editor_rejects_remy_deleted_agents_and_outside_paths(tmp_pat
 )
 def test_task_editor_requires_a_revision_and_action_specific_fields(fields):
     with pytest.raises(ValueError):
-        AgentTaskRequest.model_validate(fields)
-
-
-def test_task_editor_is_registered_and_exposed_by_proactive_config():
-    config = resolve_app_config(config="proactive", log_config=False)
-    assert R.get(ComponentEnum.STEP, "agent_task_step") is AgentTaskStep
-    assert config["jobs"]["agent_task"]["steps"] == [{"backend": "agent_task_step"}]
+        TaskDocumentRequest.model_validate(fields)

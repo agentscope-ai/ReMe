@@ -12,8 +12,8 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from pydantic import ValidationError
 
-from reme.application import Application
-from reme.components import R
+from reme import Application
+from reme.core.registry import R
 from reme.utils import dashscope_speech as transport_module
 from reme.components.asr import BaseASR, DashScopeASR
 from reme.components.tts import BaseTTS, DashScopeTTS
@@ -485,16 +485,17 @@ async def test_base_tts_collects_and_closes_any_backend(chunks, error):
 
 
 @pytest.mark.asyncio
-async def test_http_speech_contract_for_desktop(provider, tmp_path):
+async def test_http_speech_contract_for_desktop(provider, tmp_path, monkeypatch, capsys):
     """Desktop receives JSON audio, plain transcription and redacted capabilities."""
     config = _load_config("proactive.yaml")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("REME_DISABLE_LOGURU", raising=False)
     app = Application(
         workspace_dir=str(tmp_path),
         components={name: config["components"][name] for name in ["asr", "tts"]},
         jobs={name: config["jobs"][name] for name in ["asr", "tts", "get_client_info"]},
         service={"backend": "http", "mcp_enabled": False, "web_enabled": False},
         enable_logo=False,
-        log_to_file=False,
     )
     async with app:
         service = app.context.service
@@ -527,4 +528,25 @@ async def test_http_speech_contract_for_desktop(provider, tmp_path):
             assert response.json()["success"]
             response = await client.post("/asr", json={"audio": "%%%"})
             assert response.json()["success"] is False
+
+            provider[0].append(
+                httpx.Response(
+                    401,
+                    json={"code": "InvalidApiKey", "message": "API-key is blocked", "request_id": "tts-401"},
+                ),
+            )
+            response = await client.post("/tts", json={"text": "private-transcript-content"})
+            assert response.status_code == 200
+            payload = response.json()
+            assert not payload["success"]
+            assert payload["metadata"]["reme.job_error"]["status_code"] == 401
+            assert "InvalidApiKey: API-key is blocked: tts-401" in payload["answer"]
+
+    run_log = next((tmp_path / "logs").glob("*.log")).read_text(encoding="utf-8")
+    for log in (capsys.readouterr().out, run_log):
+        assert (
+            "Job 'tts' failed: HTTPStatusError: DashScope HTTP 401: InvalidApiKey: API-key is blocked: tts-401" in log
+        )
+        assert "Traceback (most recent call last):" in log and "dashscope_tts.py" in log
+        assert "private-transcript-content" not in log and "speech-key" not in log
     assert all(client.is_closed for client in provider[2])

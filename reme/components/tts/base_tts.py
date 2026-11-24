@@ -4,7 +4,7 @@ from abc import abstractmethod
 from collections.abc import AsyncIterator
 from contextlib import aclosing
 
-from ..base_component import BaseComponent
+from ..base import BaseComponent
 from ...enumeration import ComponentEnum
 from ...schema.speech import TTSResult
 

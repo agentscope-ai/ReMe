@@ -8,9 +8,8 @@ from functools import wraps
 from pathlib import Path
 
 import pytest
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext, RuntimeContext
 from reme.components.file_catalog import LocalFileCatalog
-from reme.components.runtime_context import RuntimeContext
 from reme.schema import FileNode
 from reme.steps.index.cleanup_catalog import CleanupCatalogStep
 

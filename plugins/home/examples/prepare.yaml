@@ -13,5 +13,6 @@ candidate:
   paths: [plugins/beam/src]
 debug:
   enabled: true
-  sessions_per_case: 3
-  messages_per_session: 6
+  sessions_per_case: 4
+  messages_per_session: 8
+  queries_per_case: 4

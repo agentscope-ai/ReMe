@@ -12,7 +12,7 @@ from starlette.routing import Route
 from reme.components.agent_wrapper.cc_agent_wrapper import CcAgentWrapper
 from reme.components.anthropic_relay import BailianAnthropicRelay
 from reme.components.anthropic_relay.bailian_anthropic_relay import _search_request
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.components.service.loopback_http import LoopbackHTTP
 from reme.enumeration import ComponentEnum
 

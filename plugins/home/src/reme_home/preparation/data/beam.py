@@ -1,4 +1,4 @@
-"""Normalize BEAM cases into the shared Meta-ReMe contracts."""
+"""Normalize BEAM cases into HoMe's shared evaluation format."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Iterable, Iterator
 
 from .basic import select_case_ids
-from .models import CaseSpec, QuerySpec, SessionSpec
+from .models import CaseSpec, GroundTruth, QuerySpec, SessionSpec
 
 VARIANTS = ("100K", "500K", "1M", "10M")
 
@@ -69,7 +69,7 @@ def _source_chat_ids(value: Any) -> list[int]:
     return [value] if isinstance(value, int) and not isinstance(value, bool) else []
 
 
-def _queries(raw_questions: dict[str, list[dict[str, Any]]], sessions: list[SessionSpec]) -> list[QuerySpec]:
+def _queries(questions: dict[str, list[dict[str, Any]]], sessions: list[SessionSpec], case_id: str) -> list[QuerySpec]:
     queries: list[QuerySpec] = []
     session_ids_by_chat_id: dict[int, list[str]] = {}
     for session in sessions:
@@ -81,15 +81,23 @@ def _queries(raw_questions: dict[str, list[dict[str, Any]]], sessions: list[Sess
                 session_ids = session_ids_by_chat_id.setdefault(chat_id, [])
                 if session.session_id not in session_ids:
                     session_ids.append(session.session_id)
-    for question_type in sorted(raw_questions):
-        for index, raw in enumerate(raw_questions[question_type], start=1):
+    for question_type in sorted(questions):
+        for index, raw in enumerate(questions[question_type], start=1):
+            query_id = f"{question_type}:{index}"
             golden_answer = raw.get("ideal_answer", raw.get("ideal_response", raw.get("answer")))
-            if golden_answer is None:
-                golden_answer = raw.get("rubric", [])
+            rubric = raw.get("rubric")
+            if "rubric" not in raw and isinstance(golden_answer, list):
+                rubric, golden_answer = golden_answer, None
+            if (
+                not isinstance(rubric, list)
+                or not rubric
+                or any(not isinstance(item, str) or not item.strip() for item in rubric)
+            ):
+                raise ValueError(f"BEAM case {case_id} query {query_id} requires a non-empty list of rubric strings")
             metadata = {
                 key: value
                 for key, value in raw.items()
-                if key not in {"question", "ideal_answer", "ideal_response", "answer"}
+                if key not in {"question", "ideal_answer", "ideal_response", "answer", "rubric"}
             }
             metadata["question_type"] = question_type
             source_chat_ids = list(dict.fromkeys(_source_chat_ids(raw.get("source_chat_ids"))))
@@ -109,12 +117,14 @@ def _queries(raw_questions: dict[str, list[dict[str, Any]]], sessions: list[Sess
                 )
             queries.append(
                 QuerySpec(
-                    query_id=f"{question_type}:{index}",
+                    query_id=query_id,
                     question=raw["question"],
-                    golden_answer=golden_answer,
+                    groundtruth=GroundTruth(golden_answer=golden_answer, rubric=rubric),
                     metadata=metadata,
                 ),
             )
+    if not queries:
+        raise ValueError(f"BEAM case {case_id} has no probing questions")
     return queries
 
 
@@ -128,6 +138,8 @@ def selected_case_ids(source: Path, variant: str, requested: Iterable[str] | Non
         (path.name for path in cases_root.iterdir() if path.is_dir()),
         key=lambda value: (not value.isdigit(), int(value) if value.isdigit() else value),
     )
+    if not available:
+        raise ValueError(f"BEAM variant {variant} has no cases")
     return select_case_ids(available, requested)
 
 
@@ -145,7 +157,7 @@ def iter_cases(source: Path, variant: str, case_ids: Iterable[str]) -> Iterator[
         yield CaseSpec(
             case_id=case_id,
             sessions=sessions,
-            queries=_queries(raw_questions, sessions),
+            queries=_queries(raw_questions, sessions, case_id),
             metadata={"dataset": "beam", "variant": variant},
         )
 

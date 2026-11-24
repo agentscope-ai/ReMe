@@ -1,7 +1,8 @@
 """Named task management with action-specific results for model callers."""
 
+from ....constants import CHAT_AGENT_NAME
 from ..agent import BaseAgentStep
-from ....components import R
+from ....core.registry import R
 from ....schema.proactive_agent import ManageProactiveAgentRequest
 
 
@@ -10,7 +11,7 @@ class ManageProactiveAgentStep(BaseAgentStep):
     """Validate management arguments before accessing configuration or sessions."""
 
     async def execute(self):
-        runtime = self.agent_runtime
+        runtime = self.proactive_runtime
         request = ManageProactiveAgentRequest.model_validate(self.parameters())
         self.require_paths(runtime.agents.directory)
         if request.action in {"create", "update", "query"}:
@@ -21,7 +22,7 @@ class ManageProactiveAgentStep(BaseAgentStep):
         )
         if request.action == "list":
             listing = await runtime.list_views()
-            items = [item for item in listing["items"] if item["agent_name"] != "Remy"]
+            items = [item for item in listing["items"] if item["agent_name"] != CHAT_AGENT_NAME]
             answer = {"items": items, "total": len(items)}
         elif request.action in {"create", "status", "update"}:
             if request.action == "create":

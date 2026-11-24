@@ -5,20 +5,20 @@ from uuid import uuid4
 
 from ...base_step import BaseStep, Ref
 from ...file_io import check_path_permission
-from ....components.agent_runtime import BaseAgentRuntime
+from ....components.proactive_runtime import BaseProactiveRuntime
 from ....enumeration import ComponentEnum
 from ....schema import AgentActivity, Response, collect_reply
-from ....utils.agent_activity import ActivityTracker
+from ._activity import ActivityTracker
 
 
 class BaseAgentStep(BaseStep):
     """Keep request handlers stateless; the application component owns the runtime."""
 
-    agent_runtime: BaseAgentRuntime = Ref(BaseAgentRuntime, ComponentEnum.AGENT_RUNTIME)
+    proactive_runtime: BaseProactiveRuntime = Ref(BaseProactiveRuntime, ComponentEnum.PROACTIVE_RUNTIME)
 
     async def query_reply(self, agent_name, query, *, on_chunk=None):
         """Ask a disposable fork while retaining the selected task session."""
-        runtime = self.agent_runtime
+        runtime = self.proactive_runtime
         options = {"job_tools": [], "sandbox": "read-only", "approval_mode": "deny_all"}
         async with runtime.query_session(agent_name, options) as session_id:
 
@@ -36,7 +36,7 @@ class BaseAgentStep(BaseStep):
 
     async def stream_reply(self, query: str, *, session_id: str, agent_name: str, on_chunk, **options) -> Response:
         """Relay a formal conversation and preserve its terminal outcome and native metadata."""
-        runtime = self.agent_runtime
+        runtime = self.proactive_runtime
         tracker = ActivityTracker(
             AgentActivity(
                 session_id=session_id,

@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 import pytest_asyncio
 
-from reme.components import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.components.file_store import LocalFileStore
 from reme.steps.file_io.daily_list import DailyListStep
 

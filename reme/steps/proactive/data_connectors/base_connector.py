@@ -11,12 +11,13 @@ from threading import Event
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
+from ....schema.resource_metadata import RESOURCE_METADATA_FILENAME
 from ...base_step import BaseStep
 from ...file_io import check_path_permission, resolve_path
-from ....utils.workspace_files import WorkspaceFiles
+from ....utils.files.workspace_files import WorkspaceFiles
 from ....schema import ApplicationConfig, ResourceMetadata
 from ....utils.async_utils import finish_cleanup
-from ....utils.file_sync import sync_directory, sync_file
+from ....utils.files.file_sync import sync_directory, sync_file
 
 
 def resource_package_id(now: datetime) -> str:
@@ -68,7 +69,7 @@ class BaseConnectorStep(BaseStep):
             self.context.response.success = True
             self.context.response.answer = {"skipped": "no_new_data"}
             return self.context.response
-        result = {"path": self.to_workspace_relative(target / "metadata.json"), "files": metadata["files"]}
+        result = {"path": self.to_workspace_relative(target / RESOURCE_METADATA_FILENAME), "files": metadata["files"]}
         self.context["resource"] = result
         self.context.response.success = True
         self.context.response.answer = result
@@ -105,7 +106,7 @@ class BaseConnectorStep(BaseStep):
             if cancelled.is_set() or (self.context.stop_event is not None and self.context.stop_event.is_set()):
                 raise RuntimeError("Resource collection stopped before publication")
             result = metadata.model_dump(mode="json", exclude_none=True)
-            store.write_json(target / "metadata.json", result)
+            store.write_json(target / RESOURCE_METADATA_FILENAME, result)
             published = True
             return result
         finally:

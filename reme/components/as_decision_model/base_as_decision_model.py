@@ -4,7 +4,7 @@ from abc import abstractmethod
 from collections.abc import Mapping
 from typing import Any, Protocol
 
-from ..base_component import BaseComponent
+from ..base import BaseComponent
 from ...enumeration import ComponentEnum
 
 

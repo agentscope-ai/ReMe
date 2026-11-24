@@ -7,6 +7,8 @@ from contextlib import contextmanager
 import uvicorn
 from starlette.types import ASGIApp
 
+from ...constants import REME_IPV4_LOOPBACK_HOST
+
 
 class _LocalServer(uvicorn.Server):
     """A server embedded in an application that owns its signal handlers."""
@@ -37,7 +39,7 @@ class LoopbackHTTP:
         """Start serving and return the bound origin."""
         if self._server is None:
             self._socket = socket.socket()
-            self._socket.bind(("127.0.0.1", 0))
+            self._socket.bind((REME_IPV4_LOOPBACK_HOST, 0))
             self._server = _LocalServer(self._config)
             self._task = asyncio.create_task(self._server.serve(sockets=[self._socket]))
         while not self._server.started:
@@ -45,7 +47,7 @@ class LoopbackHTTP:
                 await self._task
                 raise RuntimeError("Loopback HTTP endpoint stopped before startup")
             await asyncio.sleep(0.01)
-        return f"http://127.0.0.1:{self._socket.getsockname()[1]}"
+        return f"http://{REME_IPV4_LOOPBACK_HOST}:{self._socket.getsockname()[1]}"
 
     async def close(self) -> None:
         """Stop serving and close the bound socket, including after failed startup."""

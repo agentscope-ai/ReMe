@@ -5,7 +5,7 @@ import hashlib
 import json
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, NaiveDatetime
 
 SCHEMA_VERSION = 1
 DatasetName = Literal["beam", "longmemeval"]
@@ -34,12 +34,20 @@ def fingerprint(value: Any) -> str:
     return hashlib.sha256(canonical_json_bytes(value)).hexdigest()
 
 
+class GroundTruth(ContractModel):
+    """Host-side reference information for scoring one query."""
+
+    golden_answer: Any = None
+    rubric: list[str] = Field(default_factory=list)
+
+
 class QuerySpec(ContractModel):
-    """A question, reference answer and benchmark-specific scoring metadata."""
+    """A question and its host-side reference information."""
 
     query_id: str = Field(min_length=1)
     question: str
-    golden_answer: Any
+    groundtruth: GroundTruth
+    query_time: str | None = Field(default=None, exclude_if=lambda value: value is None)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -50,6 +58,11 @@ class SessionSpec(ContractModel):
     messages: list[dict[str, Any]]
     metadata: dict[str, Any] = Field(default_factory=dict)
 
+    @property
+    def first_timestamp(self) -> Any:
+        """Return the timestamp of the first message that has one."""
+        return next((message["created_at"] for message in self.messages if message.get("created_at")), None)
+
 
 class CaseSpec(ContractModel):
     """One selectable benchmark case with its sessions and questions."""
@@ -57,6 +70,7 @@ class CaseSpec(ContractModel):
     case_id: str = Field(min_length=1)
     sessions: list[SessionSpec]
     queries: list[QuerySpec]
+    construction_cutoff: NaiveDatetime | None = Field(default=None, exclude_if=lambda value: value is None)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -66,7 +80,7 @@ class DatasetManifest(ContractModel):
     # Accept legacy files without emitting a version that has no reader dispatch.
     schema_version: int = Field(default=SCHEMA_VERSION, ge=1, exclude=True)
     dataset: DatasetName
-    converter_version: int = 1
+    converter_version: int = 3
     variant: str | None = None
     case_ids: list[str]
     source_fingerprint: str = Field(min_length=1)

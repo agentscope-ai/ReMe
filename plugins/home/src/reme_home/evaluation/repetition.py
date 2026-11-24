@@ -59,16 +59,19 @@ def retryable_result(run: Path) -> bool:
     )
 
 
-def previous_candidate_result(home: Path, commit: str) -> Path | None:
+def previous_candidate_result(home: Path, commit: str, *, required_queries: dict | None = None) -> Path | None:
     """Check every scored training attempt under the formal validation lock.
 
     Match Git trees across branches and empty commits. Only the exact failed
     commit can retry; an identical tree under another commit remains unchanged.
     Read source artifacts directly, including attempts excluded from history.
+    A full init baseline only considers initial evidence with matching coverage.
     """
     repository = contained(home, "code/repo", directory=True)
-    current_tree = git(repository, "rev-parse", "--verify", "--end-of-options", f"{commit}^{{tree}}")
-    recoverable = None
+    revision = f"{commit}^{{tree}}"
+    current_tree = git(repository, "rev-parse", "--verify", "--end-of-options", revision)
+    trees = {revision: current_tree}
+    latest_by_directory = {}
     evaluations = contained(home, "evaluations", directory=True)
     for path in sorted(evaluations.glob("*/*/*/manifest.json")):
         run = contained(home, path.parent, directory=True)
@@ -78,10 +81,32 @@ def previous_candidate_result(home: Path, commit: str) -> Path | None:
         previous_commit = manifest.get("commit_sha")
         if not previous_commit:
             continue
-        previous_tree = git(repository, "rev-parse", "--verify", "--end-of-options", f"{previous_commit}^{{tree}}")
-        if previous_tree != current_tree:
+        if required_queries is not None:
+            queries = manifest.get("query_ids")
+            if not isinstance(queries, dict) or any(not isinstance(ids, list) for ids in queries.values()):
+                continue
+            if (
+                previous_commit != commit
+                or manifest.get("branch_name") != "init"
+                or set(manifest.get("case_ids") or []) != set(required_queries)
+                or {key: set(ids) for key, ids in queries.items()} != required_queries
+            ):
+                # Legacy subset runs cannot block or narrow a complete initial baseline.
+                continue
+        revision = f"{previous_commit}^{{tree}}"
+        if revision not in trees:
+            trees[revision] = git(repository, "rev-parse", "--verify", "--end-of-options", revision)
+        if trees[revision] != current_tree:
             continue
         if previous_commit != commit or not retryable_result(run):
             raise UnchangedCandidateError(run)
-        recoverable = run
-    return recoverable
+        # IDs are monotonic within one branch/commit directory. A retry on a
+        # different branch has independent IDs, so compare those runs by start time.
+        attempt = int(run.name) if run.name.isascii() and run.name.isdecimal() else 0
+        started_at = str(manifest.get("started_at") or "")
+        recovery = (attempt, started_at, run)
+        if run.parent not in latest_by_directory or recovery > latest_by_directory[run.parent]:
+            latest_by_directory[run.parent] = recovery
+    if latest_by_directory:
+        return max(latest_by_directory.values(), key=lambda item: (item[1], item[0], item[2]))[2]
+    return None

@@ -14,11 +14,20 @@ from pydantic import Field
 from reme.steps.base_step import BaseStep, Ref
 from reme.utils.async_utils import complete_in_thread as blocking
 
-from ..code.repository import validate_repository, require_clean, validate_tree, status
+from ..code.repository import (
+    EVALUATED_PREFIX,
+    resolve_commit_prefix,
+    selection_branch,
+    validate_repository,
+    require_clean,
+    validate_tree,
+    status,
+)
 from ..evaluation.artifacts import contained, read_json, write_json
-from ..evaluation.inputs import EvaluationSpec, load_inputs
+from ..evaluation.inputs import EvaluationSpec, evaluation_head, load_inputs
 from ..evaluation.history import read_state
 from ..evaluation.budget import validate_max_evaluations, validation_budget_status
+from ..evaluation.reuse import verify_case_reuse
 from ..preparation.spec import SpecModel
 from ..workspace import HomeWorkspace, _initialization_lock, _validate_directory
 from .diagnostic import diagnostic_tool, evaluation_paths
@@ -36,14 +45,35 @@ MUTATION_JOBS = (
     "home_commit_candidate",
 )
 PENDING_CYCLE_TRANSITIONS = "home.optimizer.pending_cycle_transitions"
+FINAL_SELECTION_HINT = (
+    "Final selection: use home_list_validation_results to locate eligible evaluated commits. "
+    "Read their paired_comparisons.json files beside summary.json, or use home_compare_validations "
+    "for the shortlisted runs. The last run's table compares only that run against history; compare "
+    "historical finalists directly when needed. Prefer shared-question score, regressions, coverage "
+    "and query token cost; unknown values are not zero and different snapshots do not isolate answer changes. "
+    "Read original artifacts only if the compact evidence is insufficient. Leave the selected evaluated "
+    "branch checked out and return branch_name, commit_sha (unique prefix accepted), evaluation_path and report."
+)
 VALIDATION_BUDGET_EXHAUSTED_HINT = (
     "<system-reminder>The formal validation budget is exhausted. All previous validation-cycle timer reminders "
     "are expired. Select the best candidate using existing evaluation evidence; do not develop new candidates "
     "or run further evaluations. Complete any necessary evidence and repository checks, and leave the selected "
     "evaluated branch and full commit checked out with no uncommitted changes. Return exactly one JSON object "
     "with branch_name, commit_sha, evaluation_path and report. Put all summary and explanation in report; "
-    "do not include Markdown fences or text outside the JSON object.</system-reminder>"
+    "do not include Markdown fences or text outside the JSON object. " + FINAL_SELECTION_HINT + "</system-reminder>"
 )
+
+
+def final_selection_tool(timer=None):
+    """Reveal selection guidance only when the optimizer elects to finish early."""
+
+    async def begin_final_selection():
+        """Enter final selection when ready to finish optimization early."""
+        if timer is not None:
+            timer.stop()
+        return FINAL_SELECTION_HINT
+
+    return FunctionTool(begin_final_selection, name="begin_final_selection", is_concurrency_safe=False)
 
 
 class ValidationCycleTimer(RunTimeBudgetTimer):
@@ -88,7 +118,7 @@ class ValidationCycleTimer(RunTimeBudgetTimer):
 
 
 class OptimizerAgent(RecoverableCompressionAgent):
-    """Add Meta-ReMe's per-validation reminders to Home's bounded agent."""
+    """Add per-validation reminders to HoMe's bounded agent."""
 
     def __init__(self, *args, validation_cycle_timer=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -200,7 +230,7 @@ class OptimizationResult(SpecModel):
     """An agent claim that must be checked against Git and saved formal evidence."""
 
     branch_name: str = Field(min_length=1)
-    commit_sha: str = Field(pattern="^[0-9a-f]{40}$")
+    commit_sha: str = Field(pattern="^[0-9a-fA-F]{1,40}$")
     evaluation_path: str = Field(min_length=1)
     report: str = Field(min_length=1)
 
@@ -227,50 +257,41 @@ def evaluation_options(raw):
     return EvaluationSpec.model_validate(raw).model_dump(exclude_unset=True)
 
 
+def _infrastructure_free(manifest, summary):
+    return manifest.get("success") is True and all(
+        isinstance(counts := summary.get(key), dict) and counts.get("infra_error") == 0
+        for key in ("case_status_counts", "query_status_counts")
+    )
+
+
 def verify_evaluation(home, path, commit, *, baseline=False):
-    """Require completed end-to-end evidence with no infrastructure failures."""
+    """Accept completed baseline observations; final evidence must be infrastructure-free."""
     run = Path(evaluation_paths(home, [str(path)])[0])
     manifest = read_json(contained(run, "manifest.json"))
+    if baseline and (manifest.get("branch_name"), manifest.get("commit_sha")) != ("init", commit):
+        raise ValueError("Initial baseline evidence must match the init branch and initial commit")
     summary = read_json(contained(run, "summary.json"))
     required = {
         "commit_sha": commit,
         "status": "completed",
-        "success": True,
         "mode": "scored",
         "dataset_kind": "training-set",
     }
-    if any(manifest.get(key) != value for key, value in required.items()):
+    completed = (
+        all(manifest.get(key) == value for key, value in required.items())
+        and manifest.get("sandbox_started_at")
+        and summary.get("case_count")
+        and summary.get("scoring_enabled") is True
+    )
+    if not completed or (not baseline and not _infrastructure_free(manifest, summary)):
         raise ValueError("Evaluation must match the commit and complete without infrastructure failures")
     mode = manifest.get("execution_mode")
-    if mode != "full_validation":
-        reuse = manifest.get("automatic_construction_reuse", {})
-        report = reuse.get("equivalence_report", {})
-        source = manifest.get("construction_source", {})
-        if baseline or not all(
-            (
-                mode == "query_only_replay",
-                reuse.get("selected") is True,
-                reuse.get("policy") == "automatic_60_percent",
-                reuse.get("candidate_commit") == commit,
-                reuse.get("branch_name") == manifest.get("branch_name"),
-                report.get("candidate_commit") == commit,
-                report.get("decision") == "construction_unchanged",
-                bool(source.get("commit_sha")),
-                bool(source.get("result_dir")),
-                report.get("base_commit") == reuse.get("base_commit"),
-                source.get("commit_sha") == report.get("base_commit"),
-                source.get("result_dir") == report.get("source_validation"),
-                source.get("result_dir") == reuse.get("source_validation"),
-            ),
-        ):
-            raise ValueError("Query-only evidence requires host-selected, construction-equivalent replay")
-    if (
-        not manifest.get("sandbox_started_at")
-        or not summary.get("case_count")
-        or summary.get("scoring_enabled") is not True
-        or any(summary.get(key, {}).get("infra_error") != 0 for key in ("case_status_counts", "query_status_counts"))
-    ):
-        raise ValueError("Evaluation must match the commit and complete without infrastructure failures")
+    reused = bool(manifest.get("construction_sources"))
+    if reused:
+        if baseline:
+            raise ValueError("Initial baseline cannot reuse construction")
+    elif mode != "full_validation":
+        raise ValueError("Reused evidence requires host-selected per-case construction sources")
     _record, dataset, cases = load_inputs(home, EvaluationSpec())
     if manifest.get("fingerprints", {}).get("dataset") != dataset.normalized_fingerprint:
         raise ValueError("Evaluation dataset no longer matches the prepared dataset")
@@ -294,16 +315,28 @@ def verify_evaluation(home, path, commit, *, baseline=False):
         or summary.get("expected_query_count") != sum(len(ids) for ids in queries.values())
     ):
         raise ValueError("Evaluation summary has incomplete case coverage")
-    # Failed construction can legitimately omit answers; the recorded candidate
-    # failure is evidence, not an infrastructure failure or a missing result.
+    # Failed construction may omit answers. Baseline infrastructure errors remain
+    # observations; final evidence already passed the strict checks above.
     for key, row in rows.items():
-        if set(row.get("queries", {})) != set(queries[key]) and row.get("construction", {}).get("status") != "failure":
+        observed = set(row.get("queries", {}))
+        failure_path = contained(run, f"cases/{key}/failure.json")
+        failure = read_json(failure_path) if baseline and failure_path.is_file() else {}
+        unobserved_answers = (
+            baseline and failure.get("stage") == "answer" and failure.get("failure_kind") == "infra_error"
+        )
+        if observed - set(queries[key]) or (
+            observed != set(queries[key])
+            and row.get("construction", {}).get("status") != "failure"
+            and not unobserved_answers
+        ):
             raise ValueError(f"Evaluation summary has incomplete query coverage: {key}")
+    if reused:
+        verify_case_reuse(home, run, manifest, commit)
     return {"evaluation_path": str(run), "manifest": manifest, "summary": summary}
 
 
-def baseline_state(home):
-    """Inspect a clean repository and locate a usable initial full evaluation."""
+def baseline_state(home, *, evaluation_path=None):
+    """Check a clean repository and return verified initial evidence, or None."""
     _validate_directory(home, home / "metadata")
     with _initialization_lock(home / "metadata/workspace.lock"):
         repo, record = validate_repository(home)
@@ -311,31 +344,55 @@ def baseline_state(home):
         validate_tree(repo, record, "HEAD")
         initial = record["code"]["initial_commit"]
         current = status(repo, record)
-        for manifest in sorted((home / "evaluations/init").glob("*/*/manifest.json"), reverse=True):
+        if evaluation_path is not None:
+            if current["current_branch"] != "init" or current["commit_sha"] != initial:
+                raise ValueError("New initial baseline requires clean init at the initial commit")
+            return verify_evaluation(home, evaluation_path, initial, baseline=True)
+        # Attempt IDs are allocated in order under the initial commit's directory.
+        attempts = (
+            path.parent
+            for path in (home / "evaluations/init").glob("*/*/manifest.json")
+            if path.parent.name.isascii() and path.parent.name.isdecimal()
+        )
+        fallback = None
+        for run in sorted(attempts, key=lambda path: int(path.name), reverse=True):
             try:
-                evidence = verify_evaluation(home, manifest.parent, initial, baseline=True)
-                return current, evidence
+                evidence = verify_evaluation(home, run, initial, baseline=True)
             except (ValueError, OSError, KeyError, TypeError):
                 continue
+            if _infrastructure_free(evidence["manifest"], evidence["summary"]):
+                return evidence
+            if fallback is None:
+                fallback = evidence
+        if fallback is not None:
+            return fallback
         if current["current_branch"] != "init" or current["commit_sha"] != initial:
             raise ValueError("A complete initial baseline is missing; check out clean init before home_optimize")
-        return current, None
+        return None
 
 
-def verify_final(home, result):
-    """Check the actual checkout and evidence; never repair or discard agent edits."""
+def _verify_final_checkout(home, result):
+    """Resolve and validate the final checkout while holding the workspace lock."""
     _validate_directory(home, home / "metadata")
     with _initialization_lock(home / "metadata/workspace.lock"):
         repo, record = validate_repository(home)
         require_clean(repo)
         validate_tree(repo, record, "HEAD")
         current = status(repo, record)
+        result.commit_sha = resolve_commit_prefix(repo, result.commit_sha)
+        result.branch_name = selection_branch(repo, result.branch_name)
         if current["current_branch"] != result.branch_name or current["commit_sha"] != result.commit_sha:
             raise ValueError("Final branch/commit does not match the checked-out HEAD")
-        evidence = verify_evaluation(home, result.evaluation_path, result.commit_sha)
-        if evidence["manifest"]["branch_name"] != result.branch_name:
-            raise ValueError("Final evaluation belongs to a different branch")
-        return evidence["evaluation_path"]
+
+
+def verify_final(home, result):
+    """Scan immutable evidence outside the lock, then recheck the actual checkout."""
+    _verify_final_checkout(home, result)
+    evidence = verify_evaluation(home, result.evaluation_path, result.commit_sha)
+    if result.branch_name not in {evidence["manifest"]["branch_name"], EVALUATED_PREFIX + result.commit_sha}:
+        raise ValueError("Final evaluation belongs to a different branch")
+    _verify_final_checkout(home, result)
+    return evidence["evaluation_path"]
 
 
 def validation_budget_tool(home, max_evaluations):
@@ -358,12 +415,24 @@ def validation_budget_tool(home, max_evaluations):
     )
 
 
+def evaluation_checkout(home):
+    """Bind the host-owned sampling decision to one actual checkout."""
+    with _initialization_lock(home / "metadata/workspace.lock"):
+        repo, record = validate_repository(home)
+        commit, branch = evaluation_head(repo)
+        return {
+            "expected_commit": commit,
+            "expected_branch": branch,
+            "sampling": branch != "init" and commit != record["code"]["initial_commit"],
+        }
+
+
 def evaluation_tool(wrapper, options, *, home, timer=None, max_evaluations=10, budget_exhausted=False):
-    """Only debug mode is model-selected; the host decides construction replay."""
+    """Expose optional formal targets; execution limits and construction replay remain host-owned."""
     job = required_job(wrapper, "home_evaluate")
     validate_max_evaluations(max_evaluations)
 
-    async def evaluate(debug: bool = False, **kwargs):
+    async def evaluate(debug: bool = False, target_queries: dict[str, list[str] | None] | None = None, **kwargs):
         """Run debug after committing; after debug passes, run a sampled formal evaluation.
 
         Debug checks execution, not answer quality. Inspect infrastructure failures
@@ -378,16 +447,24 @@ def evaluation_tool(wrapper, options, *, home, timer=None, max_evaluations=10, b
         if not isinstance(state, AgentState):
             raise TypeError("Cycle reminders require the host-injected AgentState")
         started_before = await blocking(lambda: set(read_state(home)["started_validations"])) if not debug else set()
+        checkout = await blocking(evaluation_checkout, home) if not debug else {"sampling": False}
+        if target_queries and not debug and not checkout["sampling"]:
+            raise ValueError(
+                "Targeted evaluation requires a candidate branch; init retries cover the full training set",
+            )
         response = await job(
             **options,
             **({"max_evaluations": max_evaluations} if not debug else {}),
             debug=debug,
-            sampling=not debug,
+            **checkout,
             record_history=True,
             case_ids=None,
             query_ids=None,
             reuse_construction_from=None,
+            **({"target_queries": target_queries} if not debug and target_queries is not None else {}),
         )
+        if isinstance(response.answer, dict):
+            response.answer = {key: value for key, value in response.answer.items() if key != "paired_comparisons"}
         if not debug:
             budget = await blocking(validation_budget_status, home, max_evaluations)
             if isinstance(response.answer, dict):
@@ -417,14 +494,26 @@ def evaluation_tool(wrapper, options, *, home, timer=None, max_evaluations=10, b
     tool = FunctionTool(evaluate, name="home_evaluate", is_concurrency_safe=False, is_state_injected=True)
     tool.input_schema = {
         "type": "object",
-        "properties": {"debug": {"type": "boolean", "default": False}},
+        "properties": {
+            "debug": {"type": "boolean", "default": False},
+            "target_queries": {
+                "type": ["object", "null"],
+                "additionalProperties": {"type": ["array", "null"], "items": {"type": "string"}},
+                "description": (
+                    "Formal targets keyed by case ID: [] prioritizes a case with sampled questions; null targets "
+                    "all its questions; a list targets those query IDs. After a change, you may target relevant "
+                    "cases and questions to check whether it has the intended effect. "
+                    "Ignored for debug."
+                ),
+            },
+        },
         "additionalProperties": False,
     }
     return tool
 
 
 class HomeOptimizeStep(BaseStep):
-    """Require a full initial baseline, run the coding agent, and verify its final claim."""
+    """Collect a full initial baseline, run the coding agent, and verify its final claim."""
 
     workspace: HomeWorkspace = Ref(HomeWorkspace, "home.workspace")
     agent_wrapper: OptimizerAgentWrapper = Ref(OptimizerAgentWrapper, "agent_wrapper")
@@ -443,26 +532,25 @@ class HomeOptimizeStep(BaseStep):
         home = self.workspace.home_path
         _validate_directory(home, self.workspace.state_path)
         with _initialization_lock(self.workspace.state_path / "optimization.lock"):
-            _current, baseline = await blocking(baseline_state, home)
+            baseline = await blocking(baseline_state, home)
             if baseline is None:
                 response = await required_job(self.agent_wrapper, "home_evaluate")(
-                    **options,
+                    **{**options, "fail_fast": False},
                     debug=False,
                     sampling=False,
+                    expected_commit=read_json(home / "metadata/preparation.json")["code"]["initial_commit"],
+                    expected_branch="init",
                     record_history=True,
                     case_ids=None,
                     query_ids=None,
                     reuse_construction_from=None,
                 )
-                if not response.success:
+                if not isinstance(response.answer, dict) or response.answer.get("status") != "completed":
                     raise RuntimeError(f"Initial baseline failed: {response.answer}")
-                current, _ = await blocking(baseline_state, home)
                 baseline = await blocking(
-                    verify_evaluation,
+                    baseline_state,
                     home,
-                    response.answer["result_dir"],
-                    current["commit_sha"],
-                    baseline=True,
+                    evaluation_path=response.answer["result_dir"],
                 )
             return await self._optimize(home, spec, baseline, options)
 
@@ -483,16 +571,15 @@ class HomeOptimizeStep(BaseStep):
                 "optimizer",
                 f"Begin optimization.\n{spec.instruction}\n\n"
                 f"Completed full initial baseline: {baseline['evaluation_path']}\n"
+                f"Baseline case statuses: {json.dumps(baseline['summary']['case_status_counts'])}\n"
                 f"Formal validation budget: {json.dumps(budget)}\n"
-                f"{VALIDATION_BUDGET_EXHAUSTED_HINT if budget_exhausted else ''}\n"
-                "Return exactly one JSON object with branch_name, commit_sha (full SHA), evaluation_path and report. "
-                "Do not include Markdown fences or text outside the JSON object; put your summary in report. "
-                "Leave that evaluated branch and commit checked out with no uncommitted changes.",
+                f"{VALIDATION_BUDGET_EXHAUSTED_HINT if budget_exhausted else ''}",
                 tool_factory=lambda backend: [
                     *create_draft_tools()[0],
                     Edit(backend=backend),
                     diagnostic_tool(self.agent_wrapper),
                     validation_budget_tool(home, max_evaluations),
+                    final_selection_tool(timer),
                     evaluation_tool(
                         self.agent_wrapper,
                         options,

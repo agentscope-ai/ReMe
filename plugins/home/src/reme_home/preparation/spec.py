@@ -102,8 +102,9 @@ class DebugSpec(SpecModel):
     """Deterministic smoke-data truncation, independent of scoring."""
 
     enabled: bool = True
-    sessions_per_case: int = Field(default=3, ge=1)
-    messages_per_session: int = Field(default=6, ge=1)
+    sessions_per_case: int = Field(default=4, ge=1)
+    messages_per_session: int = Field(default=8, ge=1)
+    queries_per_case: int = Field(default=4, ge=1)
 
 
 class PreparationSpec(SpecModel):

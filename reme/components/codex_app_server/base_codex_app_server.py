@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
-from ..base_component import BaseComponent
+from ..base import BaseComponent
 from ..job import BackgroundJob, StreamJob
 from ..service.scoped_mcp import ScopedMCP
 from ...enumeration import ComponentEnum

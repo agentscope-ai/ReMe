@@ -9,7 +9,7 @@ import secrets
 import pytest
 import pytest_asyncio
 
-from reme.application import Application
+from reme import Application
 from reme.steps.base_step import BaseStep
 
 pytestmark = pytest.mark.skipif(

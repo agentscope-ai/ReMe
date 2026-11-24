@@ -5,16 +5,16 @@ import datetime
 import os
 from typing import Final
 
+from ._ranking import RRF_K, candidate_count
 from ._source_format import ALL_RETURNED_MESSAGE, NO_RESULTS_MESSAGE
 from ._tool_context import _ToolContextMixin
 from ..base_step import BaseStep
 from ..file_io import extract_daily_date
-from ...components import R
+from ...core.registry import R
 from ...schema import FileChunk
-from ...utils import expand_links, render_expansion_lines, canonical_index_path
+from ...utils.documents.link_expansion import expand_links, render_expansion_lines
+from ...utils.files.paths import canonical_index_path
 
-_RRF_K: Final = 60
-_MAX_CANDIDATES: Final = 200
 _DEFAULT_LIMIT_ENV: Final = "REME_SEARCH_LIMIT"
 _DEFAULT_LIMIT: Final = 5
 
@@ -62,13 +62,13 @@ class SearchStep(_ToolContextMixin, BaseStep):
         merged: dict[str, FileChunk] = {}
 
         for rank, chunk in enumerate(vector, start=1):
-            contrib = vector_weight / (_RRF_K + rank)
+            contrib = vector_weight / (RRF_K + rank)
             c = chunk.model_copy(deep=False)
             c.scores = {**chunk.scores, "vector": chunk.scores.get("vector", chunk.score), "score": contrib}
             merged[c.id] = c
 
         for rank, chunk in enumerate(keyword, start=1):
-            contrib = text_weight / (_RRF_K + rank)
+            contrib = text_weight / (RRF_K + rank)
             existing = merged.get(chunk.id)
             if existing is not None:
                 existing.scores = {
@@ -217,7 +217,9 @@ class SearchStep(_ToolContextMixin, BaseStep):
             vector_weight = float(self.kwargs.get("vector_weight", 0.7))
         vector_weight = max(0.0, min(1.0, vector_weight))
         candidate_multiplier: float = float(self.kwargs.get("candidate_multiplier", 5.0))
-        expand_links_enabled: bool = bool(self.kwargs.get("expand_links", True))
+        expand_links_enabled = self.context.get("expand_links")
+        if not isinstance(expand_links_enabled, bool):
+            expand_links_enabled = bool(self.kwargs.get("expand_links", True))
         max_links_per_direction: int = int(self.kwargs.get("max_links_per_direction", 10))
         tool_context_id: str = (self.context.get("tool_context_id", "") or "").strip()
         max_search_calls = self.context.get("max_search_calls")
@@ -252,7 +254,7 @@ class SearchStep(_ToolContextMixin, BaseStep):
                     f"[{self.name}] search budget context={tool_context_id} " f"call={budget['count']}/{maximum}",
                 )
 
-        candidates = min(_MAX_CANDIDATES, max(1, int(limit * candidate_multiplier)))
+        candidates = candidate_count(limit, candidate_multiplier)
         search_filter: dict = dict(self.context.get("search_filter", {}) or {})
         raw_tags = self.context.get("tags", []) or []
 
@@ -333,7 +335,7 @@ class SearchStep(_ToolContextMixin, BaseStep):
             fused = self._rrf_merge(vector_results, keyword_results, vector_weight)
 
         if min_score > 0.0:
-            max_rrf_score = 1.0 / (_RRF_K + 1)
+            max_rrf_score = 1.0 / (RRF_K + 1)
             if hybrid and min_score > max_rrf_score:
                 self.logger.warning(
                     f"[{self.name}] min_score={min_score:g} exceeds the hybrid RRF maximum "

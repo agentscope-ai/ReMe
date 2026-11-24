@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 import frontmatter
 import pytest
 
-from reme.components import R
+from reme.core.registry import R
 from reme.steps.evolve.auto_resource import AutoResourceStep
 from reme.steps.evolve.auto_text_resource import AutoTextResourceStep
 from reme.steps.evolve.base_auto_resource import BaseAutoResourceStep

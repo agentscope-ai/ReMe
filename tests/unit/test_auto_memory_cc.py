@@ -9,7 +9,7 @@ import frontmatter
 import pytest
 
 from reme.components.agent_wrapper import BaseAgentWrapper
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.components.file_store import LocalFileStore
 from reme.components.job import BaseJob
 from reme.config import resolve_app_config

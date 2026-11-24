@@ -12,14 +12,11 @@ file's frontmatter (existing keys overwritten, missing keys inserted).
 ``error="no fields to update"``.
 """
 
-from pathlib import Path
-
 import frontmatter
 
-from ._file_io import get_path_lock
-from ._path import check_path_permission, display_path, gate_md, resolve_path
+from ._base import frontmatter_target
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 
 
 @R.register("frontmatter_update_step")
@@ -55,33 +52,18 @@ class FrontmatterUpdateStep(BaseStep):
                     names = ", ".join(sorted(repr(key) for key in denied))
                     key_error = f"frontmatter key(s) not allowed: {names}"
 
-        workspace_dir = Path(self.file_store.workspace_path or ".").resolve()
-        target, err = resolve_path(workspace_dir, path)
-        if err or target is None:
-            payload: dict = {"path": path, "error": err or "invalid path"}
-        else:
-            original_target = target
-            target, is_md = gate_md(target)
-            if not check_path_permission(workspace_dir, target, self.context.get("_allowed_paths")):
-                payload = {"path": path, "error": "no permission to update this file"}
-            else:
-                lock = await get_path_lock(target)
-                async with lock:
-                    if not target.is_file():
-                        payload = {"path": path, "error": f"{display_path(workspace_dir, target)} not found"}
-                    elif not is_md:
-                        payload = {"path": path, "error": "not markdown"}
-                    elif not metadata:
-                        payload = {"path": path, "error": "no fields to update"}
-                    elif key_error:
-                        payload = {"path": path, "error": key_error}
-                    else:
-                        post = frontmatter.loads(target.read_text(encoding="utf-8"))
-                        post.metadata.update(metadata)
-                        target.write_text(frontmatter.dumps(post), encoding="utf-8")
-                        payload = {"path": path, "updated": metadata}
-            if target != original_target:
-                payload["resolved_path"] = display_path(workspace_dir, target)
+        allowed_paths = self.context.get("_allowed_paths")
+        async with frontmatter_target(self.file_store.workspace_path, path, allowed_paths) as (target, payload):
+            if target is not None:
+                if not metadata:
+                    payload["error"] = "no fields to update"
+                elif key_error:
+                    payload["error"] = key_error
+                else:
+                    post = frontmatter.loads(target.read_text(encoding="utf-8"))
+                    post.metadata.update(metadata)
+                    target.write_text(frontmatter.dumps(post), encoding="utf-8")
+                    payload["updated"] = metadata
 
         if "error" in payload:
             self.context.response.success = False

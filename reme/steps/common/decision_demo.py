@@ -4,7 +4,7 @@ import json
 from dataclasses import asdict
 
 from ..base_step import BaseStep, Ref
-from ...components import R
+from ...core.registry import R
 from ...components.as_decision_model import BaseAsDecisionModel
 from ...enumeration import ComponentEnum
 

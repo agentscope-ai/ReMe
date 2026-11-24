@@ -1,19 +1,21 @@
-"""Single-turn file decisions and delivery in automatic proactive rounds."""
+"""File decisions, repair and delivery in automatic proactive rounds."""
 
 # pylint: disable=missing-function-docstring,protected-access
 
 import asyncio
 from datetime import datetime, timedelta
+from os.path import relpath
+from pathlib import Path
 from unittest.mock import AsyncMock, Mock
 
 import frontmatter
 import pytest
 
 from reme.enumeration import ChunkEnum
-from reme.schema import StreamChunk
+from reme.schema import Event, StreamChunk
 from reme.steps.proactive.agent import ProactiveAgentStep
 from reme.steps.proactive.tools.manage_proactive_agent import ManageProactiveAgentStep
-from .test_agent_runtime import create_agent, running_runtime
+from .test_proactive_runtime import create_agent, running_runtime
 
 
 async def queue_cron_trigger(runtime, name, monkeypatch):
@@ -35,212 +37,439 @@ async def create_round_task(runtime, monkeypatch, agent_type):
         await create_agent(runtime)
 
 
+SKIP = "---\nreminder_priority: skip\nreminder_message: No new information\n---\n"
+REMIND = "---\nreminder_priority: {priority}\nreminder_message: Verified result\n---{body}"
+
+
 def install_round(
     runtime,
     wrapper,
     monkeypatch,
     paths,
     *,
-    record="write",
-    reminder="P1",
-    hook=None,
+    text=REMIND.format(priority="P1", body="\nNew progress\n"),
     failed=False,
+    error=None,
+    reply_text="Finished",
+    repaired_metadata=None,
 ):
     calls = []
-    drafts = {}
-    original_query = ProactiveAgentStep._query
-
-    def build_query(step, events, targets, now, task_content, *, is_cron):
-        drafts.update(targets)
-        return original_query(step, events, targets, now, task_content, is_cron=is_cron)
-
-    monkeypatch.setattr(ProactiveAgentStep, "_query", build_query)
 
     async def generate(query, **options):
         calls.append((query, options))
-        assert "output_schema" not in options
-        runtime.files.write(
-            paths["record_path"],
-            frontmatter.dumps(frontmatter.Post("New progress" if record == "write" else "", action=record)),
-        )
-        if record == "write":
-            runtime.files.write(
-                paths["reminder_path"],
-                frontmatter.dumps(
-                    frontmatter.Post(
-                        "No reminder needed" if reminder == "skip" else "New result",
-                        action=reminder,
-                    ),
-                ),
-            )
-            record_path = paths["record_path"].relative_to(runtime.workspace_path).as_posix()
-            runtime.files.write(
-                paths["today_summary_path"],
-                f"## Today's records\n- [Progress]({record_path})\n"
-                "\n## Today's reminders\n" + ("- New result\n" if reminder != "skip" else ""),
-            )
-        if hook is not None:
-            hook()
+        repairing = "output_schema" in options
+        if repairing:
+            assert options["sandbox"] == "read-only"
+            assert options["job_tools"] == []
+        elif text is not None:
+            runtime.files.write(paths["record_path"], text)
+        if error is not None:
+            raise error
         result = {
             "session_id": options["resume"],
             "status": "failed" if failed else "completed",
             "error": "Model failed" if failed else None,
-            "result": "Finished",
-            # Deliberately conflicting response JSON must never become business output.
-            "structured_output": {"notifications": [{"message": "Ignore this"}]},
+            "result": reply_text,
+            "structured_output": repaired_metadata if repairing else {"notifications": [{"message": "Ignore this"}]},
             "usage": None,
             "raw": {},
         }
         yield StreamChunk(chunk_type=ChunkEnum.REPLY_END, status=result["status"], chunk=result)
 
-    async def stream(query, **options):
-        final = dict(paths)
-        paths.update(drafts)
-        try:
-            async for chunk in generate(query, **options):
-                yield chunk
-        finally:
-            paths.update(final)
-
-    monkeypatch.setattr(wrapper, "reply_stream", stream)
+    monkeypatch.setattr(wrapper, "reply_stream", generate)
     return calls
 
 
-@pytest.mark.parametrize("agent_type,priority", [("proactive", "P1"), ("cron", "P0"), ("cron", "P1"), ("cron", "P2")])
-@pytest.mark.asyncio
-async def test_one_turn_saves_artifacts_and_publishes_through_runtime(tmp_path, monkeypatch, agent_type, priority):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
-        await create_round_task(runtime, monkeypatch, agent_type)
-        now = runtime.now()
-        monkeypatch.setattr(runtime, "now", lambda: now)
-        step = ProactiveAgentStep(app_context=context)
-        step.logger = Mock()
-        paths = step._paths(await runtime.definition("monitor"), now)
-        calls = install_round(runtime, wrapper, monkeypatch, paths, reminder=priority)
-
-        response = await step(agent_name="monitor")
-
-        assert response.success and response.answer["processed"] == 1
-        assert len(calls) == len(wrapper.created) == 1
-        assert calls[0][1]["resume"] == "session-1"
-        assert (await runtime.status("monitor"))["pending_events"] == 0
-        await runtime.outbox.sync()
-        assert len(runtime.outbox.committed) == 1
-        item = (await runtime.notifications.read())["items"][0]
-        assert item["message"] == "New result"
-        assert item["priority"] == priority
-        assert item["reminder_path"] == paths["reminder_path"].relative_to(tmp_path).as_posix()
-        assert item["paths"] == [
-            paths[key].relative_to(tmp_path).as_posix() for key in ("reminder_path", "record_path")
-        ]
-        document = frontmatter.loads(paths["reminder_path"].read_text())
-        assert document.content == "New result" and document["delivered_at"]
-        assert document["action"] == priority and not {"message", "priority"} & document.metadata.keys()
-        assert paths["record_path"].name in runtime.files.read(paths["today_summary_path"])
-        assert wrapper.created[0]["sandbox"] == "workspace-write"
-        logs = "\n".join(call.args[0] for call in step.logger.info.call_args_list)
-        assert "result=validated notifications=1" in logs
-        assert "elapsed=" in logs and str(paths["record_path"]) in logs
-
-
 @pytest.mark.parametrize(
-    "agent_type,reminder,artifact",
+    "agent_type,language,priority,body",
     [
-        ("proactive", "P1", "record_path"),
-        ("proactive", "skip", "reminder_path"),
-        ("cron", "P0", "today_summary_path"),
+        ("proactive", "zh", "P1", "\n\n    indented code\n\n"),
+        ("proactive", "en", "P2", "\n"),
+        ("cron", "zh", "P1", "\n"),
+        ("cron", "en", "P2", "\n"),
     ],
 )
 @pytest.mark.asyncio
-async def test_broken_local_links_warn_without_rejecting_saved_results(
+async def test_round_publishes_and_acknowledges_the_same_note(
     tmp_path,
     monkeypatch,
     agent_type,
-    reminder,
-    artifact,
+    language,
+    priority,
+    body,
 ):
-    workspace = tmp_path / "workspace"
-    async with running_runtime(workspace) as (runtime, context, wrapper):
+    async with running_runtime(tmp_path, language=language) as (runtime, context, wrapper):
+        await create_round_task(runtime, monkeypatch, agent_type)
+        now = runtime.now()
+        monkeypatch.setattr(runtime, "now", lambda: now)
+        window_start = now + timedelta(hours=1)
+        await runtime.update(
+            "monitor",
+            {
+                "notify_window": {
+                    "start": f"{window_start:%H:%M}",
+                    "end": f"{window_start + timedelta(minutes=1):%H:%M}",
+                },
+            },
+        )
+        step = ProactiveAgentStep(app_context=context)
+        paths = step._paths(await runtime.definition("monitor"), now)
+        path = paths["record_path"]
+        queries = install_round(runtime, wrapper, monkeypatch, paths, text=REMIND.format(priority=priority, body=body))
+
+        result = await step(agent_name="monitor")
+        assert result.success and result.answer["processed"] == 1
+        assert result.answer["notifications"][0]["message"] == "Verified result"
+        ((query, options),) = queries
+        assert options["sandbox"] == "workspace-write"
+        assert runtime.files.read(paths["task_path"]) in query
+        assert ("Finished" in query) == (agent_type == "proactive")
+        assert list((tmp_path / "daily").rglob("*.md")) == [path]
+
+        (ref,) = runtime.outbox.records
+        related = [path.relative_to(tmp_path).as_posix()]
+        item = runtime.outbox.message(ref)
+        assert item["message"] == "Verified result"
+        assert item["priority"] == priority
+        assert related == [item["id"]]
+        assert item["delivered_at"] and item["id"] == ref == related[0]
+        runtime.notifications.last_activity_at = now - timedelta(hours=1)
+        run_job = AsyncMock()
+        await runtime.notifications.tick(run_job)
+        run_job.assert_not_awaited()
+        assert runtime.notifications.worker is None
+
+        await runtime.notifications.consume([ref])
+        saved = path.read_text()
+        assert saved.endswith(f"---{body}")
+        metadata = frontmatter.loads(saved).metadata
+        assert set(metadata) == {"reminder_priority", "reminder_message"}
+        assert (await runtime.outbox.read("monitor", ref))["read_at"]
+
+    async with running_runtime(tmp_path) as (runtime, _, _):
+        item = await runtime.outbox.read("monitor", ref)
+        assert [item["id"]] == related and item["read_at"]
+
+
+@pytest.mark.parametrize(
+    "agent_type,language,invalid_message,error",
+    [
+        ("proactive", "zh", "Updated palette\n  to blue #20774D\n  and white", "while parsing"),
+        ("cron", "en", "", "reminder_message"),
+    ],
+)
+@pytest.mark.parametrize("edit_during_repair", [False, True])
+@pytest.mark.asyncio
+async def test_record_format_is_repaired_in_the_same_session(
+    tmp_path,
+    monkeypatch,
+    agent_type,
+    language,
+    invalid_message,
+    error,
+    edit_during_repair,
+):
+    async with running_runtime(tmp_path, language=language) as (runtime, context, wrapper):
         await create_round_task(runtime, monkeypatch, agent_type)
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)
         step = ProactiveAgentStep(app_context=context)
-        step.logger = Mock()
         paths = step._paths(await runtime.definition("monitor"), now)
-        path = paths[artifact]
-        directory = path.parent.relative_to(workspace).as_posix()
-        before = "# Previous summary\n[[old-missing.md|Old broken link]]\n"
-        runtime.files.write(paths["today_summary_path"], before)
-        runtime.files.write(path.with_name("proof (confirmed).md"), "Evidence\n")
-        outside = tmp_path / "outside.md"
-        outside.write_text("Outside workspace\n")
-        body = (
-            f"[[{paths['record_path'].relative_to(workspace).as_posix()}#details|Record]]\n"
-            f"[[{directory}/proof (confirmed).md|Evidence]]\n"
-            "[Web](https://example.com/news)\n"
-            "`[[not-real-inline.md|Example]]`\n"
-            "```markdown\n[[not-real-fenced.md|Example]]\n```\n"
-            "~~~markdown\n[[not-real-tilde.md|Example]]\n~~~\n"
-            "[[missing.md|Missing]] [[missing.md|Repeated]]\n"
-            "[[../outside.md|Outside]]\n"
+        path = paths["record_path"]
+        body = "\n# Progress\n"
+        repaired = REMIND.format(priority="P2", body=body).replace("Verified result", "'Palette #20774D'")
+        draft = repaired.replace("'Palette #20774D'", invalid_message)
+        calls = install_round(
+            runtime,
+            wrapper,
+            monkeypatch,
+            paths,
+            text=draft,
+            repaired_metadata={"reminder_priority": "P2", "reminder_message": "Palette #20774D"},
         )
-        expected = {}
+        original = wrapper.reply_stream
+        user_edit = repaired + "User's own edit.\n"
 
-        def add_links():
-            runtime.files.write(paths["today_summary_path"], before + runtime.files.read(paths["today_summary_path"]))
-            document = frontmatter.loads(runtime.files.read(paths[artifact]))
-            document.content += "\n" + body
-            runtime.files.write(paths[artifact], frontmatter.dumps(document))
-            for key in ("record_path", "reminder_path", "today_summary_path"):
-                expected[key] = frontmatter.loads(runtime.files.read(paths[key])).content
-                for target in ("record_path", "reminder_path", "today_summary_path"):
-                    expected[key] = expected[key].replace(paths[target].name, step._round_files.paths[target].name)
+        async def stream(query, **options):
+            attempt = len(calls)
+            assert (await runtime.inbox.snapshot("monitor"))["receipt"] is None
+            assert not runtime.outbox.records
+            if attempt and edit_during_repair:
+                runtime.files.write(path, user_edit)
+            yield StreamChunk(
+                chunk_type=ChunkEnum.TOOL_CALL,
+                turn_id=f"turn-{attempt}",
+                tool_call_id="write",
+                tool_call_name="apply_patch",
+            )
+            yield StreamChunk(chunk_type=ChunkEnum.USAGE, chunk={"output_tokens": 5})
+            async for chunk in original(query, **options):
+                yield chunk
 
-        install_round(runtime, wrapper, monkeypatch, paths, reminder=reminder, hook=add_links)
-        response = await step(agent_name="monitor")
+        monkeypatch.setattr(wrapper, "reply_stream", stream)
+        saved_calls = AsyncMock(return_value=[{"id": "write", "name": "apply_patch"}])
+        monkeypatch.setattr(wrapper, "get_tool_calls", saved_calls)
+        if edit_during_repair:
+            with pytest.raises(RuntimeError, match="Agent output changed outside this round"):
+                await step(agent_name="monitor")
+            assert path.read_text() == user_edit
+            assert (await runtime.status("monitor"))["pending_events"] == 1
+            assert not runtime.outbox.records
+            return
+        result = await step(agent_name="monitor")
 
-        assert response.success and response.answer["processed"] == 1
+        assert result.success and result.answer["processed"] == 1
+        assert result.answer["notifications"][0]["message"] == "Palette #20774D"
+        assert len(runtime.outbox.records) == len(wrapper.created) == 1
         assert (await runtime.status("monitor"))["pending_events"] == 0
-        assert len(response.answer["notifications"]) == (0 if reminder == "skip" else 1)
-        warnings = [call.args[0] for call in step.logger.warning.call_args_list]
-        assert len(warnings) == 2
-        assert all(f"source={path}" in warning for warning in warnings)
-        assert any("target='missing.md': target does not exist" in warning for warning in warnings)
-        assert any(
-            "target='../outside.md'" in warning and "stay inside the workspace" in warning for warning in warnings
-        )
-        for key, content in expected.items():
-            assert frontmatter.loads(runtime.files.read(paths[key])).content == content
-        assert outside.read_text() == "Outside workspace\n"
-        await runtime.outbox.sync()
-        assert len((await runtime.notifications.read())["items"]) == (0 if reminder == "skip" else 1)
+        assert path.read_text().endswith(f"---{body}")
+        (_, initial), (repair, followup) = calls
+        assert initial["resume"] == followup["resume"] == "session-1"
+        assert path.relative_to(tmp_path).as_posix() in repair
+        assert error in repair
+        assert followup["output_schema"]["required"] == ["reminder_priority", "reminder_message"]
+        assert [call.args for call in saved_calls.await_args_list] == [("session-1", "turn-0"), ("session-1", "turn-1")]
+        stats = result.metadata["reme.agent_run"]
+        assert stats["tool_calls"] == 2 and stats["usage"]["output_tokens"] == 10
 
 
-@pytest.mark.parametrize("existing_summary", [False, True])
+@pytest.mark.parametrize("error", [OSError("interrupted after commit"), asyncio.CancelledError()])
 @pytest.mark.asyncio
-async def test_no_new_information_preserves_empty_decision_without_reminder(tmp_path, monkeypatch, existing_summary):
+async def test_delivery_recovers_from_a_committed_input_receipt(tmp_path, monkeypatch, error):
+    async with running_runtime(tmp_path, language="zh") as (runtime, context, wrapper):
+        await create_agent(runtime)
+        now = runtime.now()
+        monkeypatch.setattr(runtime, "now", lambda: now)
+        step = ProactiveAgentStep(app_context=context)
+        paths = step._paths(await runtime.definition("monitor"), now)
+        path = paths["record_path"]
+        draft = REMIND.format(priority="P1", body="\nDraft body\n")
+        install_round(runtime, wrapper, monkeypatch, paths, text=draft)
+        ack = runtime.inbox.ack
+
+        async def interrupt(*args, **kwargs):
+            await ack(*args, **kwargs)
+            raise error
+
+        monkeypatch.setattr(runtime.inbox, "ack", interrupt)
+        with pytest.raises(type(error)):
+            await step(agent_name="monitor")
+        assert path.read_text() == draft
+        assert not runtime.notifications.pending
+
+    async with running_runtime(tmp_path) as (runtime, _, _):
+        ref = path.relative_to(tmp_path).as_posix()
+        assert runtime.notifications.pending == {ref}
+        assert (await runtime.status("monitor"))["pending_events"] == 0
+        document = frontmatter.loads(path.read_text())
+        assert runtime.outbox.records[ref].delivered_at and document.content == "Draft body"
+        assert path.read_text() == draft
+
+
+@pytest.mark.asyncio
+async def test_failed_record_with_delivery_frontmatter_never_enters_the_inbox(tmp_path, monkeypatch):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)
         step = ProactiveAgentStep(app_context=context)
         paths = step._paths(await runtime.definition("monitor"), now)
-        if existing_summary:
-            runtime.files.write(paths["today_summary_path"], "# Previous progress\n")
-        before = step._read_optional(paths["today_summary_path"])
-        calls = install_round(runtime, wrapper, monkeypatch, paths, record="skip")
+        text = REMIND.format(priority="P0", body="\nCopied result\n")
+        text = text.replace("---\n", f"---\ndelivered_at: '{now.isoformat()}'\n", 1)
+        install_round(runtime, wrapper, monkeypatch, paths, text=text, failed=True)
+        reply_stream = wrapper.reply_stream
 
+        async def generate(query, **options):
+            async for chunk in reply_stream(query, **options):
+                assert not (await runtime.list_inputs("Remy"))["items"]
+                yield chunk
+
+        monkeypatch.setattr(wrapper, "reply_stream", generate)
+        with pytest.raises(RuntimeError, match="Model failed"):
+            await step(agent_name="monitor")
+        assert paths["record_path"].read_text() == text
+        snapshot = await runtime.inbox.snapshot("monitor")
+        assert snapshot["pending_count"] == 1 and snapshot["receipt"] is None
+
+    async with running_runtime(tmp_path) as (runtime, _, _):
+        assert not (await runtime.list_inputs("Remy"))["items"]
+
+
+@pytest.mark.asyncio
+async def test_cron_can_finish_with_a_skip_record(tmp_path, monkeypatch):
+    async with running_runtime(tmp_path, language="zh") as (runtime, context, wrapper):
+        await create_round_task(runtime, monkeypatch, "cron")
+        now = runtime.now()
+        monkeypatch.setattr(runtime, "now", lambda: now)
+        step = ProactiveAgentStep(app_context=context)
+        paths = step._paths(await runtime.definition("monitor"), now)
+
+        old_record = paths["daily_dir"] / "2000-01-01" / "monitor_100000.md"
+        runtime.files.write(old_record, SKIP + "private old body")
+        record = paths["record_path"]
+        queries = install_round(runtime, wrapper, monkeypatch, paths, text=SKIP)
+
+        result = await step(agent_name="monitor")
+        assert result.success and result.answer["processed"] == 1
+        assert result.answer["notifications"] == []
+        assert record.read_text() == SKIP
+        assert (await runtime.status("monitor"))["pending_events"] == 0
+        ((query, _),) = queries
+        assert old_record.name not in query and "private old body" not in query
+        assert not (await runtime.outbox.list("monitor"))["items"]
+
+
+@pytest.mark.parametrize(
+    "draft,error",
+    [
+        (SKIP.replace("skip", "P3"), ValueError),
+        (SKIP.replace("No new information", "'  '"), ValueError),
+        (SKIP.replace("---\n", "---\ndelivered_at: 2026-11-22T08:00:00+08:00\n", 1), ValueError),
+        (REMIND.format(priority="P1", body="\nNew result\n"), OSError),
+    ],
+)
+@pytest.mark.asyncio
+async def test_failed_round_keeps_the_input_and_record(tmp_path, monkeypatch, draft, error):
+    async with running_runtime(tmp_path, language="zh") as (runtime, context, wrapper):
+        await create_agent(runtime)
+        now = runtime.now()
+        monkeypatch.setattr(runtime, "now", lambda: now)
+        step = ProactiveAgentStep(app_context=context)
+        paths = step._paths(await runtime.definition("monitor"), now)
+        path = paths["record_path"]
+        queries = install_round(runtime, wrapper, monkeypatch, paths, text=draft)
+        expected = draft
+        if error is OSError:
+            expected += "User edit while the model is still streaming.\n"
+            reply_stream = wrapper.reply_stream
+
+            async def edit_before_turn_ends(query, **options):
+                async for chunk in reply_stream(query, **options):
+                    runtime.files.write(path, expected)
+                    yield chunk
+
+            monkeypatch.setattr(wrapper, "reply_stream", edit_before_turn_ends)
+            monkeypatch.setattr(runtime.inbox, "ack", AsyncMock(side_effect=OSError("receipt unavailable")))
+        with pytest.raises(error):
+            await step(agent_name="monitor")
+        assert len(queries) == (1 if error is OSError else 2)
+        assert path.read_text() == expected
+        assert not runtime.outbox.records
+        assert (await runtime.status("monitor"))["pending_events"] == 1
+
+
+@pytest.mark.parametrize("draft", [None, SKIP, SKIP + "Normal progress"])
+@pytest.mark.asyncio
+async def test_event_round_can_finish_without_an_inbox_message(tmp_path, monkeypatch, draft):
+    async with running_runtime(tmp_path, language="zh") as (runtime, context, wrapper):
+        await create_agent(runtime)
+        now = runtime.now()
+        monkeypatch.setattr(runtime, "now", lambda: now)
+        step = ProactiveAgentStep(app_context=context)
+        paths = step._paths(await runtime.definition("monitor"), now)
+        path = paths["record_path"]
+        reply_text = "NO_KEY_INFORMATION" if draft is None else None
+        queries = install_round(runtime, wrapper, monkeypatch, paths, text=draft, reply_text=reply_text)
+
+        result = await step(agent_name="monitor")
+        assert result.success and result.answer["processed"] == 1
+        assert result.answer["notifications"] == []
+        assert (await runtime.status("monitor"))["pending_events"] == 0
+        if draft is None:
+            assert "只回复「NO_KEY_INFORMATION」" in queries[0][0]
+            assert not path.exists()
+        else:
+            assert path.read_text() == draft
+
+
+@pytest.mark.parametrize(
+    "agent_type,reply_text,model_error,expected_error",
+    [
+        ("proactive", "还没有写入结果", None, FileNotFoundError),
+        ("proactive", "NO_KEY_INFORMATION, but writing failed", None, FileNotFoundError),
+        ("proactive", None, RuntimeError("model failed"), RuntimeError),
+        ("proactive", None, TimeoutError("model timed out"), TimeoutError),
+        ("cron", "NO_KEY_INFORMATION", None, FileNotFoundError),
+    ],
+)
+@pytest.mark.asyncio
+async def test_missing_record_requires_an_explicit_successful_event_skip(
+    tmp_path,
+    monkeypatch,
+    agent_type,
+    reply_text,
+    model_error,
+    expected_error,
+):
+    async with running_runtime(tmp_path, language="zh") as (runtime, context, wrapper):
+        await create_round_task(runtime, monkeypatch, agent_type)
+        now = runtime.now()
+        monkeypatch.setattr(runtime, "now", lambda: now)
+        step = ProactiveAgentStep(app_context=context)
+        paths = step._paths(await runtime.definition("monitor"), now)
+        install_round(runtime, wrapper, monkeypatch, paths, text=None, error=model_error, reply_text=reply_text)
+
+        with pytest.raises(expected_error):
+            await step(agent_name="monitor")
+        assert (await runtime.status("monitor"))["pending_events"] == 1
+
+
+@pytest.mark.parametrize("field", ["body", "message"])
+@pytest.mark.asyncio
+async def test_broken_local_links_warn_without_rejecting_the_record(tmp_path, monkeypatch, field):
+    workspace = tmp_path / "workspace"
+    async with running_runtime(workspace) as (runtime, context, wrapper):
+        await create_agent(runtime)
+        now = runtime.now()
+        monkeypatch.setattr(runtime, "now", lambda: now)
+        step = ProactiveAgentStep(app_context=context)
+        step.logger = Mock()
+        paths = step._paths(await runtime.definition("monitor"), now)
+        path = paths["record_path"]
+        runtime.files.write(path.with_name("proof (confirmed).md"), "Evidence\n")
+        outside = tmp_path / "outside.md"
+        outside.write_text("Outside workspace\n")
+        outside_path = Path(relpath(outside, path.parent)).as_posix()
+        record = path.name
+        wrong_depth = Path(relpath(paths["record_path"], path.parent.parent)).as_posix()
+        body = (
+            f"[Record]({record}#details)\n"
+            "[Evidence][proof] [Encoded evidence](proof%20%28confirmed%29.md)\n\n"
+            "[proof]: <proof (confirmed).md>\n\n"
+            "[This section](#details)\n"
+            "[Web](https://example.com/news)\n"
+            "`[Example](not-real-inline.md)`\n"
+            "```markdown\n[Example](not-real-fenced.md)\n```\n"
+            "~~~markdown\n[Example](not-real-tilde.md)\n~~~\n"
+            "[[legacy-missing.md|Legacy]]\n"
+            "[Missing](missing.md) [Repeated](missing.md)\n"
+            f"[Wrong depth]({wrong_depth})\n"
+            f"[Outside]({outside_path})\n"
+        )
+        document = frontmatter.Post(
+            body if field == "body" else "Progress",
+            reminder_priority="P1",
+            reminder_message=body if field == "message" else "New result",
+        )
+        install_round(runtime, wrapper, monkeypatch, paths, text=frontmatter.dumps(document))
         response = await step(agent_name="monitor")
 
-        assert response.success and response.answer["notifications"] == []
-        assert len(calls) == 1
-        document = frontmatter.loads(paths["record_path"].read_text())
-        assert document["action"] == "skip" and not document.content
-        assert not paths["reminder_path"].exists()
-        assert step._read_optional(paths["today_summary_path"]) == before
-        assert (await runtime.status("monitor"))["pending_events"] == 0
-        await runtime.outbox.sync()
-        assert not runtime.outbox.records and not runtime.outbox.issues
+        assert response.success and response.answer["processed"] == 1
+        assert len(response.answer["notifications"]) == 1
+        warnings = [call.args[0] for call in step.logger.warning.call_args_list]
+        assert len(warnings) == 3
+        assert all(f"source={path}" in warning for warning in warnings)
+        assert any("target='missing.md': target does not exist" in warning for warning in warnings)
+        assert any(f"target={wrong_depth!r}: target does not exist" in warning for warning in warnings)
+        assert any(
+            f"target={outside_path!r}" in warning and "stay inside the workspace" in warning for warning in warnings
+        )
+        saved = frontmatter.loads(path.read_text())
+        assert saved.content == document.content.strip()
+        assert saved["reminder_message"] == document["reminder_message"]
+        assert outside.read_text() == "Outside workspace\n"
+        logs = "\n".join(call.args[0] for call in step.logger.info.call_args_list)
+        assert "result=validated notifications=1" in logs and f"path={path}" in logs
 
 
 @pytest.mark.asyncio
@@ -249,21 +478,23 @@ async def test_queued_observations_run_before_cron_trigger_after_switch(tmp_path
         await create_agent(runtime)
         attachment = "resource/alert.txt"
         runtime.files.write(runtime.files.path(attachment), "Evidence")
-        await runtime.append(
+        await runtime.append_events(
             "monitor",
-            {
-                "id": "observation",
-                "event_ts": runtime.now(),
-                "source": "experiment",
-                "description": "Alarm from the experiment",
-                "paths": [attachment],
-            },
+            [
+                Event(
+                    id="observation",
+                    event_ts=runtime.now(),
+                    source="experiment",
+                    description="Alarm from the experiment",
+                    paths=[attachment],
+                ),
+            ],
         )
         await ManageProactiveAgentStep(app_context=context)(action="update", agent_name="monitor", cron="* * * * *")
         now = await queue_cron_trigger(runtime, "monitor", monkeypatch)
         step = ProactiveAgentStep(app_context=context)
         paths = step._paths(await runtime.definition("monitor"), now)
-        calls = install_round(runtime, wrapper, monkeypatch, paths, record="skip")
+        calls = install_round(runtime, wrapper, monkeypatch, paths, text=None, reply_text="NO_KEY_INFORMATION")
 
         response = await step(agent_name="monitor")
 
@@ -276,18 +507,9 @@ async def test_queued_observations_run_before_cron_trigger_after_switch(tmp_path
         assert await runtime.inbox.pending_ids("monitor") == {f"cron-monitor-{int(now.timestamp())}"}
 
 
-@pytest.mark.parametrize(
-    "language,scheduled_label,execution_label",
-    [("en", "Scheduled trigger time: ", "Actual execution time: "), ("zh", "计划触发时间：", "实际执行时间：")],
-)
+@pytest.mark.parametrize("language", ["en", "zh"])
 @pytest.mark.asyncio
-async def test_backlogged_cron_prompts_show_each_trigger_and_actual_execution_time(
-    tmp_path,
-    monkeypatch,
-    language,
-    scheduled_label,
-    execution_label,
-):
+async def test_backlogged_cron_processes_each_trigger_with_current_time(tmp_path, monkeypatch, language):
     async with running_runtime(tmp_path, language=language) as (runtime, context, wrapper):
         await runtime.create({"agent_name": "timer", "task_description": "Summarize prior hour", "cron": "0 * * * *"})
         first = await queue_cron_trigger(runtime, "timer", monkeypatch)
@@ -301,13 +523,13 @@ async def test_backlogged_cron_prompts_show_each_trigger_and_actual_execution_ti
             with monkeypatch.context() as round_patch:
                 step = ProactiveAgentStep(app_context=context)
                 paths = step._paths(agent, now)
-                calls = install_round(runtime, wrapper, round_patch, paths, reminder="skip")
+                calls = install_round(runtime, wrapper, round_patch, paths, text=SKIP)
                 response = await step(agent_name="timer")
 
             assert response.answer["processed"] == 1
             query = calls[0][0]
-            assert f"{scheduled_label}{due.isoformat()}" in query
-            assert f"{execution_label}{now.isoformat()}" in query
+            assert now.isoformat() in query
+            assert due.isoformat() in query
             receipt = (await runtime.inbox.snapshot("timer"))["receipt"]
             assert receipt.item_ids == [f"cron-timer-{int(due.timestamp())}"]
 
@@ -321,15 +543,15 @@ async def test_cron_skip_record_keeps_trigger_pending_after_model_failure(tmp_pa
         if switch_to_event:
             await queue_cron_trigger(runtime, "timer", monkeypatch)
             await ManageProactiveAgentStep(app_context=context)(action="update", agent_name="timer", cron=None)
-            await runtime.append(
+            await runtime.append_events(
                 "timer",
-                {"event_ts": runtime.now(), "source": "experiment", "description": "Later observation"},
+                [Event(event_ts=runtime.now(), source="experiment", description="Later observation")],
             )
         pending = await runtime.inbox.pending_ids("timer")
 
         step = ProactiveAgentStep(app_context=context)
         paths = step._paths(await runtime.definition("timer"), runtime.now())
-        calls = install_round(runtime, wrapper, monkeypatch, paths, record="skip", failed=True)
+        install_round(runtime, wrapper, monkeypatch, paths, text=None, failed=True)
         with pytest.raises(RuntimeError, match="Model failed"):
             await step(agent_name="timer")
 
@@ -337,196 +559,11 @@ async def test_cron_skip_record_keeps_trigger_pending_after_model_failure(tmp_pa
         assert await runtime.inbox.pending_ids("timer") == pending
         assert snapshot["receipt"] is None and snapshot["in_flight_count"] == 0
         assert runtime.execution("timer").retry_items == [f"cron-timer-{int(trigger.timestamp())}"]
-        assert "This scheduled task has triggered" in calls[0][0]
-        assert not any(paths[key].exists() for key in ("record_path", "today_summary_path", "reminder_path"))
-
-
-@pytest.mark.parametrize("agent_type", ["proactive", "cron"])
-@pytest.mark.parametrize("existing_summary", [False, True])
-@pytest.mark.asyncio
-async def test_skipped_reminder_preserves_new_record_and_history(tmp_path, monkeypatch, existing_summary, agent_type):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
-        await create_round_task(runtime, monkeypatch, agent_type)
-        now = runtime.now()
-        monkeypatch.setattr(runtime, "now", lambda: now)
-        step = ProactiveAgentStep(app_context=context)
-        paths = step._paths(await runtime.definition("monitor"), now)
-        history = paths["record_path"].with_name("earlier.md")
-        runtime.files.write(history, "# Earlier progress\n")
-        if existing_summary:
-            runtime.files.write(paths["today_summary_path"], "# Previous summary\n")
-        summary_before = step._read_optional(paths["today_summary_path"])
-        calls = install_round(runtime, wrapper, monkeypatch, paths, reminder="skip")
-
-        response = await step(agent_name="monitor")
-
-        assert response.success and response.answer["notifications"] == []
-        assert len(calls) == 1
-        record = frontmatter.loads(paths["record_path"].read_text())
-        reminder = frontmatter.loads(paths["reminder_path"].read_text())
-        assert record["action"] == "write" and record.content == "New progress"
-        assert reminder["action"] == "skip" and reminder.content == "No reminder needed"
-        summary = runtime.files.read(paths["today_summary_path"])
-        assert summary != summary_before and paths["record_path"].name in summary
-        assert "New result" not in summary
-        assert history.read_text() == "# Earlier progress\n"
-        assert (await runtime.status("monitor"))["pending_events"] == 0
-        await runtime.outbox.sync()
-        assert not runtime.outbox.records and not runtime.outbox.issues
-
-
-@pytest.mark.parametrize("existing_summary", [False, True])
-@pytest.mark.asyncio
-async def test_skipped_record_cannot_change_daily_summary(tmp_path, monkeypatch, existing_summary):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
-        await create_agent(runtime)
-        now = runtime.now()
-        monkeypatch.setattr(runtime, "now", lambda: now)
-        step = ProactiveAgentStep(app_context=context)
-        paths = step._paths(await runtime.definition("monitor"), now)
-        if existing_summary:
-            runtime.files.write(paths["today_summary_path"], "# Earlier progress\n")
-        install_round(
-            runtime,
-            wrapper,
-            monkeypatch,
-            paths,
-            record="skip",
-            hook=lambda: runtime.files.write(paths["today_summary_path"], "# Unexpected update\n"),
-        )
-
-        with pytest.raises(ValueError, match="a skipped record must not change"):
-            await step(agent_name="monitor")
-        assert (await runtime.status("monitor"))["pending_events"] == 1
-        await runtime.outbox.sync()
-        assert not runtime.outbox.committed
-
-
-@pytest.mark.parametrize(
-    "before,after",
-    [
-        (None, None),
-        (None, ""),
-        (None, " \n"),
-        ("# Previous summary\n", ""),
-        ("# Previous summary\n", None),
-        ("# Previous summary\n", "# Previous summary\n"),
-    ],
-)
-@pytest.mark.asyncio
-async def test_new_record_requires_an_updated_nonempty_summary_without_reminder(tmp_path, monkeypatch, before, after):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
-        await create_agent(runtime)
-        now = runtime.now()
-        monkeypatch.setattr(runtime, "now", lambda: now)
-        step = ProactiveAgentStep(app_context=context)
-        paths = step._paths(await runtime.definition("monitor"), now)
-        if before is not None:
-            runtime.files.write(paths["today_summary_path"], before)
-
-        def corrupt_summary():
-            if after is None:
-                paths["today_summary_path"].unlink()
-            else:
-                runtime.files.write(paths["today_summary_path"], after)
-
-        install_round(runtime, wrapper, monkeypatch, paths, reminder="skip", hook=corrupt_summary)
-        message = (
-            "requires a nonempty daily summary" if not after or not after.strip() else "must update its daily summary"
-        )
-        with pytest.raises(ValueError, match=message):
-            await step(agent_name="monitor")
-        assert step._read_optional(paths["today_summary_path"]) == before
-        assert not paths["record_path"].exists() and not paths["reminder_path"].exists()
-        assert (await runtime.status("monitor"))["pending_events"] == 1
-        await runtime.outbox.sync()
-        assert not runtime.outbox.committed
-
-
-@pytest.mark.parametrize("key", ["record_path", "reminder_path"])
-@pytest.mark.parametrize(
-    "defect",
-    [
-        "missing",
-        "blank",
-        "missing_action",
-        "invalid_action",
-        "boolean_action",
-        "empty_body",
-    ],
-)
-@pytest.mark.asyncio
-async def test_missing_or_invalid_required_documents_fail_instead_of_skipping(tmp_path, monkeypatch, key, defect):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
-        await create_agent(runtime)
-        now = runtime.now()
-        monkeypatch.setattr(runtime, "now", lambda: now)
-        step = ProactiveAgentStep(app_context=context)
-        step.logger = Mock()
-        paths = step._paths(await runtime.definition("monitor"), now)
-
-        def corrupt():
-            path = paths[key]
-            if defect == "missing":
-                path.unlink()
-                return
-            document = frontmatter.loads(runtime.files.read(path))
-            if defect == "missing_action":
-                del document["action"]
-            elif defect in ("invalid_action", "boolean_action"):
-                document["action"] = True if defect == "boolean_action" else "done"
-            elif defect == "empty_body":
-                document.content = " \n"
-            runtime.files.write(path, "" if defect == "blank" else frontmatter.dumps(document))
-
-        install_round(runtime, wrapper, monkeypatch, paths, hook=corrupt)
-        with pytest.raises((FileNotFoundError, ValueError)):
-            await step(agent_name="monitor")
-        assert (await runtime.status("monitor"))["pending_events"] == 1
-        await runtime.outbox.sync()
-        assert not runtime.outbox.committed
-        assert any("result=failed" in call.args[0] for call in step.logger.error.call_args_list)
-
-
-@pytest.mark.parametrize("defect", ["record_body", "unexpected_reminder", "empty_reason"])
-@pytest.mark.asyncio
-async def test_skipped_decisions_require_consistent_artifacts(tmp_path, monkeypatch, defect):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
-        await create_agent(runtime)
-        now = runtime.now()
-        monkeypatch.setattr(runtime, "now", lambda: now)
-        step = ProactiveAgentStep(app_context=context)
-        paths = step._paths(await runtime.definition("monitor"), now)
-
-        def corrupt():
-            if defect == "record_body":
-                runtime.files.write(paths["record_path"], "---\naction: skip\n---\nUnexpected body\n")
-            elif defect == "unexpected_reminder":
-                runtime.files.write(
-                    paths["reminder_path"],
-                    "---\naction: skip\n---\nUnexpected decision\n",
-                )
-            else:
-                runtime.files.write(paths["reminder_path"], "---\naction: skip\n---\n")
-
-        install_round(
-            runtime,
-            wrapper,
-            monkeypatch,
-            paths,
-            record="write" if defect == "empty_reason" else "skip",
-            reminder="skip",
-            hook=corrupt,
-        )
-        with pytest.raises(ValueError):
-            await step(agent_name="monitor")
-        assert (await runtime.status("monitor"))["pending_events"] == 1
-        await runtime.outbox.sync()
-        assert not runtime.outbox.committed
+        assert not paths["record_path"].exists()
 
 
 @pytest.mark.asyncio
-async def test_failed_turn_accepts_complete_valid_files(tmp_path, monkeypatch):
+async def test_failed_turn_accepts_a_valid_record(tmp_path, monkeypatch):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         now = runtime.now()
@@ -537,14 +574,14 @@ async def test_failed_turn_accepts_complete_valid_files(tmp_path, monkeypatch):
 
         response = await step(agent_name="monitor")
         assert response.success
-        assert len(calls) == 1 and paths["today_summary_path"].exists()
+        assert len(calls) == 1 and paths["record_path"].exists()
         assert (await runtime.status("monitor"))["pending_events"] == 0
         await runtime.outbox.sync()
-        assert len(runtime.outbox.committed) == 1
+        assert len(runtime.outbox.records) == 1
 
 
 @pytest.mark.asyncio
-async def test_timeout_accepts_complete_valid_files(tmp_path, monkeypatch):
+async def test_timeout_accepts_a_valid_record(tmp_path, monkeypatch):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         now = runtime.now()
@@ -562,150 +599,97 @@ async def test_timeout_accepts_complete_valid_files(tmp_path, monkeypatch):
         monkeypatch.setattr(wrapper, "reply_stream", pause)
         response = await step(agent_name="monitor")
         assert response.success
-        document = frontmatter.loads(runtime.files.read(paths["reminder_path"]))
-        assert document["action"] == "P1" and document["id"]
+        document = frontmatter.loads(runtime.files.read(paths["record_path"]))
+        assert document["reminder_priority"] == "P1"
+        assert "delivered_at" not in document
         snapshot = await runtime.inbox.snapshot("monitor")
         assert snapshot["pending_count"] == 0 and snapshot["in_flight_count"] == 0
         await runtime.outbox.sync()
-        assert len(runtime.outbox.committed) == 1
+        assert len(runtime.outbox.records) == 1
 
 
-@pytest.mark.parametrize("existing_summary", [False, True])
-@pytest.mark.parametrize("failure", ["validation", "timeout", "exception", "cancel"])
 @pytest.mark.asyncio
-async def test_invalid_or_cancelled_round_restores_history_before_retry(
-    tmp_path,
-    monkeypatch,
-    existing_summary,
-    failure,
-):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
-        await create_agent(runtime)
-        now = runtime.now()
-        monkeypatch.setattr(runtime, "now", lambda: now)
-        step = ProactiveAgentStep(app_context=context, timeout_seconds=0.1 if failure == "timeout" else 1200)
-        paths = step._paths(await runtime.definition("monitor"), now)
-        if existing_summary:
-            runtime.files.write(paths["today_summary_path"], "# Previous confirmed summary\n")
-        before = step._read_optional(paths["today_summary_path"])
-        ready = asyncio.Event()
-        install_round(
-            runtime,
-            wrapper,
-            monkeypatch,
-            paths,
-            hook=lambda: paths["record_path"].unlink() if failure != "cancel" else None,
-        )
-        original = wrapper.reply_stream
-
-        async def stream(query, **kwargs):
-            async for chunk in original(query, **kwargs):
-                yield chunk
-            ready.set()
-            if failure == "exception":
-                raise OSError("Interrupted stream")
-            if failure in ("timeout", "cancel"):
-                await asyncio.Event().wait()
-
-        monkeypatch.setattr(wrapper, "reply_stream", stream)
-        task = asyncio.create_task(step(agent_name="monitor"))
-        if failure == "cancel":
-            await ready.wait()
-            task.cancel()
-        expected = {
-            "validation": FileNotFoundError,
-            "timeout": TimeoutError,
-            "exception": OSError,
-            "cancel": asyncio.CancelledError,
-        }[failure]
-        with pytest.raises(expected):
-            await task
-        assert step._read_optional(paths["today_summary_path"]) == before
-        assert not paths["record_path"].exists() and not paths["reminder_path"].exists()
-        assert (await runtime.status("monitor"))["pending_events"] == 1
-        install_round(runtime, wrapper, monkeypatch, paths)
-        step.timeout_seconds = 1200
-        assert (await step(agent_name="monitor")).success
-        await runtime.outbox.sync()
-        assert (await runtime.status("monitor"))["pending_events"] == 0
-        assert len(runtime.outbox.committed) == 1
-
-
-@pytest.mark.parametrize("failure", ["save", "cancel_after_ack"])
-@pytest.mark.asyncio
-async def test_round_restores_only_before_durable_input_confirmation(tmp_path, monkeypatch, failure):
+async def test_cancelled_round_preserves_its_record_and_pending_input(tmp_path, monkeypatch):
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)
         step = ProactiveAgentStep(app_context=context)
         paths = step._paths(await runtime.definition("monitor"), now)
-        runtime.files.write(paths["today_summary_path"], "# Previous confirmed summary\n")
-        before = runtime.files.read(paths["today_summary_path"])
-        install_round(runtime, wrapper, monkeypatch, paths)
-        if failure == "cancel_after_ack":
-            ack = runtime.inbox.ack
+        path = paths["record_path"]
+        earlier = path.with_name("monitor_000000_1.md")
+        runtime.files.write(earlier, SKIP)
+        ready = asyncio.Event()
 
-            async def cancel_after_ack(*args, **kwargs):
-                await ack(*args, **kwargs)
-                raise asyncio.CancelledError
+        async def generate(*_args, **_kwargs):
+            runtime.files.write(path, SKIP)
+            ready.set()
+            await asyncio.Event().wait()
+            yield StreamChunk(chunk_type=ChunkEnum.CONTENT, chunk="unreachable")
 
-            monkeypatch.setattr(runtime.inbox, "ack", cancel_after_ack)
-        else:
-            monkeypatch.setattr(runtime.outbox, "save", AsyncMock(side_effect=OSError("Commit failed")))
-        with pytest.raises(asyncio.CancelledError if failure == "cancel_after_ack" else OSError):
-            await step(agent_name="monitor")
-        await runtime.outbox.sync()
-        if failure == "cancel_after_ack":
-            assert runtime.files.read(paths["today_summary_path"]) != before
-            assert paths["record_path"].exists() and paths["reminder_path"].exists()
-            assert (await runtime.status("monitor"))["pending_events"] == 0
-            assert len(runtime.outbox.committed) == 1
-        else:
-            assert runtime.files.read(paths["today_summary_path"]) == before
-            assert not paths["record_path"].exists() and not paths["reminder_path"].exists()
-            assert (await runtime.status("monitor"))["pending_events"] == 1
-            assert not runtime.outbox.committed
+        monkeypatch.setattr(wrapper, "reply_stream", generate)
+        task = asyncio.create_task(step(agent_name="monitor"))
+        try:
+            await asyncio.wait_for(ready.wait(), 2)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        finally:
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+        assert path.read_text() == SKIP
+        assert earlier.read_text() == SKIP
+        assert (await runtime.inbox.snapshot("monitor"))["pending_count"] == 1
 
 
-@pytest.mark.parametrize(
-    "timestamp,yesterday",
-    [
-        ("2026-01-01T00:00:00+08:00", "2025-12-31"),
-        ("2024-03-01T00:00:00+08:00", "2024-02-29"),
-    ],
-)
 @pytest.mark.asyncio
-async def test_round_paths_keep_both_calendar_summaries_and_paired_filenames(tmp_path, timestamp, yesterday):
+async def test_same_second_records_get_unique_paths(tmp_path):
     async with running_runtime(tmp_path) as (runtime, context, _):
         await create_agent(runtime)
         agent = await runtime.definition("monitor")
         step = ProactiveAgentStep(app_context=context)
-        now = datetime.fromisoformat(timestamp)
-        paths = step._paths(agent, now)
-        assert paths["today_summary_path"] == tmp_path / "daily" / f"{now:%Y-%m-%d}" / "monitor.md"
-        assert paths["yesterday_summary_path"] == tmp_path / "daily" / yesterday / "monitor.md"
-        assert paths["record_path"] == tmp_path / "daily" / f"{now:%Y-%m-%d}" / f"monitor_{now:%H%M%S}.md"
-        assert paths["reminder_path"] == (
-            tmp_path / "reme_agents/monitor/reminder" / f"{now:%Y-%m-%d}" / f"{now:%H%M%S}.md"
+        now = datetime.fromisoformat("2026-01-01T00:00:00+08:00")
+        directory = tmp_path / "daily" / "2026-01-01"
+        for name in ("monitor_000000.md", "monitor_000000_1.md"):
+            path = step._paths(agent, now)["record_path"]
+            assert path == directory / name
+            runtime.files.write(path, SKIP)
+        assert step._paths(agent, now)["record_path"] == directory / "monitor_000000_2.md"
+
+
+@pytest.mark.asyncio
+async def test_same_second_round_skips_registered_path_after_record_is_moved(tmp_path, monkeypatch):
+    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+        await create_agent(runtime)
+        now = runtime.now()
+        monkeypatch.setattr(runtime, "now", lambda: now)
+        agent = await runtime.definition("monitor")
+
+        first_step = ProactiveAgentStep(app_context=context)
+        first_paths = first_step._paths(agent, now)
+        install_round(runtime, wrapper, monkeypatch, first_paths)
+        (first,) = (await first_step(agent_name="monitor")).answer["notifications"]
+        first_path = first_paths["record_path"]
+        moved = first_path.rename(tmp_path / first_path.name)
+        assert not (await runtime.outbox.list(state="pending"))["items"]
+
+        await runtime.append_events(
+            "monitor",
+            [Event(id="event-2", event_ts=now, source="experiment", description="Another result")],
         )
-        assert not paths["today_summary_path"].exists() and not paths["yesterday_summary_path"].exists()
-        for delta in (-5, -2, 1):
-            path = tmp_path / "daily" / f"{now + timedelta(days=delta):%Y-%m-%d}" / "monitor.md"
-            runtime.files.write(path, "# Summary\n")
-        runtime.files.write(tmp_path / "daily/not-a-date/monitor.md", "# Invalid date\n")
-        paths = step._paths(agent, now)
-        assert paths["yesterday_summary_path"] == tmp_path / "daily" / yesterday / "monitor.md"
-        assert not paths["yesterday_summary_path"].exists()
-        runtime.files.write(paths["yesterday_summary_path"], "# Yesterday\n")
-        runtime.files.write(paths["today_summary_path"], "# Today\n")
-        runtime.files.write(paths["record_path"], "# Existing details\n")
-        paths = step._paths(agent, now)
-        assert paths["today_summary_path"].read_text() == "# Today\n"
-        assert paths["yesterday_summary_path"].read_text() == "# Yesterday\n"
-        assert paths["record_path"].name == f"monitor_{now:%H%M%S}_1.md"
-        assert paths["reminder_path"].name == f"{now:%H%M%S}_1.md"
-        runtime.files.write(paths["reminder_path"], "---\naction: P1\n---\nExisting reminder\n")
-        paths = step._paths(agent, now)
-        assert paths["record_path"].name == f"monitor_{now:%H%M%S}_2.md"
-        assert paths["reminder_path"].name == f"{now:%H%M%S}_2.md"
+        second_step = ProactiveAgentStep(app_context=context)
+        second_paths = second_step._paths(agent, now)
+        second_text = REMIND.format(priority="P1", body="\n").replace("Verified result", "Another result")
+        install_round(runtime, wrapper, monkeypatch, second_paths, text=second_text)
+        (second,) = (await second_step(agent_name="monitor")).answer["notifications"]
+        assert second_paths["record_path"] == first_path.with_stem(f"{first_path.stem}_1")
+        assert (await runtime.inbox.snapshot("monitor"))["pending_count"] == 0
+        assert not first_path.exists()
+
+        moved.rename(first_path)
+        mailbox = await runtime.outbox.list(state="pending")
+        assert {item["id"]: item["message"] for item in mailbox["items"]} == {
+            first["id"]: "Verified result",
+            second["id"]: "Another result",
+        }
