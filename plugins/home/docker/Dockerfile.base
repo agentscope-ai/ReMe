@@ -14,10 +14,12 @@ RUN apt-get update \
 # installed later with --no-deps so its code, not a fixed ReMe wheel, runs.
 WORKDIR /tmp/reme-dependencies
 COPY pyproject.toml README.md ./
+# Use the checkout's version of the Studio Python package for the core extra.
+COPY reme_studio/web/python/ reme_studio/web/python/
 RUN mkdir reme \
     && touch reme/__init__.py \
     && printf '__version__ = "0.0.0"\n' > reme/_version.py \
-    && python -m pip install '.[core]' \
+    && python -m pip install ./reme_studio/web/python '.[core]' \
     && python -m pip uninstall -y reme-ai \
     && python -c 'import agentscope; assert agentscope.__version__ == "2.0.11"' \
     && rm -rf /tmp/reme-dependencies
