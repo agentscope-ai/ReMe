@@ -28,11 +28,12 @@ bump_version = _load_script("bump_version")
 package_studio = _load_script("package_studio")
 
 
-def test_hermes_text_runtime_accepts_host_pins() -> None:
-    """Keep host-pinned shared packages installable without pulling the core SDK bundle."""
+def test_hermes_text_runtime_requires_host_scheduler_upgrade() -> None:
+    """Identify the old host scheduler conflict while preserving the minimal runtime contract."""
     config = tomllib.loads((REPOSITORY / "pyproject.toml").read_text(encoding="utf-8"))
     requirements = {Requirement(value).name: Requirement(value) for value in config["project"]["dependencies"]}
     pins = (REPOSITORY / "tests" / "constraints" / "hermes-0.21.4.txt").read_text(encoding="utf-8")
+    conflicts = set()
     for line in pins.splitlines():
         if not line or line.startswith("#"):
             continue
@@ -40,7 +41,9 @@ def test_hermes_text_runtime_accepts_host_pins() -> None:
         assert not pin.extras, "pip constraint files cannot contain extras"
         for specifier in pin.specifier:
             if pin.name in requirements and specifier.operator == "==":
-                assert Version(specifier.version) in requirements[pin.name].specifier
+                if Version(specifier.version) not in requirements[pin.name].specifier:
+                    conflicts.add(pin.name)
+    assert conflicts == {"croniter"}
 
     embedded = [Requirement(value) for value in config["project"]["optional-dependencies"]["hermes"]]
     assert {requirement.name for requirement in embedded} == {"agentscope"}

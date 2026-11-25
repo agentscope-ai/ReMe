@@ -22,7 +22,7 @@ classifiers = [
 
 dependencies = [
     "aiofiles>=24.1.0",
-    "croniter>=6.0.0",
+    "croniter>=7.0.0",
     "fastapi>=0.162.0",
     "fastmcp>=3.4.4,<5",
     "httpx[socks]>=0.28.1",

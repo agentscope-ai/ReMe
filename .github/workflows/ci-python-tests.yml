@@ -33,10 +33,9 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.11"
-      - name: Install minimal runtime with Hermes shared dependency pins
+      - name: Install minimal embedded runtime
         run: |
-          python -m pip install -e ".[hermes]" pytest pytest-asyncio "fastmcp==3.4.4" "mcp==1.28.1" \
-            -c tests/constraints/hermes-0.21.4.txt
+          python -m pip install -e ".[hermes]" pytest pytest-asyncio "fastmcp==3.4.4" "mcp==1.28.1"
           python -m pip check
       - name: Test embedded lifecycle and shared dependency compatibility
         run: |

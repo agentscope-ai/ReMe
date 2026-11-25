@@ -3,10 +3,8 @@
 import os
 from pathlib import Path
 from pathlib import PurePosixPath, PureWindowsPath
-from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from tzlocal import get_localzone_name
 
 from ..enumeration import component_type_name
 from .event import Event
@@ -14,19 +12,9 @@ from .event import Event
 
 def _default_timezone() -> str:
     """Use the system's IANA timezone when it can be resolved."""
-    from ..utils.timezone_utils import timezone_from_env
+    from ..utils.timezone_utils import system_timezone
 
-    environment_zone = timezone_from_env()
-    if environment_zone is not None and environment_zone.key:
-        return environment_zone.key
-    try:
-        name = get_localzone_name()
-        if name:
-            ZoneInfo(name)
-            return name
-    except (LookupError, OSError, ValueError):
-        pass
-    return "Asia/Shanghai"
+    return system_timezone().key
 
 
 class ComponentConfig(BaseModel):

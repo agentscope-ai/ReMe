@@ -1,33 +1,23 @@
-"""Resolve the process timezone for local clock calculations."""
+"""Resolve the process timezone from an IANA name or the host configuration."""
 
 import os
-from datetime import tzinfo
 from zoneinfo import ZoneInfo
 
-from tzlocal import get_localzone
+from tzlocal import get_localzone_name
 
 
-def timezone_from_env() -> ZoneInfo | None:
-    """Read a named timezone or TZif file from the current TZ environment."""
-    name = os.environ.get("TZ", "").removeprefix(":")
-    if not name:
-        return None
+def system_timezone() -> ZoneInfo:
+    """Resolve TZ directly so overrides never enter the host timezone cache."""
+    name = os.environ.get("TZ")
+    if name:
+        try:
+            return ZoneInfo(name)
+        except (LookupError, ValueError) as error:
+            raise ValueError(f"TZ must be an IANA timezone name: {name!r}") from error
     try:
-        if os.path.isabs(name):
-            if not os.path.isfile(name):
-                return None
-            with open(name, "rb") as file:
-                return ZoneInfo.from_file(file)
-        return ZoneInfo(name)
+        name = get_localzone_name()
+        if name:
+            return ZoneInfo(name)
     except (LookupError, OSError, ValueError):
-        return None
-
-
-def system_timezone() -> tzinfo | None:
-    """Use full local rules when available, otherwise let the system clock interpret local times."""
-    if "TZ" in os.environ:
-        return timezone_from_env()
-    try:
-        return get_localzone()
-    except (LookupError, OSError, ValueError):
-        return None
+        pass
+    return ZoneInfo("Asia/Shanghai")

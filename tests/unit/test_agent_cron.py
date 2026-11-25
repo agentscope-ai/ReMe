@@ -18,20 +18,30 @@ NOW = datetime(2026, 11, 19, tzinfo=ZoneInfo("Asia/Shanghai"))
 
 
 @pytest.mark.parametrize(
-    "instant,cron,next_trigger",
+    "zone_name,instant,cron,next_trigger",
     [
-        ("2026-03-08T01:30:00-05:00", "30 2 * * *", "2026-03-08T03:00:00-04:00"),
-        ("2026-03-08T01:45:00-05:00", "30 * * * *", "2026-03-08T03:30:00-04:00"),
-        ("2026-11-01T01:45:00-04:00", "30 1 * * *", "2026-11-01T01:30:00-05:00"),
-        ("2026-11-01T01:29:00-05:00", "30 1 * * *", "2026-11-01T01:30:00-05:00"),
+        ("America/New_York", "2026-03-08T01:30:00-05:00", "30 2 * * *", "2026-03-08T03:00:00-04:00"),
+        ("America/New_York", "2026-03-08T01:45:00-05:00", "30 * * * *", "2026-03-08T03:30:00-04:00"),
+        ("America/New_York", "2026-11-01T01:45:00-04:00", "30 1 * * *", "2026-11-01T01:30:00-05:00"),
+        ("America/New_York", "2026-11-01T01:29:00-05:00", "30 1 * * *", "2026-11-01T01:30:00-05:00"),
+        ("Australia/Lord_Howe", "2026-04-05T01:45:00+11:00", "*/20 1 * * *", "2026-04-05T01:40:00+10:30"),
     ],
 )
+@pytest.mark.parametrize("explicit_timezone", [True, False], ids=["configured", "system"])
 @pytest.mark.asyncio
-async def test_proactive_cron_uses_local_timezone_rules(tmp_path, monkeypatch, instant, cron, next_trigger):
-    monkeypatch.setenv("TZ", "America/New_York")
+async def test_proactive_cron_uses_local_timezone_rules(
+    tmp_path,
+    monkeypatch,
+    zone_name,
+    instant,
+    cron,
+    next_trigger,
+    explicit_timezone,
+):
+    monkeypatch.setenv("TZ", zone_name)
     async with running_runtime(tmp_path) as (runtime, context, _):
-        context.app_config.timezone = None
-        clock = [datetime.fromisoformat(instant)]
+        context.app_config.timezone = zone_name if explicit_timezone else None
+        clock = [datetime.fromisoformat(instant).astimezone(ZoneInfo(zone_name))]
         monkeypatch.setattr(runtime, "now", lambda: clock[0])
         await runtime.create({"agent_name": "timer", "task_description": "Report", "cron": cron})
         assert (await runtime.status("timer"))["next_trigger_at"] == next_trigger
