@@ -41,11 +41,13 @@ publish their package version and `latest`; prereleases do not update `latest`. 
 before their combined tags are published. Publication starts when the workflow is enabled in the repository.
 
 ```bash
-mkdir -p "$HOME/.reme"
+mkdir -p "$HOME/.reme" "$HOME/.reme-state"
 docker run -d --name reme \
   --user "$(id -u):$(id -g)" \
   -p 127.0.0.1:2333:2333 \
+  -e REME_ADMIN_PUBLISHED_HOST=127.0.0.1 \
   --mount "type=bind,source=$HOME/.reme,target=/data" \
+  --mount "type=bind,source=$HOME/.reme-state,target=/state" \
   --restart unless-stopped \
   ghcr.io/agentscope-ai/reme:main
 ```
@@ -53,6 +55,8 @@ docker run -d --name reme \
 Add `--env-file /path/to/model.env` before the image name when using model credentials. For reproducible deployments,
 replace `main` with a released version or image digest. To use the image with Compose, set `REME_IMAGE`, then run
 `docker compose pull` and `docker compose up -d --no-build`.
+
+For this container, read the local management token with `docker exec reme cat /state/admin-token`.
 
 ## Paths, configuration, and ports
 
@@ -78,6 +82,8 @@ Explicit `start key=value` arguments override container environment settings, wh
 those keys. Other keys retain ReMe's normal deep merge behavior. File logging defaults to off in the image; use container
 logs. `log_to_file=true` explicitly enables file logs under `/app/logs`, which requires a separate mount to persist them.
 The temporary home directory `/tmp/reme-home` and probe address file are disposable, not workspace storage.
+
+Compose stores backend settings in the `reme-state` volume. The entrypoint assigns the volume to the configured UID/GID before starting ReMe as that user. On the default published loopback address, unlock **Settings → Backend** with the instance token from `docker compose exec reme cat /state/admin-token`. When `REME_ADMIN_TOKEN` is set, use that value. Remote management requires the explicitly configured token and HTTPS.
 
 To customize the full job/component configuration, copy `reme/config/default.yaml` to `reme.yaml`, edit it, set
 `REME_CONFIG=/etc/reme/config.yaml` in `.env`, and add `compose.override.yaml`:

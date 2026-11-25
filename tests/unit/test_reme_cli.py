@@ -135,6 +135,7 @@ def test_main_saves_loaded_environment_in_start_config(monkeypatch):
     main_globals = reme_module.main.__globals__
     monkeypatch.setattr("sys.argv", ["reme", "start"])
     monkeypatch.setitem(main_globals, "load_env", lambda: {"TOOL_ENV": "configured"})
+    monkeypatch.setitem(main_globals, "prepare_start_service", lambda _kwargs: {"backend": "cli"})
     monkeypatch.setitem(main_globals, "prepare_start_config", lambda _kwargs: {"service": {"backend": "cli"}})
     monkeypatch.setitem(main_globals, "Application", FakeApplication)
 

@@ -156,6 +156,7 @@ def _load_config(
     _stack: tuple[str, ...] = (),
     *,
     get_config_dir: Callable[[], str] | None = None,
+    sections: frozenset[str] | None = None,
 ) -> dict:
     """Load a built-in, installed-plugin, or direct YAML/JSON config."""
     if name_or_path in _stack:
@@ -167,12 +168,12 @@ def _load_config(
     if built_in is not None and external_entries:
         raise ValueError(f"Config '{name_or_path}' is provided by both ReMe and an installed distribution")
     if built_in is not None:
-        return _load_config_path(built_in, name_or_path, encoding, _stack, get_config_dir)
+        return _load_config_path(built_in, name_or_path, encoding, _stack, get_config_dir, sections)
 
     external_entry = unique_entry_point(external_entries, name_or_path, provider="Config")
     external = _external_config_path(name_or_path, external_entry)
     if external is not None:
-        return _load_config_path(external, name_or_path, encoding, _stack, get_config_dir)
+        return _load_config_path(external, name_or_path, encoding, _stack, get_config_dir, sections)
 
     p = Path(name_or_path)
     if p.suffix in _SUPPORTED_EXTS:
@@ -183,7 +184,7 @@ def _load_config(
         for candidate in candidates:
             if candidate.exists():
                 identity = str(candidate.resolve())
-                return _load_config_path(candidate, identity, encoding, _stack, get_config_dir)
+                return _load_config_path(candidate, identity, encoding, _stack, get_config_dir, sections)
         raise FileNotFoundError(f"Config file not found: {p}")
 
     known = ", ".join(sorted(_CONFIG_REGISTRY)) if _CONFIG_REGISTRY else "none"
@@ -196,9 +197,10 @@ def _load_config_path(
     encoding: str,
     stack: tuple[str, ...],
     get_config_dir: Callable[[], str] | None,
+    sections: frozenset[str] | None,
 ) -> dict:
     """Load one config and merge its optional parents before its own values."""
-    config = _read_config_file(path, encoding)
+    config = _read_config_file(path, encoding, sections=sections)
     raw_parents = config.pop("extends", ())
     parents = [raw_parents] if isinstance(raw_parents, str) else list(raw_parents or ())
     merged: dict = {}
@@ -209,12 +211,14 @@ def _load_config_path(
         relative = path.parent / parent
         if Path(parent).suffix in _SUPPORTED_EXTS and relative.is_file():
             parent_name = str(relative.resolve())
-        parent_config = _load_config(parent_name, encoding, (*stack, identity), get_config_dir=get_config_dir)
+        parent_config = _load_config(
+            parent_name, encoding, (*stack, identity), get_config_dir=get_config_dir, sections=sections
+        )
         merged = deep_merge_config(merged, parent_config)
     return deep_merge_config(merged, config)
 
 
-def _read_config_file(path: Path, encoding: str = "utf-8") -> dict:
+def _read_config_file(path: Path, encoding: str = "utf-8", *, sections: frozenset[str] | None = None) -> dict:
     """Read YAML or JSON file based on extension. Expands ${ENV_VAR}."""
     with path.open(encoding=encoding) as f:
         if path.suffix == ".json":
@@ -225,6 +229,8 @@ def _read_config_file(path: Path, encoding: str = "utf-8") -> dict:
         return {}
     if not isinstance(result, dict):
         raise ValueError(f"Config root must be a mapping/object: {path}")
+    if sections is not None:
+        result = {key: value for key, value in result.items() if key in sections or key == "extends"}
     return expand_env_vars(result)
 
 
@@ -281,7 +287,13 @@ def parse_args(*args: str) -> tuple[str, dict]:
     return parse_action(args[0]), parse_kwargs(*args[1:])
 
 
-def resolve_app_config(*, log_config: bool = True, _get_config_dir: Callable[[], str] | None = None, **kwargs) -> dict:
+def resolve_app_config(
+    *,
+    log_config: bool = True,
+    _get_config_dir: Callable[[], str] | None = None,
+    _sections: frozenset[str] | None = None,
+    **kwargs,
+) -> dict:
     """Resolve full app-start config: load `config=path` file, fall back to
     `default`, then deep-merge with the remaining kwargs as overrides.
 
@@ -306,13 +318,13 @@ def resolve_app_config(*, log_config: bool = True, _get_config_dir: Callable[[],
         kwargs.pop("config")
         if log_config:
             logger.info(f"Loading config: {config_value}")
-        configs.append(_load_config(config_value, get_config_dir=_get_config_dir))
+        configs.append(_load_config(config_value, get_config_dir=_get_config_dir, sections=_sections))
     elif "default" in _CONFIG_REGISTRY:
         if log_config:
             logger.info("No config specified, loading 'default'")
-        configs.append(_load_config("default"))
+        configs.append(_load_config("default", sections=_sections))
 
-    configs.append(kwargs)
+    configs.append(kwargs if _sections is None else {key: value for key, value in kwargs.items() if key in _sections})
 
     merged: dict = {}
     for cfg in configs:

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   Cable,
+  Server,
   Palette,
   Sparkles,
   Bell,
@@ -21,9 +22,12 @@ import { Switch } from "./ui.tsx";
 import VoiceSettings from "./speech/settings.tsx";
 import SplitPane, { SidebarHeading } from "./split-pane.tsx";
 import { githubUrl } from "./workspace-titlebar.tsx";
+import BackendSettingsPanel from "./backend-settings.tsx";
+import type { NavigationGuard } from "../../client/src/backend.ts";
 
 const sections = [
   ["general", Cable, "generalHint"],
+  ["backendSettings", Server, "backendHint"],
   ["appearance", Palette, "appearanceHint"],
   ["remy", Sparkles, "remyHint"],
   ["notificationSettings", Bell, "notificationSettingsHint"],
@@ -36,7 +40,10 @@ export default function Settings({
   version,
   companionVisible,
   desktop,
+  open,
   editableEndpoint,
+  navigate = (next) => next(),
+  registerGuard,
   collapsed,
   onNavigate,
 }: {
@@ -44,7 +51,10 @@ export default function Settings({
   version: string;
   companionVisible: boolean;
   desktop: boolean;
+  open: boolean;
   editableEndpoint: boolean;
+  navigate?: NavigationGuard;
+  registerGuard?: (guard: NavigationGuard | null) => void;
   collapsed?: boolean;
   onNavigate?: () => void;
 }) {
@@ -86,7 +96,10 @@ export default function Settings({
       <SplitPane
         name="settings"
         path={[
-          { label: t("settings"), onSelect: () => setSection("general") },
+          {
+            label: t("settings"),
+            onSelect: () => navigate(() => setSection("general")),
+          },
           { label: current[0] === "remy" ? "Remy" : t(current[0]) },
         ]}
         language={state.settings.language}
@@ -102,8 +115,10 @@ export default function Settings({
                   className="settings-nav-item"
                   aria-current={section === id ? "page" : undefined}
                   onClick={() => {
-                    setSection(id);
-                    onNavigate?.();
+                    navigate(() => {
+                      setSection(id);
+                      onNavigate?.();
+                    });
                   }}
                 >
                   <Icon size={16} aria-hidden />
@@ -190,6 +205,14 @@ export default function Settings({
                 </div>
                 <p className="settings-note">{t("shortcutHint")}</p>
               </>
+            )}
+            {section === "backendSettings" && (
+              <BackendSettingsPanel
+                key={state.settings.endpoint}
+                language={state.settings.language}
+                active={open}
+                registerGuard={registerGuard}
+              />
             )}
             {section === "appearance" && (
               <>

@@ -40,11 +40,13 @@ Docker 工作流在 main 分支检查成功后发布 `ghcr.io/agentscope-ai/reme
 镜像发布从仓库启用该工作流后开始生效。
 
 ```bash
-mkdir -p "$HOME/.reme"
+mkdir -p "$HOME/.reme" "$HOME/.reme-state"
 docker run -d --name reme \
   --user "$(id -u):$(id -g)" \
   -p 127.0.0.1:2333:2333 \
+  -e REME_ADMIN_PUBLISHED_HOST=127.0.0.1 \
   --mount "type=bind,source=$HOME/.reme,target=/data" \
+  --mount "type=bind,source=$HOME/.reme-state,target=/state" \
   --restart unless-stopped \
   ghcr.io/agentscope-ai/reme:main
 ```
@@ -52,6 +54,8 @@ docker run -d --name reme \
 需要模型凭证时，在镜像名之前添加 `--env-file /path/to/model.env`。需要固定部署版本时，将 `main` 替换为发布版本或
 镜像 digest。使用 Compose 拉取镜像时，设置 `REME_IMAGE`，再运行 `docker compose pull` 和
 `docker compose up -d --no-build`。
+
+通过 `docker exec reme cat /state/admin-token` 读取此容器的本机管理令牌。
 
 ## 路径、配置和端口
 
@@ -75,6 +79,8 @@ docker run -d --name reme \
 显式的 `start key=value` 参数优先于容器环境配置；容器环境配置再覆盖文件中的对应键。其他键继续采用 ReMe 的正常
 深合并规则。镜像默认关闭文件日志，使用容器日志查看运行情况。显式传入 `log_to_file=true` 可启用 `/app/logs` 下的文件
 日志，需要另外挂载才能持久保存。临时 home `/tmp/reme-home` 和探针地址文件均为可丢弃数据，不承担工作区存储职责。
+
+Compose 将后端设置保存到 `reme-state` 卷。入口将状态卷交给配置的 UID/GID 后，以该用户运行 ReMe。使用默认回环映射时，通过 `docker compose exec reme cat /state/admin-token` 读取实例令牌并解锁「设置 → 后端」。设置了 `REME_ADMIN_TOKEN` 时使用其值。远程管理需要显式配置的令牌和 HTTPS。
 
 需要自定义完整的 Job/Component 配置时，将 `reme/config/default.yaml` 复制为 `reme.yaml` 并修改，在 `.env` 中设置
 `REME_CONFIG=/etc/reme/config.yaml`，再添加 `compose.override.yaml`：

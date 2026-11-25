@@ -1,6 +1,7 @@
 """ReMe memory management application entry point."""
 
 import asyncio
+import os
 import socket
 import sys
 from collections.abc import Iterator, Sequence
@@ -10,8 +11,9 @@ from yaml import YAMLError
 
 from .core.application import Application
 from .constants import REME_DEFAULT_HOST, REME_DEFAULT_PORT, normalize_connect_host
-from .components.service.cli_service import prepare_start_config, should_precheck_start
+from .components.service.cli_service import prepare_start_config, prepare_start_service, should_precheck_start
 from .config import parse_action, parse_kwargs, resolve_app_config
+from .config.config_parser import UndefinedEnvironmentVariableError
 from .enumeration import ComponentEnum
 from .plugin import resolve_plugin_runtime
 from .utils.env_utils import load_env
@@ -95,7 +97,7 @@ def _start_arguments(cmdline: list[str]) -> list[str] | None:
     return [argument for argument in cmdline[action_index + 1 :] if "=" in argument]
 
 
-def _iter_running_configs(*, allow_partial: bool = False) -> Iterator[tuple[int, dict]]:
+def _iter_running_configs(*, allow_partial: bool = False, require_complete: bool = False) -> Iterator[tuple[int, dict]]:
     """Replay running ReMe configurations and allow startup overrides for port probes."""
     for proc in psutil.process_iter(["pid", "cmdline"]):
         try:
@@ -114,6 +116,16 @@ def _iter_running_configs(*, allow_partial: bool = False) -> Iterator[tuple[int,
             continue
         try:
             config = resolve_app_config(log_config=False, _get_config_dir=proc.cwd, **overrides)
+        except UndefinedEnvironmentVariableError:
+            if require_complete:
+                continue
+            try:
+                service = prepare_start_service(overrides, get_config_dir=proc.cwd)
+            except (OSError, ValueError, psutil.Error, YAMLError):
+                continue
+            if service.get("backend") != "http":
+                continue
+            config = {"service": service}
         except psutil.NoSuchProcess:
             continue
         except (OSError, ValueError, psutil.AccessDenied, YAMLError):
@@ -139,9 +151,9 @@ def _scan_reme_procs() -> Iterator[tuple[int, str, int]]:
         yield pid, host, port
 
 
-def running_app_config() -> dict | None:
+def running_app_config(*, require_complete: bool = False) -> dict | None:
     """Return a running ReMe's application config, including enabled plugins."""
-    return next((config for _, config in _iter_running_configs()), None)
+    return next((config for _, config in _iter_running_configs(require_complete=require_complete)), None)
 
 
 async def locate_reme() -> tuple[str, int, int | None] | None:
@@ -175,7 +187,7 @@ async def call_server(job_name: str, /, **kwargs):
 
     # Prefer the running server's complete config so its enabled client plugins
     # are available even when the caller does not repeat config=<name>.
-    app_config = running_app_config()
+    app_config = running_app_config(require_complete=True) if resolve_kwargs else running_app_config()
     if app_config is None:
         app_config = resolve_app_config(log_config=False, **resolve_kwargs)
     runtime = resolve_plugin_runtime(app_config)
@@ -238,12 +250,18 @@ def cli_find_reme() -> None:
     print(f"HOST={host} PORT={port} PID={pid or 'unknown'}")
 
 
-def _start_application(kwargs: dict, environment: dict) -> None:
+def _start_application(arguments: dict, environment: dict, inherited: dict[str, str]) -> None:
     """Resolve startup configuration and run the application."""
-    kwargs = prepare_start_config(kwargs)
-    kwargs["environment"] = environment
-    if should_precheck_start(kwargs) and not precheck_start(kwargs.get("service")):
+    service = prepare_start_service(arguments)
+    if service.get("backend") != "cli" and not precheck_start(service):
         return
+    if service.get("backend") == "http":
+        from .daemon.service import run_supervised  # pylint: disable=import-outside-toplevel
+
+        run_supervised(arguments, service, inherited)
+        return
+    kwargs = prepare_start_config(arguments)
+    kwargs["environment"] = environment
     Application(**kwargs).run_app()
 
 
@@ -257,10 +275,11 @@ def main() -> None:
         _run_plugin_command(arguments)
         return
 
+    inherited = dict(os.environ)
     environment = load_env()
     kwargs = parse_kwargs(*arguments)
     if action == "start":
-        _start_application(kwargs, environment)
+        _start_application(kwargs, environment, inherited)
     elif action == "find_reme":
         cli_find_reme()
     else:

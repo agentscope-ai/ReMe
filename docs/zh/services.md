@@ -273,6 +273,18 @@ service:
 
 静态资源缺失不会阻止 Job API 启动。
 
+### 后端设置
+
+HTTP 模式下，`reme start` 管理 Python 服务进程。重启期间，Studio 仍可通过原地址打开。在「设置 → 后端」可以直接更换工作区。Codex 预设还支持设置 LLM URL、API Key、模型和推理级别。点击「保存并重启」应用配置。模型连接测试在临时工作区运行。新配置启动失败时，守护进程会尝试恢复上一次生效配置。
+
+启用了默认 DashScope 语音组件或 DashScope 搜索步骤的实例还可以设置 DashScope API Key。这项凭据独立于 LLM API Key，保存并重启后供已配置的语音识别、语音合成和搜索使用。设置页只显示凭据是否已配置。
+
+后端设置分为工作区、Harness 与模型、语音三组。缺少核心配置时，Studio 显示首次配置引导，补齐后才能进入。语音可以稍后启用。语音地址使用 DashScope 原生协议，默认是 `https://dashscope.aliyuncs.com/api/v1`，模型和音色填写服务支持的 ID，点击「恢复语音默认值」可重新填入默认值。
+
+首次从启动配置、系统环境变量及服务启动目录的 `.env` 导入用户设置，之后统一读取实例目录的 `settings.json`。修改模型和语音参数通过设置页保存。Key 字段使用 Fernet 加密，主密钥保存在后端主机的系统凭据库。服务器或容器可以设置独立的 `REME_ENCRYPTION_KEY`，使用 `Fernet.generate_key()` 生成并在后续启动中保持一致。
+
+守护进程在 `~/.config/reme/instances/` 下保存各实例的配置、凭据和重启状态。通过 `REME_DAEMON_DIR` 可指定工作区之外的私有目录。Docker Compose 分别挂载 `/state` 和 `/data`。本机回环监听可直接管理。启用远程管理时，设置随机的 `REME_ADMIN_TOKEN` 并通过 HTTPS 连接，在 Studio 提示时输入令牌。单独部署 Web 静态页面时，通过同源反向代理访问 `/admin/`。管理接口独立于 Job 和 MCP。
+
 ## 随记项目
 
 先用 `reme start config=proactive` 启动服务，再在另一个终端查询项目和明细。

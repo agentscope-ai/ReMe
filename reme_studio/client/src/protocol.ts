@@ -243,6 +243,7 @@ export interface JobResponse<T = unknown> {
 }
 
 export type WorkspaceRequest =
+  | import("./backend.ts").BackendRequest
   | import("./tasks.ts").TaskRequest
   | import("./notebook.ts").NotebookRequest
   | {

@@ -296,6 +296,18 @@ http://127.0.0.1:2333/
 
 Disable it with `service.web_enabled=false` or select a build with `service.web_static_dir`. Missing static assets do not prevent the Job API from starting.
 
+### Backend settings
+
+The HTTP `reme start` process supervises the Python service. Studio remains available on the same address during a service restart. Open **Settings → Backend** to edit the workspace or, with the Codex preset, the LLM URL, API key, model, and reasoning effort. Select **Save and restart** to apply the changes. The model connection test runs in a temporary workspace. When a change fails to start, the supervisor tries the previous configuration.
+
+Instances with default DashScope speech components or enabled DashScope search steps also accept a DashScope API key. The separate credential takes effect after saving and restarting and is shared by the configured speech recognition, speech synthesis, and search. Settings only displays whether a key is configured.
+
+Backend settings are grouped into Workspace, Harness and model, and Speech. Studio opens setup when core settings are missing. Speech can be enabled later. Its API base URL uses the native DashScope protocol and defaults to `https://dashscope.aliyuncs.com/api/v1`. Enter model and voice IDs supported by that service. Select **Reset speech defaults** to restore the default speech parameters.
+
+User settings are imported once from startup configuration, system environment variables, and the service startup directory's `.env`. Subsequent starts read the instance's `settings.json`. Change model and speech parameters through Settings. API keys are encrypted with Fernet, using a master key in the server host's system credential store. Servers and containers may supply a separate `REME_ENCRYPTION_KEY`, generated with `Fernet.generate_key()` and retained across restarts.
+
+The supervisor stores settings, credentials, and restart status in the instance directory under `~/.config/reme/instances/`. Set `REME_DAEMON_DIR` to choose a private directory outside the workspace. Docker Compose keeps `/state` separate from `/data`. Management is available on a local loopback listener. To enable remote management, configure a random `REME_ADMIN_TOKEN` and connect over HTTPS. Enter the token in Studio when prompted. A separately hosted Web frontend must proxy `/admin/` through its own origin. Management has its own endpoints and is independent of Jobs and MCP.
+
 ## Notebook projects
 
 Start the service with `reme start config=proactive`, then run these commands in another terminal.

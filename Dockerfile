@@ -34,14 +34,16 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 1000 reme \
     && useradd --uid 1000 --gid reme --no-create-home reme \
-    && mkdir -p /app /data \
-    && chown reme:reme /app /data
+    && mkdir -p /app /data /state \
+    && chown reme:reme /app /data /state \
+    && chmod 700 /state
 COPY --from=python-builder /opt/venv /opt/venv
 COPY scripts/reme_container.py /usr/local/lib/reme_container.py
 ENV PATH="/opt/venv/bin:${PATH}" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     HOME=/tmp/reme-home \
+    REME_DAEMON_DIR=/state \
     REME_WORKSPACE_DIR=/data \
     REME_HOST=0.0.0.0
 WORKDIR /app

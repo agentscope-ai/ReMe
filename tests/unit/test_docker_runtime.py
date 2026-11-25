@@ -1,6 +1,7 @@
 """Container configuration and health checks without Docker or model calls."""
 
 import json
+import os
 from io import BytesIO
 from unittest.mock import Mock
 
@@ -110,21 +111,26 @@ def test_entrypoint_executes_start_and_preserves_cli_action_syntax(action, tmp_p
     """All supported start spellings apply defaults and replace the supervisor child."""
     monkeypatch.setattr(reme_container.sys, "argv", ["entrypoint", *action, "service.port=8901"])
     monkeypatch.setattr(reme_container, "HEALTH_STATE_PATH", tmp_path / "health.json")
+    monkeypatch.setattr(reme_container, "drop_privileges", Mock())
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setenv("REME_WORKSPACE_DIR", str(tmp_path / "data"))
-    monkeypatch.setattr("reme.utils.env_utils.load_env", Mock())
+    monkeypatch.delenv("REME_TEST_LOADED_AT_START", raising=False)
+    monkeypatch.setattr(
+        "reme.utils.env_utils.load_env", lambda: monkeypatch.setenv("REME_TEST_LOADED_AT_START", "dotenv")
+    )
     state_writer = Mock()
     monkeypatch.setattr(reme_container, "write_health_state", state_writer)
     exec_command = Mock(side_effect=RuntimeError("exec called"))
-    monkeypatch.setattr(reme_container.os, "execvp", exec_command)
+    monkeypatch.setattr(reme_container.os, "execvpe", exec_command)
 
     with pytest.raises(RuntimeError, match="exec called"):
         reme_container.main()
 
-    executable, arguments = exec_command.call_args.args
+    executable, arguments, environment = exec_command.call_args.args
     assert executable == "reme"
     assert arguments[:2] == ["reme", "start"]
     assert parse_kwargs(*arguments[2:])["service"]["port"] == 8901
+    assert "REME_TEST_LOADED_AT_START" not in environment
     state_writer.assert_called_once_with(arguments)
 
 
@@ -135,6 +141,7 @@ def test_entrypoint_passes_other_commands_without_shell_interpolation(tmp_path, 
     state_path = tmp_path / "health.json"
     state_path.write_text("stale")
     monkeypatch.setattr(reme_container, "HEALTH_STATE_PATH", state_path)
+    monkeypatch.setattr(reme_container, "drop_privileges", Mock())
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     exec_command = Mock(side_effect=RuntimeError("exec called"))
     monkeypatch.setattr(reme_container.os, "execvp", exec_command)
@@ -144,3 +151,26 @@ def test_entrypoint_passes_other_commands_without_shell_interpolation(tmp_path, 
 
     exec_command.assert_called_once_with("python", command)
     assert not state_path.exists()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Container privilege drop is POSIX-only")
+def test_entrypoint_assigns_state_before_dropping_to_custom_user(tmp_path, monkeypatch):
+    """Only the dedicated volume and its own files are reassigned."""
+    state = tmp_path / "state"
+    state.mkdir()
+    (state / "settings.json").touch()
+    (state / "other").touch()
+    (state / "admin-token").symlink_to(state / "other")
+    calls = Mock()
+    monkeypatch.setattr(reme_container, "STATE_DIRECTORY", state)
+    monkeypatch.setenv("REME_UID", "2345")
+    monkeypatch.setenv("REME_GID", "3456")
+    monkeypatch.setattr(os, "geteuid", lambda: 0)
+    for name in ("fchown", "chown", "setgroups", "setgid", "setuid"):
+        monkeypatch.setattr(os, name, getattr(calls, name))
+    reme_container.drop_privileges(prepare_state=True)
+    calls.fchown.assert_called_once()
+    assert calls.fchown.call_args.args[1:] == (2345, 3456)
+    calls.chown.assert_called_once()
+    assert calls.chown.call_args.args == ("settings.json", 2345, 3456)
+    assert [call[0] for call in calls.mock_calls] == ["fchown", "chown", "setgroups", "setgid", "setuid"]

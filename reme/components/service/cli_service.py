@@ -25,6 +25,18 @@ def prepare_start_config(kwargs: dict) -> dict:
     return _prepare_job_start_config(dict(kwargs))
 
 
+def prepare_start_service(arguments: dict, *, get_config_dir=None) -> dict:
+    """Resolve the listener without loading business settings or provider credentials."""
+    if "job" in arguments:
+        return {"backend": "cli"}
+    from ...plugin import resolve_plugin_runtime
+
+    config = resolve_app_config(
+        log_config=False, _get_config_dir=get_config_dir, _sections=frozenset(("service", "plugins")), **arguments
+    )
+    return resolve_plugin_runtime(config).config.get("service") or {}
+
+
 def should_precheck_start(config: dict) -> bool:
     """CLI service does not bind a port, so it should skip service port prechecks."""
     service = config.get("service")

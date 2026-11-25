@@ -27,6 +27,10 @@ export async function requestWorkspace(
 ): Promise<JobResponse> {
   if (!request || typeof request.type !== "string")
     throw new UiError("invalidWorkspaceRequest");
+  if (request.type === "backend") {
+    const answer = await client.manage(request, signal);
+    return { success: true, answer, metadata: {} };
+  }
   const page = "page" in request ? request.page : 1;
   if (!Number.isSafeInteger(page) || page < 1)
     throw new UiError("invalidWorkspaceRequest");

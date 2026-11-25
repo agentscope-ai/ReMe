@@ -1,6 +1,7 @@
 import { UiError } from "./i18n.ts";
 import { readStream } from "./stream.ts";
 import type { JobResponse, StreamChunk } from "./protocol.ts";
+import type { BackendRequest } from "./backend.ts";
 
 export class ReMeClient {
   constructor(
@@ -68,6 +69,48 @@ export class ReMeClient {
         : new UiError("jobFailed", { job });
     }
     return { ...payload, metadata: payload.metadata ?? {} };
+  }
+
+  async manage(request: BackendRequest, signal: AbortSignal): Promise<unknown> {
+    const { action } = request;
+    const endpoint = new URL(this.endpoint);
+    if (
+      endpoint.protocol !== "https:" &&
+      !["localhost", "127.0.0.1", "[::1]"].includes(endpoint.hostname)
+    )
+      throw new UiError("backendHttpsRequired");
+    if (
+      !["config", "status", "apply", "restart", "test_model"].includes(action)
+    )
+      throw new UiError("invalidWorkspaceRequest");
+    const query =
+      action === "status" && request.operationId
+        ? `?${new URLSearchParams({ operation_id: request.operationId })}`
+        : "";
+    const headers = new Headers({ "Content-Type": "application/json" });
+    if (request.credentials?.endpoint === this.endpoint)
+      headers.set("Authorization", `Bearer ${request.credentials.token}`);
+    const response = await this.fetchRequest(
+      `${this.endpoint}/admin/${action}${query}`,
+      {
+        method: action === "config" || action === "status" ? "GET" : "POST",
+        headers,
+        body:
+          "settings" in request ? JSON.stringify(request.settings) : undefined,
+        redirect: "error",
+        signal: AbortSignal.any([signal, AbortSignal.timeout(130_000)]),
+      },
+    );
+    if (response.status === 401) {
+      await response.body?.cancel().catch(() => {});
+      throw new UiError("backendAuthRequired");
+    }
+    const payload = await response.json().catch(() => null);
+    if (!response.ok)
+      throw typeof payload?.detail === "string"
+        ? new Error(payload.detail)
+        : new UiError("httpError", { job: action, status: response.status });
+    return payload;
   }
 
   async stream(

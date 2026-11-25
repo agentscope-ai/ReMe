@@ -20,8 +20,10 @@ declare global {
             action: "request.open";
             id: number;
             url: string;
+            method: string;
             body: string;
             accept: string;
+            authorization: string;
           }): Promise<{ status: number; contentType: string }>;
           postMessage(message: {
             action: "request.read";
@@ -80,9 +82,12 @@ function decodeBase64(encoded: string): Uint8Array<ArrayBuffer> {
 export const iosFetch: typeof fetch | undefined =
   ios &&
   (async (url, init) => {
-    if (typeof url !== "string" || typeof init?.body !== "string")
-      throw new TypeError("Expected a ReMe job URL and JSON body");
-    const signal = init.signal;
+    if (
+      typeof url !== "string" ||
+      (init?.body != null && typeof init.body !== "string")
+    )
+      throw new TypeError("Expected a ReMe URL and optional JSON body");
+    const signal = init?.signal;
     signal?.throwIfAborted();
     const id = nextRequest++;
     let stream: ReadableStreamDefaultController<Uint8Array> | undefined;
@@ -97,12 +102,15 @@ export const iosFetch: typeof fetch | undefined =
     };
     signal?.addEventListener("abort", abort, { once: true });
     try {
+      const incoming = new Headers(init?.headers);
       const { status, contentType } = await ios.postMessage({
         action: "request.open",
         id,
         url,
-        body: init.body,
-        accept: new Headers(init.headers).get("accept") ?? "",
+        method: init?.method ?? "GET",
+        body: init?.body ?? "",
+        accept: incoming.get("accept") ?? "",
+        authorization: incoming.get("authorization") ?? "",
       });
       signal?.throwIfAborted();
       const headers = contentType ? { "Content-Type": contentType } : undefined;

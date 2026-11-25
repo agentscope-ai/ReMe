@@ -116,6 +116,7 @@ class ClientInfoStep(BaseStep):
                 if key
                 in {
                     "backend",
+                    "base_url",
                     "model",
                     "voice",
                     "audio_format",
