@@ -4,6 +4,7 @@
 
 import datetime
 from importlib.resources import files
+import sys
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
@@ -86,13 +87,17 @@ def test_date_limited_cron_waits_for_second_fold(monkeypatch):
     assert job._next_fire_delay() == 3600
 
 
-def test_cron_local_time_uses_host_rules_without_an_iana_name(tmp_path, monkeypatch):
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix localtime file")
+@pytest.mark.parametrize("host_name", [None, "Etc/UTC"], ids=["nameless", "stale-name"])
+def test_cron_local_time_uses_active_host_rules(tmp_path, monkeypatch, host_name):
     monkeypatch.delenv("TZ", raising=False)
     localtime = tmp_path / "localtime"
     localtime.write_bytes(files("tzdata.zoneinfo.America").joinpath("New_York").read_bytes())
     with localtime.open("rb") as source:
         rules = ZoneInfo.from_file(source, key="local")
-    monkeypatch.setattr(timezone_utils, "get_localzone", lambda: rules)
+    monkeypatch.setattr(timezone_utils, "_LOCALTIME_PATH", localtime)
+    monkeypatch.setattr(timezone_utils, "get_localzone_name", lambda: host_name)
+    monkeypatch.setattr(timezone_utils, "get_localzone", lambda: ZoneInfo("Etc/UTC"))
     fixed = datetime.datetime(2026, 11, 25, 8, tzinfo=rules)
 
     class FixedDatetime(datetime.datetime):

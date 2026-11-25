@@ -32,7 +32,7 @@ from reme.utils import timezone_utils
 def test_application_timezone_defaults_to_system_timezone(monkeypatch, system_timezone, expected):
     """Use the detected IANA zone or fall back to Shanghai."""
     monkeypatch.delenv("TZ", raising=False)
-    monkeypatch.setattr(timezone_utils, "get_localzone", Mock(return_value=SimpleNamespace(key=system_timezone)))
+    monkeypatch.setattr(timezone_utils, "get_localzone_name", Mock(return_value=system_timezone))
 
     assert ApplicationConfig().timezone == expected
 
@@ -40,15 +40,28 @@ def test_application_timezone_defaults_to_system_timezone(monkeypatch, system_ti
 def test_application_timezone_falls_back_when_system_detection_fails(monkeypatch):
     """Unavailable system timezone settings still yield a usable default."""
     monkeypatch.delenv("TZ", raising=False)
-    monkeypatch.setattr(timezone_utils, "get_localzone", Mock(side_effect=ZoneInfoNotFoundError))
+    monkeypatch.setattr(timezone_utils, "get_localzone_name", Mock(side_effect=ZoneInfoNotFoundError))
 
     assert ApplicationConfig().timezone == "Asia/Shanghai"
 
 
+def test_application_default_ignores_library_utc_fallback(monkeypatch):
+    """A library-supplied UTC fallback is distinct from a detected host name."""
+    from zoneinfo import ZoneInfo
+
+    monkeypatch.delenv("TZ", raising=False)
+    monkeypatch.setattr(timezone_utils, "get_localzone_name", Mock(return_value=None))
+    fallback = Mock(return_value=ZoneInfo("Etc/UTC"))
+    monkeypatch.setattr(timezone_utils, "get_localzone", fallback)
+
+    assert ApplicationConfig().timezone == "Asia/Shanghai"
+    fallback.assert_not_called()
+
+
 def test_application_timezone_reads_current_tz_environment(monkeypatch):
     """Valid names bypass library detection, even when TZ changes within the process."""
-    detect = Mock(return_value=SimpleNamespace(key="Asia/Shanghai"))
-    monkeypatch.setattr(timezone_utils, "get_localzone", detect)
+    detect = Mock(return_value="Asia/Shanghai")
+    monkeypatch.setattr(timezone_utils, "get_localzone_name", detect)
 
     monkeypatch.setenv("TZ", "GMT")
     assert ApplicationConfig().timezone == "GMT"
@@ -71,8 +84,8 @@ def test_application_timezone_reads_current_tz_environment(monkeypatch):
 )
 def test_application_timezone_rejects_unsupported_tz_without_caching(monkeypatch, name):
     """Invalid overrides fail explicitly and cannot affect the next application."""
-    detect = Mock(return_value=SimpleNamespace(key="Asia/Shanghai"))
-    monkeypatch.setattr(timezone_utils, "get_localzone", detect)
+    detect = Mock(return_value="Asia/Shanghai")
+    monkeypatch.setattr(timezone_utils, "get_localzone_name", detect)
     monkeypatch.setenv("TZ", name)
     with pytest.raises(ValueError, match="TZ must be an IANA timezone name"):
         ApplicationConfig()
@@ -87,8 +100,8 @@ def test_application_timezone_rejects_unsupported_tz_without_caching(monkeypatch
 
 def test_explicit_application_timezone_takes_precedence(monkeypatch):
     """An explicit name or null bypasses automatic detection."""
-    detect = Mock(return_value=SimpleNamespace(key="America/New_York"))
-    monkeypatch.setattr(timezone_utils, "get_localzone", detect)
+    detect = Mock(return_value="America/New_York")
+    monkeypatch.setattr(timezone_utils, "get_localzone_name", detect)
 
     assert ApplicationConfig(timezone="Europe/London").timezone == "Europe/London"
     context = ApplicationContext(timezone=None)

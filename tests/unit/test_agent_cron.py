@@ -6,13 +6,13 @@ import asyncio
 from datetime import datetime
 from importlib.resources import files
 import json
+import sys
 from unittest.mock import AsyncMock, Mock
 from zoneinfo import ZoneInfo
 
 import pytest
 
 from reme.schema import Event, Response
-from reme.schema import ApplicationConfig
 from reme.utils import timezone_utils
 from .test_proactive_runtime import running_runtime
 
@@ -57,14 +57,17 @@ async def test_proactive_cron_uses_local_timezone_rules(
 
 
 @pytest.mark.asyncio
-async def test_local_cron_uses_host_rules_without_an_iana_name(tmp_path, monkeypatch):
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix localtime file")
+@pytest.mark.parametrize("host_name", [None, "Etc/UTC"], ids=["nameless", "stale-name"])
+async def test_local_cron_uses_active_host_rules(tmp_path, monkeypatch, host_name):
     monkeypatch.delenv("TZ", raising=False)
     localtime = tmp_path / "localtime"
     localtime.write_bytes(files("tzdata.zoneinfo.America").joinpath("New_York").read_bytes())
     with localtime.open("rb") as source:
         rules = ZoneInfo.from_file(source, key="local")
-    monkeypatch.setattr(timezone_utils, "get_localzone", lambda: rules)
-    assert ApplicationConfig().timezone == "Asia/Shanghai"
+    monkeypatch.setattr(timezone_utils, "_LOCALTIME_PATH", localtime)
+    monkeypatch.setattr(timezone_utils, "get_localzone_name", lambda: host_name)
+    monkeypatch.setattr(timezone_utils, "get_localzone", lambda: ZoneInfo("Etc/UTC"))
 
     async with running_runtime(tmp_path / "workspace") as (runtime, context, _):
         context.app_config.timezone = None
