@@ -163,6 +163,27 @@ async def test_notebook_timeline_order_before_pagination(jobs):
 
 
 @pytest.mark.asyncio
+async def test_todo_creation_order_keeps_legacy_dates_unknown(jobs, notebook_path):
+    """Creation order is stable across updates and applies before pagination."""
+    notebook_path.mkdir()
+    (notebook_path / "todos.json").write_text(
+        json.dumps([{"id": "legacy", "text": "Existing task", "due_date": "2026-11-01"}]),
+        encoding="utf-8",
+    )
+    first = await call(jobs, "todo", action="create", text="First", due_date="2026-11-24")
+    second = await call(jobs, "todo", action="create", text="Second", due_date="2026-12-01")
+    updated = await call(jobs, "todo", action="update", id=first["id"], text="First, edited")
+    assert updated["created_at"] == first["created_at"]
+    assert datetime.fromisoformat(updated["created_at"]).utcoffset() is not None
+    assert (await call(jobs, "todo", action="list", limit=1))["items"][0]["id"] == "legacy"
+    for offset, identifier in enumerate((second["id"], first["id"], "legacy")):
+        result = await call(jobs, "todo", action="list", order="created", offset=offset, limit=1)
+        assert result["total"] == 3 and result["items"][0]["id"] == identifier
+    legacy = await call(jobs, "todo", action="update", id="legacy", text="Edited existing task")
+    assert "created_at" not in legacy
+
+
+@pytest.mark.asyncio
 async def test_idea_capture_time_and_undated_order(jobs, notebook_path):
     """Capture time survives edits and restoration; undated ideas retain their order."""
     notebook_path.mkdir()

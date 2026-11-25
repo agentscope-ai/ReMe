@@ -62,3 +62,10 @@ The release workflow enables in-app updates for Linux AppImage builds and for bu
 release credentials. For macOS, configure `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, `APPLE_ID`,
 `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID`. For Windows, configure `WIN_CSC_LINK` and `WIN_CSC_KEY_PASSWORD`.
 Release builds without the required credentials use the downloads page.
+
+On macOS, quit Desktop and replace `/Applications/ReMe Studio.app` with the new app from the DMG. On Windows,
+run the new installer with the existing installation directory and user scope. In-app updates replace the installed
+app and restart it. These upgrades preserve Desktop settings and the ReMe workspace.
+
+Local `pack` and `dist` builds reuse `desktop/dist.noindex/` to keep generated apps out of Spotlight. Use
+`npm run dev:desktop` for routine previews; custom preview output directories should also end in `.noindex`.

@@ -176,6 +176,7 @@ else {
           refreshTray();
         },
       );
+      controller.setCompanionVisible(windows.companionVisible);
       const canCapture = () =>
         !quitting &&
         windows!.chat.isVisible() &&
@@ -496,8 +497,7 @@ else {
             windows!.resetPosition();
             return;
           case "companion.visibility":
-            if (action.visible) windows!.showCompanion();
-            else windows!.hideCompanion();
+            windows!.setCompanionVisibility(action.visible);
             return;
           case "agent.select":
             if (

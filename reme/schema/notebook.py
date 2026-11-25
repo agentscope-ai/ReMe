@@ -71,13 +71,14 @@ class TodoRequest(_RecordRequest):
     }
     action_fields = {
         "create": _write_fields,
-        "list": {"project", "status", "source_idea", "scope", "query", "offset", "limit"},
+        "list": {"project", "status", "source_idea", "scope", "query", "offset", "limit", "order"},
         "list_projects": {"scope"},
         "get": {"id"},
         "update": _write_fields | {"id", "progress_match"},
     }
 
     action: Literal["create", "list", "list_projects", "get", "update"]
+    order: Literal["due", "created"] = "due"
     status: TodoStatus = "pending"
     due_date: date | None = None
     source_idea: str | None = Field(default=None, min_length=1)

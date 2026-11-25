@@ -231,7 +231,7 @@ html[data-android-insets="pending"] .mobile-workbench {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--unread);
 }
 
 .mobile-drawer-dismiss {
@@ -479,12 +479,11 @@ html:is([data-platform="android"], [data-platform="ios"]) .context-menu button {
   padding: 17px 16px 30px;
 }
 
-.mobile-workbench .resource-pane,
 .mobile-workbench .document-content {
   padding-inline: 16px;
 }
 
-.mobile-workbench :where(button:not(.mobile-drawer-dismiss), .notebook-row) {
+.mobile-workbench :where(button:not(.mobile-drawer-dismiss), .timeline-card) {
   transition:
     background-color var(--mobile-quick),
     color var(--mobile-quick),

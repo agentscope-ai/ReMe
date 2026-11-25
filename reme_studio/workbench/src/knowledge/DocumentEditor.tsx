@@ -73,7 +73,7 @@ export default function DocumentEditor({
       }}
     >
       <DocumentHeading path={path} mtime={mtime} language={language}>
-        <div className="document-actions">
+        <>
           <button
             type="button"
             className="subtle"
@@ -85,7 +85,7 @@ export default function DocumentEditor({
           <button type="submit" className="primary" disabled={!dirty || saving}>
             {t("documentSave")}
           </button>
-        </div>
+        </>
       </DocumentHeading>
       {error != null && (
         <p className="document-action-error" role="alert">

@@ -11,6 +11,7 @@ import {
 import { stringify } from "yaml";
 import { translator, type Language } from "../../../client/src/i18n.ts";
 import { parseMarkdown } from "./model.ts";
+import { DetailHeading } from "../timeline.tsx";
 
 export function DocumentHeading({
   path,
@@ -28,17 +29,14 @@ export function DocumentHeading({
   const title = filename.replace(/\.mdx?$/i, "") || filename;
   const modified = !/\.mdx?$/i.test(path) && mtime ? new Date(mtime) : null;
   return (
-    <header className="document-heading">
-      <div className="document-heading-text">
-        <h1 className="document-title" data-long={title.length > 80}>
-          {title}
-        </h1>
-        {modified && !Number.isNaN(modified.getTime()) && (
-          <time
-            className="document-modified"
-            dateTime={mtime}
-            title={t("modifiedTime")}
-          >
+    <DetailHeading
+      title={title}
+      long={title.length > 80}
+      actions={children}
+      metadata={
+        modified &&
+        !Number.isNaN(modified.getTime()) && (
+          <time dateTime={mtime} title={t("modifiedTime")}>
             {modified.toLocaleString(language === "zh" ? "zh-CN" : "en", {
               year: "numeric",
               month: "short",
@@ -47,10 +45,9 @@ export function DocumentHeading({
               minute: "2-digit",
             })}
           </time>
-        )}
-      </div>
-      {children}
-    </header>
+        )
+      }
+    />
   );
 }
 
@@ -96,7 +93,7 @@ export default function DocumentPreview({
     <article className="document-content">
       <DocumentHeading path={path} mtime={mtime} language={language}>
         {(onCopy || onEdit) && (
-          <div className="document-actions">
+          <>
             {onCopy && (
               <button
                 type="button"
@@ -132,7 +129,7 @@ export default function DocumentPreview({
                 {t("documentEdit")}
               </button>
             )}
-          </div>
+          </>
         )}
       </DocumentHeading>
       {copyStatus === "failed" && (
@@ -141,7 +138,10 @@ export default function DocumentPreview({
         </p>
       )}
       {(entries.length > 0 || parsed.frontmatterError) && (
-        <details className="document-properties" open>
+        <details
+          className="document-properties"
+          open={parsed.frontmatterError || undefined}
+        >
           <summary>
             <ChevronRight size={13} />
             <ListFilter size={13} />

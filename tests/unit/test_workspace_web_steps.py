@@ -11,6 +11,7 @@ from reme.core.context import ApplicationContext, RuntimeContext
 from reme.enumeration import ChunkEnum
 from reme.schema import StreamChunk
 from reme.steps.common.chat import ChatStep
+from reme.steps.file_io import load, save
 from reme.steps.file_io.load import LoadStep
 from reme.steps.file_io.save import SaveStep
 
@@ -125,6 +126,51 @@ async def test_save_step_rejects_external_change(tmp_path):
     assert response.success is False
     assert response.metadata["code"] == "file_conflict"
     assert target.read_text(encoding="utf-8") == "external"
+
+
+@pytest.mark.asyncio
+async def test_load_rejects_a_replacement_during_read(tmp_path, monkeypatch):
+    """Do not pair file contents with the version of another file."""
+    target = tmp_path / "note.md"
+    target.write_text("original", encoding="utf-8")
+    read = load.read_file_safe
+
+    async def read_then_replace(*args, **kwargs):
+        result = await read(*args, **kwargs)
+        replacement = tmp_path / "external.md"
+        replacement.write_text("external", encoding="utf-8")
+        replacement.replace(target)
+        return result
+
+    monkeypatch.setattr(load, "read_file_safe", read_then_replace)
+    response = await LoadStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))(path="note.md")
+
+    assert not response.success
+    assert target.read_text(encoding="utf-8") == "external"
+
+
+@pytest.mark.asyncio
+async def test_save_rechecks_version_after_preparing_the_write(tmp_path, monkeypatch):
+    """An edit made after the initial check must survive a rejected save."""
+    target = tmp_path / "note.md"
+    target.write_text("original", encoding="utf-8")
+    expected = datetime.fromtimestamp(target.stat().st_mtime).isoformat()
+
+    async def edit_while_detecting(path):
+        path.write_text("external update", encoding="utf-8")
+        return "utf-8"
+
+    monkeypatch.setattr(save, "detect_file_encoding", edit_while_detecting)
+    response = await SaveStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))(
+        path="note.md",
+        content="browser edit",
+        expected_mtime=expected,
+    )
+
+    assert not response.success
+    assert response.metadata["code"] == "file_conflict"
+    assert target.read_text(encoding="utf-8") == "external update"
+    assert not list(tmp_path.glob(".reme-*.tmp"))
 
 
 @pytest.mark.asyncio

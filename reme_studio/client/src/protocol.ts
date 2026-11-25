@@ -116,10 +116,13 @@ export interface Settings {
   voiceReminders: boolean;
   voiceVolume: number;
   anchor?: { x: number; y: number };
+  companionVisible?: boolean;
   windowBounds?: { x: number; y: number; width: number; height: number };
 }
 
-export type SettingsUpdate = Partial<Omit<Settings, "anchor" | "windowBounds">>;
+export type SettingsUpdate = Partial<
+  Omit<Settings, "anchor" | "windowBounds" | "companionVisible">
+>;
 export const WORKBENCH_PAGES = [
   "remy",
   "tasks",

@@ -327,6 +327,9 @@ New Todos default to `pending`. Use `in_progress` once work starts and `closed` 
 A `closed` Todo is archived. Pass `close_note` with `status=closed` to record the outcome or reason. Reopening clears
 the closure time and note.
 
+Active Todos are ordered by target date by default. Use `reme todo action=list order=created` for newest creation
+time first, with older records that lack a creation time at the end. Studio offers both orders in the Todos view.
+
 The event-triggered `proactive_note` runtime receives the same new Codex dialogue as `proactive_memory`. It loads `manage-todos-ideas`
 to find related Todos and Ideas and read the full progress history before updating a Todo. It adds new progress, corrects
 or removes individual notes when the evidence changes, and can move a Todo to `in_progress`. Remy handles creation,

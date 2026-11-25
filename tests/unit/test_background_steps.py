@@ -55,7 +55,7 @@ from reme.steps.index import (
     WatchChangesStep,
 )
 from reme.steps.index._change_batch import bucket_changes
-from reme.utils.files.file_version import FileChangedDuringChunkingError
+from reme.utils.files.file_version import FileChangedError
 from reme.utils.files.file_watch import WatchRule, build_watch_rules, collect_existing, match_file
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="jieba")
@@ -1008,10 +1008,10 @@ def test_update_index_initial_scan_fails_when_source_never_stabilizes():
                 step = UpdateIndexStep(file_store=store, persist=False, app_context=app_ctx)
 
                 async def source_keeps_changing(path: Path):
-                    raise FileChangedDuringChunkingError("source keeps changing")
+                    raise FileChangedError("source keeps changing")
 
                 with patch.object(step, "build_item", side_effect=source_keeps_changing) as build_item:
-                    with pytest.raises(FileChangedDuringChunkingError, match="after bounded retries"):
+                    with pytest.raises(FileChangedError, match="after bounded retries"):
                         await step(
                             RuntimeContext(
                                 changes=[{"change": "added", "path": str(source)}],

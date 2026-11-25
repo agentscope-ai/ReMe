@@ -18,3 +18,12 @@ npm run dist -w desktop
 ```
 
 Building a desktop installer requires the host platform. The Electron app uses the ReMe release version.
+
+`pack` and `dist` reuse `dist.noindex/`, keeping generated apps out of macOS Spotlight. Use `npm run dev:desktop`
+for previews instead of creating a separate packaged app for every change. Custom preview output directories should
+also end in `.noindex`.
+
+To upgrade on macOS, quit ReMe Studio and replace `/Applications/ReMe Studio.app` with the new app from the DMG.
+On Windows, run the new installer with the existing installation directory and user scope. In-app updates replace
+the installed app and restart it; they do not open the installation wizard. Upgrades preserve Desktop settings and
+the ReMe workspace. See the [release guide](../README.md#release) for signing and update-channel requirements.

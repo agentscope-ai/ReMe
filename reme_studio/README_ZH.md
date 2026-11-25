@@ -59,3 +59,9 @@ PyPI 和 npm 的 Trusted Publishing 绑定到 `release-python.yml`。GitHub 的 
 发布流程为 Linux AppImage 和完成签名的安装包启用应用内更新。macOS 正式包需要配置 `MAC_CSC_LINK`、
 `MAC_CSC_KEY_PASSWORD`、`APPLE_ID`、`APPLE_APP_SPECIFIC_PASSWORD` 和 `APPLE_TEAM_ID`。
 Windows 正式包需要配置 `WIN_CSC_LINK` 和 `WIN_CSC_KEY_PASSWORD`。缺少所需凭据的平台通过下载页更新。
+
+macOS 升级时先退出桌面端，再用 DMG 中的新版替换 `/Applications/ReMe Studio.app`。Windows 直接运行新版
+安装程序，保持原安装目录和用户范围。应用内更新会覆盖当前应用并重启，桌面端设置和 ReMe 工作区会保留。
+
+本地 `pack` 和 `dist` 构建复用 `desktop/dist.noindex/`，避免生成的应用进入 Spotlight。日常预览使用
+`npm run dev:desktop`；自定义预览输出目录也应以 `.noindex` 结尾。

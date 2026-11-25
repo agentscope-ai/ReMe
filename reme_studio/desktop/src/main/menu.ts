@@ -125,8 +125,7 @@ export function desktopMenu(
       id: "visibility",
       label: t(windows.companionVisible ? "hideCharacter" : "showCharacter"),
       click: () => {
-        if (windows.companionVisible) windows.hideCompanion();
-        else windows.showCompanion();
+        windows.setCompanionVisibility(!windows.companionVisible);
         refresh();
       },
     },

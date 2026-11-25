@@ -15,6 +15,7 @@ type Updater = Pick<
 
 export class DesktopUpdater {
   private state: UpdateState;
+  private operation = 0;
 
   constructor(
     private readonly updater: Updater | null,
@@ -34,7 +35,8 @@ export class DesktopUpdater {
       }
     });
     updater.on("error", () => {
-      if (this.state.status === "installing") this.set({ status: "error" });
+      this.operation++;
+      this.set({ status: "error" });
     });
   }
 
@@ -46,6 +48,7 @@ export class DesktopUpdater {
   async run(command: UpdateCommand): Promise<UpdateState> {
     const { state, updater } = this;
     if (!updater) return state;
+    let operation = this.operation;
     try {
       switch (command) {
         case "check": {
@@ -55,8 +58,10 @@ export class DesktopUpdater {
             state.status !== "error"
           )
             break;
+          operation = ++this.operation;
           this.set({ status: "checking" });
           const result = await updater.checkForUpdates();
+          if (operation !== this.operation) break;
           this.set(
             result?.isUpdateAvailable
               ? { status: "available", version: result.updateInfo.version }
@@ -66,22 +71,24 @@ export class DesktopUpdater {
         }
         case "download":
           if (state.status !== "available") break;
+          operation = ++this.operation;
           this.set({
             status: "downloading",
             version: state.version,
             percent: 0,
           });
           await updater.downloadUpdate();
+          if (operation !== this.operation) break;
           this.set({ status: "ready", version: state.version });
           break;
         case "install":
           if (state.status !== "ready") break;
           this.set({ status: "installing", version: state.version });
-          updater.quitAndInstall();
+          updater.quitAndInstall(true, true);
           break;
       }
     } catch {
-      this.set({ status: "error" });
+      if (operation === this.operation) this.set({ status: "error" });
     }
     return this.state;
   }

@@ -18,6 +18,7 @@ import {
   type TodoStatus,
 } from "../../../client/src/notebook.ts";
 import { formatDate, useResource } from "../resources.ts";
+import { DetailHeading } from "../timeline.tsx";
 
 const statuses = {
   pending: "notebookPending",
@@ -101,67 +102,75 @@ export default function RecordDetail({
     };
   }, [item.id, todo, sourceId, active, revision, linkOffset, linkRetry]);
   return (
-    <article className="notebook-record">
-      <div className="notebook-record-heading">
-        <span className="notebook-project">
-          {projectLabel(item.project, language)}
-        </span>
-        <button className="subtle" onClick={onEdit} disabled={busy}>
-          <Pencil size={14} />
-          {t("notebookEdit")}
-        </button>
-      </div>
-      <h1>{title}</h1>
-      <div className="notebook-record-meta">
-        {todo && (
-          <label>
-            <span className="sr-only">{t("notebookStatus")}</span>
-            <select
-              aria-label={t("notebookStatus")}
-              value={item.status}
-              disabled={busy}
-              onChange={(event) => {
-                const status = event.target.value as TodoStatus;
-                if (status === "closed") {
-                  onCloseTodo(item);
-                  return;
-                }
-                void onWrite({
-                  type: "todo",
-                  action: "update",
-                  id: item.id,
-                  status,
-                });
-              }}
-            >
-              {Object.entries(statuses).map(([value, key]) => (
-                <option key={value} value={value}>
-                  {t(key)}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-        {todo && item.due_date && (
-          <span>{t("notebookDue", { date: item.due_date })}</span>
-        )}
-        {item.closed_at && (
-          <span>
-            {t("notebookArchivedAt", {
-              date: formatDate(item.closed_at, language),
-            })}
-          </span>
-        )}
-      </div>
-      {body && <p className="notebook-record-body">{body}</p>}
+    <article className="detail-article notebook-record">
+      <DetailHeading
+        title={title}
+        long={title.length > 80}
+        actions={
+          <button
+            type="button"
+            className="subtle"
+            onClick={onEdit}
+            disabled={busy}
+          >
+            <Pencil size={14} aria-hidden />
+            {t("notebookEdit")}
+          </button>
+        }
+        metadata={
+          <>
+            <span>{projectLabel(item.project, language)}</span>
+            {todo && (
+              <label>
+                <span className="sr-only">{t("notebookStatus")}</span>
+                <select
+                  aria-label={t("notebookStatus")}
+                  value={item.status}
+                  disabled={busy}
+                  onChange={(event) => {
+                    const status = event.target.value as TodoStatus;
+                    if (status === "closed") {
+                      onCloseTodo(item);
+                      return;
+                    }
+                    void onWrite({
+                      type: "todo",
+                      action: "update",
+                      id: item.id,
+                      status,
+                    });
+                  }}
+                >
+                  {Object.entries(statuses).map(([value, key]) => (
+                    <option key={value} value={value}>
+                      {t(key)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {todo && item.due_date && (
+              <span>{t("notebookDue", { date: item.due_date })}</span>
+            )}
+            {item.closed_at && (
+              <span>
+                {t("notebookArchivedAt", {
+                  date: formatDate(item.closed_at, language),
+                })}
+              </span>
+            )}
+          </>
+        }
+      />
+      {body && <p className="detail-prose">{body}</p>}
       {todo && item.close_note && (
-        <section className="notebook-close-note">
+        <section className="detail-section notebook-close-note">
           <h2>{t("notebookCloseNote")}</h2>
           <p>{item.close_note}</p>
         </section>
       )}
       {source && (
-        <section className="notebook-source">
+        <section className="detail-section notebook-source">
           <h2>{t("notebookFromIdea")}</h2>
           <button
             className="text-action"
@@ -173,7 +182,7 @@ export default function RecordDetail({
         </section>
       )}
       {!todo && (
-        <div className="notebook-actions">
+        <div className="detail-section notebook-actions">
           <button
             className="primary"
             disabled={busy || !canCreateTodo}
@@ -204,57 +213,63 @@ export default function RecordDetail({
         </div>
       )}
       {todo ? (
-        <section className="notebook-progress">
-          <h2>{t("notebookProgress")}</h2>
-          {item.progress.length ? (
-            <ol>
-              {item.progress.map((note, index) => (
-                <li key={`${index}:${note.time}`}>
-                  <time dateTime={note.time}>
-                    {formatDate(note.time, language)}
-                  </time>
-                  <p>{note.text}</p>
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <p className="notebook-muted">{t("notebookNoProgress")}</p>
-          )}
-          {!item.closed_at && (
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                if (draft.trim())
-                  void onWrite({
-                    type: "todo",
-                    action: "update",
-                    id: item.id,
-                    progress_text: draft.trim(),
-                  }).then((success) => {
-                    if (success) onDraft("");
-                  });
-              }}
-            >
-              <label htmlFor={`progress-${item.id}`}>
-                {t("notebookAddProgress")}
-              </label>
-              <textarea
-                id={`progress-${item.id}`}
-                rows={2}
-                maxLength={100000}
-                value={draft}
-                disabled={busy}
-                placeholder={t("notebookProgressPlaceholder")}
-                onChange={(event) => onDraft(event.target.value)}
-              />
-              <button className="secondary" disabled={busy || !draft.trim()}>
-                {t("notebookAddProgress")}
-              </button>
-            </form>
-          )}
-        </section>
+        (item.progress.length > 0 || !item.closed_at) && (
+          <section className="detail-section notebook-progress">
+            <h2>{t("notebookProgress")}</h2>
+            {item.progress.length ? (
+              <ol>
+                {item.progress.map((note, index) => (
+                  <li key={`${index}:${note.time}`}>
+                    <time dateTime={note.time}>
+                      {formatDate(note.time, language)}
+                    </time>
+                    <p>{note.text}</p>
+                  </li>
+                ))}
+              </ol>
+            ) : null}
+            {!item.closed_at && (
+              <details
+                className="notebook-add-progress"
+                open={draft.trim() ? true : undefined}
+              >
+                <summary>{t("notebookAddProgress")}</summary>
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    if (draft.trim())
+                      void onWrite({
+                        type: "todo",
+                        action: "update",
+                        id: item.id,
+                        progress_text: draft.trim(),
+                      }).then((success) => {
+                        if (success) onDraft("");
+                      });
+                  }}
+                >
+                  <textarea
+                    aria-label={t("notebookAddProgress")}
+                    rows={2}
+                    maxLength={100000}
+                    value={draft}
+                    disabled={busy}
+                    placeholder={t("notebookProgressPlaceholder")}
+                    onChange={(event) => onDraft(event.target.value)}
+                  />
+                  <button
+                    className="secondary"
+                    disabled={busy || !draft.trim()}
+                  >
+                    {t("notebookAddProgress")}
+                  </button>
+                </form>
+              </details>
+            )}
+          </section>
+        )
       ) : (
-        <section className="notebook-links">
+        <section className="detail-section notebook-links">
           <h2>{t("notebookRelatedTodos")}</h2>
           {linked?.items.map((task) => (
             <button

@@ -67,6 +67,15 @@ test("localized project names round trip through IPC with one stable default", a
   assert.deepEqual(calls.at(-1), ["todo", { action: "list", project: "随笔" }]);
   await requestWorkspace(
     client,
+    { type: "todo", action: "list", order: "created" },
+    signal,
+  );
+  assert.deepEqual(calls.at(-1), [
+    "todo",
+    { action: "list", order: "created" },
+  ]);
+  await requestWorkspace(
+    client,
     { type: "todo", action: "list_projects", scope: "all" },
     signal,
   );
@@ -205,6 +214,8 @@ test("notebook IPC rejects untrusted fields and invalid actions before HTTP", as
     },
     { type: "todo", action: "list", progress_text: "不能忽略" },
     { type: "todo", action: "list", limit: 101 },
+    { type: "todo", action: "list", order: "unknown" },
+    { type: "idea", action: "list", order: "created" },
     { type: "todo", action: "list_projects", limit: 20 },
     { type: "todo", action: "list_projects", scope: "invalid" },
     { type: "idea", action: "list_projects" },

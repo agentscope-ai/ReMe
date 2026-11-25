@@ -302,6 +302,9 @@ reme idea action=list project=ReMe scope=all
 Todo 默认 `pending`（待开始），开始后可设为 `in_progress`（进行中）。完成或取消时设为 `closed` 并自动归档，
 可同时用 `close_note` 记录结果或原因。重新打开会清除本次关闭时间和备注。
 
+活跃待办默认按计划日期排序。用 `reme todo action=list order=created` 可按创建时间倒序查看，旧待办缺少创建时间时排在末尾。
+Studio 的待办视图也可以切换这两种顺序。
+
 `proactive_note` 由事件触发，与 `proactive_memory` 接收同一份新增 Codex 对话。随记使用 `manage-todos-ideas` 查找相关
 Todo 和 Idea，先读完 Todo 的进展，再按新依据追加、更正或撤回进展，也可以把已开工的 Todo 改为 `in_progress`。
 条目的新增、关闭、Idea 修改和关联变更交给 Remy。需要用户决定的事项逐条写入 Markdown，说明条目、新依据和下一步，再按统一流程投递。

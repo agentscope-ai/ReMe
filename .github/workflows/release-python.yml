@@ -125,12 +125,16 @@ jobs:
                 export CSC_IDENTITY_AUTO_DISCOVERY=true
                 flags+=(--config.forceCodeSigning=true --config.mac.notarize=true)
                 manifest=latest-mac.yml
+              else
+                echo "::warning::macOS signing/notarization credentials are missing. This build supports manual replacement only; in-app updates are disabled."
               fi
               ;;
             Windows)
               if [[ -n "$CSC_LINK" ]]; then
                 flags+=(--config.forceCodeSigning=true)
                 manifest=latest.yml
+              else
+                echo "::warning::Windows signing credentials are missing. This build supports manual upgrade only; in-app updates are disabled."
               fi
               ;;
             Linux) manifest=latest-linux.yml ;;
@@ -144,7 +148,7 @@ jobs:
           fi
           npm run dist --workspace desktop -- "${flags[@]}"
           if [[ -n "$manifest" ]]; then
-            test -s "desktop/dist/$manifest"
+            test -s "desktop/dist.noindex/$manifest"
           fi
         working-directory: reme_studio
         env:
@@ -158,12 +162,12 @@ jobs:
         with:
           name: reme-desktop-${{ matrix.os }}
           path: |
-            reme_studio/desktop/dist/*.dmg
-            reme_studio/desktop/dist/*.zip
-            reme_studio/desktop/dist/*.exe
-            reme_studio/desktop/dist/*.AppImage
-            reme_studio/desktop/dist/*.blockmap
-            reme_studio/desktop/dist/latest*.yml
+            reme_studio/desktop/dist.noindex/*.dmg
+            reme_studio/desktop/dist.noindex/*.zip
+            reme_studio/desktop/dist.noindex/*.exe
+            reme_studio/desktop/dist.noindex/*.AppImage
+            reme_studio/desktop/dist.noindex/*.blockmap
+            reme_studio/desktop/dist.noindex/latest*.yml
           if-no-files-found: error
 
   publish-studio:

@@ -334,6 +334,7 @@ export default function Workbench({
           version={version}
           companionVisible={companionVisible}
           desktop={desktop}
+          windowTransparency={platform === "darwin"}
           open={settingsOpen}
           editableEndpoint={desktop || mobile}
           navigate={navigate}

@@ -29,12 +29,11 @@ interface NotebookRecord {
   id: string;
   project: string;
   text: string;
+  created_at?: string | null;
   closed_at?: string | null;
 }
 
-export interface Idea extends NotebookRecord {
-  created_at?: string | null;
-}
+export type Idea = NotebookRecord;
 
 export interface Todo extends NotebookRecord {
   status: TodoStatus;
@@ -82,7 +81,11 @@ interface TodoFields extends ContentFields {
 
 export type NotebookRequest =
   | ({ type: "todo" } & (
-      | (ListOptions & { status?: TodoStatus; source_idea?: string | null })
+      | (ListOptions & {
+          status?: TodoStatus;
+          source_idea?: string | null;
+          order?: "due" | "created";
+        })
       | { action: "list_projects"; scope?: ListOptions["scope"] }
       | { action: "get"; id: string }
       | ({ action: "create" } & TodoFields)
@@ -113,7 +116,7 @@ export function notebookPayload(
           "scope",
           "offset",
           "limit",
-          ...(value.type === "todo" ? ["status", "source_idea"] : []),
+          ...(value.type === "todo" ? ["status", "source_idea", "order"] : []),
         ]
       : value.action === "list_projects"
         ? ["scope"]
@@ -162,6 +165,8 @@ export function notebookPayload(
     }
     if (key === "status" && !todoStatuses.includes(field as TodoStatus))
       throw new Error("Invalid notebook status");
+    if (key === "order" && field !== "due" && field !== "created")
+      throw new Error("Invalid notebook order");
     if (
       key === "scope" &&
       !["active", "archive", "all"].includes(field as string)

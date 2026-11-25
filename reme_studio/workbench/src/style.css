@@ -78,8 +78,8 @@ button {
   vertical-align: middle;
   white-space: nowrap;
 }
-.count-badge[data-tone="accent"] {
-  --count-color: var(--accent);
+.count-badge[data-tone="unread"] {
+  --count-color: var(--unread);
 }
 .primary,
 .secondary,

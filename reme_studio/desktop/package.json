@@ -50,7 +50,7 @@
     "icon": "../workbench/public/reme-app-icon.png",
     "publish": null,
     "directories": {
-      "output": "dist"
+      "output": "dist.noindex"
     },
     "files": [
       "out/**",

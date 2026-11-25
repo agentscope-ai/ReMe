@@ -21,7 +21,7 @@ jobs:
     backend: base
     description: >-
       Manage one-sentence tasks: create/list/get/update. Use list_projects to count Todo and Idea records per project.
-      IDs and progress timestamps are generated automatically.
+      IDs, creation times and progress timestamps are generated automatically.
       Pass progress_text to append progress, or use progress_match to edit or remove an existing note.
       Set status=closed to archive with an optional close_note.
       Set status=pending or in_progress to reopen and clear the closure details.
@@ -50,6 +50,7 @@ jobs:
           required: [time, text]
         close_note: {type: [string, "null"], minLength: 1, description: "Confirmed outcome or reason for closure. Requires status=closed; null clears the note."}
         scope: {type: string, enum: [active, archive, all], description: "Active lists by earliest target date with undated tasks last. Archive lists newest closures first. Defaults to active for list and all for list_projects."}
+        order: {type: string, enum: [due, created], description: "List only. Active lists default to earliest target date. Use created for newest creation time first, with unknown dates last. Archive lists always use closure time."}
         query: &record_query {type: string, description: "List only; case-insensitive substring search."}
         offset: &record_offset {type: integer, minimum: 0, description: "List only; defaults to 0."}
         limit: &record_limit {type: integer, minimum: 1, maximum: 100, description: "List only; defaults to 20."}

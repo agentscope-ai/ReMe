@@ -74,16 +74,17 @@ class _RecordStep(BaseStep):
     def list_records(self, store, request):
         """Return bounded summaries; get returns the complete progress history."""
         records = self.records_in_scope(store, request.scope)
+        by_creation = request.order == "created" if isinstance(request, TodoRequest) else request.scope == "active"
         if request.scope == "archive":
             records = sorted(records, key=lambda record: record.closed_at, reverse=True)
-        elif request.scope == "active" and isinstance(request, TodoRequest):
-            records = sorted(records, key=lambda record: (record.due_date is None, record.due_date))
-        elif request.scope == "active" and isinstance(request, IdeaRequest):
+        elif by_creation:
             records = sorted(
                 records,
                 key=lambda record: (record.created_at is not None, record.created_at),
                 reverse=True,
             )
+        elif request.scope == "active":
+            records = sorted(records, key=lambda record: (record.due_date is None, record.due_date))
         items = []
         for record in records:
             if "project" in request.model_fields_set and record.project != request.project:
@@ -153,7 +154,11 @@ class TodoStep(_RecordStep):
             if request.action == "create":
                 changes.setdefault("project", idea.project)
                 changes.setdefault("text", idea.text)
-        record = Todo(**changes) if original is None else Todo.model_validate({**original.model_dump(), **changes})
+        record = (
+            Todo(created_at=datetime.now(timezone.utc), **changes)
+            if original is None
+            else Todo.model_validate({**original.model_dump(), **changes})
+        )
         self._update_progress(record.progress, request)
         if record.status == "closed":
             record.closed_at = record.closed_at or datetime.now(timezone.utc)

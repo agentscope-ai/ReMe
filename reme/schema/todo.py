@@ -19,6 +19,7 @@ class Todo(BaseModel):
     status: TodoStatus = "pending"
     progress: list[TodoProgress] = Field(default_factory=list)
     due_date: date | None = None
+    created_at: AwareDatetime | None = None
     closed_at: AwareDatetime | None = None
     close_note: str | None = Field(default=None, min_length=1)
     source_idea: str | None = Field(default=None, min_length=1)

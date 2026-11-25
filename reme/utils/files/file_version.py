@@ -4,12 +4,12 @@ import os
 from pathlib import Path
 
 
-class FileChangedDuringChunkingError(RuntimeError):
-    """Raised when a source file changes while it is being parsed."""
+class FileChangedError(RuntimeError):
+    """Raised when the source file no longer matches a recorded version."""
 
 
 def check_file_version(path: Path, before: os.stat_result, after: os.stat_result) -> None:
     """Raise when the source file's identity or content metadata changed."""
     fields = ("st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns")
     if any(getattr(before, field) != getattr(after, field) for field in fields):
-        raise FileChangedDuringChunkingError(f"File changed while chunking: {path}")
+        raise FileChangedError(f"File changed: {path}")

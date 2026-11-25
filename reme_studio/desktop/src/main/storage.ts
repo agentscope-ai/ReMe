@@ -55,6 +55,7 @@ export class Storage implements ClientStorage {
           ? settings.theme
           : "system",
       transparentBackground: settings.transparentBackground === true,
+      companionVisible: settings.companionVisible !== false,
       endpoint: normalizeEndpoint(
         settings.endpoint ?? defaultSettings.endpoint,
       ),

@@ -1,7 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import {
   Archive,
-  ArrowLeft,
   ArrowRight,
   CalendarDays,
   CheckSquare,
@@ -33,6 +32,7 @@ import {
 } from "../../../client/src/notebook.ts";
 import { usePollingResource, useResource } from "../resources.ts";
 import SplitPane, { SidebarHeading } from "../split-pane.tsx";
+import { TimelineHeading, TimelinePane } from "../timeline.tsx";
 import RecordDetail from "./detail.tsx";
 import RecordEditor, { type RecordDraft } from "./editor.tsx";
 import NotebookList from "./list.tsx";
@@ -57,6 +57,7 @@ export default function Notebook({
   const connected = state.connection === "connected";
   const [kind, setKind] = useState<NotebookKind>("todo");
   const [scope, setScope] = useState<"active" | "archive">("active");
+  const [order, setOrder] = useState<"due" | "created">("due");
   const [query, setQuery] = useState("");
   const [project, setProject] = useState("");
   const [queryDraft, setQueryDraft] = useState("");
@@ -77,8 +78,6 @@ export default function Notebook({
   const [closeNote, setCloseNote] = useState("");
   const closeDialog = useRef<HTMLDialogElement>(null);
   const closeTitleId = useId();
-  const scroll = useRef<HTMLDivElement>(null);
-  const listScroll = useRef(0);
   const missing = ["todo", "idea"].find(
     (name) => !state.clientInfo?.jobs.includes(name),
   );
@@ -104,21 +103,29 @@ export default function Notebook({
   latest.current = { kind, selected, selection };
   const ready = active && connected && available;
   const disabled = saving || !connected || !available;
+  const listOptions = {
+    action: "list" as const,
+    scope,
+    offset,
+    limit: PAGE_SIZE,
+    ...(query ? { query } : {}),
+    ...(project ? { project } : {}),
+  };
+  const listRequest: NotebookRequest =
+    kind === "todo"
+      ? {
+          type: "todo",
+          ...listOptions,
+          ...(order === "created" && scope === "active" ? { order } : {}),
+        }
+      : { type: "idea", ...listOptions };
   const {
     data: page,
     error: pageError,
     loading: pageLoading,
     refresh: refreshPage,
   } = usePollingResource<ResourcePage<NotebookItem>>(
-    {
-      type: kind,
-      action: "list",
-      scope,
-      offset,
-      limit: PAGE_SIZE,
-      ...(query ? { query } : {}),
-      ...(project ? { project } : {}),
-    },
+    listRequest,
     ready,
     revision,
   );
@@ -149,10 +156,6 @@ export default function Notebook({
         Math.max(0, Math.floor((page.total - 1) / PAGE_SIZE) * PAGE_SIZE),
       );
   }, [page?.total, offset]);
-  useEffect(() => {
-    if (scroll.current)
-      scroll.current.scrollTop = selected || editor ? 0 : listScroll.current;
-  }, [kind, scope, selected, editing, offset, project, query]);
   useEffect(() => {
     setDetailError(null);
     if (!ready || !selected || editor) {
@@ -310,11 +313,15 @@ export default function Notebook({
   const currentLabel = t(
     todo ? "notebookCurrentTodos" : "notebookCurrentIdeas",
   );
-  const listHeading = archived ? archiveLabel : kindLabel;
+  const listHeading = kindLabel;
   const KindIcon = todo ? CheckSquare : Lightbulb;
-  const orderLabel = todo
-    ? t(archived ? "notebookClosedOrder" : "notebookDueOrder")
-    : t(archived ? "notebookArchiveOrder" : "notebookCaptureOrder");
+  const orderLabel = t(
+    archived
+      ? todo
+        ? "notebookClosedOrder"
+        : "notebookArchiveOrder"
+      : "notebookCaptureOrder",
+  );
   const emptyLabel = todo
     ? t(archived ? "notebookEmptyClosed" : "notebookEmptyTodos")
     : t(archived ? "notebookEmptyArchive" : "notebookEmptyIdeas");
@@ -333,7 +340,6 @@ export default function Notebook({
           className={kind === value ? "active" : ""}
           onClick={() => {
             if (kind !== value) {
-              listScroll.current = 0;
               setKind(value);
               setScope("active");
               setOffset(0);
@@ -404,8 +410,6 @@ export default function Notebook({
                 setQuery(queryDraft.trim());
                 setOffset(0);
                 setSelection({});
-                listScroll.current = 0;
-                if (scroll.current) scroll.current.scrollTop = 0;
                 onNavigate?.();
               }}
             >
@@ -443,7 +447,6 @@ export default function Notebook({
                       if (project !== name) {
                         setProject(name);
                         setOffset(0);
-                        listScroll.current = 0;
                       }
                       openList();
                       onNavigate?.();
@@ -498,7 +501,185 @@ export default function Notebook({
             </button>
           </div>
         )}
-        <div className="notebook-scroll" ref={scroll}>
+        <TimelinePane
+          name="notebook-timeline"
+          language={language}
+          listKey={JSON.stringify(listRequest)}
+          detailKey={editor ? `edit:${kind}:${selected}` : selected}
+          onClose={editing ? undefined : openList}
+          heading={
+            <>
+              {kindTabs("notebook-compact-tabs")}
+              <TimelineHeading
+                title={listHeading}
+                icon={archived ? <Archive size={21} /> : <KindIcon size={22} />}
+                action={
+                  <button
+                    className="primary notebook-new"
+                    disabled={disabled || editing}
+                    onClick={() => openEditor()}
+                  >
+                    <Plus size={16} aria-hidden />
+                    {newLabel}
+                  </button>
+                }
+                controls={
+                  <>
+                    <div
+                      className="notebook-scope-tabs"
+                      role="group"
+                      aria-label={t("navigation")}
+                    >
+                      {(["active", "archive"] as const).map((value) => (
+                        <button
+                          type="button"
+                          key={value}
+                          aria-pressed={scope === value}
+                          disabled={editing}
+                          onClick={() => {
+                            if (scope === value) return;
+                            setScope(value);
+                            setOffset(0);
+                            openList();
+                          }}
+                        >
+                          {value === "archive" && (
+                            <Archive size={14} aria-hidden />
+                          )}
+                          {value === "archive" ? archiveLabel : currentLabel}
+                        </button>
+                      ))}
+                    </div>
+                    <span className="timeline-order">
+                      {project && (
+                        <span
+                          className="notebook-project-context"
+                          title={projectLabel(project, language)}
+                        >
+                          {projectLabel(project, language)}
+                        </span>
+                      )}
+                      <CalendarDays size={14} aria-hidden />
+                      {todo && !archived ? (
+                        <select
+                          aria-label={t("timelineSort")}
+                          value={order}
+                          disabled={editing}
+                          onChange={(event) => {
+                            setOrder(
+                              event.target.value === "created"
+                                ? "created"
+                                : "due",
+                            );
+                            setOffset(0);
+                            openList();
+                          }}
+                        >
+                          <option value="due">{t("notebookDueOrder")}</option>
+                          <option value="created">
+                            {t("notebookCreatedOrder")}
+                          </option>
+                        </select>
+                      ) : (
+                        orderLabel
+                      )}
+                      {page && (
+                        <span>
+                          · {t("notebookResultCount", { count: page.total })}
+                        </span>
+                      )}
+                    </span>
+                  </>
+                }
+              />
+            </>
+          }
+          list={
+            <>
+              {pageError != null && (
+                <p className="navigator-error timeline-empty" role="alert">
+                  {errorText(pageError, language)}{" "}
+                  <button className="text-action" onClick={refreshPage}>
+                    {t("retry")}
+                  </button>
+                </p>
+              )}
+              {!connected && (
+                <p className="timeline-empty">{t("waitingService")}</p>
+              )}
+              {ready && pageLoading && (
+                <p className="timeline-empty" role="status">
+                  {t("documentLoading")}
+                </p>
+              )}
+              {page && !page.total && (
+                <p className="timeline-empty">
+                  {query || project ? t("notebookNoMatches") : emptyLabel}
+                </p>
+              )}
+              {page && page.items.length > 0 && (
+                <NotebookList
+                  items={page.items}
+                  archived={archived}
+                  order={todo ? order : "created"}
+                  language={language}
+                  disabled={disabled}
+                  editing={editing}
+                  selected={selected}
+                  onOpen={(id) => {
+                    setSelection((current) => ({ ...current, [kind]: id }));
+                    setActionError(null);
+                  }}
+                  onToggleTodo={(record) => {
+                    if (record.status !== "closed") openCloseDialog(record);
+                    else
+                      void write({
+                        type: "todo",
+                        action: "update",
+                        id: record.id,
+                        status: "pending",
+                      });
+                  }}
+                />
+              )}
+              {page && page.total > page.limit && (
+                <nav
+                  className="timeline-pagination"
+                  aria-label={t("navigation")}
+                >
+                  <button
+                    className="icon-button"
+                    aria-label={t("previousPage")}
+                    disabled={!offset || editing}
+                    onClick={() => {
+                      setOffset(Math.max(0, offset - PAGE_SIZE));
+                      openList();
+                    }}
+                  >
+                    <ChevronLeft size={16} aria-hidden />
+                  </button>
+                  <span>
+                    {t("pageLabel", {
+                      page: Math.floor(offset / PAGE_SIZE) + 1,
+                      total: Math.ceil(page.total / PAGE_SIZE),
+                    })}
+                  </span>
+                  <button
+                    className="icon-button"
+                    aria-label={t("nextPage")}
+                    disabled={offset + PAGE_SIZE >= page.total || editing}
+                    onClick={() => {
+                      setOffset(offset + PAGE_SIZE);
+                      openList();
+                    }}
+                  >
+                    <ChevronRight size={16} aria-hidden />
+                  </button>
+                </nav>
+              )}
+            </>
+          }
+        >
           {editor ? (
             <RecordEditor
               kind={kind}
@@ -516,206 +697,51 @@ export default function Notebook({
                 setEditors((current) => ({ ...current, [kind]: undefined }))
               }
             />
-          ) : selected ? (
-            <>
-              <div className="notebook-back">
-                <button className="text-action" onClick={openList}>
-                  <ArrowLeft size={15} aria-hidden />
-                  {t("notebookBackToList")}
-                </button>
-              </div>
-              {item ? (
-                <RecordDetail
-                  key={`${kind}:${item.id}`}
-                  item={item}
-                  language={language}
-                  busy={disabled}
-                  canCreateTodo={!editors.todo}
-                  active={ready}
-                  revision={revision}
-                  draft={progressDrafts[item.id] ?? ""}
-                  onDraft={(value) =>
-                    setProgressDrafts((current) => ({
-                      ...current,
-                      [item.id]: value,
-                    }))
-                  }
-                  onEdit={() => openEditor(item)}
-                  onCloseTodo={openCloseDialog}
-                  onWrite={write}
-                  onOpen={(targetKind, target) => {
-                    listScroll.current = 0;
-                    setKind(targetKind);
-                    setScope(target.closed_at ? "archive" : "active");
-                    setOffset(0);
-                    setQuery("");
-                    setQueryDraft("");
-                    setProject((current) =>
-                      current === target.project ? current : "",
-                    );
-                    setSelection((current) => ({
-                      ...current,
-                      [targetKind]: target.id,
-                    }));
-                    setActionError(null);
-                  }}
-                />
-              ) : detailLoading ? (
-                <p className="document-loading">{t("documentLoading")}</p>
-              ) : null}
-            </>
           ) : (
-            <div className="notebook-overview">
-              {kindTabs("notebook-compact-tabs")}
-              <header className="notebook-masthead">
-                <div className="notebook-masthead-icon" aria-hidden>
-                  {archived ? <Archive size={21} /> : <KindIcon size={22} />}
-                </div>
-                <h1>{listHeading}</h1>
-                <button
-                  className="primary notebook-new"
-                  disabled={disabled}
-                  onClick={() => openEditor()}
-                >
-                  <Plus size={16} aria-hidden />
-                  {newLabel}
-                </button>
-              </header>
-              <div className="notebook-list-toolbar">
-                <div
-                  className="notebook-scope-tabs"
-                  role="group"
-                  aria-label={t("navigation")}
-                >
-                  {(["active", "archive"] as const).map((value) => (
-                    <button
-                      type="button"
-                      key={value}
-                      aria-pressed={scope === value}
-                      onClick={() => {
-                        if (scope === value) return;
-                        listScroll.current = 0;
-                        setScope(value);
-                        setOffset(0);
-                        setActionError(null);
-                      }}
-                    >
-                      {value === "archive" && <Archive size={14} aria-hidden />}
-                      {value === "archive" ? archiveLabel : currentLabel}
-                    </button>
-                  ))}
-                </div>
-                {page && (
-                  <span className="notebook-list-summary">
-                    {project && (
-                      <span
-                        className="notebook-project-context"
-                        title={projectLabel(project, language)}
-                      >
-                        {projectLabel(project, language)}
-                      </span>
-                    )}
-                    <CalendarDays size={14} aria-hidden />
-                    {orderLabel} ·{" "}
-                    {t("notebookResultCount", { count: page.total })}
-                  </span>
-                )}
-              </div>
-              <div aria-busy={ready && pageLoading}>
-                {pageError != null && (
-                  <p className="navigator-error" role="alert">
-                    {errorText(pageError, language)}{" "}
-                    <button className="text-action" onClick={refreshPage}>
-                      {t("retry")}
-                    </button>
-                  </p>
-                )}
-                {!connected && (
-                  <p className="notebook-list-empty">{t("waitingService")}</p>
-                )}
-                {ready && pageLoading && (
-                  <div className="tree-skeleton">
-                    <i />
-                    <i />
-                    <i />
-                  </div>
-                )}
-                {page && !page.total && (
-                  <div className="notebook-list-empty">
-                    <KindIcon size={24} aria-hidden />
-                    <p>
-                      {query || project ? t("notebookNoMatches") : emptyLabel}
-                    </p>
-                  </div>
-                )}
-                {page && page.items.length > 0 && (
-                  <NotebookList
-                    items={page.items}
-                    kind={kind}
-                    archived={archived}
+            selected && (
+              <>
+                {item ? (
+                  <RecordDetail
+                    key={`${kind}:${item.id}`}
+                    item={item}
                     language={language}
-                    disabled={disabled}
-                    onOpen={(record) => {
-                      listScroll.current = scroll.current?.scrollTop ?? 0;
+                    busy={disabled}
+                    canCreateTodo={!editors.todo}
+                    active={ready}
+                    revision={revision}
+                    draft={progressDrafts[item.id] ?? ""}
+                    onDraft={(value) =>
+                      setProgressDrafts((current) => ({
+                        ...current,
+                        [item.id]: value,
+                      }))
+                    }
+                    onEdit={() => openEditor(item)}
+                    onCloseTodo={openCloseDialog}
+                    onWrite={write}
+                    onOpen={(targetKind, target) => {
+                      setKind(targetKind);
+                      setScope(target.closed_at ? "archive" : "active");
+                      setOffset(0);
+                      setQuery("");
+                      setQueryDraft("");
+                      setProject((current) =>
+                        current === target.project ? current : "",
+                      );
                       setSelection((current) => ({
                         ...current,
-                        [kind]: record.id,
+                        [targetKind]: target.id,
                       }));
                       setActionError(null);
                     }}
-                    onToggleTodo={(record) => {
-                      if (record.status !== "closed") {
-                        openCloseDialog(record);
-                        return;
-                      }
-                      void write({
-                        type: "todo",
-                        action: "update",
-                        id: record.id,
-                        status: "pending",
-                      });
-                    }}
                   />
-                )}
-              </div>
-              {page && page.total > page.limit && (
-                <nav
-                  className="resource-pagination"
-                  aria-label={t("navigation")}
-                >
-                  <button
-                    className="icon-button"
-                    aria-label={t("previousPage")}
-                    disabled={!offset}
-                    onClick={() => {
-                      listScroll.current = 0;
-                      setOffset(Math.max(0, offset - PAGE_SIZE));
-                    }}
-                  >
-                    <ChevronLeft size={16} />
-                  </button>
-                  <span>
-                    {t("pageLabel", {
-                      page: Math.floor(offset / PAGE_SIZE) + 1,
-                      total: Math.ceil(page.total / PAGE_SIZE),
-                    })}
-                  </span>
-                  <button
-                    className="icon-button"
-                    aria-label={t("nextPage")}
-                    disabled={offset + PAGE_SIZE >= page.total}
-                    onClick={() => {
-                      listScroll.current = 0;
-                      setOffset(offset + PAGE_SIZE);
-                    }}
-                  >
-                    <ChevronRight size={16} />
-                  </button>
-                </nav>
-              )}
-            </div>
+                ) : detailLoading ? (
+                  <p className="document-loading">{t("documentLoading")}</p>
+                ) : null}
+              </>
+            )
           )}
-        </div>
+        </TimelinePane>
         <div className="notebook-notice" role="status" aria-live="polite">
           {saving ? t("notebookSaving") : notice}
         </div>

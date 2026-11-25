@@ -109,7 +109,7 @@ export default function DesktopUpdate({
           >
             {t("desktopUpdateClose")}
           </button>
-          {status === "manual" && (
+          {(status === "manual" || status === "error") && (
             <button
               type="button"
               className="primary"

@@ -212,7 +212,7 @@ export default function AgentSidebar({
               <Icon size={16} aria-hidden />
               {t(label)}
               {id === "reminders" && state.unread > 0 && (
-                <span className="count-badge" data-tone="accent">
+                <span className="count-badge" data-tone="unread">
                   {state.unread}
                 </span>
               )}

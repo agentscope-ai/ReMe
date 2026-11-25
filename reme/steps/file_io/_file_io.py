@@ -11,11 +11,9 @@ import aiofiles.os
 
 from ...constants import DEFAULT_MAX_BYTES, MAX_FILE_READ_BYTES, TRUNCATION_NOTICE_MARKER
 from ...schema import FileChunk
-from ...utils.logger_utils import get_logger
 from ...utils.async_utils import complete_in_thread
-
-# Preserve the file-job import path while runtime writers use the same registry.
-# pylint: disable-next=unused-import
+from ...utils.files.file_version import FileChangedError, check_file_version
+from ...utils.logger_utils import get_logger
 
 logger = get_logger(log_to_file=False)
 
@@ -149,8 +147,9 @@ async def write_file_safe(
     encoding: str = "utf-8",
     *,
     max_bytes: int | None = None,
+    expected_version: os.stat_result | None = None,
 ) -> None:
-    """Publish complete bytes atomically while retaining normal file permissions."""
+    """Publish complete bytes, optionally requiring the original file version."""
     if isinstance(content, str):
         try:
             payload = content.encode(encoding)
@@ -186,6 +185,12 @@ async def write_file_safe(
                 handle.write(payload)
             if mode is not None:
                 os.chmod(temporary, mode)
+            if expected_version is not None:
+                try:
+                    current = file_path.lstat()
+                except FileNotFoundError as exc:
+                    raise FileChangedError(f"File disappeared: {file_path}") from exc
+                check_file_version(file_path, expected_version, current)
             os.replace(temporary, file_path)
         finally:
             Path(temporary).unlink(missing_ok=True)

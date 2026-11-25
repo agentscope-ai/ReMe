@@ -40,6 +40,7 @@ export default function Settings({
   version,
   companionVisible,
   desktop,
+  windowTransparency,
   open,
   editableEndpoint,
   navigate = (next) => next(),
@@ -51,6 +52,7 @@ export default function Settings({
   version: string;
   companionVisible: boolean;
   desktop: boolean;
+  windowTransparency: boolean;
   open: boolean;
   editableEndpoint: boolean;
   navigate?: NavigationGuard;
@@ -268,23 +270,25 @@ export default function Settings({
                   </div>
                 </div>
                 <div className="setting-group">
-                  <div className="setting-row">
-                    <div>
-                      <h3>{t("transparentBackground")}</h3>
-                      <p>{t("transparentBackgroundHint")}</p>
+                  {windowTransparency && (
+                    <div className="setting-row">
+                      <div>
+                        <h3>{t("transparentBackground")}</h3>
+                        <p>{t("transparentBackgroundHint")}</p>
+                      </div>
+                      <Switch
+                        aria-label={t("transparentBackground")}
+                        checked={state.settings.transparentBackground}
+                        disabled={saving}
+                        onCheckedChange={(transparentBackground) =>
+                          void run({
+                            type: "settings.update",
+                            transparentBackground,
+                          })
+                        }
+                      />
                     </div>
-                    <Switch
-                      aria-label={t("transparentBackground")}
-                      checked={state.settings.transparentBackground}
-                      disabled={saving}
-                      onCheckedChange={(transparentBackground) =>
-                        void run({
-                          type: "settings.update",
-                          transparentBackground,
-                        })
-                      }
-                    />
-                  </div>
+                  )}
                   <div className="setting-row">
                     <div>
                       <h3>{t("interfaceLanguage")}</h3>
