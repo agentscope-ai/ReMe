@@ -19,19 +19,25 @@ from .test_auto_dream import _Catalog, _FileStore, _ReplyAgent, _SequenceAgent, 
 _UNIT = {"name": "git-commit-text", "bucket": "procedure", "summary": "summary", "paths": ["daily/a.md"]}
 _OUT_OF_BUCKET = "digest/workflow/git-commit-text-workflow.md"
 _REPORT_LINE = "- Changed during failed units (left in place, review): "
+_MISSING_LINE = "- Changed during failed units, missing at end of run (review): "
 
 
 def _receipt(target: str, action: str = "REFINE") -> dict:
     return {"result": json.dumps({"action": action, "target_path": target, "note": "edited"})}
 
 
-async def _run(workspace: Path, agent, units=None):
-    """Run integrate + finish the way auto_dream does and return the finished context."""
+async def _run(workspace: Path, agent, units=None, answers=None):
+    """Run integrate + finish the way auto_dream does and return the finished context.
+
+    ``answers`` collects the integration answer, which the finish step replaces with the summary.
+    """
     app_context = ApplicationContext(workspace_dir=str(workspace))
     state = DreamState(units=units or [_UNIT], workspace=str(workspace))
     context = RuntimeContext(dream=state.model_dump(), file_catalog=_Catalog(), file_store=_FileStore(workspace))
     with patch("reme.steps.evolve.dream.integrate.llm_available", return_value=True):
         await DreamIntegrateStep(app_context=app_context, agent_wrapper=agent)(context)
+    if answers is not None:
+        answers.append(context.response.answer)
     await DreamFinishStep(app_context=app_context)(context)
     return context
 
@@ -82,8 +88,8 @@ async def test_files_saved_by_the_user_during_a_failed_unit_are_never_removed(tm
 
 
 @pytest.mark.asyncio
-async def test_files_removed_during_a_failed_unit_are_reported_as_removed(tmp_path):
-    """A pre-existing file that is gone after a failed unit is listed as removed, not as left in place."""
+async def test_files_removed_during_a_failed_unit_are_reported_as_missing(tmp_path):
+    """A pre-existing file that is gone after a failed unit is listed as missing, not as left in place."""
     removed = _touch(tmp_path / _OUT_OF_BUCKET, "original")
     edited = _touch(tmp_path / "digest" / "workflow" / "kept.md", "v0")
 
@@ -97,10 +103,11 @@ async def test_files_removed_during_a_failed_unit_are_reported_as_removed(tmp_pa
     dream = context.response.metadata["dream"]
     assert not removed.exists()
     assert dream["failed_unit_changed_paths"] == ["digest/workflow/kept.md"]
-    assert dream["failed_unit_removed_paths"] == [_OUT_OF_BUCKET]
+    assert dream["failed_unit_missing_paths"] == [_OUT_OF_BUCKET]
     assert dream["failed_units"][0]["changed_paths"] == [_OUT_OF_BUCKET, "digest/workflow/kept.md"]
     assert f"{_REPORT_LINE}digest/workflow/kept.md" in dream["summary"]
-    assert f"- Removed during failed units (review): {_OUT_OF_BUCKET}" in dream["summary"]
+    assert f"{_MISSING_LINE}{_OUT_OF_BUCKET}" in dream["summary"]
+    assert "Removed during failed units" not in dream["summary"]
     assert dream["summary"].count(_OUT_OF_BUCKET) == 1
 
 
@@ -182,6 +189,45 @@ async def test_summary_lists_each_path_once_and_only_while_it_still_differs(tmp_
         ["digest/workflow/git-commit-text-workflow.md"],
     ]
     assert len(dream["integrate_results"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_file_edited_by_a_failed_unit_and_removed_later_is_reported_as_missing(tmp_path):
+    """A failed unit edits a file and a later successful unit removes it.
+
+    The file still existed when the failed unit finished, so the report says only what the
+    job can establish: the path changed during a failed unit and is missing at the end.
+    """
+    shared = _touch(tmp_path / _OUT_OF_BUCKET, "v0")
+    target = "digest/procedure/ok.md"
+
+    def first_edits_and_fails():
+        shared.write_text("v1 from the failed unit", encoding="utf-8")
+        return {"result": "{}"}
+
+    def second_removes_and_succeeds():
+        shared.unlink()
+        _touch(tmp_path / target, "new")
+        return _receipt(target, action="CREATE")
+
+    units = [
+        {"name": "one", "bucket": "procedure", "summary": "s", "paths": ["daily/1.md"]},
+        {"name": "two", "bucket": "procedure", "summary": "s", "paths": ["daily/2.md"]},
+    ]
+    agent = _SequenceAgent(first_edits_and_fails, {"result": "{}"}, second_removes_and_succeeds)
+    answers = []
+    context = await _run(tmp_path, agent, units, answers)
+
+    dream = context.response.metadata["dream"]
+    assert not shared.exists()
+    assert [unit["changed_paths"] for unit in dream["failed_units"]] == [[_OUT_OF_BUCKET]]
+    assert len(dream["integrate_results"]) == 1
+    assert dream["failed_unit_changed_paths"] == []
+    assert dream["failed_unit_missing_paths"] == [_OUT_OF_BUCKET]
+    assert f"{_MISSING_LINE}{_OUT_OF_BUCKET}" in dream["summary"]
+    assert "Removed during failed units" not in dream["summary"]
+    assert "removed while failed units ran" not in answers[0]
+    assert "1 digest file(s) changed during failed units are missing at the end of the run" in answers[0]
 
 
 @pytest.mark.asyncio

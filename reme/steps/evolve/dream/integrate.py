@@ -131,7 +131,7 @@ class DreamIntegrateStep(BaseStep):
         still_changed = set(_differing_paths(tree_before, tree_after))
         flagged = [p for p in state.failed_unit_changed_paths if p in still_changed]
         state.failed_unit_changed_paths = [p for p in flagged if p in tree_after]
-        state.failed_unit_removed_paths = [p for p in flagged if p not in tree_after]
+        state.failed_unit_missing_paths = [p for p in flagged if p not in tree_after]
         self.context["changes"] = [
             {"change": "modified" if path in before else "added", "path": path}
             for path in _changed_digest_paths(before, after)
@@ -146,8 +146,11 @@ class DreamIntegrateStep(BaseStep):
                 f"; {len(state.failed_unit_changed_paths)} digest file(s) changed while failed units ran "
                 "were left in place for review"
             )
-        if state.failed_unit_removed_paths:
-            answer += f"; {len(state.failed_unit_removed_paths)} digest file(s) were removed while failed units ran"
+        if state.failed_unit_missing_paths:
+            answer += (
+                f"; {len(state.failed_unit_missing_paths)} digest file(s) changed during failed units "
+                "are missing at the end of the run"
+            )
         return self._finish(state, not state.failed_units, answer)
 
     def _integration_lock(self) -> asyncio.Lock:
