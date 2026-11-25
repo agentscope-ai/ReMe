@@ -1,0 +1,41 @@
+{
+  "description": "Automatic ReMe recall and retryable completed-turn recording for ZCode.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${ZCODE_PLUGIN_ROOT}/hooks/auto_memory.py\"",
+            "timeout": 15,
+            "statusMessage": "Recalling ReMe memory"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${ZCODE_PLUGIN_ROOT}/hooks/auto_memory.py\"",
+            "timeout": 10,
+            "statusMessage": "Queueing ReMe memory"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${ZCODE_PLUGIN_ROOT}/hooks/auto_memory.py\"",
+            "timeout": 10,
+            "statusMessage": "Retrying ReMe memory"
+          }
+        ]
+      }
+    ]
+  }
+}
