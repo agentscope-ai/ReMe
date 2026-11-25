@@ -24,6 +24,7 @@ for previews instead of creating a separate packaged app for every change. Custo
 also end in `.noindex`.
 
 To upgrade on macOS, quit ReMe Studio and replace `/Applications/ReMe Studio.app` with the new app from the DMG.
-On Windows, run the new installer with the existing installation directory and user scope. In-app updates replace
-the installed app and restart it; they do not open the installation wizard. Upgrades preserve Desktop settings and
-the ReMe workspace. See the [release guide](../README.md#release) for signing and update-channel requirements.
+On Windows, run the new installer with the existing installation directory and user scope, or use the in-app updater.
+Windows and Linux AppImage in-app updates replace the installed app and restart it without an installation wizard.
+Upgrades preserve Desktop settings and the ReMe workspace. GitHub preview releases do not require platform signing
+credentials; macOS uses the downloads page. See the [release guide](../README.md#release) for distribution details.

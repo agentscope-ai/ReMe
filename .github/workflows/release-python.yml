@@ -121,21 +121,11 @@ jobs:
           manifest=""
           case "$RUNNER_OS" in
             macOS)
-              if [[ -n "$CSC_LINK" && -n "$APPLE_ID" && -n "$APPLE_APP_SPECIFIC_PASSWORD" && -n "$APPLE_TEAM_ID" ]]; then
-                export CSC_IDENTITY_AUTO_DISCOVERY=true
-                flags+=(--config.forceCodeSigning=true --config.mac.notarize=true)
-                manifest=latest-mac.yml
-              else
-                echo "::warning::macOS signing/notarization credentials are missing. This build supports manual replacement only; in-app updates are disabled."
-              fi
+              flags+=(--config.mac.identity=- --config.mac.notarize=false)
               ;;
             Windows)
-              if [[ -n "$CSC_LINK" ]]; then
-                flags+=(--config.forceCodeSigning=true)
-                manifest=latest.yml
-              else
-                echo "::warning::Windows signing credentials are missing. This build supports manual upgrade only; in-app updates are disabled."
-              fi
+              flags+=(--config.win.signExecutable=false)
+              manifest=latest.yml
               ;;
             Linux) manifest=latest-linux.yml ;;
           esac
@@ -153,11 +143,6 @@ jobs:
         working-directory: reme_studio
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-          CSC_LINK: ${{ (runner.os == 'macOS' && secrets.MAC_CSC_LINK) || (runner.os == 'Windows' && secrets.WIN_CSC_LINK) || '' }}
-          CSC_KEY_PASSWORD: ${{ (runner.os == 'macOS' && secrets.MAC_CSC_KEY_PASSWORD) || (runner.os == 'Windows' && secrets.WIN_CSC_KEY_PASSWORD) || '' }}
-          APPLE_ID: ${{ runner.os == 'macOS' && secrets.APPLE_ID || '' }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ runner.os == 'macOS' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
-          APPLE_TEAM_ID: ${{ runner.os == 'macOS' && secrets.APPLE_TEAM_ID || '' }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: reme-desktop-${{ matrix.os }}

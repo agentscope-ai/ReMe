@@ -54,18 +54,18 @@ ready for Desktop's update channel. Manual Docker runs publish the versioned tag
 PyPI and npm Trusted Publishing use `release-python.yml`. The GitHub `pypi` and `npm` environments must allow release
 tags such as `v*`.
 
-In Desktop, **Check for updates** sits above Settings. It checks GitHub Releases, lets the user start the download,
-and installs the update when the user chooses **Restart to install**. Local preview builds open the downloads page.
-Upgrade the ReMe service separately if the new Desktop version requires it.
+Desktop preview releases are distributed through GitHub Releases without Apple or Windows release certificates.
+macOS builds use an ad-hoc signature without Apple notarization; Windows installers are unsigned. On first launch,
+the operating system may ask you to approve running the downloaded app.
 
-The release workflow enables in-app updates for Linux AppImage builds and for builds signed with the platform's
-release credentials. For macOS, configure `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, `APPLE_ID`,
-`APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID`. For Windows, configure `WIN_CSC_LINK` and `WIN_CSC_KEY_PASSWORD`.
-Release builds without the required credentials use the downloads page.
+In Desktop, **Check for updates** sits above Settings. Windows and Linux AppImage release builds check GitHub Releases,
+download the update on request, and replace the installed app when the user chooses **Restart to install**. Downloads
+are checked against the release metadata's SHA-512 checksum. macOS and local preview builds open the GitHub downloads
+page because the native macOS updater requires a release signing identity.
 
 On macOS, quit Desktop and replace `/Applications/ReMe Studio.app` with the new app from the DMG. On Windows,
-run the new installer with the existing installation directory and user scope. In-app updates replace the installed
-app and restart it. These upgrades preserve Desktop settings and the ReMe workspace.
+you can also run the new installer with the existing installation directory and user scope. These upgrades preserve
+Desktop settings and the ReMe workspace. Upgrade the ReMe service separately if needed.
 
 Local `pack` and `dist` builds reuse `desktop/dist.noindex/` to keep generated apps out of Spotlight. Use
 `npm run dev:desktop` for routine previews; custom preview output directories should also end in `.noindex`.

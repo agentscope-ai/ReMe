@@ -481,8 +481,8 @@ export const messages = {
   desktopUpdateInstall: ["重启安装", "Restart to install"],
   desktopUpdateInstalling: ["正在安装 {version}…", "Installing {version}…"],
   desktopUpdateManual: [
-    "此安装包通过下载页更新。",
-    "Get updates for this build from the downloads page.",
+    "请从 GitHub 下载新版，退出应用后覆盖安装。设置和工作区会保留。",
+    "Download the new version from GitHub, quit the app, and replace the existing installation. Settings and your workspace are preserved.",
   ],
   desktopUpdateDownloads: ["打开下载页", "Open downloads"],
   desktopUpdateError: [
