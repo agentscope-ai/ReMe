@@ -4,6 +4,7 @@
 
 import asyncio
 from datetime import datetime
+from importlib.resources import files
 import json
 from unittest.mock import AsyncMock, Mock
 from zoneinfo import ZoneInfo
@@ -11,6 +12,8 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from reme.schema import Event, Response
+from reme.schema import ApplicationConfig
+from reme.utils import timezone_utils
 from .test_proactive_runtime import running_runtime
 
 INVALID_SCHEDULES = ("0 0 31 2 *", "0 0 1 1 * 0 2025")
@@ -51,6 +54,26 @@ async def test_proactive_cron_uses_local_timezone_rules(
         clock[0] = datetime.fromisoformat(next_trigger)
         await runtime._schedule_cron(agent)
         assert (await runtime.inbox.snapshot("timer"))["pending_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_local_cron_uses_host_rules_without_an_iana_name(tmp_path, monkeypatch):
+    monkeypatch.delenv("TZ", raising=False)
+    localtime = tmp_path / "localtime"
+    localtime.write_bytes(files("tzdata.zoneinfo.America").joinpath("New_York").read_bytes())
+    with localtime.open("rb") as source:
+        rules = ZoneInfo.from_file(source, key="local")
+    monkeypatch.setattr(timezone_utils, "get_localzone", lambda: rules)
+    assert ApplicationConfig().timezone == "Asia/Shanghai"
+
+    async with running_runtime(tmp_path / "workspace") as (runtime, context, _):
+        context.app_config.timezone = None
+        anchor = datetime(2026, 11, 25, 8, tzinfo=rules)
+        monkeypatch.setattr(runtime, "now", lambda: anchor)
+        await runtime.create({"agent_name": "timer", "task_description": "Report", "cron": "0 9 * * *"})
+        scheduled = datetime.fromisoformat((await runtime.status("timer"))["next_trigger_at"])
+        assert scheduled.isoformat() == "2026-11-25T09:00:00-05:00"
+        assert scheduled.timestamp() - anchor.timestamp() == 3600
 
 
 @pytest.mark.parametrize("cron", INVALID_SCHEDULES)

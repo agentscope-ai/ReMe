@@ -3,7 +3,7 @@
 import os
 from zoneinfo import ZoneInfo
 
-from tzlocal import get_localzone_name
+from tzlocal import get_localzone
 
 
 def system_timezone() -> ZoneInfo:
@@ -15,9 +15,7 @@ def system_timezone() -> ZoneInfo:
         except (LookupError, ValueError) as error:
             raise ValueError(f"TZ must be an IANA timezone name: {name!r}") from error
     try:
-        name = get_localzone_name()
-        if name:
-            return ZoneInfo(name)
+        return get_localzone()
     except (LookupError, OSError, ValueError):
         pass
     return ZoneInfo("Asia/Shanghai")

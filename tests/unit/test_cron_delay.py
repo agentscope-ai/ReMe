@@ -3,12 +3,15 @@
 # pylint: disable=protected-access,missing-function-docstring,missing-class-docstring
 
 import datetime
+from importlib.resources import files
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 import pytest
 
 from reme.components.job import cron_job as cron_job_module
 from reme.components.job.cron_job import CronJob
+from reme.utils import timezone_utils
 
 
 @pytest.mark.parametrize(
@@ -80,4 +83,24 @@ def test_date_limited_cron_waits_for_second_fold(monkeypatch):
     monkeypatch.setattr(cron_job_module, "datetime", SimpleNamespace(datetime=FixedDatetime))
     job = CronJob(cron="30 1 1 11 * 0 2026")
     job.app_context = SimpleNamespace(app_config=SimpleNamespace(timezone="America/New_York"))
+    assert job._next_fire_delay() == 3600
+
+
+def test_cron_local_time_uses_host_rules_without_an_iana_name(tmp_path, monkeypatch):
+    monkeypatch.delenv("TZ", raising=False)
+    localtime = tmp_path / "localtime"
+    localtime.write_bytes(files("tzdata.zoneinfo.America").joinpath("New_York").read_bytes())
+    with localtime.open("rb") as source:
+        rules = ZoneInfo.from_file(source, key="local")
+    monkeypatch.setattr(timezone_utils, "get_localzone", lambda: rules)
+    fixed = datetime.datetime(2026, 11, 25, 8, tzinfo=rules)
+
+    class FixedDatetime(datetime.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed.astimezone(tz)
+
+    monkeypatch.setattr(cron_job_module, "datetime", SimpleNamespace(datetime=FixedDatetime))
+    job = CronJob(cron="0 9 * * *")
+    job.app_context = SimpleNamespace(app_config=SimpleNamespace(timezone=None))
     assert job._next_fire_delay() == 3600
