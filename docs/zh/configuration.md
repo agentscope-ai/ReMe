@@ -85,7 +85,7 @@ base_url: ${LLM_BASE_URL:-https://example.com/v1}
 `session_dir` 必须保持 workspace-relative。其他 workspace 子目录也应使用清晰、稳定的相对名称。
 
 省略 `timezone` 时，ReMe 启动时优先使用 `TZ` 中有效的 IANA 时区名，否则探测系统时区。
-设置 `timezone: Asia/Shanghai` 可在不同机器上沿用原来的默认时区。显式设置 `timezone: null` 会直接使用系统本地时间。
+设置 `timezone: Asia/Shanghai` 可在不同机器上沿用原来的默认时区。显式设置 `timezone: null` 时，从 `TZ` 或主机原生时区配置解析本地规则。Cron、采集器、每日记忆和过期清理日期共用这些规则。
 `TZ` 使用 `America/New_York` 等 IANA 名称，也可不设置该变量。ReMe 解析进程时区时，遇到空值、无效名称、POSIX 规则字符串或文件路径会报错。
 
 ## Job 启停

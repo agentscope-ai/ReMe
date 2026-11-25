@@ -5,7 +5,6 @@ from contextlib import aclosing, asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 import math
-from zoneinfo import ZoneInfo
 
 from watchfiles import awatch
 
@@ -31,7 +30,7 @@ from ...schema.event import Event
 from ...schema.proactive_agent import CRON_EVENT_SOURCE, CreateProactiveAgentConfig
 from ...utils.async_utils import complete_in_thread, finish_cleanup
 from ...utils.cron_utils import next_cron_time
-from ...utils.timezone_utils import system_timezone
+from ...utils.timezone_utils import resolve_timezone
 
 
 @dataclass
@@ -126,7 +125,7 @@ class LocalProactiveRuntime(BaseProactiveRuntime):
     def now(self):
         """Use the application timezone for dates and trigger calculation."""
         timezone = self.app_context.app_config.timezone if self.app_context else None
-        return datetime.now(ZoneInfo(timezone)) if timezone else datetime.now().astimezone()
+        return datetime.now(resolve_timezone(timezone))
 
     async def _start(self):
         if self.app_context is None:
@@ -467,8 +466,7 @@ class LocalProactiveRuntime(BaseProactiveRuntime):
         """Return no trigger for an exhausted schedule without hiding its retained task."""
         from croniter import CroniterBadDateError
 
-        if not self.app_context.app_config.timezone:
-            now = datetime.fromtimestamp(now.timestamp(), system_timezone())
+        now = now.astimezone(resolve_timezone(self.app_context.app_config.timezone))
         try:
             return next_cron_time(expression, now)
         except CroniterBadDateError:

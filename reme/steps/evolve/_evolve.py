@@ -1,22 +1,17 @@
 """Shared helpers for evolve steps."""
 
 import datetime
-import zoneinfo
 
 import yaml
 from agentscope.message import Msg
 
 from ...schema import AgentReply, Response
+from ...utils.timezone_utils import resolve_timezone
 
 
 def now(timezone: str | None = None) -> datetime.datetime:
-    """Return current datetime in the given IANA timezone, falling back to local."""
-    if not timezone:
-        return datetime.datetime.now()
-    try:
-        return datetime.datetime.now(zoneinfo.ZoneInfo(timezone))
-    except Exception:
-        return datetime.datetime.now()
+    """Return an aware datetime using the same timezone rules as scheduled jobs."""
+    return datetime.datetime.now(resolve_timezone(timezone))
 
 
 def format_history(messages: list[Msg], include_timestamp: bool = True) -> str:

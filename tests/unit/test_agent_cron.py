@@ -65,7 +65,7 @@ async def test_local_cron_uses_active_host_rules(tmp_path, monkeypatch, host_nam
     localtime.write_bytes(files("tzdata.zoneinfo.America").joinpath("New_York").read_bytes())
     with localtime.open("rb") as source:
         rules = ZoneInfo.from_file(source, key="local")
-    monkeypatch.setattr(timezone_utils, "_LOCALTIME_PATH", localtime)
+    monkeypatch.setattr(timezone_utils, "_LOCALTIME_PATHS", (localtime,))
     monkeypatch.setattr(timezone_utils, "get_localzone_name", lambda: host_name)
     monkeypatch.setattr(timezone_utils, "get_localzone", lambda: ZoneInfo("Etc/UTC"))
 

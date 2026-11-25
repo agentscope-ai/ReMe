@@ -69,7 +69,7 @@ class ApplicationConfig(BaseModel):
     timezone: str | None = Field(
         default_factory=_default_timezone,
         description="IANA timezone. Defaults to the system timezone, with Asia/Shanghai as a fallback. "
-        "An explicit None uses local time.",
+        "An explicit None uses process or host rules shared by dates and cron jobs.",
     )
     language: str = Field(default="", description="Default language for LLM interactions")
     log_to_console: bool = Field(default=True, description="Log to console")

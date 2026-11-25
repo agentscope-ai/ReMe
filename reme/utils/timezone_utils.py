@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 from tzlocal import get_localzone, get_localzone_name
 
-_LOCALTIME_PATH = Path("/etc/localtime")
+_LOCALTIME_PATHS = (Path("/etc/localtime"), Path("/usr/local/etc/localtime"))
 
 
 def _timezone_from_env() -> ZoneInfo | None:
@@ -37,14 +37,25 @@ def default_timezone_name() -> str:
 
 
 def system_timezone() -> tzinfo:
-    """Use the active operating-system clock rules for explicit local-time scheduling."""
+    """Resolve process or host rules shared by local-time scheduling and calendar dates."""
     configured = _timezone_from_env()
     if configured is not None:
         return configured
-    try:
-        if sys.platform == "win32":
+    if sys.platform == "win32":
+        try:
             return get_localzone()
-        with _LOCALTIME_PATH.open("rb") as source:
-            return ZoneInfo.from_file(source)
-    except (LookupError, OSError, ValueError):
-        return datetime.now().astimezone().tzinfo
+        except (LookupError, OSError, ValueError):
+            pass
+    else:
+        for path in _LOCALTIME_PATHS:
+            try:
+                with path.open("rb") as source:
+                    return ZoneInfo.from_file(source)
+            except (LookupError, OSError, ValueError):
+                continue
+    return datetime.now().astimezone().tzinfo
+
+
+def resolve_timezone(name: str | None) -> tzinfo:
+    """Apply an explicit IANA name or the process's local-time rules consistently."""
+    return ZoneInfo(name) if name else system_timezone()

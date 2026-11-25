@@ -80,7 +80,7 @@ Keep secrets in `.env` or the process environment, never in committed configurat
 `session_dir` must remain workspace-relative.
 
 When `timezone` is omitted, ReMe uses a valid IANA name from `TZ` or detects the system's IANA timezone at startup.
-Set `timezone: Asia/Shanghai` to keep the previous default across machines. An explicit `timezone: null` uses system local time directly.
+Set `timezone: Asia/Shanghai` to keep the previous default across machines. An explicit `timezone: null` resolves local rules from `TZ` or the host's native timezone configuration. Cron jobs, collectors, daily notes, and retention dates share these rules.
 Set `TZ` to an IANA name such as `America/New_York`, or leave the variable unset. Empty values, invalid names, POSIX rule strings, and file paths raise an error when ReMe resolves the process timezone.
 
 ## Enabling jobs

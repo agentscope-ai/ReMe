@@ -41,7 +41,7 @@ jobs:
         run: |
           python -m pytest tests/unit/test_hermes_agent_integration.py \
             tests/unit/test_application_config.py tests/unit/test_as_llm_lazy.py \
-            tests/unit/test_cron_delay.py tests/unit/test_package_versions.py \
+            tests/unit/test_cron_delay.py tests/unit/test_timezone_rules.py tests/unit/test_package_versions.py \
             tests/unit/test_mcp_client.py tests/unit/test_service.py -q
 
   unit-tests:

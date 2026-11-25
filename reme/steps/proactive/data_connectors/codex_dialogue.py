@@ -8,7 +8,6 @@ import os
 from pathlib import Path
 import shutil
 from threading import Event as ThreadEvent
-from zoneinfo import ZoneInfo
 
 from ....schema.resource_metadata import RESOURCE_METADATA_FILENAME
 from ._codex_dialogue import CodexDialogueIndex
@@ -21,6 +20,7 @@ from ....schema import ApplicationConfig, Event, ResourceMetadata
 from ....schema.proactive_runtime import validate_agent_name
 from ....utils.async_utils import finish_cleanup
 from ....utils.files.file_sync import sync_directory
+from ....utils.timezone_utils import resolve_timezone
 
 
 class _CodexDialogueBase(BaseAgentStep):
@@ -37,7 +37,7 @@ class _CodexDialogueBase(BaseAgentStep):
 
     def _now(self):
         config = self.app_context.app_config if self.app_context is not None else ApplicationConfig()
-        return datetime.now(ZoneInfo(config.timezone)) if config.timezone else datetime.now().astimezone()
+        return datetime.now(resolve_timezone(config.timezone))
 
     def _check_stopped(self):
         if self.cancelled.is_set() or (self.context.stop_event is not None and self.context.stop_event.is_set()):

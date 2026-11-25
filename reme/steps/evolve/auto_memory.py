@@ -9,7 +9,6 @@ from pathlib import Path
 import re
 from urllib.parse import urlsplit
 from uuid import uuid4
-import zoneinfo
 
 import aiofiles
 import frontmatter
@@ -26,6 +25,7 @@ from ...utils.files.paths import normalize_posix_path
 from ...core.registry import R
 from ...schema import Response
 from ...utils.documents.wikilink_handler import WikilinkHandler
+from ...utils.timezone_utils import resolve_timezone
 
 _SESSION_ID_KEY = "session_id"
 _SOURCE_CONVERSATION_KEY = "source_conversation"
@@ -427,10 +427,7 @@ class AutoMemoryStep(BaseStep):
             return fallback
         if timestamp.tzinfo is None:
             return fallback
-        if timezone:
-            timestamp = timestamp.astimezone(zoneinfo.ZoneInfo(timezone))
-        else:
-            timestamp = timestamp.astimezone()
+        timestamp = timestamp.astimezone(resolve_timezone(timezone))
         return timestamp.date().isoformat()
 
     def _build_messages(self, raw_messages: list) -> list[Msg]:
