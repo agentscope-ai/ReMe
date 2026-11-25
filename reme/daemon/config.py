@@ -189,7 +189,7 @@ def resolve_worker_config(arguments: dict, settings: Settings | None):
     """Import startup inputs once, then use the complete saved managed values."""
     # Deployment-only variables still feed YAML expansion. Managed values below
     # are complete snapshots and always replace their initialization inputs.
-    environment = load_env(Path.cwd() / ".env", override=False)
+    environment = load_env(override=False)
     for secret in ("REME_ENCRYPTION_KEY", "REME_ADMIN_TOKEN"):
         environment.pop(secret, None)
         os.environ.pop(secret, None)

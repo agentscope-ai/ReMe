@@ -21,13 +21,17 @@ from fastmcp import Client
 
 from reme.daemon.config import Profile, Settings, resolve_worker_config
 from reme.daemon.storage import SettingsStore
-from reme.daemon.service import build_gateway
+from reme.daemon.service import build_gateway, run_supervised
 from reme.daemon.supervisor import Supervisor
 
 
 def test_import_once_and_keep_saved_values(monkeypatch, tmp_path):
     """System values win during import; later environment edits cannot replace saved values."""
-    monkeypatch.chdir(tmp_path)
+    launch_dir = tmp_path / "subproject"
+    launch_dir.mkdir()
+    monkeypatch.chdir(launch_dir)
+    monkeypatch.setattr("reme.utils.env_utils._LOADED", False)
+    monkeypatch.setattr("reme.utils.env_utils._LOADED_VALUES", {})
     monkeypatch.setenv("LLM_API_KEY", "system-key")
     monkeypatch.setenv("REME_MODEL_NAME", "fixture-import-model")
     monkeypatch.delenv("LLM_BASE_URL", raising=False)
@@ -54,6 +58,29 @@ def test_import_once_and_keep_saved_values(monkeypatch, tmp_path):
     assert config["components"]["tts"]["default"]["api_key"] == "speech-key"
     assert not config["jobs"]["asr"]["enabled"] and not config["jobs"]["tts"]["enabled"]
     assert not view["asr_enabled"] and not view["tts_enabled"]
+
+
+def test_default_instance_directory_identifies_the_listener(monkeypatch, tmp_path):
+    """Listen on independent addresses while keeping the same endpoint's settings on restart."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    for name in ("REME_DAEMON_DIR", "REME_ADMIN_TOKEN", "REME_ADMIN_PUBLISHED_HOST"):
+        monkeypatch.delenv(name, raising=False)
+    supervisor = Mock()
+    monkeypatch.setattr("reme.daemon.service.Supervisor", supervisor)
+    monkeypatch.setattr("reme.daemon.service.build_gateway", Mock())
+    monkeypatch.setattr("reme.daemon.service.uvicorn.run", Mock())
+
+    arguments = {"config": "proactive", "workspace_dir": "workspace-a"}
+    other = {**arguments, "workspace_dir": "workspace-b"}
+    run_supervised(arguments, {"host": "127.0.0.1", "port": 2333}, {})
+    run_supervised(other, {"host": "127.0.0.1", "port": 2444}, {})
+    run_supervised(other, {"host": "127.0.0.2", "port": 2333}, {})
+    run_supervised(other, {}, {})
+
+    first, second, alternative_host, restarted = [call.args[0] for call in supervisor.call_args_list]
+    assert len({first, second, alternative_host}) == 3
+    assert restarted == first
 
 
 @pytest.mark.parametrize("field", ["base_url", "speech_base_url"])
@@ -205,6 +232,13 @@ def test_setup_apply_recover_and_restart_with_saved_settings(tmp_path):
     """A new Codex instance waits for setup and retains the encrypted settings after a host restart."""
     workspace = tmp_path / "workspace"
     target = tmp_path / "target"
+    launch_dir = tmp_path / "subproject"
+    launch_dir.mkdir()
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "LLM_API_KEY=ignored-dotenv-key\nLLM_BASE_URL=https://model.example.com/v1\n",
+        encoding="utf-8",
+    )
     broken = tmp_path / "broken"
     broken.mkdir()
     (broken / "daily").write_text("blocks directory creation", encoding="utf-8")
@@ -234,7 +268,7 @@ def test_setup_apply_recover_and_restart_with_saved_settings(tmp_path):
                             "backend": "sdk",
                             "auth_mode": "api_key",
                             "api_key": "${LLM_API_KEY:-}",
-                            "base_url": "${LLM_BASE_URL:-https://model.example.com/v1}",
+                            "base_url": "${LLM_BASE_URL}",
                             "codex_home": ".codex",
                         },
                     },
@@ -263,11 +297,9 @@ def test_setup_apply_recover_and_restart_with_saved_settings(tmp_path):
         "PYTHONPATH": str(Path(__file__).resolve().parents[2]),
         "REME_ENCRYPTION_KEY": Fernet.generate_key().decode(),
         "LLM_API_KEY": "",
-        "LLM_BASE_URL": "",
         "DASHSCOPE_API_KEY": "",
     }
-    # An absent variable lets the YAML default supply the initial endpoint.
-    environment.pop("LLM_BASE_URL")
+    environment.pop("LLM_BASE_URL", None)
     environment.pop("REME_ADMIN_TOKEN", None)
     environment.pop("REME_ADMIN_PUBLISHED_HOST", None)
     launch = [sys.executable, "-m", "reme.reme", "start", f"config={config}"]
@@ -275,7 +307,7 @@ def test_setup_apply_recover_and_restart_with_saved_settings(tmp_path):
     with (tmp_path / "service.log").open("w", encoding="utf-8") as log:
         process = subprocess.Popen(
             launch,
-            cwd=tmp_path,
+            cwd=launch_dir,
             env=environment,
             stdout=log,
             stderr=log,
@@ -376,12 +408,13 @@ def test_setup_apply_recover_and_restart_with_saved_settings(tmp_path):
                 process.wait(timeout=15)
                 config.write_text(config.read_text().replace("${LLM_API_KEY:-}", "${LLM_API_KEY}"))
                 environment.pop("LLM_API_KEY")
-                (tmp_path / ".env").write_text(
+                env_file.write_text(
                     "LLM_BASE_URL=https://changed.example.com\nDASHSCOPE_API_KEY=changed-speech-key\n",
+                    encoding="utf-8",
                 )
                 process = subprocess.Popen(
                     launch,
-                    cwd=tmp_path,
+                    cwd=launch_dir,
                     env=environment,
                     stdout=log,
                     stderr=log,

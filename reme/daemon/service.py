@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import ipaddress
+import json
 import os
 import secrets
 from contextlib import asynccontextmanager
@@ -192,7 +193,8 @@ def run_supervised(arguments: dict, service: dict, inherited: dict[str, str]) ->
     """Run the HTTP supervisor in the foreground so a host manager can own it."""
     host = service.get("host") or REME_DEFAULT_HOST
     port = int(service.get("port") or REME_DEFAULT_PORT)
-    identity = hashlib.sha256(f"{Path.cwd()}:{arguments.get('config', 'default')}".encode()).hexdigest()[:16]
+    instance = (str(Path.cwd()), arguments.get("config") or "default", host, port)
+    identity = hashlib.sha256(json.dumps(instance).encode()).hexdigest()[:16]
     fallback = Path.home() / ".config" / "reme" / "instances" / identity
     directory = Path(os.getenv("REME_DAEMON_DIR") or fallback).expanduser().resolve()
     static_dir = resolve_web_static_dir(service.get("web_static_dir")) if service.get("web_enabled") else None
