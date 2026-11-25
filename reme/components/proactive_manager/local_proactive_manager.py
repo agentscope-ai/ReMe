@@ -229,26 +229,33 @@ class LocalProactiveManager(BaseProactiveManager):
         async with self.management_lock:
             return await self._status(await self.definition(agent_name))
 
-    async def _status(self, agent):
-        """Read execution state for an already resolved definition."""
+    async def _status(self, agent, *, allow_unavailable=False):
+        """Read execution state and retain per-task errors in the shared roster."""
         agent_name = agent.agent_name
         runtime = self._runtime(agent)
-        await runtime.mount(agent)
-        snapshot = await self.inbox.snapshot(agent_name)
-        receipt = snapshot["receipt"]
-        task_path = self.registry.task_path(agent)
-        next_trigger = runtime.next_trigger(agent)
+        task_path = None
+        snapshot = {}
         error = runtime.scheduler_error or runtime.error
-        if agent.enabled and agent.cron is not None and next_trigger is None:
+        try:
+            task_path = self.registry.task_path(agent)
+            await runtime.mount(agent)
+            snapshot = await self.inbox.snapshot(agent_name)
+        except ValueError as exc:
+            if not allow_unavailable:
+                raise
+            error = str(exc)
+        receipt = snapshot.get("receipt")
+        next_trigger = runtime.next_trigger(agent)
+        if not error and agent.enabled and agent.cron is not None and next_trigger is None:
             error = f"Cron schedule has no future trigger: {agent.cron}"
         return {
             "agent_name": agent_name,
             "config": agent.model_dump(mode="json", exclude={"created_at", "deleted_at"}),
             "created_at": agent.created_at.isoformat(),
-            "task_path": task_path.relative_to(self.workspace_path).as_posix(),
+            "task_path": task_path.relative_to(self.workspace_path).as_posix() if task_path is not None else None,
             "running": runtime.worker is not None,
-            "pending_events": snapshot["pending_count"],
-            "in_flight_events": snapshot["in_flight_count"],
+            "pending_events": snapshot.get("pending_count", 0),
+            "in_flight_events": snapshot.get("in_flight_count", 0),
             "last_started_at": (runtime.started_at.isoformat() if runtime.started_at else None),
             "last_completed_at": receipt.consume_ts.isoformat() if receipt else None,
             "next_trigger_at": next_trigger.isoformat() if next_trigger is not None else None,
@@ -282,7 +289,7 @@ class LocalProactiveManager(BaseProactiveManager):
         """Snapshot registered task state without repeatedly scanning their definitions."""
         async with self.management_lock:
             definitions = await asyncio.to_thread(self.registry.load)
-            return {name: await self._status(agent) for name, agent in definitions.items()}
+            return {name: await self._status(agent, allow_unavailable=True) for name, agent in definitions.items()}
 
     async def view_agent(self, agent_name, *, status=None):
         """Project settings and execution facts without reading message history."""

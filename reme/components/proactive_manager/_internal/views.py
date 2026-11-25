@@ -1,7 +1,6 @@
 """Reconstructible UI views over runtime ownership and native session history."""
 
 import asyncio
-from pathlib import PurePosixPath
 from time import monotonic
 
 from ....constants import CHAT_AGENT_NAME
@@ -47,10 +46,10 @@ class AgentViews:
             facts = await manager.status(agent_name) if task_status is None else task_status
             config = facts["config"]
             agent_type = "time" if config.get("cron") is not None else "event"
-            directory = manager.files.path(PurePosixPath(facts["task_path"]).parent.as_posix())
+            directory = manager.registry.directory / agent_name
             document = {"task_path": facts["task_path"]}
             running = facts["running"]
-        session = await manager.sessions.current(agent_name, directory=directory)
+        session = None
         status, error = "idle", facts.get("error")
         problems = [
             f"{path}: {message}"
@@ -59,14 +58,15 @@ class AgentViews:
         ]
         if problems:
             error = "; ".join(filter(None, [error, *problems]))[:2000]
-        if session:
-            try:
+        try:
+            session = await manager.sessions.current(agent_name, directory=directory)
+            if session:
                 if await manager.agent_wrapper.session_exists(session.session_id):
                     status = (await manager.agent_wrapper.get_session_status(session.session_id)).status
                 else:
                     status = "not_loaded"
-            except Exception as exc:  # A missing native thread must not hide the Agent's files.
-                status, error = "error", str(exc)
+        except Exception as exc:  # Keep workspace errors visible in the shared roster.
+            status, error = "error", str(exc)
         if running:
             status = "active"
         elif error:

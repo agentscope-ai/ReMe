@@ -3,6 +3,7 @@
 # pylint: disable=missing-function-docstring
 
 import asyncio
+from contextlib import aclosing
 from unittest.mock import AsyncMock
 
 import pytest
@@ -266,3 +267,18 @@ async def test_task_subscription_atomically_replaces_turns_and_reconnects_withou
             assert changed["activities"] == {}
         finally:
             await events.aclose()
+
+
+@pytest.mark.asyncio
+async def test_remy_subscription_survives_invalid_task_session_history(tmp_path):
+    async with running_manager(tmp_path) as (runtime, _, _):
+        await create_agent(runtime)
+        history = runtime.registry.path("monitor") / "sessions.jsonl"
+        history.write_text("invalid record\n")
+        async with aclosing(runtime.watch_agent("Remy")) as updates:
+            snapshot = await asyncio.wait_for(anext(updates), 2)
+
+        remy, monitor = snapshot["agents"]
+        assert remy["agent_name"] == "Remy" and remy["status"] == "idle"
+        assert monitor["status"] == "error" and monitor["session_id"] is None
+        assert history.read_text() == "invalid record\n"

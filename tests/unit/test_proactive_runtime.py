@@ -572,6 +572,9 @@ async def test_status_refuses_task_symlinks_and_respects_tool_permissions(tmp_pa
         task_file.symlink_to(outside)
         with pytest.raises(ValueError, match="without symlinks"):
             await tool(action="status", agent_name="monitor")
+        remy, monitor = (await runtime.list_views())["items"]
+        assert remy["agent_name"] == "Remy" and remy["status"] == "idle"
+        assert monitor["status"] == "error" and monitor["task_path"] is None
 
 
 @pytest.mark.parametrize(

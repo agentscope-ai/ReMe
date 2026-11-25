@@ -227,6 +227,10 @@ async def test_invalid_inbox_path_does_not_block_other_runtimes(tmp_path, monkey
 
         run_job.assert_awaited_once_with("run_proactive_agent", agent_name="healthy")
         assert "without symlinks" in runtime.runtimes["aaa_bad"].scheduler_error
+        entries = {item["agent_name"]: item for item in (await runtime.list_views())["items"]}
+        assert set(entries) == {"Remy", "aaa_bad", "healthy"}
+        assert entries["aaa_bad"]["status"] == "error"
+        assert "without symlinks" in entries["aaa_bad"]["error"]
         inbox.unlink()
         inbox.mkdir()
         await runtime.tick(run_job)
