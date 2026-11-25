@@ -14,6 +14,11 @@ from .event import Event
 
 def _default_timezone() -> str:
     """Use the system's IANA timezone when it can be resolved."""
+    from ..utils.timezone_utils import timezone_from_env
+
+    environment_zone = timezone_from_env()
+    if environment_zone is not None and environment_zone.key:
+        return environment_zone.key
     try:
         name = get_localzone_name()
         if name:

@@ -17,6 +17,32 @@ INVALID_SCHEDULES = ("0 0 31 2 *", "0 0 1 1 * 0 2025")
 NOW = datetime(2026, 11, 19, tzinfo=ZoneInfo("Asia/Shanghai"))
 
 
+@pytest.mark.parametrize(
+    "instant,cron,next_trigger",
+    [
+        ("2026-03-08T01:30:00-05:00", "30 2 * * *", "2026-03-08T03:00:00-04:00"),
+        ("2026-03-08T01:45:00-05:00", "30 * * * *", "2026-03-08T03:30:00-04:00"),
+        ("2026-11-01T01:45:00-04:00", "30 1 * * *", "2026-11-01T01:30:00-05:00"),
+        ("2026-11-01T01:29:00-05:00", "30 1 * * *", "2026-11-01T01:30:00-05:00"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_proactive_cron_uses_local_timezone_rules(tmp_path, monkeypatch, instant, cron, next_trigger):
+    monkeypatch.setenv("TZ", "America/New_York")
+    async with running_runtime(tmp_path) as (runtime, context, _):
+        context.app_config.timezone = None
+        clock = [datetime.fromisoformat(instant)]
+        monkeypatch.setattr(runtime, "now", lambda: clock[0])
+        await runtime.create({"agent_name": "timer", "task_description": "Report", "cron": cron})
+        assert (await runtime.status("timer"))["next_trigger_at"] == next_trigger
+
+        agent = await runtime.definition("timer")
+        await runtime._schedule_cron(agent)
+        clock[0] = datetime.fromisoformat(next_trigger)
+        await runtime._schedule_cron(agent)
+        assert (await runtime.inbox.snapshot("timer"))["pending_count"] == 1
+
+
 @pytest.mark.parametrize("cron", INVALID_SCHEDULES)
 @pytest.mark.asyncio
 async def test_unusable_cron_is_rejected_before_creating_files(tmp_path, monkeypatch, cron):

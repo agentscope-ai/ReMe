@@ -30,6 +30,8 @@ from ...schema.application_config import ApplicationConfig
 from ...schema.event import Event
 from ...schema.proactive_agent import CRON_EVENT_SOURCE, CreateProactiveAgentConfig
 from ...utils.async_utils import complete_in_thread, finish_cleanup
+from ...utils.cron_utils import next_cron_time
+from ...utils.timezone_utils import system_timezone
 
 
 @dataclass
@@ -463,16 +465,14 @@ class LocalProactiveRuntime(BaseProactiveRuntime):
 
     def _next_cron_time(self, expression: str, now: datetime) -> datetime | None:
         """Return no trigger for an exhausted schedule without hiding its retained task."""
-        from croniter import CroniterBadDateError, croniter
+        from croniter import CroniterBadDateError
 
-        anchor = now if self.app_context.app_config.timezone else now.replace(tzinfo=None)
+        if not self.app_context.app_config.timezone:
+            now = datetime.fromtimestamp(now.timestamp(), system_timezone())
         try:
-            next_fire = croniter(expression, anchor).get_next(datetime)
+            return next_cron_time(expression, now)
         except CroniterBadDateError:
             return None
-        if next_fire.tzinfo is None:
-            next_fire = next_fire.astimezone()
-        return next_fire
 
     def _cron_schedule(self, expression: str, execution: _Execution, now: datetime):
         key = (expression, self.app_context.app_config.timezone)

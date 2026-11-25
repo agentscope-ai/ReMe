@@ -23,11 +23,14 @@ from reme.components.job.cron_job import CronJob
         ("Australia/Lord_Howe", "2026-04-04T13:30:00+00:00", 10800),
         ("America/New_York", "2026-01-15T06:30:00+00:00", 5400),
         ("Asia/Shanghai", "2026-03-07T17:30:00+00:00", 5400),
-        (None, "2026-01-15T01:30:00+00:00", 5400),
+        (None, "2026-01-15T06:30:00+00:00", 5400),
+        (None, "2026-03-08T06:30:00+00:00", 1800),
+        (None, "2026-11-01T04:30:00+00:00", 12600),
     ],
 )
 def test_cron_delay_uses_elapsed_seconds(monkeypatch, timezone, instant, expected_delay):
     fixed = datetime.datetime.fromisoformat(instant)
+    monkeypatch.setenv("TZ", "America/New_York")
 
     class FixedDatetime(datetime.datetime):
         @classmethod
@@ -43,7 +46,8 @@ def test_cron_delay_uses_elapsed_seconds(monkeypatch, timezone, instant, expecte
 
 @pytest.mark.skipif(not hasattr(time, "tzset"), reason="requires time.tzset")
 @pytest.mark.parametrize("with_app_context", [True, False], ids=["local-timezone", "standalone"])
-def test_cron_local_time_after_dst_fallback(monkeypatch, with_app_context):
+@pytest.mark.parametrize("tz", ["America/New_York", "EST5EDT,M3.2.0,M11.1.0"], ids=["iana", "libc"])
+def test_cron_local_time_after_dst_fallback(monkeypatch, with_app_context, tz):
     fixed = datetime.datetime.fromisoformat("2026-11-01T06:30:00+00:00")
 
     class FixedDatetime(datetime.datetime):
@@ -53,7 +57,7 @@ def test_cron_local_time_after_dst_fallback(monkeypatch, with_app_context):
 
     try:
         with monkeypatch.context() as patch:
-            patch.setenv("TZ", "America/New_York")
+            patch.setenv("TZ", tz)
             time.tzset()
             patch.setattr(cron_job_module, "datetime", SimpleNamespace(datetime=FixedDatetime))
             job = CronJob(cron="* * * * *")

@@ -30,6 +30,7 @@ from reme.utils.files.file_watch import build_watch_rules
 )
 def test_application_timezone_defaults_to_system_timezone(monkeypatch, system_timezone, expected):
     """Use the detected IANA zone or fall back to Shanghai."""
+    monkeypatch.delenv("TZ", raising=False)
     monkeypatch.setattr(config_module, "get_localzone_name", Mock(return_value=system_timezone))
 
     assert ApplicationConfig().timezone == expected
@@ -37,9 +38,26 @@ def test_application_timezone_defaults_to_system_timezone(monkeypatch, system_ti
 
 def test_application_timezone_falls_back_when_system_detection_fails(monkeypatch):
     """Unavailable system timezone settings still yield a usable default."""
+    monkeypatch.delenv("TZ", raising=False)
     monkeypatch.setattr(config_module, "get_localzone_name", Mock(side_effect=ZoneInfoNotFoundError))
 
     assert ApplicationConfig().timezone == "Asia/Shanghai"
+
+
+def test_application_timezone_reads_current_tz_environment(monkeypatch):
+    """Valid names bypass library detection, even when TZ changes within the process."""
+    detect = Mock(return_value="Asia/Shanghai")
+    monkeypatch.setattr(config_module, "get_localzone_name", detect)
+
+    monkeypatch.setenv("TZ", "GMT")
+    assert ApplicationConfig().timezone == "GMT"
+    monkeypatch.setenv("TZ", ":Europe/London")
+    assert ApplicationConfig().timezone == "Europe/London"
+    detect.assert_not_called()
+
+    monkeypatch.setenv("TZ", "invalid/zone")
+    assert ApplicationConfig().timezone == "Asia/Shanghai"
+    detect.assert_called_once_with()
 
 
 def test_explicit_application_timezone_takes_precedence(monkeypatch):
@@ -48,7 +66,9 @@ def test_explicit_application_timezone_takes_precedence(monkeypatch):
     monkeypatch.setattr(config_module, "get_localzone_name", detect)
 
     assert ApplicationConfig(timezone="Europe/London").timezone == "Europe/London"
-    assert ApplicationConfig(timezone=None).timezone is None
+    context = ApplicationContext(timezone=None)
+    assert context.app_config.timezone is None
+    assert DailyWriteStep(app_context=context).config_value("daily_dir") == "daily"
     detect.assert_not_called()
 
 

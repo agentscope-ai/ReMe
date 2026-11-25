@@ -194,10 +194,11 @@ class BaseStep(ComponentMixin, ABC):
 
     def config_value(self, key: str):
         """Return an app config value, falling back to ApplicationConfig defaults."""
-        defaults = ApplicationConfig()
-        cfg = self.app_context.app_config if self.app_context is not None else defaults
-        value = getattr(cfg, key)
-        return getattr(defaults, key) if value in (None, "") else value
+        if self.app_context is not None:
+            value = getattr(self.app_context.app_config, key)
+            if value not in (None, ""):
+                return value
+        return getattr(ApplicationConfig(), key)
 
     def max_file_bytes(self) -> int:
         """Return the content-processing size limit from Step or Job context."""

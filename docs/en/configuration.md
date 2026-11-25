@@ -79,7 +79,8 @@ Keep secrets in `.env` or the process environment, never in committed configurat
 
 `session_dir` must remain workspace-relative.
 
-When `timezone` is omitted, ReMe detects the system's IANA timezone at startup. An explicit `timezone: null` uses system local time directly.
+When `timezone` is omitted, ReMe uses a valid IANA name from `TZ` or detects the system's IANA timezone at startup.
+Set `timezone: Asia/Shanghai` to keep the previous default across machines. An explicit `timezone: null` uses system local time directly.
 
 ## Enabling jobs
 
