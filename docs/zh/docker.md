@@ -65,16 +65,21 @@ docker run -d --name reme \
 | `REME_CONFIG` | 已有配置名称或挂载的 YAML/JSON 路径；未设置时使用内置默认配置 |
 | `REME_HOST` | HTTP 监听地址；镜像和 Compose 使用 `0.0.0.0` |
 | `REME_PORT` | 容器端口覆盖；Compose 默认 `2333` |
-| `REME_TIMEZONE` | 可选的应用时区覆盖；未设置时沿用应用默认值 |
+| `TZ` | 可选的容器 IANA 时区，例如 `Asia/Shanghai` |
 | `REME_DATA_DIR` | Compose 的宿主机工作区目录；默认 `./.reme` |
 | `REME_PUBLISHED_PORT` | Compose 的宿主机端口；默认 `2333`，与容器端口独立 |
 | `REME_BIND_ADDRESS` | Compose 的宿主机监听地址；默认 `127.0.0.1` |
 | `REME_UID`、`REME_GID` | Compose 的运行用户；均默认 `1000` |
 | `REME_ENV_FILE` | 可选的 Compose 运行时环境文件；默认 `.env` |
 
-显式的 `start key=value` 参数优先于容器环境配置；容器环境配置再覆盖文件中的对应键。其他键继续采用 ReMe 的正常
-深合并规则。镜像默认关闭文件日志，使用容器日志查看运行情况。显式传入 `log_to_file=true` 可启用 `/app/logs` 下的文件
-日志，需要另外挂载才能持久保存。临时 home `/tmp/reme-home` 和探针地址文件均为可丢弃数据，不承担工作区存储职责。
+显式的 `start key=value` 参数优先于容器的 `REME_*` 配置，后者覆盖配置文件中的对应键。在 Compose 运行时环境文件中
+设置 `TZ` 可指定默认时区。配置文件或启动参数显式指定的 `timezone` 优先于 `TZ`。
+
+已有部署请将运行时环境文件或 Docker 参数中的 `REME_TIMEZONE=America/New_York` 改为 `TZ=America/New_York`。
+`REME_TIMEZONE` 已移除。需要覆盖配置文件中指定的时区时，显式传入 `start timezone=America/New_York`。
+
+镜像默认将日志写到容器输出。传入 `log_to_file=true` 可启用 `/app/logs` 下的文件日志，需要另外挂载才能持久保存。
+临时 home `/tmp/reme-home` 和探针地址文件均为可丢弃数据，不承担工作区存储职责。
 
 需要自定义完整的 Job/Component 配置时，将 `reme/config/default.yaml` 复制为 `reme.yaml` 并修改，在 `.env` 中设置
 `REME_CONFIG=/etc/reme/config.yaml`，再添加 `compose.override.yaml`：
@@ -93,8 +98,9 @@ MCP stdio 时，请通过 `--no-healthcheck` 关闭 Docker 探针，Compose 中�
 
 ```bash
 docker run --rm -p 127.0.0.1:2444:2444 \
+  --env TZ=UTC \
   --mount "type=bind,source=$HOME/.reme,target=/data" \
-  reme:local start service.port=2444 timezone=UTC
+  reme:local start service.port=2444
 docker compose exec reme reme health_check
 docker compose exec reme reme status
 ```

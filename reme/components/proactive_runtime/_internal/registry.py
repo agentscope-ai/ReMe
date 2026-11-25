@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 
 from ....constants import CHAT_AGENT_NAME
+from ....utils.cron_utils import next_cron_time
 from ....utils.files.workspace_files import WorkspaceFiles
 from ....schema.proactive_runtime import validate_agent_name
 from ....schema.proactive_agent import CreateProactiveAgentConfig, ProactiveAgent, ProactiveAgentConfig
@@ -77,9 +78,7 @@ class AgentRegistry:
     def _validate_cron(config: ProactiveAgentConfig, now: datetime) -> None:
         """Reject schedules without a next occurrence before publishing configuration."""
         if config.cron is not None:
-            from croniter import croniter
-
-            croniter(config.cron, now).get_next(datetime)
+            next_cron_time(config.cron, now)
 
     def create(self, config, now: datetime):
         """Publish the task and report restoration from the same registry snapshot."""

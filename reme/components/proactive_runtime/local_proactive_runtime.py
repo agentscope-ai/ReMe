@@ -5,7 +5,6 @@ from contextlib import aclosing, asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 import math
-from zoneinfo import ZoneInfo
 
 from watchfiles import awatch
 
@@ -30,6 +29,8 @@ from ...schema.application_config import ApplicationConfig
 from ...schema.event import Event
 from ...schema.proactive_agent import CRON_EVENT_SOURCE, CreateProactiveAgentConfig
 from ...utils.async_utils import complete_in_thread, finish_cleanup
+from ...utils.cron_utils import next_cron_time
+from ...utils.timezone_utils import resolve_timezone
 
 
 @dataclass
@@ -124,7 +125,7 @@ class LocalProactiveRuntime(BaseProactiveRuntime):
     def now(self):
         """Use the application timezone for dates and trigger calculation."""
         timezone = self.app_context.app_config.timezone if self.app_context else None
-        return datetime.now(ZoneInfo(timezone)) if timezone else datetime.now().astimezone()
+        return datetime.now(resolve_timezone(timezone))
 
     async def _start(self):
         if self.app_context is None:
@@ -463,16 +464,13 @@ class LocalProactiveRuntime(BaseProactiveRuntime):
 
     def _next_cron_time(self, expression: str, now: datetime) -> datetime | None:
         """Return no trigger for an exhausted schedule without hiding its retained task."""
-        from croniter import CroniterBadDateError, croniter
+        from croniter import CroniterBadDateError
 
-        anchor = now if self.app_context.app_config.timezone else now.replace(tzinfo=None)
+        now = now.astimezone(resolve_timezone(self.app_context.app_config.timezone))
         try:
-            next_fire = croniter(expression, anchor).get_next(datetime)
+            return next_cron_time(expression, now)
         except CroniterBadDateError:
             return None
-        if next_fire.tzinfo is None:
-            next_fire = next_fire.astimezone()
-        return next_fire
 
     def _cron_schedule(self, expression: str, execution: _Execution, now: datetime):
         key = (expression, self.app_context.app_config.timezone)

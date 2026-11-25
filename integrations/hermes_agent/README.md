@@ -150,12 +150,9 @@ verified embedded dependency compatibility range.
 Use `reme-ai[hermes]` for the text-memory runtime. It includes AgentScope but
 avoids core's unrelated Pillow, Claude Code/Codex SDKs, vector databases, and
 Studio. It selects AgentScope 2.0.10 to preserve Hermes 0.21.4's certifi pin.
-ReMe also accepts that Hermes version's OpenAI 2.24.0, Pydantic 2.13.4,
-Rich 14.3.3, and croniter 6.0.0 versions.
-
-Dependency resolution has been checked for Windows / Python 3.11 against the
-[Hermes 0.21.4 release constraints](https://github.com/NousResearch/hermes-agent/blob/v2026.9.21/pyproject.toml).
-Other Hermes versions and additional plugins still need constraint checks.
+ReMe requires croniter 7.0 or newer for scheduling. Hermes 0.21.4 pins croniter 6.0.0,
+so use HTTP mode with that release. Check dependency constraints before using
+embedded mode with another Hermes version or additional plugins.
 Do not additionally install `reme-ai[core]` or `[as]` in this environment;
 those extras can reintroduce conflicts. This extra targets default text memory;
 image processing and optional model backends need their own dependencies and

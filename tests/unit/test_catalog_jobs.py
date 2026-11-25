@@ -29,8 +29,8 @@ def _clock(monkeypatch):
 
 @pytest.fixture(name="catalog")
 def _catalog(tmp_path, clock):  # pylint: disable=unused-argument
-    """One scoped catalog, matching proactive defaults."""
-    app = ApplicationContext(workspace_dir=str(tmp_path))
+    """Use a fixed workspace timezone for calendar-boundary assertions."""
+    app = ApplicationContext(workspace_dir=str(tmp_path), timezone="Asia/Shanghai")
     result = LocalFileCatalog(name="resource", app_context=app, watch_dirs=["resource_dir"], ttl_days=7)
     app.components["file_catalog"] = {"resource": result}
     return result
@@ -136,7 +136,7 @@ async def test_ttl_precedes_changes_processed_and_cleanup(catalog, tmp_path, clo
     assert await catalog.processed([path]) is True
     _write(tmp_path, path, 2000)
     changes = await catalog.changes()
-    clock.instant = datetime(2026, 11, 6, 0, 30, tzinfo=timezone.utc)
+    clock.instant = datetime(2026, 11, 5, 16, 30, tzinfo=timezone.utc)
     assert target.exists()
     assert await catalog.changes() == []
     assert await catalog.processed(changes) is False
