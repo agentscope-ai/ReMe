@@ -86,7 +86,7 @@ base_url: ${LLM_BASE_URL:-https://example.com/v1}
 
 省略 `timezone` 时，ReMe 启动时优先使用 `TZ` 中有效的 IANA 时区名，否则探测系统时区。
 设置 `timezone: Asia/Shanghai` 可在不同机器上沿用原来的默认时区。显式设置 `timezone: null` 会直接使用系统本地时间。
-`TZ` 使用 `America/New_York` 等 IANA 名称。ReMe 解析进程时区时，遇到无效名称、POSIX 规则字符串或文件路径会报错。
+`TZ` 使用 `America/New_York` 等 IANA 名称，也可不设置该变量。ReMe 解析进程时区时，遇到空值、无效名称、POSIX 规则字符串或文件路径会报错。
 
 ## Job 启停
 

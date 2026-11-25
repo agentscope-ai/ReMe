@@ -9,7 +9,7 @@ from tzlocal import get_localzone_name
 def system_timezone() -> ZoneInfo:
     """Resolve TZ directly so overrides never enter the host timezone cache."""
     name = os.environ.get("TZ")
-    if name:
+    if name is not None:
         try:
             return ZoneInfo(name)
         except (LookupError, ValueError) as error:

@@ -67,3 +67,17 @@ def test_cron_local_time_during_dst_fallback(monkeypatch, with_app_context, zone
         job.app_context = SimpleNamespace(app_config=SimpleNamespace(timezone=None))
 
     assert job._next_fire_delay() == delay
+
+
+def test_date_limited_cron_waits_for_second_fold(monkeypatch):
+    fixed = datetime.datetime.fromisoformat("2026-11-01T05:30:00+00:00")
+
+    class FixedDatetime(datetime.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed.astimezone(tz)
+
+    monkeypatch.setattr(cron_job_module, "datetime", SimpleNamespace(datetime=FixedDatetime))
+    job = CronJob(cron="30 1 1 11 * 0 2026")
+    job.app_context = SimpleNamespace(app_config=SimpleNamespace(timezone="America/New_York"))
+    assert job._next_fire_delay() == 3600

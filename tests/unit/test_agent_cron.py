@@ -153,6 +153,33 @@ async def test_final_cached_cron_trigger_is_delivered_once_after_schedule_expire
 
 
 @pytest.mark.asyncio
+async def test_date_limited_cron_delivers_both_folds_before_exhaustion(tmp_path, monkeypatch):
+    zone = ZoneInfo("America/New_York")
+    first = datetime(2026, 11, 1, 1, 30, tzinfo=zone)
+    second = first.replace(fold=1)
+    async with running_runtime(tmp_path) as (runtime, context, _):
+        context.app_config.timezone = zone.key
+        clock = [first.replace(minute=29)]
+        monkeypatch.setattr(runtime, "now", lambda: clock[0])
+        await runtime.create(
+            {"agent_name": "timer", "task_description": "Report", "cron": "30 1 1 11 * 0 2026"},
+        )
+        agent = await runtime.definition("timer")
+        await runtime._schedule_cron(agent)
+        clock[0] = first
+        await runtime._schedule_cron(agent)
+        assert (await runtime.status("timer"))["next_trigger_at"] == second.isoformat()
+        assert (await runtime.inbox.snapshot("timer"))["pending_count"] == 1
+
+        clock[0] = second
+        await runtime._schedule_cron(agent)
+        assert (await runtime.inbox.snapshot("timer"))["pending_count"] == 2
+        assert (await runtime.status("timer"))["next_trigger_at"] is None
+        await runtime._schedule_cron(agent)
+        assert (await runtime.inbox.snapshot("timer"))["pending_count"] == 2
+
+
+@pytest.mark.asyncio
 async def test_schedule_calculation_runs_only_when_needed(tmp_path, monkeypatch):
     async with running_runtime(tmp_path) as (runtime, _, _):
         clock = [NOW]

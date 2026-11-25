@@ -85,6 +85,16 @@ class ApplicationConfig(BaseModel):
         description="Component registry keyed by type then name",
     )
 
+    @field_validator("timezone")
+    @classmethod
+    def validate_local_timezone(cls, value: str | None) -> str | None:
+        """Validate an explicit process timezone before local-time jobs start."""
+        if value is None and "TZ" in os.environ:
+            from ..utils.timezone_utils import system_timezone
+
+            system_timezone()
+        return value
+
     @field_validator("components", mode="before")
     @classmethod
     def normalize_component_types(cls, value):

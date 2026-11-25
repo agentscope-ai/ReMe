@@ -61,6 +61,7 @@ def test_application_timezone_reads_current_tz_environment(monkeypatch):
 @pytest.mark.parametrize(
     "name",
     [
+        "",
         "invalid/zone",
         ":Europe/London",
         "/usr/share/zoneinfo/America/New_York",
@@ -74,6 +75,9 @@ def test_application_timezone_rejects_unsupported_tz_without_caching(monkeypatch
     monkeypatch.setenv("TZ", name)
     with pytest.raises(ValueError, match="TZ must be an IANA timezone name"):
         ApplicationConfig()
+    with pytest.raises(ValueError, match="TZ must be an IANA timezone name"):
+        ApplicationConfig(timezone=None)
+    assert ApplicationConfig(timezone="Asia/Shanghai").timezone == "Asia/Shanghai"
     detect.assert_not_called()
     monkeypatch.delenv("TZ")
     assert ApplicationConfig().timezone == "Asia/Shanghai"

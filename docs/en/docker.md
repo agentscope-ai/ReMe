@@ -78,6 +78,10 @@ Explicit `start key=value` arguments override the container's `REME_*` settings,
 for those keys. Set `TZ` in the Compose runtime environment file to select the default timezone. An explicit `timezone`
 in the loaded configuration or startup arguments takes precedence over `TZ`.
 
+For an existing deployment, replace `REME_TIMEZONE=America/New_York` with `TZ=America/New_York` in the runtime environment
+file or Docker arguments. `REME_TIMEZONE` has been removed. To override a timezone in the configuration file, pass
+`start timezone=America/New_York` explicitly.
+
 The image writes logs to the container output by default. `log_to_file=true` enables file logs under `/app/logs`, which
 requires a separate mount to persist them.
 The temporary home directory `/tmp/reme-home` and probe address file are disposable, not workspace storage.

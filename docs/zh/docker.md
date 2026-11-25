@@ -75,6 +75,9 @@ docker run -d --name reme \
 显式的 `start key=value` 参数优先于容器的 `REME_*` 配置，后者覆盖配置文件中的对应键。在 Compose 运行时环境文件中
 设置 `TZ` 可指定默认时区。配置文件或启动参数显式指定的 `timezone` 优先于 `TZ`。
 
+已有部署请将运行时环境文件或 Docker 参数中的 `REME_TIMEZONE=America/New_York` 改为 `TZ=America/New_York`。
+`REME_TIMEZONE` 已移除。需要覆盖配置文件中指定的时区时，显式传入 `start timezone=America/New_York`。
+
 镜像默认将日志写到容器输出。传入 `log_to_file=true` 可启用 `/app/logs` 下的文件日志，需要另外挂载才能持久保存。
 临时 home `/tmp/reme-home` 和探针地址文件均为可丢弃数据，不承担工作区存储职责。
 
