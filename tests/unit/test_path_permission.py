@@ -494,6 +494,35 @@ async def test_stat_out_of_scope_directory_does_not_shadow_authorized_note():
 
 
 @pytest.mark.asyncio
+async def test_stat_does_not_probe_out_of_scope_candidates(monkeypatch):
+    """An OS error on an out-of-scope candidate must not stop stat on the authorized one."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        _seed(Path(tmp), "notes/LICENSE", "MIT\n")
+        store = await _make_store()
+        forbidden = (Path(tmp) / "notes/LICENSE.md").resolve()
+        probed: list[str] = []
+        real_exists, real_is_dir = Path.exists, Path.is_dir
+
+        def guarded(real):
+            def probe(self, *args, **kwargs):
+                if self.resolve() == forbidden:
+                    probed.append(real.__name__)
+                    raise PermissionError(13, "Permission denied", str(self))
+                return real(self, *args, **kwargs)
+
+            return probe
+
+        monkeypatch.setattr(Path, "exists", guarded(real_exists))
+        monkeypatch.setattr(Path, "is_dir", guarded(real_is_dir))
+
+        resp = await _run(StatStep, store, path="notes/LICENSE", _allowed_paths=["notes/LICENSE"])
+        assert resp.success is True, resp.answer
+        assert resp.metadata["type"] == "file"
+        assert not probed
+        await store.close()
+
+
+@pytest.mark.asyncio
 async def test_stat_scope_rejects_outside_path():
     """StatStep honors the scope and does not reveal outside frontmatter or existence."""
     with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):

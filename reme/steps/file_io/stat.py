@@ -55,24 +55,24 @@ class StatStep(BaseStep):
         # Honor the request-scoped ``_allowed_paths`` constraint like ``read``
         # (stat also returns the frontmatter of Markdown files). Candidates
         # outside the scope are dropped before the precedence above applies,
-        # so an out-of-scope directory or file can neither shadow an
-        # authorized note nor reveal that it exists.
+        # and before their filesystem metadata is probed, so an out-of-scope
+        # directory or file can neither shadow an authorized note, reveal
+        # that it exists, nor fail the request with an OS error.
         original_target = target
         md_target, _is_md = gate_md(target)
         allowed_paths = self.context.get("_allowed_paths")
+        original_ok = check_path_permission(workspace_dir, original_target, allowed_paths)
+        md_ok = check_path_permission(workspace_dir, md_target, allowed_paths)
 
-        def allowed(candidate: Path) -> bool:
-            return check_path_permission(workspace_dir, candidate, allowed_paths)
-
-        if original_target.is_dir() and allowed(original_target):
+        if original_ok and original_target.is_dir():
             target = original_target
-        elif md_target.exists() and allowed(md_target):
+        elif md_ok and md_target.exists():
             target = md_target
-        elif original_target.exists() and allowed(original_target):
+        elif original_ok and original_target.exists():
             target = original_target
-        elif allowed(md_target):
+        elif md_ok:
             target = md_target
-        elif allowed(original_target):
+        elif original_ok:
             target = original_target
         else:
             self.context.response.success = False
