@@ -39,7 +39,7 @@ plugins/*
 reme_studio/web/python/src/reme_studio/static
 reme_studio/desktop/assets
 reme_studio/desktop/out
-reme_studio/desktop/dist
+reme_studio/desktop/dist.noindex
 benchmark
 cookbook
 docs
