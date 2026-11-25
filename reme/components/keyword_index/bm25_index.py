@@ -85,6 +85,15 @@ class BM25Index(BaseKeywordIndex):
             "class": type(self.tokenizer).__qualname__,
             "filter_stopwords": getattr(self.tokenizer, "filter_stopwords", None),
         }
+        # Only an implementation choice that changes the emitted tokens belongs
+        # in the fingerprint. `backend` is the registry key and `Application`
+        # fills it in for every component, so fingerprinting it would invalidate
+        # the stored index of a plain Regex tokenizer whose output never
+        # changed. Tokenizers that do offer such a choice report it through
+        # `token_output_engine`, and that value is what belongs here.
+        engine = getattr(self.tokenizer, "token_output_engine", None)
+        if engine:
+            config["engine"] = engine
         stopwords_path = getattr(self.tokenizer, "stopwords_path", None)
         if stopwords_path is not None:
             path = Path(stopwords_path)

@@ -39,6 +39,11 @@ class JiebaTokenizer(BaseTokenizer):
             self._cut = jieba.cut
         self.logger.info(f"JiebaTokenizer using backend: {self.backend}")
 
+    @property
+    def token_output_engine(self) -> str | None:
+        """``rjieba`` and ``jieba`` segment differently, so the index must know which one ran."""
+        return self.backend
+
     def _tokenize_one(self, text: str, **kwargs) -> list[str]:
         if self._cut is None:
             raise RuntimeError("Tokenizer not initialized. Call start() first.")
