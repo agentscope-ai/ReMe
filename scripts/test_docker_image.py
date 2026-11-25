@@ -89,6 +89,8 @@ def start_container(
         "--env",
         "LLM_API_KEY=",
         "--env",
+        "TZ=Europe/London",
+        "--env",
         f"REME_PORT={2333 if cli_override else port}",
         "--env",
         f"REME_CONFIG={config}",
@@ -194,6 +196,7 @@ def run_smoke(image: str) -> None:
             assert isinstance(page, str) and '<div id="root">' in page
             result, _ = request(base_url, "/get_client_info", {})
             assert result["success"] and "watch_agent_session" in result["answer"]["jobs"]
+            assert result["answer"]["timezone"] == "Europe/London"
             stop_container(container)
         except Exception:
             subprocess.run(["docker", "logs", container], check=False)
