@@ -19,6 +19,7 @@ DEFAULT_MCP_SSE_PATH = "/sse"
 OPENAPI_SCHEMA_PATH = "/openapi.json"
 SSE_MEDIA_TYPE = "text/event-stream"
 REME_SSE_DONE_MARKER = "[DONE]"
+TRUSTED_SESSION_ID_KWARG = "_trusted_session_id"
 
 
 def normalize_connect_host(host: str) -> str:

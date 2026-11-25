@@ -3,6 +3,7 @@
 from typing import Any
 
 from ..job import BaseJob, StreamJob
+from ...constants import TRUSTED_SESSION_ID_KWARG
 
 
 def add_mcp_job(
@@ -29,6 +30,8 @@ def make_mcp_job_tool(job: BaseJob, *, injected_job_kwargs: dict[str, Any], tool
         return None
 
     async def execute_tool(**kwargs):
+        if TRUSTED_SESSION_ID_KWARG in kwargs:
+            raise ToolError(f"{TRUSTED_SESSION_ID_KWARG} is reserved for internal job calls")
         conflicts = sorted(injected_job_kwargs.keys() & kwargs.keys())
         if conflicts:
             names = ", ".join(conflicts)

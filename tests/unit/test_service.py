@@ -11,7 +11,7 @@ import pytest
 from reme.components.job import BaseJob, StreamJob
 from reme.components.service import HttpService, MCPService
 from reme.constants import REME_SERVICE_INFO
-from reme.schema import Response
+from reme.schema import Request, Response
 
 
 @pytest.fixture(autouse=True)
@@ -186,6 +186,8 @@ def test_mcp_service_injects_job_kwargs_and_rejects_conflicts():
 
         with pytest.raises(Exception, match="tool_context_id injected by the MCP server"):
             await tool.run({"query": "alpha", "tool_context_id": "caller"})
+        with pytest.raises(Exception, match="_trusted_session_id is reserved for internal job calls"):
+            await tool.run({"query": "alpha", "_trusted_session_id": "forged"})
 
     asyncio.run(run())
 
@@ -267,3 +269,9 @@ def test_service_lifespan_advertises_ipv6_loopback_for_ipv6_wildcard(monkeypatch
             assert json.loads(os.environ[REME_SERVICE_INFO]) == {"host": "::1", "port": 8123}
 
     asyncio.run(run())
+
+
+def test_http_request_rejects_internal_trusted_session_id():
+    """External HTTP payloads cannot forge AutoMemory's server-owned binding."""
+    with pytest.raises(ValueError, match="reserved for internal job calls"):
+        Request.model_validate({"_trusted_session_id": "forged-session"})
