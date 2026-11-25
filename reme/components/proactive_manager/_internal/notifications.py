@@ -4,7 +4,7 @@ import asyncio
 from collections import defaultdict
 from contextlib import asynccontextmanager, nullcontext
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import timedelta, timezone
 from hashlib import sha256
 from uuid import uuid4
 
@@ -279,7 +279,7 @@ class ChatNotifications:
         if self.blocked:
             return
         now = self.manager.now()
-        if self.retry_at is not None and now < self.retry_at:
+        if self.retry_at is not None and now.timestamp() < self.retry_at.timestamp():
             return
         agents = await asyncio.to_thread(self.manager.registry.load)
         async with self.lock:
@@ -295,7 +295,7 @@ class ChatNotifications:
                 if not self.manager.outbox.allows(ref, agents, now):
                     continue
                 if item.priority == "P0":
-                    if (now - item.delivered_at).total_seconds() < self.config.p0_delay_seconds:
+                    if now.timestamp() - item.delivered_at.timestamp() < self.config.p0_delay_seconds:
                         continue
                 elif busy or idle < getattr(self.config, f"{item.priority.lower()}_idle_seconds"):
                     continue
@@ -322,7 +322,8 @@ class ChatNotifications:
                 raise RuntimeError(str(response.answer))
             if isinstance(response.answer, dict) and response.answer.get("skipped"):
                 if response.answer["skipped"] == "busy":
-                    self.retry_at = self.manager.now() + timedelta(seconds=self.manager.retry_seconds)
+                    now = self.manager.now().astimezone(timezone.utc)
+                    self.retry_at = now + timedelta(seconds=self.manager.retry_seconds)
                 return
             self.retry_at = self.error = None
             self.failures = 0
@@ -332,7 +333,9 @@ class ChatNotifications:
             self.failures += 1
             self.blocked = permanent or isinstance(exc, (TypeError, ImportError))
             delay = min(300, max(1, self.manager.retry_seconds) * 2 ** min(self.failures - 1, 8))
-            self.retry_at = None if self.blocked else self.manager.now() + timedelta(seconds=delay)
+            self.retry_at = (
+                None if self.blocked else self.manager.now().astimezone(timezone.utc) + timedelta(seconds=delay)
+            )
             recovery = "repair the environment and restart" if self.blocked else f"retry in {delay:g}s"
             self.manager.logger.error(f"Inbox wakeup failed ({recovery}): {self.error}")
         finally:

@@ -13,6 +13,7 @@ from uuid import uuid4
 import psutil
 from cryptography.fernet import Fernet
 
+from ..utils.async_utils import finish_cleanup
 from .config import Profile, SECRET_FIELDS, Settings, SettingsRequest
 from .storage import OperationHistory, SettingsStore, write_private
 
@@ -58,7 +59,12 @@ class Worker:
             {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
         )
         self.process = await asyncio.create_subprocess_exec(
-            sys.executable, "-m", "reme.daemon.worker", stdin=asyncio.subprocess.PIPE, env=environment, **system
+            sys.executable,
+            "-m",
+            "reme.daemon.worker",
+            stdin=asyncio.subprocess.PIPE,
+            env=environment,
+            **system,
         )
         self.process.stdin.write((json.dumps({**request, "result": str(result)}) + "\n").encode())
         await self.process.stdin.drain()
@@ -191,10 +197,10 @@ class Supervisor:
             if "settings" in payload:
                 payload["settings"] = json.loads(Fernet(report_key).decrypt(payload["settings"].encode("ascii")))
         except BaseException:
-            await worker.stop()
+            await finish_cleanup(worker.stop())
             raise
         if mode != "serve":
-            await worker.stop()
+            await finish_cleanup(worker.stop())
         return worker, payload
 
     async def _start(self, profile: Profile) -> None:
@@ -203,9 +209,9 @@ class Supervisor:
         self.error = None
 
     async def _stop(self) -> None:
-        worker, self.worker = self.worker, None
-        if worker:
-            await worker.stop()
+        if self.worker is not None:
+            await self.worker.stop()
+            self.worker = None
 
     async def _boot(self) -> None:
         try:
@@ -222,9 +228,12 @@ class Supervisor:
             await self._start(self.active)
             if prepared is not None:
                 self.store.commit(prepared)
-        except (OSError, ValueError, RuntimeError, TimeoutError) as error:
-            await self._stop()
+        except (OSError, ValueError, RuntimeError) as error:
             self.error = str(error) or "ReMe startup timed out"
+            try:
+                await self._stop()
+            except (OSError, RuntimeError) as cleanup_error:
+                self.error = f"{self.error}. Could not stop the worker: {cleanup_error}"
 
     async def watch(self) -> None:
         """Recover process failures while waiting quietly for missing configuration."""
@@ -294,24 +303,23 @@ class Supervisor:
 
     async def _replace(self, candidate: Profile, prepared: str, operation: dict) -> None:
         operation.update(phase="restarting")
-        previous = self.active
+        previous, previous_view = self.active, self.view
         try:
             await self._stop()
             await self._start(candidate)
             self.store.commit(prepared)
             self.active = candidate
             operation.update(phase="succeeded")
-        except (OSError, RuntimeError, TimeoutError) as error:
+        except (OSError, ValueError, RuntimeError) as error:
             self.active = previous
             failure = str(error) or "ReMe startup timed out"
-            await self._stop()
-            if previous:
-                self.view.update(previous.settings.public_values(), missing_fields=previous.settings.missing_fields())
-            if previous and not previous.settings.missing_fields():
-                try:
+            self.view = previous_view
+            try:
+                await self._stop()
+                if previous and not previous.settings.missing_fields():
                     await self._start(previous)
-                except (OSError, RuntimeError, TimeoutError):
-                    pass
+            except (OSError, ValueError, RuntimeError) as recovery_error:
+                failure = f"{failure}. Could not restore the previous worker: {recovery_error}"
             self.error = failure
             operation.update(phase="failed", error=failure)
         try:

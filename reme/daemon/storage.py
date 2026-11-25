@@ -84,7 +84,7 @@ class SettingsStore:
                     backend.set_password("ReMe", self.key_id, key)
             except Exception as error:  # pylint: disable=broad-except
                 raise ValueError(
-                    "Cannot access the system credential store. Server deployments can set REME_ENCRYPTION_KEY."
+                    "Cannot access the system credential store. Server deployments can set REME_ENCRYPTION_KEY.",
                 ) from error
         if not key:
             raise ValueError("The saved settings encryption key is unavailable")
@@ -120,7 +120,9 @@ class SettingsStore:
                 values[field] = self._fernet(create=True).encrypt(values[field].encode("utf-8")).decode("ascii")
         return (
             json.dumps(
-                {"revision": profile.revision, "key_id": self.key_id, "settings": values}, ensure_ascii=False, indent=2
+                {"revision": profile.revision, "key_id": self.key_id, "settings": values},
+                ensure_ascii=False,
+                indent=2,
             )
             + "\n"
         )

@@ -30,8 +30,8 @@ docker compose up --build -d
 ```
 
 需要模型驱动的记忆演化时，如果尚无 `.env`，将仓库根目录的 `example.env` 复制为 `.env`，再填写模型凭证。
-Compose 在运行时注入这个可选文件；Docker 构建排除 `.env` 文件。Compose 的 `--env-file` 用于配置变量替换，
-`REME_ENV_FILE` 则选择实际注入容器的环境文件。
+保存模型或语音凭证前，在容器的运行时环境中设置 `REME_ENCRYPTION_KEY`。生成一次 Fernet 密钥，并在后续启动中保持一致。
+Compose 在运行时注入可选的 `.env` 文件。`--env-file` 用于配置变量替换，`REME_ENV_FILE` 选择实际注入容器的文件。
 
 ## 使用发布镜像
 
@@ -69,16 +69,19 @@ docker run -d --name reme \
 | `REME_CONFIG` | 已有配置名称或挂载的 YAML/JSON 路径；未设置时使用内置默认配置 |
 | `REME_HOST` | HTTP 监听地址；镜像和 Compose 使用 `0.0.0.0` |
 | `REME_PORT` | 容器端口覆盖；Compose 默认 `2333` |
-| `REME_TIMEZONE` | 可选的应用时区覆盖；未设置时沿用应用默认值 |
+| `TZ` | 可选的容器 IANA 时区，例如 `Asia/Shanghai` |
 | `REME_DATA_DIR` | Compose 的宿主机工作区目录；默认 `./.reme` |
 | `REME_PUBLISHED_PORT` | Compose 的宿主机端口；默认 `2333`，与容器端口独立 |
 | `REME_BIND_ADDRESS` | Compose 的宿主机监听地址；默认 `127.0.0.1` |
 | `REME_UID`、`REME_GID` | Compose 的运行用户；均默认 `1000` |
 | `REME_ENV_FILE` | 可选的 Compose 运行时环境文件；默认 `.env` |
 
-显式的 `start key=value` 参数优先于容器环境配置；容器环境配置再覆盖文件中的对应键。其他键继续采用 ReMe 的正常
-深合并规则。镜像默认关闭文件日志，使用容器日志查看运行情况。显式传入 `log_to_file=true` 可启用 `/app/logs` 下的文件
-日志，需要另外挂载才能持久保存。临时 home `/tmp/reme-home` 和探针地址文件均为可丢弃数据，不承担工作区存储职责。
+显式的 `start key=value` 参数优先于容器的 `REME_*` 配置，后者覆盖配置文件中的对应键。在 Compose 运行时环境文件中
+设置 `TZ` 可指定默认时区。配置文件或启动参数显式指定的 `timezone` 优先于 `TZ`。
+要覆盖配置文件中的时区，传入 `start timezone=America/New_York`。
+
+镜像默认将日志写到容器输出。传入 `log_to_file=true` 可启用 `/app/logs` 下的文件日志，需要另外挂载才能持久保存。
+临时 home `/tmp/reme-home` 和探针地址文件均为可丢弃数据，不承担工作区存储职责。
 
 Compose 将后端设置保存到 `reme-state` 卷。入口将状态卷交给配置的 UID/GID 后，以该用户运行 ReMe。使用默认回环映射时，通过 `docker compose exec reme cat /state/admin-token` 读取实例令牌并解锁「设置 → 后端」。设置了 `REME_ADMIN_TOKEN` 时使用其值。远程管理需要显式配置的令牌和 HTTPS。
 
@@ -99,8 +102,9 @@ MCP stdio 时，请通过 `--no-healthcheck` 关闭 Docker 探针，Compose 中�
 
 ```bash
 docker run --rm -p 127.0.0.1:2444:2444 \
+  --env TZ=UTC \
   --mount "type=bind,source=$HOME/.reme,target=/data" \
-  reme:local start service.port=2444 timezone=UTC
+  reme:local start service.port=2444
 docker compose exec reme reme health_check
 docker compose exec reme reme status
 ```

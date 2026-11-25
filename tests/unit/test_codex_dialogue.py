@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 import threading
 from unittest.mock import AsyncMock, Mock
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -98,6 +99,18 @@ def devices(monkeypatch):
 
     monkeypatch.setattr(ScreenCaptureStep, "collect", collect)
     return collector
+
+
+@pytest.mark.parametrize("zone_name", ["Europe/London", None])
+def test_codex_dialogue_uses_application_timezone(tmp_path, monkeypatch, zone_name):
+    """A configured timezone or explicit null controls the collector clock."""
+    monkeypatch.setenv("TZ", "America/New_York")
+    context = ApplicationContext(workspace_dir=str(tmp_path), timezone=zone_name)
+    step = CodexDialogueStep(app_context=context, codex_home=tmp_path / "codex")
+
+    step._now()
+
+    codex_dialogue.datetime.now.assert_called_once_with(ZoneInfo(zone_name or "America/New_York"))
 
 
 @asynccontextmanager

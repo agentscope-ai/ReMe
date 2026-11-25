@@ -9,6 +9,7 @@ import pytest
 
 from scripts import reme_container
 from reme.config import parse_kwargs, resolve_app_config
+from reme.schema import ApplicationConfig
 
 
 def test_container_defaults_and_cli_override_precedence(tmp_path):
@@ -22,15 +23,35 @@ def test_container_defaults_and_cli_override_precedence(tmp_path):
             "REME_WORKSPACE_DIR": str(tmp_path / "data"),
             "REME_HOST": "0.0.0.0",
             "REME_PORT": "8002",
-            "REME_TIMEZONE": "UTC",
         },
     )
     config = resolve_app_config(log_config=False, **parse_kwargs(*command[2:]))
     assert config["service"] == {"backend": "http", "host": "0.0.0.0", "port": 8003, "web_enabled": False}
     assert config["workspace_dir"] == str(tmp_path / "data")
-    assert config["timezone"] == "UTC"
     assert config["language"] == "zh"
     assert config["log_to_file"] is True
+
+
+@pytest.mark.parametrize(
+    "config,arguments,expected",
+    [
+        ({}, [], "Europe/London"),
+        ({"timezone": "Asia/Shanghai"}, [], "Asia/Shanghai"),
+        ({"timezone": "Asia/Shanghai"}, ["timezone=UTC"], "UTC"),
+        ({"timezone": None}, [], None),
+    ],
+)
+def test_container_uses_tz_as_application_default(config, arguments, expected, tmp_path, monkeypatch):
+    """Use the shared default without turning TZ into a CLI override."""
+    config_file = tmp_path / "config.json"
+    config_file.write_text(json.dumps(config))
+    monkeypatch.setenv("TZ", "Europe/London")
+    command = reme_container.start_command(arguments, {"REME_CONFIG": str(config_file), "TZ": "Europe/London"})
+
+    overrides = parse_kwargs(*command[2:])
+    assert ("timezone" in overrides) == bool(arguments)
+    resolved = resolve_app_config(log_config=False, **overrides)
+    assert ApplicationConfig.model_validate(resolved).timezone == expected
 
 
 def test_container_preserves_file_config_port_and_quoted_paths(tmp_path):
@@ -116,7 +137,8 @@ def test_entrypoint_executes_start_and_preserves_cli_action_syntax(action, tmp_p
     monkeypatch.setenv("REME_WORKSPACE_DIR", str(tmp_path / "data"))
     monkeypatch.delenv("REME_TEST_LOADED_AT_START", raising=False)
     monkeypatch.setattr(
-        "reme.utils.env_utils.load_env", lambda: monkeypatch.setenv("REME_TEST_LOADED_AT_START", "dotenv")
+        "reme.utils.env_utils.load_env",
+        lambda: monkeypatch.setenv("REME_TEST_LOADED_AT_START", "dotenv"),
     )
     state_writer = Mock()
     monkeypatch.setattr(reme_container, "write_health_state", state_writer)

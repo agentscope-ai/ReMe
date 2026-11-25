@@ -121,10 +121,8 @@ Embedded 与 Hermes 共用 Python 环境，要求依赖约束兼容。Hermes >=0
 
 `reme-ai[hermes]` 提供文本记忆所需的 AgentScope 运行时，不引入完整 `core` 中的 Pillow、
 Claude Code/Codex SDK、向量数据库和 Studio。它使用 AgentScope 2.0.10，以兼容 Hermes 0.21.4 的 certifi 固定版本。
-ReMe 同时允许该 Hermes 版本使用的 OpenAI 2.24.0、Pydantic 2.13.4、Rich 14.3.3 和 croniter 6.0.0。
-
-已使用 [Hermes 0.21.4 的发布约束](https://github.com/NousResearch/hermes-agent/blob/v2026.9.21/pyproject.toml)
-验证 Windows / Python 3.11 的依赖解析。其他 Hermes 版本或额外插件仍需检查约束；
+ReMe 的调度要求 croniter 7.0 或更新版本。Hermes 0.21.4 固定使用 croniter 6.0.0，
+该版本请使用 HTTP 模式。其他 Hermes 版本或额外插件在使用 Embedded 模式前仍需检查依赖约束；
 不要在此环境额外安装 `reme-ai[core]` 或 `[as]`，它们可能重新引入冲突。
 这个安装选项面向默认文本记忆；图片处理、可选模型后端等功能需要各自的依赖和兼容性检查。
 

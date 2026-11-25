@@ -34,7 +34,7 @@ def test_import_once_and_keep_saved_values(monkeypatch, tmp_path):
     monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
     env_file = tmp_path / ".env"
     env_file.write_text(
-        "LLM_API_KEY=file-key\nLLM_BASE_URL=https://model.example.com/v1\nDASHSCOPE_API_KEY=speech-key\n"
+        "LLM_API_KEY=file-key\nLLM_BASE_URL=https://model.example.com/v1\nDASHSCOPE_API_KEY=speech-key\n",
     )
     arguments = {"config": "proactive", "workspace_dir": str(tmp_path / "workspace")}
     _, saved, view = resolve_worker_config(arguments, None)
@@ -98,6 +98,30 @@ def test_invalid_saved_settings_keep_the_gateway_available(tmp_path, settings):
 
 
 @pytest.mark.asyncio
+async def test_restart_records_failed_cleanup_and_keeps_the_owned_worker(tmp_path):
+    """A cleanup error must settle the operation without losing a live child."""
+    supervisor = Supervisor(tmp_path, {}, {})
+    supervisor.active = Profile(revision=1)
+    supervisor.view = {"model_editable": True, "missing_fields": []}
+    worker = Mock(port=2333, process=Mock(returncode=None), stop=AsyncMock(side_effect=OSError("stop failed")))
+    supervisor.worker = worker
+    candidate = Profile(revision=2)
+    operation = {"id": "restart", "phase": "accepted", "error": None}
+    supervisor.operations[operation["id"]] = operation
+
+    prepared = supervisor.store.prepare(candidate)
+    await supervisor._replace(candidate, prepared, operation)  # pylint: disable=protected-access
+
+    state = supervisor.status(operation["id"])
+    assert state["ready"] and state["revision"] == 1
+    assert state["operation"]["phase"] == "failed"
+    assert "stop failed" in state["operation"]["error"]
+    assert supervisor.worker is worker
+    assert supervisor.settings()["model_editable"]
+    assert json.loads(supervisor.state_file.read_text())["operations"]["restart"] == operation
+
+
+@pytest.mark.asyncio
 async def test_remote_administration_requires_explicit_token_and_tls(tmp_path):
     """Verify the public authorization boundary and the authenticated Compose route."""
     supervisor = Supervisor(tmp_path, {}, {})
@@ -105,7 +129,8 @@ async def test_remote_administration_requires_explicit_token_and_tls(tmp_path):
     headers = {"Authorization": f"Bearer {fixture_token}"}
     app = build_gateway(supervisor, None, local_listener=False)
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app, client=("192.0.2.1", 1)), base_url="https://reme.example"
+        transport=httpx.ASGITransport(app=app, client=("192.0.2.1", 1)),
+        base_url="https://reme.example",
     ) as client:
         assert (await client.get("/admin/config", headers=headers)).status_code == 403
     app = build_gateway(
@@ -117,7 +142,8 @@ async def test_remote_administration_requires_explicit_token_and_tls(tmp_path):
         published_loopback=True,
     )
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app, client=("192.0.2.1", 1)), base_url="https://reme.example"
+        transport=httpx.ASGITransport(app=app, client=("192.0.2.1", 1)),
+        base_url="https://reme.example",
     ) as client:
         for method, endpoint in (
             ("GET", "config"),
@@ -210,7 +236,7 @@ def test_setup_apply_recover_and_restart_with_saved_settings(tmp_path):
                             "api_key": "${LLM_API_KEY:-}",
                             "base_url": "${LLM_BASE_URL:-https://model.example.com/v1}",
                             "codex_home": ".codex",
-                        }
+                        },
                     },
                     "agent_wrapper": {"default": {"backend": "codex", "model": "fixture-model", "effort": "high"}},
                     "asr": {"default": {"backend": "dashscope"}},
@@ -226,7 +252,7 @@ def test_setup_apply_recover_and_restart_with_saved_settings(tmp_path):
                         "steps": [{"backend": "stream_demo_step1"}, {"backend": "stream_demo_step2"}],
                     },
                 },
-            }
+            },
         ),
         encoding="utf-8",
     )
@@ -248,7 +274,11 @@ def test_setup_apply_recover_and_restart_with_saved_settings(tmp_path):
     origin = f"http://127.0.0.1:{port}"
     with (tmp_path / "service.log").open("w", encoding="utf-8") as log:
         process = subprocess.Popen(
-            launch, cwd=tmp_path, env=environment, stdout=log, stderr=log
+            launch,
+            cwd=tmp_path,
+            env=environment,
+            stdout=log,
+            stderr=log,
         )  # pylint: disable=consider-using-with
         try:
             with httpx.Client(base_url=origin, trust_env=False, timeout=15) as client:
@@ -268,13 +298,15 @@ def test_setup_apply_recover_and_restart_with_saved_settings(tmp_path):
                 assert client.post("/admin/restart", headers={"Origin": "https://unrelated.example"}).status_code == 403
                 assert (
                     client.get(
-                        "/admin/config", headers={"Host": "unrelated.example", "Origin": "http://unrelated.example"}
+                        "/admin/config",
+                        headers={"Host": "unrelated.example", "Origin": "http://unrelated.example"},
                     ).status_code
                     == 403
                 )
                 assert client.get("/admin/config", headers={"Origin": origin}).is_success
                 assert client.get(
-                    "/admin/config", headers={"Origin": "https://appassets.androidplatform.net"}
+                    "/admin/config",
+                    headers={"Origin": "https://appassets.androidplatform.net"},
                 ).is_success
 
                 def settled(identity):
@@ -282,7 +314,8 @@ def test_setup_apply_recover_and_restart_with_saved_settings(tmp_path):
                     return status if status["operation"]["phase"] in {"succeeded", "failed"} else None
 
                 accepted = client.post(
-                    "/admin/apply", json={"revision": 0, "api_key": "test-provider-key", "workspace_dir": str(target)}
+                    "/admin/apply",
+                    json={"revision": 0, "api_key": "test-provider-key", "workspace_dir": str(target)},
                 )
                 assert accepted.status_code == 202, accepted.text
                 result = _wait_for(lambda: settled(accepted.json()["id"]))
@@ -304,7 +337,8 @@ def test_setup_apply_recover_and_restart_with_saved_settings(tmp_path):
                     "tts_voice": "fixture-voice",
                 }
                 accepted = client.post(
-                    "/admin/apply", json={"revision": 1, "dashscope_api_key": "test-speech-key", **speech}
+                    "/admin/apply",
+                    json={"revision": 1, "dashscope_api_key": "test-speech-key", **speech},
                 )
                 assert accepted.status_code == 202, accepted.text
                 assert _wait_for(lambda: settled(accepted.json()["id"]))["operation"]["phase"] == "succeeded"
@@ -343,10 +377,14 @@ def test_setup_apply_recover_and_restart_with_saved_settings(tmp_path):
                 config.write_text(config.read_text().replace("${LLM_API_KEY:-}", "${LLM_API_KEY}"))
                 environment.pop("LLM_API_KEY")
                 (tmp_path / ".env").write_text(
-                    "LLM_BASE_URL=https://changed.example.com\nDASHSCOPE_API_KEY=changed-speech-key\n"
+                    "LLM_BASE_URL=https://changed.example.com\nDASHSCOPE_API_KEY=changed-speech-key\n",
                 )
                 process = subprocess.Popen(
-                    launch, cwd=tmp_path, env=environment, stdout=log, stderr=log
+                    launch,
+                    cwd=tmp_path,
+                    env=environment,
+                    stdout=log,
+                    stderr=log,
                 )  # pylint: disable=consider-using-with
                 _wait_for(lambda: client.get("/admin/status").json()["ready"])
                 view = client.get("/admin/config").json()

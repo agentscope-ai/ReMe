@@ -31,8 +31,9 @@ docker compose up --build -d
 ```
 
 For model-powered memory evolution, copy the repository's `example.env` to `.env` if you do not already have one, then
-fill in your model credentials. Compose injects this optional file at runtime; Docker builds exclude `.env` files. Compose's
-`--env-file` controls variable interpolation; `REME_ENV_FILE` selects the file injected into the container.
+fill in your model credentials. Set `REME_ENCRYPTION_KEY` in the container's runtime environment before saving model
+or speech credentials. Generate a Fernet key once and retain it across restarts. Compose injects the optional `.env`
+file at runtime. `--env-file` controls variable interpolation, and `REME_ENV_FILE` selects the file injected into the container.
 
 ## Use a published image
 
@@ -71,16 +72,20 @@ filesystem; additional paths need additional mounts.
 | `REME_CONFIG` | Existing config name or mounted YAML/JSON path; unset uses the built-in default |
 | `REME_HOST` | HTTP bind address; image and Compose use `0.0.0.0` |
 | `REME_PORT` | Container port override; Compose defaults to `2333` |
-| `REME_TIMEZONE` | Optional application timezone override; otherwise the application default applies |
+| `TZ` | Optional IANA timezone for the container, such as `Asia/Shanghai` |
 | `REME_DATA_DIR` | Compose host workspace directory; default `./.reme` |
 | `REME_PUBLISHED_PORT` | Compose host port; default `2333`, independent of the container port |
 | `REME_BIND_ADDRESS` | Compose host bind address; default `127.0.0.1` |
 | `REME_UID`, `REME_GID` | Compose process identity; both default to `1000` |
 | `REME_ENV_FILE` | Optional Compose runtime environment file; default `.env` |
 
-Explicit `start key=value` arguments override container environment settings, which override the loaded configuration for
-those keys. Other keys retain ReMe's normal deep merge behavior. File logging defaults to off in the image; use container
-logs. `log_to_file=true` explicitly enables file logs under `/app/logs`, which requires a separate mount to persist them.
+Explicit `start key=value` arguments override the container's `REME_*` settings, which override the loaded configuration
+for those keys. Set `TZ` in the Compose runtime environment file to select the default timezone. An explicit `timezone`
+in the configuration or startup arguments takes precedence over `TZ`. To override the configuration, pass
+`start timezone=America/New_York`.
+
+The image writes logs to the container output by default. `log_to_file=true` enables file logs under `/app/logs`, which
+requires a separate mount to persist them.
 The temporary home directory `/tmp/reme-home` and probe address file are disposable, not workspace storage.
 
 Compose stores backend settings in the `reme-state` volume. The entrypoint assigns the volume to the configured UID/GID before starting ReMe as that user. On the default published loopback address, unlock **Settings → Backend** with the instance token from `docker compose exec reme cat /state/admin-token`. When `REME_ADMIN_TOKEN` is set, use that value. Remote management requires the explicitly configured token and HTTPS.
@@ -103,8 +108,9 @@ To override startup without changing the image:
 
 ```bash
 docker run --rm -p 127.0.0.1:2444:2444 \
+  --env TZ=UTC \
   --mount "type=bind,source=$HOME/.reme,target=/data" \
-  reme:local start service.port=2444 timezone=UTC
+  reme:local start service.port=2444
 docker compose exec reme reme health_check
 docker compose exec reme reme status
 ```

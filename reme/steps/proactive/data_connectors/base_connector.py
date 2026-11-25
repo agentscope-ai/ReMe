@@ -9,7 +9,6 @@ import re
 import shutil
 from threading import Event
 from uuid import uuid4
-from zoneinfo import ZoneInfo
 
 from ....schema.resource_metadata import RESOURCE_METADATA_FILENAME
 from ....schema.proactive_agent import validate_task_names
@@ -23,6 +22,7 @@ from ....utils.files.workspace_files import WorkspaceFiles
 from ....schema import ApplicationConfig, ResourceMetadata
 from ....utils.async_utils import finish_cleanup
 from ....utils.files.file_sync import sync_directory, sync_file
+from ....utils.timezone_utils import resolve_timezone
 
 
 def resource_package_id(now: datetime) -> str:
@@ -56,7 +56,7 @@ class BaseConnectorStep(BaseStep):
             raise ValueError(error or "resource_dir must stay inside the workspace without symlinks")
         if not re.fullmatch(r"[a-z][a-z0-9_-]*", self.source):
             raise ValueError("resource source must be a lowercase directory name")
-        now = datetime.now(ZoneInfo(config.timezone)) if config.timezone else datetime.now().astimezone()
+        now = datetime.now(resolve_timezone(config.timezone))
         target = root / self.source / now.date().isoformat() / resource_package_id(now)
         if not check_path_permission(workspace, target, self.context.get("_allowed_paths")):
             raise PermissionError("no permission to write this resource package")

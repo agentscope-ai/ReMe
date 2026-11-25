@@ -42,17 +42,25 @@ class ResourceDelivery:
         """Retry the original observation for each remaining recipient."""
         pattern = f"*/*/{RESOURCE_METADATA_FILENAME}"
         for manifest in await asyncio.to_thread(lambda: sorted(self.root.glob(pattern))):
-            await self.deliver(manifest)
+            try:
+                await self.deliver(manifest)
+            except (OSError, ValueError, RuntimeError) as error:
+                self.connector.logger.warning(f"Could not deliver resource package {manifest.parent}: {error}")
 
     async def deliver(self, manifest):
         """Send one published package to its unfinished recipients."""
         state_path = manifest.with_name(_DELIVERY_FILENAME)
         self.connector.require_path(state_path)
-        state = await asyncio.to_thread(self.files.read_json, state_path, None)
-        if state is None or not state["pending"]:
+        state = await asyncio.to_thread(self.files.read_json, state_path, {"pending": []})
+        if not isinstance(state, dict) or not isinstance(state.get("pending"), list):
+            raise ValueError("Invalid pending resource recipients")
+        if not state["pending"]:
             return
 
         targets = validate_task_names(state["pending"])
+        previous_rejections = state.get("rejected", {})
+        if not isinstance(previous_rejections, dict):
+            raise ValueError("Invalid rejected resource recipients")
         self.connector.require_path(manifest)
         metadata = ResourceMetadata.model_validate_json(await asyncio.to_thread(self.files.read, manifest))
         if metadata.source != self.connector.source:
@@ -60,6 +68,8 @@ class ResourceDelivery:
         paths = [manifest.parent / name for name in self.connector.event_payloads(metadata)]
         for path in paths:
             self.connector.require_path(path)
+            if not path.is_file():
+                raise ValueError(f"Missing published resource payload: {path.name}")
         event = resource_event(self.files.workspace, manifest.parent, metadata, paths)
         result = await self.connector.proactive_manager.deliver_events(task_names=targets, events=[event])
         rejected = result["rejected"]
@@ -69,7 +79,7 @@ class ResourceDelivery:
             await complete_in_thread(
                 self.files.write_json,
                 state_path,
-                {"pending": list(result["errors"]), "rejected": {**state.get("rejected", {}), **rejected}},
+                {"pending": list(result["errors"]), "rejected": {**previous_rejections, **rejected}},
             )
         if result["errors"]:
             raise RuntimeError(f"Resource event delivery failed: {result['errors']}")

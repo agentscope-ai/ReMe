@@ -16,7 +16,6 @@ _ENV_OVERRIDES = {
     "REME_WORKSPACE_DIR": "workspace_dir",
     "REME_HOST": "service.host",
     "REME_PORT": "service.port",
-    "REME_TIMEZONE": "timezone",
 }
 
 

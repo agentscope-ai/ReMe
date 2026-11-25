@@ -33,7 +33,7 @@ def _check_backends(config: dict) -> None:
         (
             ComponentEnum.STEP,
             [step for job in settings.jobs.values() if job.enabled for step in (*job.init_steps, *job.steps)],
-        )
+        ),
     )
     for ctype, group in groups:
         for component in group:
@@ -93,7 +93,7 @@ async def _test_model(config: dict) -> None:
                 "jobs": {},
                 "components": {
                     "agent_wrapper": {
-                        "default": {**wrapper, "project_path": workspace, "cwd": workspace, "skills": []}
+                        "default": {**wrapper, "project_path": workspace, "cwd": workspace, "skills": []},
                     },
                     "codex_app_server": {server_name: {**server, "cwd": workspace, "codex_home": ".codex"}},
                 },
@@ -118,7 +118,7 @@ def main() -> None:
         if request["mode"] == "import":
             _check_backends(config)
             encrypted = Fernet(request["report_key"].encode("ascii")).encrypt(
-                json.dumps(settings.private_values()).encode("utf-8")
+                json.dumps(settings.private_values()).encode("utf-8"),
             )
             _report(result, view=view, settings=encrypted.decode("ascii"))
         elif request["mode"] == "check":

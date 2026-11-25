@@ -31,7 +31,7 @@ _HOP_HEADERS = frozenset(
         b"trailer",
         b"transfer-encoding",
         b"upgrade",
-    )
+    ),
 )
 
 
@@ -91,7 +91,9 @@ def build_gateway(
             supplied = request.headers.get("authorization", "").encode("utf-8")
             if not admin_token or not secrets.compare_digest(supplied, expected):
                 raise HTTPException(
-                    401, "A ReMe administrator token is required", headers={"WWW-Authenticate": "Bearer"}
+                    401,
+                    "A ReMe administrator token is required",
+                    headers={"WWW-Authenticate": "Bearer"},
                 )
         origin = request.headers.get("origin")
         if origin is None:

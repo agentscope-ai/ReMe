@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 from ...schema.agent_activity import AgentActivity
@@ -12,6 +12,8 @@ from ...schema.agent_inbox import InboxReceipt
 from ...schema.event import Event
 from ...schema.proactive_agent import CRON_EVENT_SOURCE, ProactiveRuntimeDefinition
 from ...utils.async_utils import finish_cleanup
+from ...utils.cron_utils import next_cron_time
+from ...utils.timezone_utils import resolve_timezone
 
 if TYPE_CHECKING:
     from ..proactive_manager.local_proactive_manager import LocalProactiveManager
@@ -29,6 +31,7 @@ class ProactiveRuntime:
         self.schedule: tuple[tuple[str, str | None], datetime | None] | None = None
         self.started_at: datetime | None = None
         self.error: str | None = None
+        self.scheduler_error: str | None = None
         self.retry_at: datetime | None = None
         self.retry_items: list[str] | None = None
         self.retry_delay = 0.0
@@ -171,16 +174,13 @@ class ProactiveRuntime:
 
     def _next_cron_time(self, expression: str, now: datetime) -> datetime | None:
         """Return no trigger for an exhausted schedule without hiding its retained task."""
-        from croniter import CroniterBadDateError, croniter
+        from croniter import CroniterBadDateError
 
-        anchor = now if self.manager.app_context.app_config.timezone else now.replace(tzinfo=None)
+        anchor = now.astimezone(resolve_timezone(self.manager.app_context.app_config.timezone))
         try:
-            next_fire = croniter(expression, anchor).get_next(datetime)
+            return next_cron_time(expression, anchor)
         except CroniterBadDateError:
             return None
-        if next_fire.tzinfo is None:
-            next_fire = next_fire.astimezone()
-        return next_fire
 
     def _cron_schedule(self, expression: str, now: datetime):
         key = (expression, self.manager.app_context.app_config.timezone)
@@ -218,7 +218,9 @@ class ProactiveRuntime:
                 await self._schedule_cron(definition)
             except TimeoutError:
                 manager.logger.warning(f"Cron input deferred for {self.agent_name}: inbox capacity is full")
-        if self.worker is not None or (self.retry_at is not None and self.retry_at > manager.now()):
+        if self.worker is not None or (
+            self.retry_at is not None and self.retry_at.timestamp() > manager.now().timestamp()
+        ):
             return
         snapshot = await manager.inbox.snapshot(self.agent_name)
         if not snapshot["pending_count"]:
@@ -228,7 +230,7 @@ class ProactiveRuntime:
             definition.cron is None
             and receipt is not None
             and definition.min_trigger_interval_seconds
-            and (manager.now() - receipt.consume_ts).total_seconds() < definition.min_trigger_interval_seconds
+            and manager.now().timestamp() - receipt.consume_ts.timestamp() < definition.min_trigger_interval_seconds
         ):
             return
         self.worker = asyncio.create_task(self._work(run_job), name=f"agent:{self.agent_name}")
@@ -249,7 +251,7 @@ class ProactiveRuntime:
                 self.retry_delay * 2 if self.retry_delay else manager.retry_seconds,
             )
             self.retry_delay = delay
-            self.retry_at = manager.now() + timedelta(seconds=delay)
+            self.retry_at = manager.now().astimezone(timezone.utc) + timedelta(seconds=delay)
             manager.logger.exception(f"Proactive Runtime {agent_name} failed; retry in {delay:g}s: {exc}")
         finally:
             self.worker = None

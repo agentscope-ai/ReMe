@@ -4,7 +4,6 @@ import asyncio
 from contextlib import aclosing, asynccontextmanager
 from datetime import datetime
 import math
-from zoneinfo import ZoneInfo
 
 from watchfiles import awatch
 
@@ -28,6 +27,7 @@ from ...schema.application_config import ApplicationConfig
 from ...schema.event import Event
 from ...schema.proactive_agent import CRON_EVENT_SOURCE, CreateProactiveRuntimeConfig, ProactiveRuntimeDefinition
 from ...utils.async_utils import complete_in_thread, finish_cleanup
+from ...utils.timezone_utils import resolve_timezone
 
 
 @R.register("local")
@@ -107,7 +107,7 @@ class LocalProactiveManager(BaseProactiveManager):
     def now(self):
         """Use the application timezone for dates and trigger calculation."""
         timezone = self.app_context.app_config.timezone if self.app_context else None
-        return datetime.now(ZoneInfo(timezone)) if timezone else datetime.now().astimezone()
+        return datetime.now(resolve_timezone(timezone))
 
     async def _start(self):
         if self.app_context is None:
@@ -238,7 +238,7 @@ class LocalProactiveManager(BaseProactiveManager):
         receipt = snapshot["receipt"]
         task_path = self.registry.task_path(agent)
         next_trigger = runtime.next_trigger(agent)
-        error = runtime.error
+        error = runtime.scheduler_error or runtime.error
         if agent.enabled and agent.cron is not None and next_trigger is None:
             error = f"Cron schedule has no future trigger: {agent.cron}"
         return {
@@ -380,7 +380,16 @@ class LocalProactiveManager(BaseProactiveManager):
                 await self.runtimes.pop(name).stop()
                 self.activities.pop(name, None)
             for definition in definitions.values():
-                await self._runtime(definition).tick(definition, run_job)
+                runtime = self._runtime(definition)
+                try:
+                    await runtime.tick(definition, run_job)
+                except ValueError as exc:
+                    error = str(exc)
+                    if runtime.scheduler_error != error:
+                        self.logger.error(f"Could not schedule Proactive Runtime {definition.agent_name}: {error}")
+                    runtime.scheduler_error = error
+                else:
+                    runtime.scheduler_error = None
 
     async def wait(self, stop, seconds=1):
         """Wake for external edits or new inputs while continuing timer checks."""

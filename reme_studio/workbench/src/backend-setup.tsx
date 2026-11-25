@@ -58,7 +58,7 @@ export default function BackendSetup({
     };
   }, [state.settings.endpoint, token]);
   const setup = status?.needs_setup;
-  const connecting = !state.clientInfo && !status;
+  const connecting = !state.clientInfo && !status?.ready;
   useEffect(() => {
     onBlockingChange(Boolean(setup || connecting));
   }, [setup, connecting, onBlockingChange]);
@@ -85,7 +85,7 @@ export default function BackendSetup({
           <p role="status" className="settings-note">
             {error
               ? errorText(error, state.settings.language)
-              : t("backendLoading")}
+              : (status?.error ?? t("backendLoading"))}
           </p>
         )}
         {needsBackendToken(error) && (

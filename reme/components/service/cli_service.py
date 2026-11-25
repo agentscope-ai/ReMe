@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from ...core.application import Application
 
 _APP_CONFIG_KEYS = set(ApplicationConfig.model_fields)
+SERVICE_CONFIG_SECTIONS = frozenset({"service", "plugins"})
 
 
 def prepare_start_config(kwargs: dict) -> dict:
@@ -32,7 +33,10 @@ def prepare_start_service(arguments: dict, *, get_config_dir=None) -> dict:
     from ...plugin import resolve_plugin_runtime
 
     config = resolve_app_config(
-        log_config=False, _get_config_dir=get_config_dir, _sections=frozenset(("service", "plugins")), **arguments
+        log_config=False,
+        _get_config_dir=get_config_dir,
+        _sections=SERVICE_CONFIG_SECTIONS,
+        **arguments,
     )
     return resolve_plugin_runtime(config).config.get("service") or {}
 

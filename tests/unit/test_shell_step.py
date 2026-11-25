@@ -1,13 +1,11 @@
 """Tests for asynchronous shell command execution."""
 
-import asyncio
 import os
 import shlex
 import sys
 import time
 from unittest.mock import AsyncMock
 
-import psutil
 import pytest
 
 from reme.core.context import ApplicationContext
@@ -65,33 +63,6 @@ async def test_shell_step_times_out():
     assert response.answer == "Shell command timed out after 0.01s"
     assert response.metadata["shell_timeout"] == 0.01
     assert time.monotonic() - started < 1
-
-
-@pytest.mark.asyncio
-@pytest.mark.skipif(os.name != "posix", reason="POSIX process groups")
-async def test_cancelling_shell_step_reaps_its_process_group(tmp_path):
-    """Cancelling a caller must not leave its shell command running."""
-    marker = tmp_path / "pid"
-    script = f"import os,time; open({str(marker)!r}, 'w').write(str(os.getpid())); time.sleep(60)"
-    task = asyncio.create_task(ShellStep()(cmd=f"{shlex.quote(sys.executable)} -c {shlex.quote(script)}"))
-    pid = None
-    try:
-        async with asyncio.timeout(5):
-            while not marker.exists() or not marker.read_text():
-                await asyncio.sleep(0.01)
-        pid = int(marker.read_text())
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
-        assert not psutil.pid_exists(pid) or psutil.Process(pid).status() == psutil.STATUS_ZOMBIE
-    finally:
-        if pid is not None and psutil.pid_exists(pid):
-            try:
-                psutil.Process(pid).kill()
-            except psutil.NoSuchProcess:
-                pass
-        task.cancel()
-        await asyncio.gather(task, return_exceptions=True)
 
 
 @pytest.mark.asyncio

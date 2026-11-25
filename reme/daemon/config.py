@@ -27,7 +27,7 @@ class Settings(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     workspace_dir: str | None = Field(default=None, max_length=4096)
-    timezone: str | None = Field(default="Asia/Shanghai", max_length=128)
+    timezone: str | None = Field(default=None, max_length=128)
     language: str = Field(default="zh", max_length=32)
     harness: Literal["codex"] | None = None
     base_url: str | None = Field(default=None, max_length=2048)
@@ -195,7 +195,7 @@ def resolve_worker_config(arguments: dict, settings: Settings | None):
         os.environ.pop(secret, None)
     if settings is not None:
         variables = {
-            "DASHSCOPE_API_KEY": settings.dashscope_api_key.get_secret_value() if settings.dashscope_api_key else ""
+            "DASHSCOPE_API_KEY": settings.dashscope_api_key.get_secret_value() if settings.dashscope_api_key else "",
         }
         if settings.harness == "codex":
             variables.update(
@@ -228,7 +228,8 @@ def resolve_worker_config(arguments: dict, settings: Settings | None):
         raise ValueError("This ReMe configuration does not use the selected Harness")
     if editable:
         server.update(
-            base_url=settings.base_url or "", api_key=settings.api_key.get_secret_value() if settings.api_key else ""
+            base_url=settings.base_url or "",
+            api_key=settings.api_key.get_secret_value() if settings.api_key else "",
         )
         wrapper.update(model=settings.model, effort=settings.effort)
         options = dict.fromkeys(_MODEL_OVERRIDES, settings.model)

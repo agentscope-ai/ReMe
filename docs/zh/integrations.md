@@ -18,6 +18,7 @@ ReMe 把记忆能力放在独立服务和用户拥有的 workspace 中。Agent �
 | OpenClaw | [`@agentscope-ai/reme-openclaw-plugin`](./integrations/openclaw.md) |
 | Claude Code | [启动 ReMe 后安装插件](./integrations/claude-code.md) |
 | Qoder | [启动 ReMe 后安装插件](./integrations/qoder.md) |
+| ZCode | [启动 ReMe 后安装插件](./integrations/zcode.md) |
 | Hermes Agent | Memory provider adapter |
 | Codex | [启动 ReMe 后安装插件](./integrations/codex.md) |
 | 其他 coding agent | `reme_memory` Skill 或 MCP |
@@ -107,6 +108,15 @@ Hook、MCP Bridge 和 `reme-memory` Skill；Qoder 以 user 级插件统一加载
 
 Qoder 的 transcript 与 Claude Code 一样使用 user/assistant JSONL。插件会捕获完成轮次，把失败写入
 留在本地队列重试，并通过配置的 HTTP Job API 提交。使用期间需保持 ReMe 服务运行。
+
+## ZCode
+
+先启动 ReMe HTTP 服务，再添加本地市场并安装 [ZCode 的 ReMe 插件](./integrations/zcode.md)。
+插件整包提供生命周期 Hook、MCP Bridge 和 `reme-memory` Skill。
+
+ZCode 只提供 7 个 Hook 事件，且当前 `async` 字段仍在主流程执行。适配器会在
+`UserPromptSubmit` 暂存用户文本，在 `Stop` 与最终回复配对，再启动脱离宿主的后台投递进程；
+`SessionStart` 重试残留批次。失败写入会保留在按服务地址隔离的本地队列中。
 
 ## Hermes Agent
 

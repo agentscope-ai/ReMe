@@ -3,12 +3,12 @@
 from abc import abstractmethod
 from datetime import date, datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 from ..base import BaseComponent
 from ...enumeration import ComponentEnum
 from ...schema import ApplicationConfig, FileNode
 from ...utils.files.file_watch import WatchRule, build_watch_rules
+from ...utils.timezone_utils import resolve_timezone
 
 
 class BaseFileCatalog(BaseComponent):
@@ -56,7 +56,7 @@ class BaseFileCatalog(BaseComponent):
 
     def _today(self) -> date:
         tz_name = self.app_context.app_config.timezone if self.app_context else None
-        return datetime.now(ZoneInfo(tz_name) if tz_name else None).date()
+        return datetime.now(resolve_timezone(tz_name)).date()
 
     @staticmethod
     def _expired_date(name: str, today: date, ttl_days: int | None) -> bool:

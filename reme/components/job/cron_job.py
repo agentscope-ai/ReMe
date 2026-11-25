@@ -1,12 +1,13 @@
 """Cron-scheduled background job that runs its configured steps."""
 
 import datetime
-from zoneinfo import ZoneInfo
 
 from .background_job import BackgroundJob
 from ...core.registry import R
 from ...core.context import RuntimeContext
 from ...schema import ComponentConfig, Response
+from ...utils.cron_utils import next_cron_time
+from ...utils.timezone_utils import resolve_timezone
 
 
 @R.register("cron")
@@ -34,16 +35,10 @@ class CronJob(BackgroundJob):
         self.init_step_specs.clear()
 
     def _next_fire_delay(self) -> float:
-        tz_name = None
-        if self.app_context is not None:
-            tz_name = self.app_context.app_config.timezone
-        now = datetime.datetime.now(ZoneInfo(tz_name)) if tz_name else datetime.datetime.now()
-        from croniter import croniter
-
-        nxt = croniter(self.cron_expr, now).get_next(datetime.datetime)
-        # croniter may reset fold on naive local times, so retain their wall-clock arithmetic.
-        delay = nxt.timestamp() - now.timestamp() if tz_name else (nxt - now).total_seconds()
-        return max(0.0, delay)
+        tz_name = self.app_context.app_config.timezone if self.app_context is not None else None
+        now = datetime.datetime.now(resolve_timezone(tz_name))
+        next_fire = next_cron_time(self.cron_expr, now)
+        return max(0.0, next_fire.timestamp() - now.timestamp())
 
     async def _execute_steps(self) -> Response:
         context = RuntimeContext(stop_event=self._stop_event, **self.kwargs)

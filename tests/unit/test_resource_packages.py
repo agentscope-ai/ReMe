@@ -293,6 +293,34 @@ async def test_published_resource_recovers_delivery_before_collecting_again(tmp_
 
 
 @pytest.mark.asyncio
+async def test_damaged_delivery_does_not_block_a_new_package(tmp_path):
+    manager = Mock(spec=BaseProactiveManager)
+    manager.deliver_events = AsyncMock(
+        side_effect=[
+            ConnectionError("interrupted after publication"),
+            {"deliveries": {"observer": []}, "errors": {}, "rejected": {}},
+        ],
+    )
+    step = PackageConnector(
+        app_context=ApplicationContext(workspace_dir=str(tmp_path)),
+        proactive_manager=manager,
+        task_names=["observer"],
+    )
+    with pytest.raises(ConnectionError):
+        await step()
+    (first,) = tmp_path.glob("resource/screenshot/*/*/.delivery.json")
+    first.write_text('{"pending":null}')
+
+    result = await step()
+
+    assert result.success
+    assert first.read_text() == '{"pending":null}'
+    assert manager.deliver_events.await_count == 2
+    second_path = manager.deliver_events.await_args.kwargs["events"][0].paths[0]
+    assert (tmp_path / second_path).parent != first.parent
+
+
+@pytest.mark.asyncio
 async def test_identical_package_names_never_overwrite_a_published_package(tmp_path, monkeypatch):
     clock = Mock()
     clock.now.return_value = datetime(2026, 11, 15, 12, 30, 45, tzinfo=ZoneInfo("Asia/Shanghai"))

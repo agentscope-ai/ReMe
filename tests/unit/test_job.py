@@ -17,7 +17,6 @@ from reme.components.job.background_job import BackgroundJob
 from reme.components.job.base_job import BaseJob
 from reme.components.job.cron_job import CronJob
 from reme.components.job.stream_job import StreamJob
-from reme.components.job import cron_job as cron_job_module
 from reme.schema import ComponentConfig, StreamChunk
 
 # -- helpers ------------------------------------------------------------------
@@ -381,6 +380,7 @@ def test_shutdown_task_cancels_on_timeout():
 
 def test_cron_uses_configured_timezone(monkeypatch):
     from zoneinfo import ZoneInfo
+    from reme.utils import timezone_utils
 
     seen = {}
 
@@ -388,7 +388,7 @@ def test_cron_uses_configured_timezone(monkeypatch):
         seen["timezone"] = name
         return ZoneInfo(name)
 
-    monkeypatch.setattr(cron_job_module, "ZoneInfo", zone_info)
+    monkeypatch.setattr(timezone_utils, "ZoneInfo", zone_info)
 
     job = CronJob(cron="0 0 * * *")
     job.app_context = SimpleNamespace(app_config=SimpleNamespace(timezone="America/New_York"))

@@ -45,7 +45,7 @@ def _write(workspace, path):
 @pytest.mark.asyncio
 async def test_retention_uses_directory_dates_and_persists_only_successful_deletions(tmp_path):
     """At day seven remove the entire dated tree, including uncataloged files and empty folders."""
-    catalog = _catalog(tmp_path)
+    catalog = _catalog(tmp_path, timezone="Asia/Shanghai")
     expired = "resource/2026-10-29/sub/report.pdf"
     retained = [
         "resource/2026-10-30/recent.txt",

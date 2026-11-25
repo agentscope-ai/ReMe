@@ -212,7 +212,11 @@ def _load_config_path(
         if Path(parent).suffix in _SUPPORTED_EXTS and relative.is_file():
             parent_name = str(relative.resolve())
         parent_config = _load_config(
-            parent_name, encoding, (*stack, identity), get_config_dir=get_config_dir, sections=sections
+            parent_name,
+            encoding,
+            (*stack, identity),
+            get_config_dir=get_config_dir,
+            sections=sections,
         )
         merged = deep_merge_config(merged, parent_config)
     return deep_merge_config(merged, config)

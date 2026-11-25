@@ -10,6 +10,13 @@ from ..enumeration import component_type_name
 from .event import Event
 
 
+def _default_timezone() -> str:
+    """Use the system's IANA timezone when it can be resolved."""
+    from ..utils.timezone_utils import default_timezone_name
+
+    return default_timezone_name()
+
+
 class ComponentConfig(BaseModel):
     """Base config for a component; extra fields allowed for backend-specific options."""
 
@@ -59,7 +66,11 @@ class ApplicationConfig(BaseModel):
     digest_dir: str = Field(default="digest", description="Subdirectory for digest memory")
     notebook_dir: str = Field(default="notebook", description="Workspace-relative subdirectory for Todo and Idea files")
     enable_logo: bool = Field(default=True, description="Show ASCII logo on startup")
-    timezone: str | None = Field(default="Asia/Shanghai", description="IANA timezone; None uses local time")
+    timezone: str | None = Field(
+        default_factory=_default_timezone,
+        description="IANA timezone. Defaults to the system timezone, with Asia/Shanghai as a fallback. "
+        "An explicit None uses process or host rules shared by dates and cron jobs.",
+    )
     language: str = Field(default="", description="Default language for LLM interactions")
     log_to_console: bool = Field(default=True, description="Log to console")
     log_to_file: bool = Field(default=True, description="Log to file")
@@ -73,6 +84,16 @@ class ApplicationConfig(BaseModel):
         default_factory=dict,
         description="Component registry keyed by type then name",
     )
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_local_timezone(cls, value: str | None) -> str | None:
+        """Validate an explicit process timezone before local-time jobs start."""
+        if value is None and "TZ" in os.environ:
+            from ..utils.timezone_utils import system_timezone
+
+            system_timezone()
+        return value
 
     @field_validator("components", mode="before")
     @classmethod

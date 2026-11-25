@@ -11,9 +11,13 @@ from yaml import YAMLError
 
 from .core.application import Application
 from .constants import REME_DEFAULT_HOST, REME_DEFAULT_PORT, normalize_connect_host
-from .components.service.cli_service import prepare_start_config, prepare_start_service, should_precheck_start
+from .components.service.cli_service import (
+    prepare_start_config,
+    prepare_start_service,
+    SERVICE_CONFIG_SECTIONS,
+    should_precheck_start,
+)
 from .config import parse_action, parse_kwargs, resolve_app_config
-from .config.config_parser import UndefinedEnvironmentVariableError
 from .enumeration import ComponentEnum
 from .plugin import resolve_plugin_runtime
 from .utils.env_utils import load_env
@@ -97,7 +101,7 @@ def _start_arguments(cmdline: list[str]) -> list[str] | None:
     return [argument for argument in cmdline[action_index + 1 :] if "=" in argument]
 
 
-def _iter_running_configs(*, allow_partial: bool = False, require_complete: bool = False) -> Iterator[tuple[int, dict]]:
+def _iter_running_configs(*, allow_partial: bool = False) -> Iterator[tuple[int, dict]]:
     """Replay running ReMe configurations and allow startup overrides for port probes."""
     for proc in psutil.process_iter(["pid", "cmdline"]):
         try:
@@ -115,17 +119,12 @@ def _iter_running_configs(*, allow_partial: bool = False, require_complete: bool
         if "job" in overrides:
             continue
         try:
-            config = resolve_app_config(log_config=False, _get_config_dir=proc.cwd, **overrides)
-        except UndefinedEnvironmentVariableError:
-            if require_complete:
-                continue
-            try:
-                service = prepare_start_service(overrides, get_config_dir=proc.cwd)
-            except (OSError, ValueError, psutil.Error, YAMLError):
-                continue
-            if service.get("backend") != "http":
-                continue
-            config = {"service": service}
+            config = resolve_app_config(
+                log_config=False,
+                _get_config_dir=proc.cwd,
+                _sections=SERVICE_CONFIG_SECTIONS,
+                **overrides,
+            )
         except psutil.NoSuchProcess:
             continue
         except (OSError, ValueError, psutil.AccessDenied, YAMLError):
@@ -151,9 +150,9 @@ def _scan_reme_procs() -> Iterator[tuple[int, str, int]]:
         yield pid, host, port
 
 
-def running_app_config(*, require_complete: bool = False) -> dict | None:
-    """Return a running ReMe's application config, including enabled plugins."""
-    return next((config for _, config in _iter_running_configs(require_complete=require_complete)), None)
+def running_app_config() -> dict | None:
+    """Return a running ReMe's connection settings and enabled plugins."""
+    return next((config for _, config in _iter_running_configs()), None)
 
 
 async def locate_reme() -> tuple[str, int, int | None] | None:
@@ -185,11 +184,9 @@ async def call_server(job_name: str, /, **kwargs):
     if isinstance(kwargs.get("service"), dict):
         resolve_kwargs["service"] = kwargs.pop("service")
 
-    # Prefer the running server's complete config so its enabled client plugins
-    # are available even when the caller does not repeat config=<name>.
-    app_config = running_app_config(require_complete=True) if resolve_kwargs else running_app_config()
+    app_config = running_app_config()
     if app_config is None:
-        app_config = resolve_app_config(log_config=False, **resolve_kwargs)
+        app_config = resolve_app_config(log_config=False, _sections=SERVICE_CONFIG_SECTIONS, **resolve_kwargs)
     runtime = resolve_plugin_runtime(app_config)
     app_config = runtime.config
     service = app_config.get("service")
