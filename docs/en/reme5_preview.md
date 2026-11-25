@@ -1,6 +1,6 @@
 ---
 title: ReMe5 Preview — Proactive Runtime
-description: How ReMe is bringing file-native memory, event-driven agents, and scheduled work together in a local-first runtime.
+description: How ReMe is bringing file-native memory, event-triggered agents, and scheduled work together in a local-first runtime.
 ---
 
 # ReMe5 Preview — Proactive Runtime
@@ -11,7 +11,7 @@ schedule start its next run, and return later to ask what happened. The task can
 previous work, and bring important changes back to your conversation.
 
 We aim to release ReMe5 **by the end of 2026**. An early Proactive Runtime and ReMe Desktop prototype on `main` connects
-the Chat Agent to event-driven and scheduled agents. We are exercising it in real workflows and refining what
+the Chat Agent to event-triggered and time-triggered agents. We are exercising it in real workflows and refining what
 agents record, when they notify, and how reliably tasks continue across runs.
 [Prototype PR](https://github.com/agentscope-ai/ReMe/pull/743) ·
 [Current configuration](https://github.com/agentscope-ai/ReMe/blob/main/reme/config/proactive.yaml) ·
@@ -41,17 +41,16 @@ Use the **Chat Agent** to delegate an ongoing task and change what it should wat
 **Proactive Runtime** runs the task when an event arrives or a schedule is due. It keeps progress and evidence in your
 workspace so the Chat Agent can answer follow-up questions and bring back relevant reminders.
 
-![ReMe5 roadmap showing how the Chat Agent manages event-driven, scheduled, and custom agents, what executes them, and where the runtime integrates](../figure/reme5-proactive-runtime-overview.svg)
+![ReMe5 roadmap showing how the Chat Agent manages event-triggered, time-triggered, and custom agents, what executes them, and where the runtime integrates](../figure/reme5-proactive-runtime-overview.svg)
 
-Presets cover common tasks. From the same conversation you can connect an observation source and add a cron schedule to
-the same task. The roadmap includes a standalone desktop preview and extends the runtime into
-existing agent tools through host integrations.
+Presets cover common tasks. From Chat, you can connect an observation source to an event-triggered task or set a cron
+schedule for a time-triggered task. The roadmap includes a standalone desktop preview and host integrations.
 
 ## How the runtime works
 
-The runtime coordinates named background tasks. **Observations** can come from a completed conversation, a new log entry,
-or a paper from a configured feed. An **optional schedule** appends a trigger to the same inbox at an agreed time, such as
-for a daily briefing or nightly memory consolidation. Each task waits between runs without continuously calling the model.
+The Proactive Manager coordinates named runtimes. An event-triggered task receives observations such as new dialogue or
+logs. A time-triggered task receives cron triggers, for example for a daily briefing or nightly memory consolidation.
+Each task has its own inbox and calls the model when it has work.
 
 ![Proactive Runtime showing how observations reach the Work agent and become daily records with sources and reminder decisions](../figure/proactive-runtime.svg)
 
@@ -78,18 +77,18 @@ document, or observation. [Execution and storage details](./proactive_runtime.md
 
 ### Auto Memory becomes part of Work
 
-The event-driven **Work** agent will take on Auto Memory’s role of extracting durable context from conversations. It
+The event-triggered **Work** agent will take on Auto Memory’s role of extracting durable context from conversations. It
 will watch for new log and session records across every agent harness you configure and connect. Work will combine
 updates across those sources to track project progress, decisions, blockers, and next steps. It can retain what will
 matter in later sessions and surface a development when it matches your instructions. The current Work prototype uses
 new Codex dialogue and screenshots to test that workflow.
 
-### Auto Dream becomes three scheduled agents
+### Auto Dream becomes three time-triggered agents
 
 Auto Dream currently consolidates daily memory into personal, procedural, and wiki knowledge. The plan is to give each
 of the three agents its own cron schedule and instructions about which evidence to use.
 
-The scheduled agents can draw context from `daily/` and `digest/` notes.
+The time-triggered agents can draw context from `daily/` and `digest/` notes.
 [Current Auto Dream inputs and outputs](./auto_dream.md#inputs-and-outputs)
 
 ### Predefined agents and workflows
@@ -98,16 +97,16 @@ ReMe5 will include presets for following ongoing work, consolidating memory, and
 
 | Preset | Trigger | What it does |
 | --- | --- | --- |
-| **Work** | Event-driven | Includes Auto Memory. Follows logs and sessions from connected agent harnesses to track progress, decisions, and blockers. |
-| **Finance** | Event-driven | Follows news and market data for the topics or assets you choose. |
-| **Research** | Event-driven | Follows new papers and project results that matter to your research questions. |
-| **Consolidate Personal Memory** | Cron-driven | Auto Dream preset for durable preferences, goals, and personal or project context. |
-| **Consolidate Procedural Memory** | Cron-driven | Auto Dream preset for reusable workflows, troubleshooting steps, and lessons from completed work. |
-| **Consolidate Wiki Knowledge** | Cron-driven | Auto Dream preset for maintaining topic knowledge with links to its underlying sources. |
-| **Todo** | Event-driven | Captures an explicit follow-up and links it back to the source event or decision. |
-| **Daily Summary** | Event-driven | Updates the day’s summary when meaningful changes arrive and carries forward open items. |
+| **Work** | Event-triggered | Includes Auto Memory. Follows logs and sessions from connected agent harnesses to track progress, decisions, and blockers. |
+| **Finance** | Event-triggered | Follows news and market data for the topics or assets you choose. |
+| **Research** | Event-triggered | Follows new papers and project results that matter to your research questions. |
+| **Consolidate Personal Memory** | Time-triggered | Auto Dream preset for durable preferences, goals, and personal or project context. |
+| **Consolidate Procedural Memory** | Time-triggered | Auto Dream preset for reusable workflows, troubleshooting steps, and lessons from completed work. |
+| **Consolidate Wiki Knowledge** | Time-triggered | Auto Dream preset for maintaining topic knowledge with links to its underlying sources. |
+| **Todo** | Event-triggered | Captures an explicit follow-up and links it back to the source event or decision. |
+| **Daily Summary** | Event-triggered | Updates the day’s summary when meaningful changes arrive and carries forward open items. |
 
-The prototype already includes an event-driven Finance example and a scheduled technology briefing. We use these
+The prototype already includes an event-triggered Finance example and a time-triggered technology briefing. We use these
 examples to test whether to keep a record, send a notification, or do both. The desktop prototype also has a Todo
 interface and background task summaries that we can build on.
 [Prototype agent definitions](https://github.com/agentscope-ai/ReMe/blob/main/reme/config/proactive.yaml) ·
@@ -118,11 +117,11 @@ interface and background task summaries that we can build on.
 The Chat Agent uses the `manage-proactive-agent` skill to create custom agents and manage both predefined and custom
 tasks. From chat, you can check a task’s status or progress, revise its instructions and runtime settings, or pause
 and resume it.
-[Task management skill](https://github.com/agentscope-ai/ReMe/blob/main/skills/manage-proactive-agent/SKILL.md)
+[Task management skill](https://github.com/agentscope-ai/ReMe/blob/main/reme/skills/manage-proactive-agent/SKILL.md)
 
-For a cron-driven task, you might say, “Every Friday, summarize the week’s experiment results and link to the
-reports.” For an event-driven task, you might ask the Chat Agent to follow an experiment’s log feed and tell you
-when it finishes or fails. Event-driven tasks need a connected source that can provide the observations.
+For a time-triggered task, you might say, “Every Friday, summarize the week’s experiment results and link to the
+reports.” For an event-triggered task, you might ask the Chat Agent to follow an experiment’s log feed and tell you
+when it finishes or fails. Event-triggered tasks need a connected source that can provide the observations.
 
 A background agent can propose a reminder based on its task instructions. The Chat Agent considers the current
 conversation when deciding whether to deliver it. [Chat and task management guide](./proactive_runtime.md#chat-and-reminders)
@@ -150,8 +149,8 @@ work in an existing Codex or Claude Code session and bring results back into tha
 
 | Milestone | Status | What it covers |
 | --- | --- | --- |
-| **Runtime and desktop prototype** | On `main` | Chat Agent, event-driven and scheduled background agents, workspace-backed task state, and reminder delivery. |
-| **Real-workflow testing** | In progress | Exercise Work, Finance, and scheduled tasks. Check whether records capture real changes, source links hold up, and reminders remain useful across retries and repeated events. |
+| **Runtime and desktop prototype** | On `main` | Chat Agent, event-triggered and time-triggered background agents, workspace-backed task state, and reminder delivery. |
+| **Real-workflow testing** | In progress | Exercise Work, Finance, and time-triggered tasks. Check whether records capture real changes, source links hold up, and reminders remain useful across retries and repeated events. |
 | **Memory workflows and presets** | Planned for ReMe5 | Bring Auto Memory into Work, build the three scheduled Auto Dream agents, and develop initial Research, Todo, and Daily Summary workflows. |
 | **ReMe5 and desktop preview** | Targeting release by the end of 2026 | Publish the runtime and the macOS and Windows proof of concept. Document setup, available execution backends, and the supported preview workflows. |
 | **Host integrations** | Planned in stages | Connect supported host event sources, then validate task follow-up and result delivery within each host. |

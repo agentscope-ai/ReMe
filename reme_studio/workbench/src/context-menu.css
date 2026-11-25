@@ -1,4 +1,8 @@
 .context-menu {
+  color: var(--ink);
+  -webkit-app-region: no-drag;
+}
+.context-menu:not([data-inline]) {
   position: fixed;
   z-index: 1000;
   width: 236px;
@@ -9,12 +13,10 @@
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: var(--floating);
-  color: var(--ink);
   box-shadow:
     0 8px 30px #1c1e2124,
     0 1px 3px #1c1e2114;
   backdrop-filter: blur(20px);
-  -webkit-app-region: no-drag;
 }
 .context-menu > button {
   display: flex;
@@ -36,21 +38,77 @@
   outline: 0;
   color: var(--accent);
 }
-.context-menu-check {
+.context-menu-icon {
+  display: grid;
+  place-items: center;
   width: 14px;
   flex-shrink: 0;
 }
-.context-menu > button[data-danger] {
-  color: var(--error);
-  border-top: 1px solid var(--line);
-  margin-top: 4px;
-  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
-}
-.context-menu > button > span:nth-child(2) {
+.context-menu-label {
   flex: 1;
+}
+.context-menu-status {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 0.9em;
 }
 .context-menu > .context-menu-back {
   border-bottom: 1px solid var(--line);
   border-radius: 0;
   margin-bottom: 4px;
+}
+
+.context-menu-disclosure {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    grid-template-rows 200ms cubic-bezier(0.2, 0.75, 0.25, 1),
+    opacity 140ms ease,
+    visibility 0s 200ms;
+}
+.context-menu-disclosure[data-open] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  visibility: visible;
+  transition-delay: 0s;
+}
+.context-menu[data-inline] {
+  position: relative;
+  min-height: 0;
+  overflow: clip;
+}
+.context-menu[data-inline]::before {
+  content: "";
+  position: absolute;
+  inset-block: 9px 11px;
+  inset-inline-start: 13px;
+  width: 1px;
+  border-radius: 1px;
+  background: var(--line);
+}
+.context-menu[data-inline] > button {
+  width: auto;
+  margin-inline: 25px var(--space-1);
+  padding: 5px 8px;
+}
+.context-menu[data-inline] .context-menu-icon {
+  color: var(--muted);
+}
+.context-menu[data-inline] > button:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--ink) 50%, transparent);
+  outline-offset: -1px;
+}
+.context-menu[data-inline] > button:first-child {
+  margin-block-start: 8px;
+}
+.context-menu[data-inline] > button:last-child {
+  margin-block-end: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .context-menu-disclosure {
+    transition: none;
+  }
 }

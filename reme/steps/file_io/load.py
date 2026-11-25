@@ -6,6 +6,7 @@ from ._base import _FileIOStep
 from ._file_io import read_file_safe
 from ._path import check_path_permission, resolve_path
 from ...core.registry import R
+from ...utils.files.file_version import check_file_version
 
 DEFAULT_EDITOR_MAX_BYTES = 5 * 1024 * 1024
 
@@ -40,7 +41,8 @@ class LoadStep(_FileIOStep):
             )
             return self.context.response
         try:
-            content, encoding = await read_file_safe(target, max_bytes=max_bytes)
+            content, encoding = await read_file_safe(target, max_bytes=max_bytes, require_complete=True)
+            check_file_version(target, stat, target.lstat())
         except Exception as exc:  # pylint: disable=broad-except
             self._fail(f"load failed: {exc}", path=raw_path)
             return self.context.response

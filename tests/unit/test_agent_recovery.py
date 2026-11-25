@@ -14,7 +14,7 @@ from reme.schema import Event, Response, SessionMessage
 from reme.steps.proactive.agent import ProcessChatRemindersStep, ProactiveAgentStep
 from reme.steps.file_io import SaveStep, get_path_lock
 from reme.steps.proactive.tools.chat_reminders import SubmitChatReminderStep
-from .test_proactive_runtime import completed_result, create_agent, running_runtime
+from .test_proactive_runtime import completed_result, create_agent, running_manager
 from .test_inbox_fork import prepare
 from .test_proactive_run import REMIND, SKIP, install_round
 
@@ -22,7 +22,7 @@ from .test_proactive_run import REMIND, SKIP, install_round
 @pytest.mark.asyncio
 @pytest.mark.parametrize("filename", ["inbox_read.jsonl", "inbox_unread.jsonl"])
 async def test_real_receipt_write_failure_preserves_markdown_and_recovers_delivery(tmp_path, monkeypatch, filename):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)
@@ -43,7 +43,7 @@ async def test_real_receipt_write_failure_preserves_markdown_and_recovers_delive
         committed = filename == "inbox_unread.jsonl"
         assert runtime.inbox._failed and "monitor" not in runtime.workers
         assert paths["record_path"].read_text() == REMIND.format(priority="P1", body="\nNew progress\n")
-    async with running_runtime(tmp_path) as (runtime, _, _):
+    async with running_manager(tmp_path) as (runtime, _, _):
         snapshot = await runtime.inbox.snapshot("monitor")
         assert snapshot["pending_count"] == (0 if committed else 1)
         assert (snapshot["receipt"] is not None) is committed
@@ -53,7 +53,7 @@ async def test_real_receipt_write_failure_preserves_markdown_and_recovers_delive
 @pytest.mark.asyncio
 async def test_repeat_local_time_reserves_path_of_unregistered_receipt(tmp_path, monkeypatch):
     first_time = datetime(2026, 11, 1, 1, 30, tzinfo=ZoneInfo("America/New_York"))
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         monkeypatch.setattr(runtime, "now", lambda: first_time)
         await create_agent(runtime)
         agent = await runtime.definition("monitor")
@@ -106,7 +106,7 @@ async def test_repeat_local_time_reserves_path_of_unregistered_receipt(tmp_path,
 
 @pytest.mark.asyncio
 async def test_full_cron_queue_starts_its_existing_consumer(tmp_path, monkeypatch):
-    async with running_runtime(tmp_path) as (runtime, _, _):
+    async with running_manager(tmp_path) as (runtime, _, _):
         runtime.inbox.max_pending_items = 1
         await runtime.create(
             {"agent_name": "timer", "task_description": "Report", "cron": "* * * * *"},
@@ -114,51 +114,44 @@ async def test_full_cron_queue_starts_its_existing_consumer(tmp_path, monkeypatc
         agent = await runtime.definition("timer")
         start = runtime.now().replace(second=0, microsecond=0)
         monkeypatch.setattr(runtime, "now", lambda: start)
-        await runtime._schedule_cron(agent)
-        first = runtime.execution("timer").schedule[1]
+        await runtime.runtimes[agent.agent_name]._schedule_cron(agent)
+        first = runtime.runtimes["timer"].schedule[1]
         monkeypatch.setattr(runtime, "now", lambda: first)
-        await runtime._schedule_cron(agent)
+        await runtime.runtimes[agent.agent_name]._schedule_cron(agent)
         monkeypatch.setattr(runtime, "now", lambda: first + timedelta(minutes=1))
 
         async def job(_name, agent_name):
-            answer = await runtime.run(
+            answer = await runtime.run_round(
                 agent_name,
                 AsyncMock(return_value=(None, "session")),
             )
             return Response(answer=answer)
 
         async with asyncio.timeout(2):
-            await runtime._tick_tasks(job)
+            await runtime._tick_runtimes(job)
             await asyncio.gather(*runtime.workers.values())
         assert (await runtime.inbox.snapshot("timer"))["pending_count"] == 0
-        assert runtime.execution("timer").schedule[1] == first + timedelta(minutes=1)
+        assert runtime.runtimes["timer"].schedule[1] == first + timedelta(minutes=1)
 
 
 @pytest.mark.asyncio
-async def test_waiting_append_releases_management_lock_for_consumption(tmp_path):
-    async with running_runtime(tmp_path) as (runtime, _, _):
+async def test_retry_after_capacity_frees_preserves_the_original_event(tmp_path):
+    async with running_manager(tmp_path) as (runtime, _, _):
         await create_agent(runtime)
         runtime.inbox.max_pending_items = 1
-        append = asyncio.create_task(
-            runtime.append_events(
-                "monitor",
-                [Event(id="next", event_ts=runtime.now(), source="test", description="Next")],
-            ),
-        )
-        try:
-            async with asyncio.timeout(2):
-                await runtime.run("monitor", AsyncMock(return_value=(None, "session")))
-                await append
-            assert (await runtime.inbox.snapshot("monitor"))["pending_count"] == 1
-        finally:
-            append.cancel()
-            await asyncio.gather(append, return_exceptions=True)
+        event = Event(id="next", event_ts=runtime.now(), source="test", description="Next")
+        async with asyncio.timeout(2):
+            with pytest.raises(TimeoutError, match="pending capacity is full"):
+                await runtime.append_events("monitor", [event])
+            await runtime.run_round("monitor", AsyncMock(return_value=(None, "session")))
+            await runtime.append_events("monitor", [event])
+        assert await runtime.inbox.pending_ids("monitor") == {event.id}
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("partial", [False, True])
 async def test_recovered_native_reminder_finishes_ack_without_regenerating(tmp_path, monkeypatch, partial):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         args = await prepare(runtime, context)
         if partial:
             await runtime.create(
@@ -172,7 +165,7 @@ async def test_recovered_native_reminder_finishes_ack_without_regenerating(tmp_p
                 [Event(event_ts=runtime.now(), source="test", description="Finished")],
             )
             result, session = completed_result(runtime, "other", priority="P1")
-            await runtime.run("other", AsyncMock(return_value=(result, session)))
+            await runtime.run_round("other", AsyncMock(return_value=(result, session)))
             await runtime.outbox.sync()
             args["msg_ids"] = list(runtime.notifications.pending)
         source = (await runtime.sessions.current("Remy")).session_id
@@ -188,19 +181,19 @@ async def test_recovered_native_reminder_finishes_ack_without_regenerating(tmp_p
         async with runtime.notifications.turn(source, "P1", args["msg_ids"]) as turn:
             await runtime.notifications.read_turn(turn)
 
-            write = runtime.outbox._write
+            write = runtime.outbox.storage.write
             acknowledged = 0
 
-            def fail_ack(path, item, **kwargs):
+            def fail_ack(agent_name, path, item):
                 nonlocal acknowledged
                 if item.read_at is not None:
                     if not partial or acknowledged:
                         raise OSError("ack failed")
                     acknowledged += 1
-                return write(path, item, **kwargs)
+                return write(agent_name, path, item)
 
             with monkeypatch.context() as patch:
-                patch.setattr(runtime.outbox, "_write", fail_ack)
+                patch.setattr(runtime.outbox.storage, "write", fail_ack)
                 with pytest.raises(OSError, match="ack failed"):
                     await runtime.notifications.send(turn, "The experiment has finished.")
         await runtime.outbox.refresh()
@@ -213,31 +206,37 @@ async def test_recovered_native_reminder_finishes_ack_without_regenerating(tmp_p
 
 
 @pytest.mark.asyncio
-async def test_delete_cancels_an_append_waiting_for_capacity(tmp_path):
-    async with running_runtime(tmp_path) as (runtime, _, _):
+async def test_delete_waits_for_a_durable_append(tmp_path, monkeypatch):
+    async with running_manager(tmp_path) as (runtime, _, _):
         await create_agent(runtime)
-        runtime.inbox.max_pending_items = 1
-        append = asyncio.create_task(
-            runtime.append_events(
-                "monitor",
-                [Event(id="next", event_ts=runtime.now(), source="test", description="Next")],
-            ),
-        )
+        started, release = asyncio.Event(), asyncio.Event()
+        original = runtime.inbox.append
+
+        async def append_event(*args, **kwargs):
+            started.set()
+            await release.wait()
+            return await original(*args, **kwargs)
+
+        monkeypatch.setattr(runtime.inbox, "append", append_event)
+        event = Event(id="next", event_ts=runtime.now(), source="test", description="Next")
+        append = asyncio.create_task(runtime.append_events("monitor", [event]))
+        delete = asyncio.create_task(runtime.delete("monitor"))
         try:
             async with asyncio.timeout(2):
-                while append not in runtime.agent_tasks:
-                    await asyncio.sleep(0)
-                await runtime.delete("monitor")
-            assert append.cancelled()
-            assert not runtime.agent_tasks
+                await started.wait()
+                assert not delete.done()
+                release.set()
+                assert (await append)["event_ids"] == [event.id]
+                assert (await delete)["deleted"]
+            assert await runtime.inbox.pending_ids("monitor") == {"event-1", event.id}
         finally:
-            append.cancel()
-            await asyncio.gather(append, return_exceptions=True)
+            release.set()
+            await asyncio.gather(append, delete, return_exceptions=True)
 
 
 @pytest.mark.asyncio
 async def test_silence_rechecks_native_revision_after_outbox_refresh(tmp_path, monkeypatch):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         args = await prepare(runtime, context)
         source = (await runtime.sessions.current("Remy")).session_id
         snapshot = await wrapper.read_session(source)
@@ -258,11 +257,11 @@ async def test_silence_rechecks_native_revision_after_outbox_refresh(tmp_path, m
 
 @pytest.mark.asyncio
 async def test_full_receiver_consumes_both_reminders_without_waiting_for_more_capacity(tmp_path):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         for name in ("first", "second"):
             await runtime.create({"agent_name": name, "task_description": "Report"})
             await runtime.append_events(name, [Event(event_ts=runtime.now(), source="test", description="Finished")])
-            await runtime.run(name, AsyncMock(return_value=completed_result(runtime, name)))
+            await runtime.run_round(name, AsyncMock(return_value=completed_result(runtime, name)))
         runtime.inbox.max_pending_items = 1
         runtime.notifications.config.p0_delay_seconds = 0
 
@@ -284,14 +283,14 @@ async def test_full_receiver_consumes_both_reminders_without_waiting_for_more_ca
                     await worker
         assert jobs.await_count == 2
         assert not runtime.notifications.active_turn
-        assert len(runtime.outbox.records) == 2
-        assert all(item.read_at is not None for item in runtime.outbox.records.values())
+        assert len(runtime.outbox.entries) == 2
+        assert all(entry.reminder.read_at is not None for entry in runtime.outbox.entries.values())
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("draft", [REMIND.format(priority="P1", body="\nNew progress\n"), SKIP, None])
 async def test_round_rejects_a_record_changed_after_validation(tmp_path, monkeypatch, draft):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)
@@ -311,13 +310,13 @@ async def test_round_rejects_a_record_changed_after_validation(tmp_path, monkeyp
         with pytest.raises(RuntimeError, match="changed outside this round"):
             await step(agent_name="monitor")
         assert path.read_text() == (draft or SKIP) + "User edited record\n"
-    async with running_runtime(tmp_path) as (runtime, _, _):
+    async with running_manager(tmp_path) as (runtime, _, _):
         assert (await runtime.inbox.snapshot("monitor"))["pending_count"] == 1
 
 
 @pytest.mark.asyncio
 async def test_round_keeps_the_record_locked_until_delivery(tmp_path, monkeypatch):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)
@@ -332,7 +331,7 @@ async def test_round_keeps_the_record_locked_until_delivery(tmp_path, monkeypatc
         async def edit_record():
             async with lock:
                 document = frontmatter.loads(path.read_text())
-                assert runtime.outbox.records[path.relative_to(tmp_path).as_posix()].delivered_at
+                assert runtime.outbox.entries[path.relative_to(tmp_path).as_posix()].reminder.delivered_at
                 document["reminder_priority"] = "P0"
                 document.content = "User edited record"
                 runtime.files.write(path, frontmatter.dumps(document))
@@ -358,17 +357,17 @@ async def test_round_keeps_the_record_locked_until_delivery(tmp_path, monkeypatc
 @pytest.mark.asyncio
 @pytest.mark.parametrize("operation", ["handoff", "update"])
 async def test_outbox_operations_share_the_file_jobs_path_lock(tmp_path, operation):
-    async with running_runtime(tmp_path) as (runtime, _, _):
+    async with running_manager(tmp_path) as (runtime, _, _):
         await create_agent(runtime)
         result, session = completed_result(runtime)
         path = runtime.files.path(result.id)
         if operation == "update":
-            await runtime.run("monitor", AsyncMock(return_value=(result, session)))
+            await runtime.run_round("monitor", AsyncMock(return_value=(result, session)))
             await runtime.outbox.sync()
-            ref = next(iter(runtime.outbox.records))
+            ref = next(iter(runtime.outbox.entries))
             action = runtime.outbox.update(ref, read_at=runtime.now())
         else:
-            action = runtime.run("monitor", AsyncMock(return_value=(result, session)))
+            action = runtime.run_round("monitor", AsyncMock(return_value=(result, session)))
         task = None
         try:
             async with await get_path_lock(path):

@@ -16,7 +16,7 @@ from ...core.registry import R
 from ...components.file_chunker import BaseFileChunker
 from ...enumeration import ComponentEnum
 from ...schema import FileChunk, FileNode
-from ...utils.files.file_version import FileChangedDuringChunkingError, check_file_version
+from ...utils.files.file_version import FileChangedError, check_file_version
 
 _SOURCE_CHANGE_RETRY_MARKER = "_source_changed"
 _INITIAL_SCAN_RECOVERY_PASSES = 1
@@ -119,7 +119,7 @@ class ChangeApplyStep(BaseStep):
                 pending_paths = pending_buckets[Change.added] + pending_buckets[Change.modified]
                 if pending_paths:
                     paths = ", ".join(pending_paths)
-                    raise FileChangedDuringChunkingError(
+                    raise FileChangedError(
                         f"Initial scan could not index stable source files after bounded retries: {paths}",
                     )
                 break
@@ -263,12 +263,12 @@ class ChangeApplyStep(BaseStep):
             try:
                 self.logger.debug(f"Processing {change.name} file: {path}")
                 return await self.build_item(abs_path), size_bytes
-            except (FileChangedDuringChunkingError, FileNotFoundError) as e:
+            except (FileChangedError, FileNotFoundError) as e:
                 if attempt < self.source_change_retries:
-                    reason = "changed" if isinstance(e, FileChangedDuringChunkingError) else "disappeared"
+                    reason = "changed" if isinstance(e, FileChangedError) else "disappeared"
                     self.logger.debug(f"Source {reason} while processing {path}; retrying")
                     continue
-                if isinstance(e, FileChangedDuringChunkingError):
+                if isinstance(e, FileChangedError):
                     self.logger.exception(f"Failed to process {path}")
                 else:
                     self.logger.debug(f"Source disappeared while processing {path}; reconciling its current state")
@@ -442,7 +442,7 @@ class UpdateIndexStep(ChangeApplyStep):
                         item[2],
                         self._to_abs_path(node.path).stat(),
                     )
-                except (FileChangedDuringChunkingError, FileNotFoundError) as exc:
+                except (FileChangedError, FileNotFoundError) as exc:
                     if retry_source_changes:
                         retry_paths.append(path)
                     else:

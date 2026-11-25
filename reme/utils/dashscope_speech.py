@@ -5,11 +5,13 @@ import os
 import httpx
 from pydantic import BaseModel, Field
 
+DEFAULT_DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/api/v1"
+
 
 class _SpeechTransportOptions(BaseModel):
     """Validate transport settings without provider credentials."""
 
-    base_url: str = Field(default="https://dashscope.aliyuncs.com/api/v1", min_length=1)
+    base_url: str = Field(default=DEFAULT_DASHSCOPE_BASE_URL, min_length=1)
     timeout: float = Field(default=60, gt=0, allow_inf_nan=False)
 
 
@@ -19,7 +21,7 @@ class DashScopeSpeechClient:
     def __init__(
         self,
         api_key: str = "",
-        base_url: str = "https://dashscope.aliyuncs.com/api/v1",
+        base_url: str = DEFAULT_DASHSCOPE_BASE_URL,
         timeout: float = 60,
     ):
         self.api_key = api_key

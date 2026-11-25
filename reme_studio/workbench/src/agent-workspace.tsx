@@ -1,40 +1,24 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  Bell,
-  BookOpenText,
-  FileText,
-  Inbox,
-  MessageCircle,
-  Send,
-  Settings2,
-} from "lucide-react";
+import { ArrowUpRight, CheckCheck, Eraser, RefreshCw } from "lucide-react";
 import type { AgentView, StudioState } from "../../client/src/protocol.ts";
 import { errorText, translator } from "../../client/src/i18n.ts";
 import { useHost } from "./host.ts";
 import Chat from "./chat/index.tsx";
 import SplitPane from "./split-pane.tsx";
-import AgentSidebar from "./agent-sidebar.tsx";
+import type { MenuItem } from "./context-menu.tsx";
+import AgentSidebar, {
+  remySections,
+  taskSections,
+  type AgentSection,
+  type RemySection,
+} from "./agent-sidebar.tsx";
 import AgentDocument from "./agent-document.tsx";
 import AgentResources from "./agent-resources.tsx";
 import Reminders from "./reminders.tsx";
-import TaskDialog, { type TaskTarget } from "./tasks/dialog.tsx";
+import TaskEditor from "./tasks/editor.tsx";
 import { useResource } from "./resources.ts";
 
-type AgentSection = "chat" | "document" | "reminders" | "outbox" | "inbox";
 type AgentPage = "remy" | "tasks";
-
-const remySections = [
-  ["chat", "conversationTab", MessageCircle],
-  ["reminders", "reminders", Bell],
-  ["document", "memoryTab", BookOpenText],
-  ["inbox", "inbox", Inbox],
-] as const;
-
-const taskSections = [
-  ["document", "taskFileTab", FileText],
-  ["inbox", "inbox", Inbox],
-  ["outbox", "outbox", Send],
-] as const;
 
 export default function AgentWorkspace({
   state,
@@ -55,17 +39,28 @@ export default function AgentWorkspace({
   const selected = isRemy ? "Remy" : (state.selectedAgentName ?? "Remy");
   const agent = state.agents?.find((item) => item.agent_name === selected);
   const [sections, setSections] = useState<
-    Partial<Record<string, AgentSection>>
+    Partial<
+      Record<AgentPage, { agentName: string | null; section: AgentSection }>
+    >
   >({});
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [error, setError] = useState<unknown>(null);
   const live = useRef(false);
-  const [task, setTask] = useState<TaskTarget | null>(null);
   const [taskBusy, setTaskBusy] = useState(false);
   const [createdTask, setCreatedTask] = useState<string | null>(null);
-  const [documentRevision, setDocumentRevision] = useState(0);
+  const [inboxRevision, setInboxRevision] = useState(0);
+  const [markingReminders, setMarkingReminders] = useState(false);
+  const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const hasTask = !isRemy && selected !== "Remy" && !!agent;
-  const section = isRemy || hasTask ? (sections[selected] ?? "chat") : "chat";
+  const location = sections[page];
+  const section =
+    location?.section === "create" ||
+    ((isRemy || hasTask) && location?.agentName === selected)
+      ? location.section
+      : "chat";
+  useEffect(() => {
+    if (!active || !isRemy || section !== "chat") setClearDialogOpen(false);
+  }, [active, isRemy, section]);
   useEffect(() => {
     live.current = true;
     return () => {
@@ -74,6 +69,7 @@ export default function AgentWorkspace({
   }, []);
   useEffect(() => {
     if (
+      active &&
       createdTask &&
       state.agents?.some((item) => item.agent_name === createdTask)
     ) {
@@ -82,7 +78,7 @@ export default function AgentWorkspace({
         setError,
       );
     }
-  }, [createdTask, state.agents]);
+  }, [active, createdTask, state.agents]);
   const manage = async (operation: () => Promise<unknown>) => {
     if (taskBusy) return;
     setTaskBusy(true);
@@ -111,69 +107,113 @@ export default function AgentWorkspace({
     focus.current = state.focusRequest;
     setSections((value) => ({
       ...value,
-      [selected]:
-        state.focusTarget?.kind === "mail"
-          ? selected === "Remy"
-            ? "inbox"
-            : "outbox"
-          : state.focusTarget?.kind === "message"
-            ? "reminders"
-            : "chat",
+      [page]: {
+        agentName: selected,
+        section:
+          state.focusTarget?.kind === "mail"
+            ? selected === "Remy"
+              ? "inbox"
+              : "outbox"
+            : state.focusTarget?.kind === "message"
+              ? "reminders"
+              : "chat",
+      },
     }));
-  }, [active, selected, state.focusRequest, state.focusTarget]);
-  const select = (agentName: string, value: AgentSection) => {
+  }, [active, page, selected, state.focusRequest, state.focusTarget]);
+  const select = (agentName: string | null, value: AgentSection) => {
     setError(null);
-    setSections((current) => ({ ...current, [agentName]: value }));
-    if (agentName !== selected)
+    setCreatedTask(null);
+    setSections((current) => ({
+      ...current,
+      [page]: { agentName, section: value },
+    }));
+    if (agentName && agentName !== selected)
       void action({ type: "agent.select", agentName }).catch(setError);
   };
   const name = isRemy ? "Remy" : hasTask ? selected : t("proactiveAi");
   const documentPath = isRemy ? agent?.memory_path : agent?.task_path;
-  const tabs = isRemy ? remySections : taskSections;
-  const sectionLabel = tabs.find(([id]) => id === section)?.[1];
-  const path = [
-    ...(!isRemy && hasTask
-      ? [{ label: t("proactiveAi"), revealSidebar: true }]
-      : []),
-    { label: name, onSelect: () => select(selected, "chat") },
-    ...(isRemy || hasTask ? [{ label: t(sectionLabel ?? "progressTab") }] : []),
-  ];
-  const sectionNav = (
-    <div
-      className="agent-sections"
-      aria-label={t("agentPages", { name })}
-      role="group"
-    >
-      {!isRemy && (
-        <button
-          className="agent-row"
-          onClick={() => setTask({ mode: "edit", agentName: selected })}
-        >
-          <Settings2 size={16} aria-hidden />
-          {t("taskManage")}
-        </button>
-      )}
-      {tabs.map(([id, label, Icon]) => (
-        <button
-          key={id}
-          className="agent-row"
-          aria-current={section === id ? "page" : undefined}
-          onClick={() => {
-            select(selected, id);
-            onNavigate();
-          }}
-        >
-          <Icon size={16} aria-hidden />
-          {t(label)}
-          {id === "reminders" && state.unread > 0 && (
-            <span className="count-badge" data-tone="accent">
-              {state.unread}
-            </span>
-          )}
-        </button>
-      ))}
-    </div>
-  );
+  const sectionLabel =
+    section === "create"
+      ? "taskCreate"
+      : (isRemy ? remySections : taskSections).find(
+          ([id]) => id === section,
+        )?.[1];
+  const navigate = (id: AgentSection) => {
+    select(selected, id);
+    onNavigate();
+  };
+  const connected = state.connection === "connected";
+  const canClearContext =
+    connected && !!state.clientInfo && !state.pending?.streaming;
+  const canMarkAllRead = connected && state.unread > 0 && !markingReminders;
+  const markAllRead = () => {
+    if (!canMarkAllRead) return;
+    setError(null);
+    setMarkingReminders(true);
+    void action({ type: "items.read" })
+      .catch(setError)
+      .finally(() => setMarkingReminders(false));
+  };
+  const remyActions: Record<RemySection, MenuItem[]> = {
+    chat: [
+      {
+        id: "clear-context",
+        label: t("clearContext"),
+        icon: Eraser,
+        disabled: !canClearContext,
+        select: () => {
+          navigate("chat");
+          setClearDialogOpen(true);
+        },
+      },
+    ],
+    reminders: [
+      {
+        id: "mark-all-read",
+        label: t("markAllRead"),
+        icon: CheckCheck,
+        disabled: !canMarkAllRead,
+        select: markAllRead,
+      },
+    ],
+    document: [
+      {
+        id: "open-in-knowledge",
+        label: t("openInKnowledge"),
+        icon: ArrowUpRight,
+        disabled: !connected || !documentPath,
+        select: () => {
+          if (documentPath)
+            void action({ type: "document.open", path: documentPath }).catch(
+              setError,
+            );
+        },
+      },
+    ],
+    inbox: [
+      {
+        id: "refresh-inbox",
+        label: t("refreshInbox"),
+        icon: RefreshCw,
+        disabled: !connected,
+        select: () => {
+          navigate("inbox");
+          setInboxRevision((value) => value + 1);
+        },
+      },
+    ],
+  };
+  const tasksRoot = { label: t("proactiveAi"), revealSidebar: true };
+  const path =
+    section === "create"
+      ? [tasksRoot, { label: t("taskCreate") }]
+      : [
+          ...(!isRemy && hasTask ? [tasksRoot] : []),
+          { label: name, onSelect: () => select(selected, "chat") },
+          ...(isRemy || hasTask
+            ? [{ label: t(sectionLabel ?? "progressTab") }]
+            : []),
+        ];
   return (
     <>
       <SplitPane
@@ -182,16 +222,16 @@ export default function AgentWorkspace({
         path={path}
         collapsed={collapsed}
         language={state.settings.language}
-        defaultWidth={224}
-        minWidth={208}
-        maxWidth={320}
         sidebar={
           <AgentSidebar
             state={state}
             page={page}
-            sections={sectionNav}
-            onSelect={(agentName) => select(agentName, "chat")}
-            onManage={setTask}
+            section={section}
+            remyActions={remyActions}
+            onSelect={(agentName, section) => {
+              select(agentName, section);
+              onNavigate();
+            }}
             onToggle={toggleTask}
             onReveal={(agentName) =>
               void manage(() => action({ type: "agent.reveal", agentName }))
@@ -206,79 +246,82 @@ export default function AgentWorkspace({
               {errorText(error, state.settings.language)}
             </p>
           )}
-          <div className="agent-content" key={selected}>
-            {isRemy || hasTask ? (
-              <>
-                <div className="agent-chat" hidden={section !== "chat"}>
-                  <Chat
-                    state={state}
-                    active={active && section === "chat"}
-                    draft={drafts[selected] ?? ""}
-                    onDraft={(value) =>
-                      setDrafts((current) => ({
-                        ...current,
-                        [selected]: value,
-                      }))
-                    }
-                  />
-                </div>
-                {section !== "chat" && (
-                  <section
-                    className="agent-resource-page"
-                    aria-label={sectionLabel && t(sectionLabel)}
-                  >
-                    {section === "document" &&
-                      (documentPath ? (
-                        <AgentDocument
-                          state={state}
-                          path={documentPath}
-                          revision={isRemy ? undefined : documentRevision}
-                          onEdit={
-                            isRemy
-                              ? undefined
-                              : () =>
-                                  setTask({ mode: "edit", agentName: selected })
-                          }
-                        />
-                      ) : (
-                        <p className="document-loading">
-                          {t("documentLoading")}
-                        </p>
-                      ))}
-                    {section === "reminders" && isRemy && (
-                      <Reminders state={state} />
-                    )}
-                    {(section === "outbox" || section === "inbox") && (
-                      <AgentResources
-                        key={section}
-                        state={state}
-                        inbox={section === "inbox"}
-                      />
-                    )}
-                  </section>
-                )}
-              </>
-            ) : (
-              <div className="resource-empty">
-                <p>{t("noAgents")}</p>
+          <div className="agent-content">
+            {(isRemy || hasTask) && (
+              <div
+                className="agent-chat"
+                key={selected}
+                hidden={section !== "chat"}
+              >
+                <Chat
+                  state={state}
+                  active={active && section === "chat"}
+                  canClearContext={canClearContext}
+                  clearDialogOpen={clearDialogOpen}
+                  onClearDialogChange={setClearDialogOpen}
+                  draft={drafts[selected] ?? ""}
+                  onDraft={(value) =>
+                    setDrafts((current) => ({
+                      ...current,
+                      [selected]: value,
+                    }))
+                  }
+                />
               </div>
+            )}
+            {section !== "chat" ? (
+              <section
+                key={section === "create" ? section : `agent:${selected}`}
+                className="agent-resource-page"
+                aria-label={sectionLabel && t(sectionLabel)}
+              >
+                {(section === "create" || section === "manage") && (
+                  <TaskEditor
+                    agent={section === "manage" ? agent : undefined}
+                    state={state}
+                    onCreated={(agentName) => {
+                      select(null, "chat");
+                      setCreatedTask(agentName);
+                    }}
+                  />
+                )}
+                {section === "document" &&
+                  (documentPath ? (
+                    <AgentDocument
+                      state={state}
+                      path={documentPath}
+                      onEdit={isRemy ? undefined : () => navigate("manage")}
+                    />
+                  ) : (
+                    <p className="document-loading">{t("documentLoading")}</p>
+                  ))}
+                {section === "reminders" && isRemy && (
+                  <Reminders
+                    state={state}
+                    canMarkAllRead={canMarkAllRead}
+                    onMarkAllRead={markAllRead}
+                  />
+                )}
+                {(section === "outbox" || section === "inbox") && (
+                  <AgentResources
+                    key={section}
+                    state={state}
+                    inbox={section === "inbox"}
+                    revision={isRemy ? inboxRevision : undefined}
+                  />
+                )}
+              </section>
+            ) : (
+              !isRemy &&
+              !hasTask && (
+                <div className="resource-empty">
+                  <p>{t("noAgents")}</p>
+                </div>
+              )
             )}
           </div>
         </section>
       </SplitPane>
-      {active && !isRemy && task && (
-        <TaskDialog
-          key={JSON.stringify(task)}
-          target={task}
-          state={state}
-          onClose={() => setTask(null)}
-          onCreated={(agentName) => {
-            setCreatedTask(agentName);
-            setTask(null);
-          }}
-          onSaved={() => setDocumentRevision((value) => value + 1)}
-        />
-      )}
     </>
   );
 }

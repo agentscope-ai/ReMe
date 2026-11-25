@@ -15,7 +15,7 @@ class SubmitChatReminderStep(BaseAgentStep):
         self.require_paths(self.workspace_path)
         if self.context.get("_agent_name") != CHAT_AGENT_NAME:
             raise ValueError("inbox tools require the calling Chat Agent")
-        notifications = self.proactive_runtime.notifications
+        notifications = self.proactive_manager.notifications
         turn = notifications.current_turn(self.context.get("_inbox_turn"))
         self.context.response.answer = await notifications.send(turn, request.content)
         return self.context.response

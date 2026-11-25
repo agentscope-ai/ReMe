@@ -14,10 +14,10 @@ import pytest
 from pydantic import ValidationError
 
 from reme.core.context import ApplicationContext, RuntimeContext
-from reme.components.proactive_runtime import BaseProactiveRuntime
+from reme.components.proactive_manager import BaseProactiveManager
 from reme.utils.files.workspace_files import WorkspaceFiles
 from reme.schema import ResourceMetadata
-from reme.steps.proactive.data_connectors import BaseConnectorStep, ResourceEventStep, ScreenCaptureStep
+from reme.steps.proactive.data_connectors import BaseConnectorStep, ScreenCaptureStep
 
 
 class PackageConnector(BaseConnectorStep):
@@ -168,15 +168,16 @@ async def test_screen_similarity_rejects_symlinked_history_and_cleans_new_captur
 
 
 @pytest.mark.asyncio
-async def test_empty_collection_skips_publication_and_the_following_event_step(tmp_path):
+async def test_empty_collection_skips_publication_and_delivery(tmp_path):
     context = ApplicationContext(workspace_dir=str(tmp_path))
     invocation = RuntimeContext()
-    step = PackageConnector(app_context=context)
+    runtime = Mock(spec=BaseProactiveManager)
+    step = PackageConnector(app_context=context, proactive_manager=runtime, task_names=["work"])
     step.collect = Mock(return_value=[])
-    await step(invocation)
+    response = await step(invocation)
     assert invocation["resource"] is None
-    response = await ResourceEventStep(app_context=context)(invocation)
     assert response.success and response.answer == {"skipped": "no_new_data"}
+    runtime.deliver_events.assert_not_awaited()
     assert not list(tmp_path.glob("resource/*/*/*"))
     assert not list(tmp_path.glob(".reme-resource-*"))
 
@@ -268,36 +269,55 @@ async def test_invalid_source_fails_before_collection(tmp_path, source):
 
 
 @pytest.mark.asyncio
-async def test_event_ids_include_source_and_date_and_are_retry_stable(tmp_path):
-    runtime = Mock(spec=BaseProactiveRuntime)
-    runtime.files = WorkspaceFiles(tmp_path)
-    runtime.append_events = AsyncMock(return_value={})
-    step = ResourceEventStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)), proactive_runtime=runtime)
-    paths = [
-        "resource/screenshot/2026-11-15/123045_123456",
-        "resource/screenshot/2026-11-16/123045_123456",
-        "resource/web_extract/2026-11-15/123045_123456",
-    ]
-    for package in [*paths, paths[0]]:
-        directory = tmp_path / package
-        directory.mkdir(parents=True, exist_ok=True)
-        (directory / "1.png").write_bytes(b"image")
-        metadata = ResourceMetadata(
-            dataclass="PackageConnector",
-            source=package.split("/")[1],
-            created_at="2026-11-15T12:30:45+08:00",
-            modified_at="2026-11-15T12:30:45+08:00",
-            description="Captured resource",
-            files=[{"path": "1.png"}],
-        )
-        manifest = f"{package}/metadata.json"
-        (tmp_path / manifest).write_text(metadata.model_dump_json())
-        await step(agent_name="observer", resource={"path": manifest})
-        (event,) = runtime.append_events.call_args.args[1]
-        assert event.paths == [manifest, f"{package}/1.png"]
-    ids = [call.args[1][0].id for call in runtime.append_events.call_args_list]
-    assert len(set(ids[:3])) == 3
-    assert ids[0] == ids[-1]
+async def test_published_resource_recovers_delivery_before_collecting_again(tmp_path, monkeypatch):
+    context = ApplicationContext(workspace_dir=str(tmp_path))
+    manager = Mock(spec=BaseProactiveManager)
+    manager.deliver_events = AsyncMock(
+        side_effect=[
+            ConnectionError("interrupted after publication"),
+            {"deliveries": {"observer": []}, "errors": {}, "rejected": {}},
+        ],
+    )
+    step = PackageConnector(app_context=context, proactive_manager=manager, task_names=["observer"])
+    with pytest.raises(ConnectionError, match="interrupted after publication"):
+        await step()
+    (manifest,) = tmp_path.glob("resource/screenshot/*/*/metadata.json")
+    files = WorkspaceFiles(tmp_path)
+    assert files.read_json(manifest.with_name(".delivery.json"), {})["pending"] == ["observer"]
+    monkeypatch.setattr(step, "collect", Mock(return_value=[]))
+    await step()
+    first, retry = manager.deliver_events.await_args_list
+    assert retry == first
+    assert retry.kwargs["events"][0].paths == [manifest.with_name("1.png").relative_to(tmp_path).as_posix()]
+    assert files.read_json(manifest.with_name(".delivery.json"), {})["pending"] == []
+
+
+@pytest.mark.asyncio
+async def test_damaged_delivery_does_not_block_a_new_package(tmp_path):
+    manager = Mock(spec=BaseProactiveManager)
+    manager.deliver_events = AsyncMock(
+        side_effect=[
+            ConnectionError("interrupted after publication"),
+            {"deliveries": {"observer": []}, "errors": {}, "rejected": {}},
+        ],
+    )
+    step = PackageConnector(
+        app_context=ApplicationContext(workspace_dir=str(tmp_path)),
+        proactive_manager=manager,
+        task_names=["observer"],
+    )
+    with pytest.raises(ConnectionError):
+        await step()
+    (first,) = tmp_path.glob("resource/screenshot/*/*/.delivery.json")
+    first.write_text('{"pending":null}')
+
+    result = await step()
+
+    assert result.success
+    assert first.read_text() == '{"pending":null}'
+    assert manager.deliver_events.await_count == 2
+    second_path = manager.deliver_events.await_args.kwargs["events"][0].paths[0]
+    assert (tmp_path / second_path).parent != first.parent
 
 
 @pytest.mark.asyncio

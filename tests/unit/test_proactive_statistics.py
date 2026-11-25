@@ -12,16 +12,16 @@ from reme.enumeration import ChunkEnum
 from reme.schema import Event, Response, StreamChunk
 from reme.steps.proactive.agent import ProactiveAgentStep
 from reme.utils.counter import global_counter_get
-from .test_proactive_runtime import create_agent, running_runtime
+from .test_proactive_runtime import create_agent, running_manager
 from .test_proactive_run import create_round_task, install_round, queue_cron_trigger
 
 
 @pytest.mark.asyncio
 async def test_statistics_separate_agent_types_and_count_snapshots_once(tmp_path, monkeypatch):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
-        for mode in ("proactive", "cron"):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
+        for mode in ("event", "time"):
             config = {"agent_name": mode, "task_description": "Check results"}
-            if mode == "cron":
+            if mode == "time":
                 await runtime.create({**config, "cron": "0 * * * *"})
                 await queue_cron_trigger(runtime, mode, monkeypatch)
             else:
@@ -67,7 +67,7 @@ async def test_statistics_separate_agent_types_and_count_snapshots_once(tmp_path
             assert stats["tool_calls"] == 3 and stats["web_lookup_calls"] == 2
             assert stats["usage"] == {"input_tokens": 15, "output_tokens": 7, "total_tokens": 22}
             assert stats["elapsed_seconds"] >= 0
-        for mode in ("proactive", "cron"):
+        for mode in ("event", "time"):
             assert global_counter_get(context.metadata, ["agent_runs", mode, "runs"]) == 1
             assert global_counter_get(context.metadata, ["agent_runs", mode, "tool_calls"]) == 3
             assert global_counter_get(context.metadata, ["agent_runs", mode, "web_lookup_calls"]) == 2
@@ -77,7 +77,7 @@ async def test_statistics_separate_agent_types_and_count_snapshots_once(tmp_path
 @pytest.mark.parametrize("failure", ["model", "commit"])
 @pytest.mark.asyncio
 async def test_run_result_is_distinct_from_model_status(tmp_path, monkeypatch, failure):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)
@@ -94,8 +94,8 @@ async def test_run_result_is_distinct_from_model_status(tmp_path, monkeypatch, f
         assert stats["result"] == ("failed" if failure == "commit" else "completed")
         assert stats["model_status"] == ("completed" if failure == "commit" else "failed")
         assert stats["usage"] is None
-        assert global_counter_get(context.metadata, ["agent_runs", "proactive", stats["result"]]) == 1
-        assert global_counter_get(context.metadata, ["agent_runs", "proactive", "usage_runs"]) == 0
+        assert global_counter_get(context.metadata, ["agent_runs", "event", stats["result"]]) == 1
+        assert global_counter_get(context.metadata, ["agent_runs", "event", "usage_runs"]) == 0
 
 
 @pytest.mark.parametrize(
@@ -104,31 +104,31 @@ async def test_run_result_is_distinct_from_model_status(tmp_path, monkeypatch, f
 )
 @pytest.mark.asyncio
 async def test_failure_backoff_is_capped_and_success_resets_it(tmp_path, monkeypatch, retry_seconds, delays):
-    async with running_runtime(tmp_path) as (runtime, _, _):
+    async with running_manager(tmp_path) as (runtime, _, _):
         await create_agent(runtime)
         runtime.retry_seconds = retry_seconds
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)
         job = AsyncMock(return_value=Response(success=False, answer="Provider unavailable"))
-        execution = runtime.executions["monitor"]
+        execution = runtime.runtimes["monitor"]
         for delay in delays:
-            await runtime._work("monitor", job)
+            await execution._work(job)
             assert execution.retry_at == now + timedelta(seconds=delay)
         job.return_value = Response(success=True)
-        await runtime._work("monitor", job)
+        await execution._work(job)
         assert execution.retry_delay == 0 and execution.retry_at is None and execution.error is None
         job.return_value = Response(success=False, answer="Failed again")
-        await runtime._work("monitor", job)
+        await execution._work(job)
         assert execution.retry_at == now + timedelta(seconds=retry_seconds)
         assert (await runtime.status("monitor"))["pending_events"] == 1
 
 
 @pytest.mark.asyncio
 async def test_failure_before_model_start_is_counted_without_hiding_the_error(tmp_path):
-    async with running_runtime(tmp_path) as (runtime, context, _):
+    async with running_manager(tmp_path) as (runtime, context, _):
         await create_agent(runtime)
         agent = await runtime.definition("monitor")
-        runtime.files.write(runtime.agents.task_path(agent), "\n")
+        runtime.files.write(runtime.registry.task_path(agent), "\n")
         step = ProactiveAgentStep(app_context=context)
         with pytest.raises(ValueError, match="TASK.md must not be blank"):
             await step(agent_name="monitor")
@@ -136,7 +136,7 @@ async def test_failure_before_model_start_is_counted_without_hiding_the_error(tm
         assert stats["result"] == "failed" and stats["model_status"] == "not_started"
         assert stats["session_id"] is None and stats["usage"] is None
         assert stats["tool_calls"] == stats["web_lookup_calls"] == 0
-        assert global_counter_get(context.metadata, ["agent_runs", "proactive", "failed"]) == 1
+        assert global_counter_get(context.metadata, ["agent_runs", "event", "failed"]) == 1
 
 
 @pytest.mark.parametrize(
@@ -159,10 +159,10 @@ def test_explicit_shell_searches_include_compound_commands(command, expected):
     assert (ProactiveAgentStep._lookup_type(call) == "local_search_calls") is expected
 
 
-@pytest.mark.parametrize("agent_type", ["proactive", "cron"])
+@pytest.mark.parametrize("agent_type", ["event", "time"])
 @pytest.mark.asyncio
 async def test_local_search_budget_warns_once_without_interrupting(tmp_path, monkeypatch, agent_type):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         await create_round_task(runtime, monkeypatch, agent_type)
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)
@@ -217,7 +217,7 @@ async def test_local_search_budget_warns_once_without_interrupting(tmp_path, mon
 
 @pytest.mark.asyncio
 async def test_saved_calls_fill_stream_gaps_without_double_counting(tmp_path, monkeypatch):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)
@@ -259,7 +259,7 @@ async def test_saved_calls_fill_stream_gaps_without_double_counting(tmp_path, mo
 @pytest.mark.parametrize("tool_name", ["Bash", "commandExecution"])
 @pytest.mark.asyncio
 async def test_search_arguments_survive_stream_fragments_and_tool_results(tmp_path, monkeypatch, fragments, tool_name):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)

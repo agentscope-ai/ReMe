@@ -51,7 +51,9 @@ test("malformed message blocks and activities cannot overwrite a valid session",
   assert.throws(() =>
     model.apply({
       ...snapshot([]),
-      activities: { Remy: { phase: "unknown" } },
+      activities: {
+        Remy: { session_id: "session", turn_id: "turn", phase: "working" },
+      },
     }),
   );
   assert.equal(model.messages, original);

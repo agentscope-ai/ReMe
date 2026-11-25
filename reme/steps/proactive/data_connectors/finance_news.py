@@ -7,8 +7,6 @@ import json
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-import httpx
-
 from ._finance import FinanceCollectorStep
 from ....core.registry import R
 from ....schema.finance import FinanceNewsItem
@@ -55,7 +53,14 @@ class FinanceNewsStep(FinanceCollectorStep):
     """Use retained news files for restart-safe deduplication of a 24-hour lookback."""
 
     source = "finance_news"
-    description = "New CLS financial news. Read news.jsonl for complete text, publication times and source URLs."
+    description = "New CLS financial news. Read news.md for headlines, publication times, text and source links."
+
+    def __init__(self, request_interval=1, **kwargs):
+        super().__init__(**kwargs)
+        self.request_interval = request_interval
+
+    def event_payloads(self, _metadata):
+        return ["news.md"]
 
     @staticmethod
     def _params(cursor):
@@ -87,7 +92,7 @@ class FinanceNewsStep(FinanceCollectorStep):
     def _fetch(self, start, end):
         cursor = int(end.timestamp())
         records = {}
-        with httpx.Client(headers=_HEADERS, timeout=httpx.Timeout(self.request_timeout, connect=5)) as client:
+        with self.client(headers=_HEADERS) as client:
             while True:
                 payload = json.loads(self.request(client, _URL, params=self._params(cursor)))
                 if not isinstance(payload, dict) or payload.get("errno") != 0:
@@ -136,7 +141,21 @@ class FinanceNewsStep(FinanceCollectorStep):
             start = max(start, min(checked_until, end) - timedelta(minutes=10))
         known = self._known_ids(start)
         records = [item for item in self._fetch(start, end) if item.news_id not in known]
-        return self.write_records(directory, "news.jsonl", records)
+        files = self.write_records(directory, "news.jsonl", records)
+        if not files:
+            return files
+        sections = ["# 财联社"]
+        for item in records:
+            title = item.title.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
+            sections.append(f"## [{title}]({item.url})\n{item.published_at.isoformat()}")
+            if item.content != item.title:
+                sections.append(item.content)
+        markdown = "\n\n".join(sections) + "\n"
+        if len(markdown.encode("utf-8")) > self.max_file_bytes():
+            raise ValueError("Finance news Markdown exceeds max_file_bytes")
+        self.check_stopped()
+        self.files.write(directory / "news.md", markdown)
+        return [*files, {"path": "news.md"}]
 
     def _collect_and_publish(self, target, created_at, cancelled):
         result = super()._collect_and_publish(target, created_at, cancelled)

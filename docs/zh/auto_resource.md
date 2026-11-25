@@ -62,12 +62,11 @@ workspace/
 ## 定时屏幕采集
 
 `config=proactive` 默认启用 `screen_capture_cron`，按应用时区每 5 分钟采集截图，启动时不立即采集。
-截图独立投递给 `work` 任务，与 Codex 对话采集互不依赖。可用 `jobs.screen_capture_cron.enabled=false` 关闭，
-或通过 `jobs.screen_capture_cron.agent_name` 指定另一个已有后台任务。目标任务也可配置自己的 `cron`。
+截图独立投递给 `proactive_memory` 任务，与 Codex 对话采集互不依赖。可用 `jobs.screen_capture_cron.enabled=false` 关闭，
+或在 `screen_capture_step` 中设置 `task_names`，指定接收截图的事件触发任务。
 
-`BaseConnectorStep` 将资料直接写入资源目录，最后原子写入 `metadata.json`；`ScreenCaptureStep` 为每个显示器保留一张原尺寸 PNG。
-随后 `ResourceEventStep` 向指定 Agent 投递带稳定 ID 的观察事件，包含资源描述、manifest 与全部文件的
-工作区相对路径。采集器在写入完成后决定投递事件，重复投递同一包不会重复入队。
+截图步骤为每个显示器保存一张原尺寸 PNG，并在发布 `metadata.json` 前保存接收任务。
+观察事件列出全部 PNG 的工作区相对路径，投递中断后沿用已保存的目标和事件 ID。
 
 ```text
 resource/screenshot/YYYY-MM-DD/hhmmss_<uuid4前六位>/
@@ -82,7 +81,7 @@ resource/screenshot/YYYY-MM-DD/hhmmss_<uuid4前六位>/
 
 manifest 使用 `ResourceMetadata`：带时区的创建/更新时间、source、description、采集 Step 类名和包内文件列表。
 任一屏幕失败都会清理未完成的资源包，不投递事件；取消时等待同步采集退出并清理。macOS 需要实际宿主进程的屏幕录制权限，
-无图形会话或显示器不可用时该轮失败。采集不调用 LLM，由接收事件的 Proactive Agent 独立解读。
+无图形会话或显示器不可用时该轮失败。采集不调用 LLM，由事件触发的 Proactive Agent 独立解读。
 
 截图逐屏与最近保存的一组比较，以 RGB 完全相同的像素占比作为相似度。显示器布局和图像尺寸不变，且每屏相似度都超过 99% 时，
 不生成截图资源包或事件；否则保留全部屏幕供理解上下文。恰好 99% 仍保存，比较基准不会随跳过的截图更新。
@@ -92,46 +91,37 @@ manifest 使用 `ResourceMetadata`：带时区的创建/更新时间、source、
 
 ## 定时 Codex 对话采集
 
-`codex_dialogue_cron` 启动时先通过 `init_steps` 执行 `codex_dialogue_init_step`，建立初始读取基线，不导入旧历史。
-初始化成功后，每 5 分钟读取
-`${CODEX_HOME:-~/.codex}/sessions` 中新增的用户消息和最终回答，以 `codex_dialogue` 为来源投递给同一个 `work` Agent。
-它不截图，也不采集进度消息、推理、工具输出、子 Agent 或 ReMe 自己的会话。
+`codex_dialogue_cron` 启动时先执行 `codex_dialogue_init_step`，建立初始读取基线。从基线起，每 5 分钟读取
+`${CODEX_HOME:-~/.codex}/sessions` 中新增的用户消息、发给用户的进度文字和最终回答，以 `codex_dialogue` 事件投递。
+推理、工具调用和结果、子 Agent 会话以及 ReMe 自己的会话均不采集。
 
-每批对话保存在 `resource/codex_dialogue/YYYY-MM-DD/HHMMSS_<suffix>/`，包含 `dialogue.jsonl` 和 `metadata.json`。
+每批对话保存在 `resource/codex_dialogue/YYYY-MM-DD/HHMMSS_<suffix>/`。事件提供 `dialogue.md` 和图片附件路径。
+Markdown 按项目、会话和轮次列出用户消息、进度文字和最终回答，并保留各条消息的 ID。同一轮插入的用户消息各占一节，
+图片链接跟在对应的消息后面。随记和其他 Proactive Runtime 一样，按事件中的路径展开阅读对话和图片，再用 `todo` 和 `idea` 核对项目和条目 ID。
 `resource/codex_dialogue/progress.jsonl` 保存已提交的读取位置和消息 ID；`pending.json` 固定未完成的批次，
 先重试投递，再读取后续变化。这些采集状态文件不放入事件路径。重启后沿用已保存的进度，不重复投递已完成对话。
 空闲扫描不追加进度记录；只有工具记录变化时仍推进偏移，但不产生对话事件。
 
 ## 定时财经采集
 
-`config=proactive` 默认启用三个采集任务：`finance_news_cron` 每 5 分钟采集新增财联社新闻，
-`stock_quotes_cron` 在相应市场交易时段每 5 分钟采集小米（01810.HK）、阿里巴巴（09988.HK）、腾讯（00700.HK）、
-苹果（AAPL）、亚马逊（AMZN）和 Meta（META）的行情。交易日历需要安装 `reme-ai[finance]`，`[core]` 已包含该依赖；
-日历处理节假日、半日市、午休和美国夏令时。行情可能延迟，记录同时保留报价时间和采集时间，收市即停止采集。
-未成功投递的批次等到批次所属市场重新开市后补投。每只股票与最近保存的交易日、价格和昨收比较，仅保存变化项，忽略时间倒退的报价。
+`config=proactive` 每五分钟独立运行各采集任务。
 
-`btc_quotes_cron` 独立每 5 分钟、7×24 小时采集 BTC/USDT 现货行情，使用 Binance 的公开
-[纯行情接口](https://developers.binance.com/en/docs/products/spot/faqs/market_data_only)，无需 API key。
-BTC 使用滚动 24 小时涨跌幅，保存统计窗口和采集时间；USDT 报价及涨跌幅口径与股票分别标明。
-股票休市或采集失败不会阻止 BTC 采集。
-价格和 24 小时基准价不变时，不生成新资源或事件；仅采集时间或统计窗口推进不算新增信息，时间倒退的统计窗口会被跳过。
+| 任务 | 数据源和文件 |
+| --- | --- |
+| `finance_news_cron` | [财联社电报](https://www.cls.cn/telegraph)写入 `news.md`，`news.jsonl` 用于去重 |
+| `gold_quotes_cron` | 腾讯现货黄金（XAU/USD），写入 `gold.jsonl`，单位为美元/金衡盎司 |
+| `oil_quotes_cron` | 腾讯 WTI 原油期货（CL），写入 `oil.jsonl`，单位为美元/桶 |
+| `nasdaq_quotes_cron` | 腾讯纳斯达克综合指数（IXIC），写入 `nasdaq.jsonl`，单位为指数点 |
+| `btc_quotes_cron` | [Binance BTC/USDT 现货行情](https://developers.binance.com/en/docs/products/spot/faqs/market_data_only)，写入 `btc.jsonl` |
 
-采集器将 `news.jsonl`、`quotes.jsonl` 或 `btc.jsonl` 保存到 `resource/<source>/YYYY-MM-DD/hhmmss_<suffix>/`，
-随后调用 `append_task_events` 投递给 `finance` 任务。采集不调用 LLM；无新增时不创建文件或事件。
-新闻首次回看最近 24 小时，按保留新闻文件中的 ID 去重；成功拉取后保存来源进度，后续从上次检查时间向前重叠十分钟拉取，
-最多回看 24 小时。删除进度文件后恢复完整回看，保留的新闻 ID 仍防止重复；超过回看窗口的停机可能留下缺口。
-已落盘但缺少投递回执的批次会在采集新数据前补投，股票批次还受交易时段限制；
-每个资源包的 `delivery-finance.json` 记录成功投递，资源文件继续保留。
+黄金、原油和纳指按相对昨收的涨跌幅判断，BTC 使用滚动 24 小时涨跌幅。默认 `proactive_fin` 任务在绝对涨跌幅达到 3% 时
+提醒，相关财联社电报用于补充背景。
 
-先在一个终端运行 `reme start config=proactive`。内置 `finance` 任务收到观察事件后执行。在另一个终端查询任务：
+新增电报或行情有变化时，在 `resource/<source>/YYYY-MM-DD/hhmmss_<suffix>/` 发布资源包。行情保留报价时间和采集时间。
+电报回看最多 24 小时，按新闻 ID 去重。已发布但投递未完成的事件会重试。
 
-```bash
-reme manage_proactive_agent action=status agent_name=finance
-```
-
-按返回的 `task_path` 编辑 `TASK.md` 中的任务说明和 AI 新闻偏好，修改在重启后仍然有效。
-启动时可用 `jobs.finance_news_cron.enabled=false`、`jobs.stock_quotes_cron.enabled=false` 或
-`jobs.btc_quotes_cron.enabled=false` 分别关闭采集任务。
+在一个终端运行 `reme start config=proactive`，在另一个终端运行 `reme manage_proactive_agent action=status agent_name=finance`
+查看任务的 `TASK.md`。启动时用 `jobs.<任务名>.enabled=false` 关闭对应采集任务。
 
 ## 图像资源
 

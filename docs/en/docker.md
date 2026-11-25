@@ -31,8 +31,9 @@ docker compose up --build -d
 ```
 
 For model-powered memory evolution, copy the repository's `example.env` to `.env` if you do not already have one, then
-fill in your model credentials. Compose injects this optional file at runtime; Docker builds exclude `.env` files. Compose's
-`--env-file` controls variable interpolation; `REME_ENV_FILE` selects the file injected into the container.
+fill in your model credentials. Set `REME_ENCRYPTION_KEY` in the container's runtime environment before saving model
+or speech credentials. Generate a Fernet key once and retain it across restarts. Compose injects the optional `.env`
+file at runtime. `--env-file` controls variable interpolation, and `REME_ENV_FILE` selects the file injected into the container.
 
 ## Use a published image
 
@@ -41,11 +42,13 @@ publish their package version and `latest`; prereleases do not update `latest`. 
 before their combined tags are published. Publication starts when the workflow is enabled in the repository.
 
 ```bash
-mkdir -p "$HOME/.reme"
+mkdir -p "$HOME/.reme" "$HOME/.reme-state"
 docker run -d --name reme \
   --user "$(id -u):$(id -g)" \
   -p 127.0.0.1:2333:2333 \
+  -e REME_ADMIN_PUBLISHED_HOST=127.0.0.1 \
   --mount "type=bind,source=$HOME/.reme,target=/data" \
+  --mount "type=bind,source=$HOME/.reme-state,target=/state" \
   --restart unless-stopped \
   ghcr.io/agentscope-ai/reme:main
 ```
@@ -53,6 +56,8 @@ docker run -d --name reme \
 Add `--env-file /path/to/model.env` before the image name when using model credentials. For reproducible deployments,
 replace `main` with a released version or image digest. To use the image with Compose, set `REME_IMAGE`, then run
 `docker compose pull` and `docker compose up -d --no-build`.
+
+For this container, read the local management token with `docker exec reme cat /state/admin-token`.
 
 ## Paths, configuration, and ports
 
@@ -76,15 +81,14 @@ filesystem; additional paths need additional mounts.
 
 Explicit `start key=value` arguments override the container's `REME_*` settings, which override the loaded configuration
 for those keys. Set `TZ` in the Compose runtime environment file to select the default timezone. An explicit `timezone`
-in the loaded configuration or startup arguments takes precedence over `TZ`.
-
-For an existing deployment, replace `REME_TIMEZONE=America/New_York` with `TZ=America/New_York` in the runtime environment
-file or Docker arguments. `REME_TIMEZONE` has been removed. To override a timezone in the configuration file, pass
-`start timezone=America/New_York` explicitly.
+in the configuration or startup arguments takes precedence over `TZ`. To override the configuration, pass
+`start timezone=America/New_York`.
 
 The image writes logs to the container output by default. `log_to_file=true` enables file logs under `/app/logs`, which
 requires a separate mount to persist them.
 The temporary home directory `/tmp/reme-home` and probe address file are disposable, not workspace storage.
+
+Compose stores backend settings in the `reme-state` volume. The entrypoint assigns the volume to the configured UID/GID before starting ReMe as that user. On the default published loopback address, unlock **Settings → Backend** with the instance token from `docker compose exec reme cat /state/admin-token`. When `REME_ADMIN_TOKEN` is set, use that value. Remote management requires the explicitly configured token and HTTPS.
 
 To customize the full job/component configuration, copy `reme/config/default.yaml` to `reme.yaml`, edit it, set
 `REME_CONFIG=/etc/reme/config.yaml` in `.env`, and add `compose.override.yaml`:

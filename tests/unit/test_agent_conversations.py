@@ -3,16 +3,17 @@
 # pylint: disable=missing-function-docstring
 
 import asyncio
+from contextlib import aclosing
 from unittest.mock import AsyncMock
 
 import pytest
 
 from reme.core.context import RuntimeContext
 from reme.enumeration import ChunkEnum
-from reme.schema import SessionMessage, SessionSnapshot, SessionStatus, StreamChunk
-from reme.components.proactive_runtime._internal.views import AgentViews
+from reme.schema import AgentActivity, SessionMessage, SessionSnapshot, SessionStatus, StreamChunk
+from reme.components.proactive_manager._internal.views import AgentViews
 from reme.steps.proactive.agent import AskAgentStep
-from .test_proactive_runtime import create_agent, running_runtime
+from .test_proactive_runtime import create_agent, running_manager
 
 
 @pytest.mark.parametrize("agent_name", ["Remy", "monitor"])
@@ -28,7 +29,7 @@ async def test_conversation_streams_preserve_outcomes_metadata_and_caller_inputs
     status,
     stream_error,
 ):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         await create_agent(runtime)
         if agent_name != "Remy":
             await runtime.sessions.ensure(agent_name, wrapper, {}, runtime.now())
@@ -81,7 +82,7 @@ async def test_conversation_streams_preserve_outcomes_metadata_and_caller_inputs
         assert "native" not in str(emitted[-1].chunk)
 
         assert request.get("agent_name") == agent_name
-        assert not runtime.chat_lock.locked() and not runtime.agent_tasks
+        assert not runtime.chat_lock.locked() and not runtime.runtimes["monitor"].tasks
         assert (await runtime.status("monitor"))["pending_events"] == 1
         if agent_name == "Remy":
             activity = runtime.activities[agent_name]
@@ -94,7 +95,7 @@ async def test_conversation_streams_preserve_outcomes_metadata_and_caller_inputs
 
 @pytest.mark.asyncio
 async def test_subscription_reports_portable_tool_activity_and_cancellation(tmp_path, monkeypatch):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         entered = asyncio.Event()
 
         async def stream(_query, **_options):
@@ -128,6 +129,7 @@ async def test_subscription_reports_portable_tool_activity_and_cancellation(tmp_
             try:
                 value = await anext(events)
                 activity = value["activities"]["Remy"]
+                assert activity["source"] == "chat"
                 assert activity["phase"] == "working" and activity["tool"] == "read_file"
                 assert activity["turn_id"] == "turn" and value["agent"]["status"] == "active"
                 task.cancel()
@@ -146,7 +148,7 @@ async def test_subscription_reports_portable_tool_activity_and_cancellation(tmp_
 @pytest.mark.parametrize("completed", [True, False])
 @pytest.mark.asyncio
 async def test_task_views_keep_only_latest_turn_without_mutating_native_history(tmp_path, agent_name, completed):
-    async with running_runtime(tmp_path) as (runtime, _, wrapper):
+    async with running_manager(tmp_path) as (runtime, _, wrapper):
         await create_agent(runtime)
         await runtime.create(
             {"agent_name": "timer", "task_description": "Daily report", "cron": "0 8 * * *"},
@@ -187,15 +189,15 @@ async def test_task_views_keep_only_latest_turn_without_mutating_native_history(
         assert (await runtime.sessions.current(agent_name)).session_id == sid
 
 
-@pytest.mark.parametrize("agent_type", ["proactive", "cron"])
+@pytest.mark.parametrize("agent_type", ["event", "time"])
 @pytest.mark.asyncio
 async def test_task_subscription_atomically_replaces_turns_and_reconnects_without_old_messages(tmp_path, agent_type):
-    async with running_runtime(tmp_path) as (runtime, _, wrapper):
+    async with running_manager(tmp_path) as (runtime, _, wrapper):
         await runtime.create(
             {
                 "agent_name": "monitor",
                 "task_description": "Report",
-                **({"cron": "0 8 * * *"} if agent_type == "cron" else {}),
+                **({"cron": "0 8 * * *"} if agent_type == "time" else {}),
             },
         )
         sid = await runtime.sessions.ensure("monitor", wrapper, {}, runtime.now())
@@ -209,7 +211,21 @@ async def test_task_subscription_atomically_replaces_turns_and_reconnects_withou
         views = AgentViews(runtime)
         events = views.events("monitor", interval=0, heartbeat=0)
         try:
-            assert (await anext(events))["messages"][0]["id"] == "old:assistant"
+            old = await anext(events)
+            assert old["messages"][0]["id"] == "old:assistant"
+            run = AgentActivity(
+                session_id="",
+                turn_id="batch",
+                source="task",
+                task_id="monitor",
+                started_at=runtime.now(),
+                phase="working",
+            )
+            runtime.activities["monitor"] = run
+            working = await anext(events)
+            assert working["activities"]["monitor"]["source"] == "task"
+            assert working["activities"]["monitor"]["session_id"] == ""
+            assert working["messages"] == []
             snapshot.last_turn_id = "new"
             empty = await anext(events)
             assert empty["type"] == "snapshot" and empty["messages"] == []
@@ -228,10 +244,19 @@ async def test_task_subscription_atomically_replaces_turns_and_reconnects_withou
             latest = await anext(events)
             assert latest["type"] == "update"
             assert [message["id"] for message in latest["messages"]] == ["new-user", "new:assistant"]
+            runtime.activities["monitor"] = run.model_copy(update={"session_id": sid, "phase": "completed"})
+            committed = await anext(events)
+            assert committed["activities"]["monitor"]["turn_id"] == "batch"
+            assert committed["activities"]["monitor"]["phase"] == "completed"
+            assert committed["messages"] == []
             assert (await anext(events))["type"] == "heartbeat"
             reconnected = views.events("monitor", interval=0)
             try:
-                assert (await anext(reconnected)) == {**latest, "type": "snapshot"}
+                assert (await anext(reconnected)) == {
+                    **committed,
+                    "type": "snapshot",
+                    "messages": latest["messages"],
+                }
             finally:
                 await reconnected.aclose()
             next_sid = await runtime.sessions.ensure("monitor", wrapper, {}, runtime.now(), new=True)
@@ -239,5 +264,21 @@ async def test_task_subscription_atomically_replaces_turns_and_reconnects_withou
             snapshot.state.session_id = next_sid
             changed = await anext(events)
             assert changed["type"] == "snapshot" and changed["agent"]["session_id"] == next_sid
+            assert changed["activities"] == {}
         finally:
             await events.aclose()
+
+
+@pytest.mark.asyncio
+async def test_remy_subscription_survives_invalid_task_session_history(tmp_path):
+    async with running_manager(tmp_path) as (runtime, _, _):
+        await create_agent(runtime)
+        history = runtime.registry.path("monitor") / "sessions.jsonl"
+        history.write_text("invalid record\n")
+        async with aclosing(runtime.watch_agent("Remy")) as updates:
+            snapshot = await asyncio.wait_for(anext(updates), 2)
+
+        remy, monitor = snapshot["agents"]
+        assert remy["agent_name"] == "Remy" and remy["status"] == "idle"
+        assert monitor["status"] == "error" and monitor["session_id"] is None
+        assert history.read_text() == "invalid record\n"

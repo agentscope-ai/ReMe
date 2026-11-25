@@ -12,27 +12,27 @@ task_query: |
   ## Task requirements
   {task_description}
 
-  # Workflow
+  # Steps
 
   ## 1. Gather information for this run
-  [is_event] Read the events for this run and any files they mention, including images. If you only got part of a file, try using `offset` to read the rest. Use the task requirements to identify the `key information`.
-  [is_event] It also counts as `key information` if it is time for a reminder or its condition is met. If there is no `key information`, reply only with "{no_key_information}" and finish the run.
-  [is_cron] Complete this run's work as required by the task and identify the `key information` in the results. Handle any requirements to remind the user or send results in step 3.
+  [is_event] Read this run's events and the files they mention, including images. If you haven't read a file in full, try using `offset` to continue reading. Use the task requirements to identify the `key information`.
+  [is_event] If a reminder is due or its condition is met, that also counts as `key information`. If there is no `key information`, reply only with "{no_key_information}" and finish the run.
+  [is_cron] Complete this run's work as required by the task and identify the `key information` in the results. Leave any requirements to remind the user or send results for step 3.
 
   ## 2. Search past records
-  For history, search only the `Records directory` shared by all tasks. Choose keywords or a regular expression based on the `key information`.
+  Search for past records only in the `Records directory` shared by all tasks. Choose keywords or a regular expression based on the `key information`.
 
-  - Check what has already been recorded and which reminders have already been written. Start with records from the last {recent_history_hours} hours. Use the rules for records and reminders in step 3 to avoid duplicates.
-  - When checking past reminders, read `reminder_priority` and `reminder_message` from the original record's YAML.
-  - Put related records in time order to see how things have developed and how this run's information relates to earlier progress. You can draw inferences from the records. If you write one down, label it as an inference.
+  - See what has already been recorded and which reminders have already been written. Check records from the last {recent_history_hours} hours first. Apply the respective rules for avoiding duplicate records and reminders in step 3.
+  - When checking reminders that have already been written, read `reminder_priority` and `reminder_message` from the original record's YAML.
+  - Put related records in time order to see how things have developed and how this run's information relates to earlier progress. You can draw inferences from the records. Label any inference you write down.
 
-  Go to step 3 when you have enough information, find no relevant records, or have used the local search tool {max_local_search_calls} times.
+  Go to step 3 when you have found enough information, cannot find any relevant records, or have used the local search tool {max_local_search_calls} times.
 
   ## 3. Record and remind
   Write the body, the decision about whether to remind the user, and what to say in the file specified by `Record path for this run`.
 
   ### Body
-  Record only new information for the task that is worth keeping, such as progress or a change in timing. Skip repeats and anything the user does not want to keep.
+  Record only new information that is relevant to the task and worth keeping, such as progress or a change in timing. Skip repeats and anything the user does not want to keep.
   Write the body in Markdown. Keep it brief and clear, include the necessary sources and links, and leave out sensitive information. If there is no new information worth keeping, leave the body empty.
   For local file links in the body and reminder, use paths relative to the directory containing this run's record, for example `[xxx](xxx.md)`.
 
@@ -40,9 +40,9 @@ task_query: |
   Use the `Task requirements` to decide which items warrant a reminder, then choose the priority. Do this even if the body is empty.
   - Skip the reminder if its condition has not been met or the user does not want it.
   - If a reminder about the same development has already been written, skip it even if the user has yet to read it.
-  - For scheduled reminders and reports, check for duplicates by scheduled time and write each occurrence only once. If the task requires sending it every time, send it even if the result is unchanged.
+  - For scheduled reminders and reports, check for duplicates by scheduled time and write each occurrence only once. If the task requires sending every occurrence, send it as usual even if the result is unchanged.
 
-  At the top of the file, write only these two YAML fields between two lines containing `---`.
+  At the top of the file, fill in the two YAML fields below between two lines containing `---`.
   - `reminder_priority`
     - If there is nothing to remind the user about, write `skip`.
     - For items that warrant a reminder, use the priority specified by the task. If the task gives no priority, choose the first one that applies in the order below.
@@ -52,9 +52,10 @@ task_query: |
     - If several items warrant a reminder, use the highest priority.
   - `reminder_message`
     - For `P0`, `P1`, or `P2`, write one short sentence in plain language as if speaking directly to the user, covering only what warrants a reminder this run.
-    - For `skip`, briefly say why you skipped the reminder.
+    - For `skip`, leave this empty or briefly say why.
+  - Leave out `delivered_at`, `read_at`, and `chat_message_ids`. The system maintains these fields.
 
-  After the round commits, ReMe puts a `P0`, `P1`, or `P2` reminder in the user's inbox. The user may not have seen it yet.
+  After the round commits, the system puts a `P0`, `P1`, or `P2` reminder in the user's inbox. The user may not have seen it yet.
 
 task_query_zh: |
   # 背景
@@ -100,7 +101,7 @@ task_query_zh: |
   - 同一进展的提醒写过就跳过，即使用户还没读。
   - 定时提醒和汇报按计划时间去重，同一次只写一次。任务要求每次都发送时，即使结果没变，也照常发送。
 
-  在文件开头只写下面两个 YAML 字段，用两行 `---` 包起来。
+  在文件开头填写下面两个 YAML 字段，用两行 `---` 包起来。
   - `reminder_priority`
     - 没有需要提醒的事项时，填 `skip`。
     - 对需要提醒的事项，使用任务指定的等级。没指定时，按下面的顺序选第一个符合的等级。
@@ -110,25 +111,48 @@ task_query_zh: |
     - 有多项需要提醒时，用最高的等级。
   - `reminder_message`
     - 等级是 `P0`、`P1` 或 `P2` 时，像直接跟用户说话一样，用一句简短的大白话，只说本轮需要提醒的事。
-    - 等级是 `skip` 时，简短写明为什么跳过提醒。
+    - 等级是 `skip` 时，可以留空，也可以简短说明原因。
+  - 不要写 `delivered_at`、`read_at` 或 `chat_message_ids`，系统会维护这些字段。
 
-  本轮提交后，ReMe 会把 `P0`、`P1` 或 `P2` 提醒放进用户的收件箱。用户可能还没看到。
+  本轮提交后，系统会把 `P0`、`P1` 或 `P2` 提醒放进用户的收件箱。用户可能还没看到。
 
 repair_record_query: |
-  Read the YAML frontmatter in `{record_path}` and return the corrected reminder priority and message.
-  Preserve the intended meaning. ReMe will apply the correction to the record.
+  Use the error below to fix the YAML frontmatter directly in `{record_path}`. Keep the original meaning and the Markdown body intact.
 
-  Use this validation error to locate the problem.
   {error}
+
+  After saving, if your Python environment has PyYAML, run the command below to check the file. Fix any errors it reports.
+  {yaml_check}
 
 repair_record_query_zh: |
-  阅读 `{record_path}` 的 YAML 文件头，返回修正后的提醒等级和正文，保留原意。ReMe 会把修正写回原记录。
+  按下面的报错，直接修好 `{record_path}` 的 YAML 文件头，保留原意和 Markdown 正文。
 
-  根据下面的校验错误定位问题。
   {error}
+
+  保存后，如果当前 Python 环境装了 PyYAML，就运行下面的命令自检。有报错就继续修。
+  {yaml_check}
+
+record_yaml_check: |
+  ```bash
+  python - {record_path} <<'PY'
+  import re
+  import sys
+  from pathlib import Path
+
+  import yaml
+
+  text = Path(sys.argv[1]).read_text(encoding="utf-8-sig")
+  header = re.match(r"\A(?:[ \t]*\n)*---[ \t]*\n(.*?)^---[ \t]*$", text, re.MULTILINE | re.DOTALL)
+  if header is None:
+      raise SystemExit("Missing YAML frontmatter")
+  yaml.safe_load(header[1])
+  print("YAML OK")
+  PY
+  ```
 
 event_input: |
   ### Event {number}
+  - ID: `{event_id}`
   - Time: {event_ts}
   - Source: {source}
   - Description: {description}
@@ -138,6 +162,7 @@ event_input: |
 
 event_input_zh: |
   ### 事件 {number}
+  - ID：`{event_id}`
   - 时间：{event_ts}
   - 来源：{source}
   - 描述：{description}
@@ -146,7 +171,7 @@ event_input_zh: |
   [no_files] 文件：无
 
 scheduled_event_input: |
-  - Scheduled trigger, planned time {event_ts}
+  - Time trigger, scheduled time {event_ts}
 
 scheduled_event_input_zh: |
-  - 定时触发，计划时间 {event_ts}
+  - 时间触发，计划时间 {event_ts}

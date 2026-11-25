@@ -14,7 +14,7 @@ export class DesktopWindows {
   readonly chat: BrowserWindow;
   layout: WindowLayout;
   private anchor: { x: number; y: number };
-  private visible = true;
+  private visible: boolean;
   private dragging: {
     cursor: { x: number; y: number };
     anchor: { x: number; y: number };
@@ -33,6 +33,7 @@ export class DesktopWindows {
     onFocus: (focused: boolean) => void,
     private readonly onCompanionVisibility: (visible: boolean) => void,
   ) {
+    this.visible = storage.settings.companionVisible !== false;
     const area = screen.getPrimaryDisplay().workArea;
     this.anchor = storage.settings.anchor ?? {
       x: area.x + area.width - 110,
@@ -46,7 +47,7 @@ export class DesktopWindows {
         null,
         display.workArea,
       ).layout,
-      visible: true,
+      visible: this.visible,
     };
     const webPreferences = {
       preload: paths.preload,
@@ -149,6 +150,8 @@ export class DesktopWindows {
     if (process.platform === "darwin")
       this.companion.setVisibleOnAllWorkspaces(true, {
         visibleOnFullScreen: true,
+        // Keep the app in the Dock while the panel joins fullscreen spaces.
+        skipTransformProcessType: true,
       });
     this.companion.once("ready-to-show", this.reposition);
     const updateVisibility = () => {
@@ -267,6 +270,13 @@ export class DesktopWindows {
     this.visible = false;
     this.reposition();
     this.onCompanionVisibility(false);
+  }
+
+  setCompanionVisibility(visible: boolean): void {
+    this.storage.settings.companionVisible = visible;
+    this.storage.changed();
+    if (visible) this.showCompanion();
+    else this.hideCompanion();
   }
 
   command(command: StudioCommand): void {

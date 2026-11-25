@@ -3,16 +3,26 @@ import { CheckCheck } from "lucide-react";
 import type { StudioState } from "../../client/src/protocol.ts";
 import { errorText, translator } from "../../client/src/i18n.ts";
 import { useHost } from "./host.ts";
-import { plainText } from "./resources.ts";
-import ResourcePane, { ResourceMessage } from "./resource-pane.tsx";
+import ResourcePane, {
+  ResourceMessage,
+  resourceSummary,
+} from "./resource-pane.tsx";
+import { TimelineBadge } from "./timeline.tsx";
 import { watchReadReceipt } from "./read-receipt.ts";
 
-export default function Reminders({ state }: { state: StudioState }) {
+export default function Reminders({
+  state,
+  canMarkAllRead,
+  onMarkAllRead,
+}: {
+  state: StudioState;
+  canMarkAllRead: boolean;
+  onMarkAllRead: () => void;
+}) {
   const { action } = useHost();
   const t = translator(state.settings.language);
   const [selected, setSelected] = useState("");
   const [error, setError] = useState<unknown>(null);
-  const [marking, setMarking] = useState(false);
   const message = state.reminders.find((item) => item.id === selected);
   const read = state.readMessageIds.includes(selected);
   useEffect(() => {
@@ -53,31 +63,30 @@ export default function Reminders({ state }: { state: StudioState }) {
         state={state}
         selected={selected}
         onSelect={setSelected}
-        rows={state.reminders.toReversed().map((item) => ({
-          id: item.id,
-          title: "Remy",
-          preview: plainText(item.content),
-          time: item.createdAt,
-          unread: !state.readMessageIds.includes(item.id),
-          badge: t(
-            state.readMessageIds.includes(item.id)
-              ? "inboxUserRead"
-              : "inboxUserUnread",
-          ),
-          target: { kind: "message", id: item.id },
-        }))}
+        view="reminders"
+        rows={state.reminders.toReversed().map((item) => {
+          const unread = !state.readMessageIds.includes(item.id);
+          return {
+            id: item.id,
+            title: resourceSummary(item.content, "Remy"),
+            date: item.createdAt,
+            unread,
+            metadata: (
+              <>
+                <span>Remy</span>
+                <TimelineBadge tone={unread ? "accent" : undefined}>
+                  {t(unread ? "inboxUserUnread" : "inboxUserRead")}
+                </TimelineBadge>
+              </>
+            ),
+            target: { kind: "message", id: item.id },
+          };
+        })}
         controls={
           <button
             className="subtle"
-            disabled={
-              marking || state.connection !== "connected" || !state.unread
-            }
-            onClick={() => {
-              setMarking(true);
-              void action({ type: "items.read" })
-                .catch(setError)
-                .finally(() => setMarking(false));
-            }}
+            disabled={!canMarkAllRead}
+            onClick={onMarkAllRead}
           >
             <CheckCheck size={15} />
             {t("markAllRead")}
@@ -87,7 +96,14 @@ export default function Reminders({ state }: { state: StudioState }) {
         {message && (
           <ResourceMessage
             state={state}
+            key={message.id}
             message={message}
+            sender="Remy"
+            metadata={
+              <TimelineBadge tone={read ? undefined : "accent"}>
+                {t(read ? "inboxUserRead" : "inboxUserUnread")}
+              </TimelineBadge>
+            }
             target={{ kind: "message", id: message.id }}
           />
         )}

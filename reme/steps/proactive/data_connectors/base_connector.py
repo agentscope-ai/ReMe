@@ -11,8 +11,13 @@ from threading import Event
 from uuid import uuid4
 
 from ....schema.resource_metadata import RESOURCE_METADATA_FILENAME
-from ...base_step import BaseStep
+from ....schema.proactive_agent import validate_task_names
+from ....components.proactive_manager import BaseProactiveManager
+from ....enumeration import ComponentEnum
+from ...base_step import BaseStep, Ref
 from ...file_io import check_path_permission, resolve_path
+from .resource_delivery import ResourceDelivery
+from ....utils.files.path_lock import get_path_lock
 from ....utils.files.workspace_files import WorkspaceFiles
 from ....schema import ApplicationConfig, ResourceMetadata
 from ....utils.async_utils import finish_cleanup
@@ -31,6 +36,12 @@ class BaseConnectorStep(BaseStep):
     source: str = ""
     description: str = ""
     _cancelled: Event
+    proactive_manager = Ref(BaseProactiveManager, ComponentEnum.PROACTIVE_MANAGER)
+
+    def __init__(self, task_names=None, **kwargs):
+        super().__init__(**kwargs)
+        self.task_names = None if task_names is None else validate_task_names(task_names)
+        self.delivery: ResourceDelivery | None = None
 
     @abstractmethod
     def collect(self, directory: Path) -> list[dict]:
@@ -54,6 +65,30 @@ class BaseConnectorStep(BaseStep):
     async def execute(self):
         assert self.context is not None
         target, now = self.resource_target()
+        root = target.parent.parent
+        async with await get_path_lock(root):
+            if self.task_names is not None:
+                files = WorkspaceFiles(self.workspace_path)
+                self.require_path(root)
+                self.require_path(files.path(self.config_value("reme_agent_dir")))
+                self.delivery = ResourceDelivery(self, files, root, self.task_names)
+                await self.delivery.flush()
+            response = await self._collect(target, now)
+            if self.delivery is not None and self.context["resource"] is not None:
+                await self.delivery.deliver(target / RESOURCE_METADATA_FILENAME)
+            return response
+
+    def require_path(self, path):
+        """Enforce workspace and invocation permissions for resources and delivery state."""
+        WorkspaceFiles(self.workspace_path).checked(path)
+        if not check_path_permission(self.workspace_path, path, self.context.get("_allowed_paths")):
+            raise PermissionError("no permission to access collector files")
+
+    def event_payloads(self, metadata):
+        """Choose the published payloads to include in the observation."""
+        return [item.path for item in metadata.files]
+
+    async def _collect(self, target, now):
         cancelled = self._cancelled = Event()
         task = asyncio.create_task(asyncio.to_thread(self._collect_and_publish, target, now, cancelled))
         try:
@@ -106,6 +141,8 @@ class BaseConnectorStep(BaseStep):
             if cancelled.is_set() or (self.context.stop_event is not None and self.context.stop_event.is_set()):
                 raise RuntimeError("Resource collection stopped before publication")
             result = metadata.model_dump(mode="json", exclude_none=True)
+            if self.delivery is not None:
+                self.delivery.prepare(target)
             store.write_json(target / RESOURCE_METADATA_FILENAME, result)
             published = True
             return result

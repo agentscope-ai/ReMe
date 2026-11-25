@@ -78,8 +78,8 @@ button {
   vertical-align: middle;
   white-space: nowrap;
 }
-.count-badge[data-tone="accent"] {
-  --count-color: var(--accent);
+.count-badge[data-tone="unread"] {
+  --count-color: var(--unread);
 }
 .primary,
 .secondary,
@@ -321,34 +321,6 @@ button {
   overscroll-behavior: contain;
   overflow-anchor: none;
 }
-.empty-chat {
-  min-height: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 20px 0 40px;
-  text-align: center;
-}
-.empty-chat h2 {
-  font-size: var(--text-title);
-  font-weight: var(--weight-medium);
-  margin: 0 0 6px;
-}
-.empty-chat p {
-  color: var(--muted);
-  font-size: var(--text-caption);
-  margin: 0;
-}
-.empty-chat .start-hint {
-  margin-top: 26px;
-  max-width: 250px;
-}
-.start-hint code {
-  display: block;
-  margin-top: 7px;
-  font-size: var(--text-caption);
-}
 .message {
   max-width: 100%;
   margin: 0 0 22px;
@@ -512,23 +484,6 @@ button {
   color: var(--muted);
   font-size: var(--text-caption);
 }
-.read-aloud {
-  display: inline-flex;
-  gap: 5px;
-  align-items: center;
-  margin-top: 7px;
-  padding: 3px 5px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--muted);
-  font-size: var(--text-caption);
-}
-.read-aloud:hover,
-.read-aloud[aria-pressed="true"] {
-  color: var(--accent);
-  background: var(--surface);
-}
 .chat-composer form {
   position: relative;
   display: flex;
@@ -621,9 +576,15 @@ button {
   font-size: var(--text-caption);
   color: var(--muted);
 }
+.composer-location {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
 .connection-dot {
   width: 5px;
   height: 5px;
+  flex-shrink: 0;
   border-radius: 50%;
   background: var(--warning);
 }

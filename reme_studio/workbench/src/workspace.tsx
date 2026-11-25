@@ -23,6 +23,9 @@ import { useSpeechPlayback } from "./speech/playback.ts";
 import { useMobileDrawerGesture } from "./mobile-gesture.ts";
 import AgentWorkspace from "./agent-workspace.tsx";
 import Settings from "./settings.tsx";
+import BackendSetup from "./backend-setup.tsx";
+import { BackendAccess } from "./backend-access.tsx";
+import type { NavigationGuard } from "../../client/src/backend.ts";
 import Knowledge from "./knowledge/index.tsx";
 import Notebook from "./notebook/index.tsx";
 import { WorkspaceLayout } from "./workspace-titlebar.tsx";
@@ -45,6 +48,11 @@ export default function Workbench({
   const { action, onCommand } = useHost();
   const desktop = platform !== undefined;
   const t = translator(state.settings.language);
+  const [setupBlocking, setSetupBlocking] = useState(true);
+  const [backendAccess, setBackendAccess] = useState<{
+    endpoint: string;
+    token: string;
+  }>();
   // File-backed pages own their drafts and requests for exactly one workspace.
   const scope = JSON.stringify([
     state.settings.endpoint,
@@ -192,8 +200,18 @@ export default function Workbench({
     if (state.activePage !== "settings") lastPage.current = state.activePage;
   }, [state.activePage]);
   useSpeechPlayback(state);
-  const select = (page: StudioPage) =>
-    void action({ type: "page.select", page });
+  const guard = useRef<NavigationGuard | null>(null);
+  const registerGuard = useCallback((value: NavigationGuard | null) => {
+    guard.current = value;
+  }, []);
+  const navigate = useCallback((next: () => void) => {
+    if (guard.current) guard.current(next);
+    else next();
+  }, []);
+  const select = (page: StudioPage) => {
+    if (page !== state.activePage)
+      navigate(() => void action({ type: "page.select", page }));
+  };
   useEffect(
     () =>
       onCommand((command) => {
@@ -203,7 +221,7 @@ export default function Workbench({
   );
   const content = (
     <Tabs.Root
-      inert={mobileMenu !== null}
+      inert={mobileMenu !== null || setupBlocking}
       orientation="vertical"
       value={state.activePage}
       onValueChange={(value) => select(value as StudioPage)}
@@ -246,11 +264,11 @@ export default function Workbench({
             <Tabs.Trigger
               className="rail-button"
               value="knowledge"
-              aria-label={t("knowledge")}
+              aria-label={t("memory")}
             >
               <BookOpen size={18} aria-hidden />
               <span className="rail-label" aria-hidden>
-                {t("knowledge")}
+                {t("memory")}
               </span>
             </Tabs.Trigger>
           </Tabs.List>
@@ -316,7 +334,11 @@ export default function Workbench({
           version={version}
           companionVisible={companionVisible}
           desktop={desktop}
+          windowTransparency={platform === "darwin"}
+          open={settingsOpen}
           editableEndpoint={desktop || mobile}
+          navigate={navigate}
+          registerGuard={registerGuard}
           collapsed={sidebarCollapsed("settings")}
           onNavigate={closeCompactSidebar}
         />
@@ -327,10 +349,10 @@ export default function Workbench({
     ["remy", "Remy", MessageCircle],
     ["tasks", t("proactiveAi"), Sparkles],
     ["notebook", t("notebook"), Leaf],
-    ["knowledge", t("knowledge"), BookOpen],
+    ["knowledge", t("memory"), BookOpen],
     ["settings", t("settings"), SettingsIcon],
   ] as const;
-  return (
+  const layout = (
     <WorkspaceLayout.Provider
       value={{
         settings: state.settings,
@@ -341,6 +363,12 @@ export default function Workbench({
         navigationOpen: mobileMenuOpen,
       }}
     >
+      <BackendSetup
+        key={state.settings.endpoint}
+        state={state}
+        editableEndpoint={desktop || mobile}
+        onBlockingChange={setSetupBlocking}
+      />
       {mobile ? (
         <div
           ref={mobileRoot}
@@ -351,7 +379,7 @@ export default function Workbench({
             ref={mobileDrawer}
             id="mobile-navigation"
             className="mobile-drawer"
-            inert={!mobileMenuOpen}
+            inert={!mobileMenuOpen || setupBlocking}
             aria-label={t("navigation")}
           >
             <div
@@ -418,5 +446,17 @@ export default function Workbench({
         content
       )}
     </WorkspaceLayout.Provider>
+  );
+  const endpoint = state.settings.endpoint;
+  return (
+    <BackendAccess.Provider
+      value={{
+        endpoint,
+        token: backendAccess?.endpoint === endpoint ? backendAccess.token : "",
+        setToken: (token) => setBackendAccess({ endpoint, token }),
+      }}
+    >
+      {layout}
+    </BackendAccess.Provider>
   );
 }

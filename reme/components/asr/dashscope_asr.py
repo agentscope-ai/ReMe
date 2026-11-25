@@ -7,7 +7,9 @@ import re
 from .base_asr import BaseASR
 from ...core.registry import R
 from ...schema.speech import ASRResult, AudioFormat
-from ...utils.dashscope_speech import DashScopeSpeechClient
+from ...utils.dashscope_speech import DEFAULT_DASHSCOPE_BASE_URL, DashScopeSpeechClient
+
+DEFAULT_DASHSCOPE_ASR_MODEL = "qwen-audio-3.1-asr-flash"
 
 
 @R.register("dashscope")
@@ -16,10 +18,10 @@ class DashScopeASR(BaseASR):
 
     def __init__(
         self,
-        model: str = "qwen-audio-3.1-asr-flash",
+        model: str = DEFAULT_DASHSCOPE_ASR_MODEL,
         parameters: dict | None = None,
         api_key: str = "",
-        base_url: str = "https://dashscope.aliyuncs.com/api/v1",
+        base_url: str = DEFAULT_DASHSCOPE_BASE_URL,
         timeout: float = 60,
         **kwargs,
     ):

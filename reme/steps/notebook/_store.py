@@ -114,11 +114,11 @@ class RecordStore:
             record = self.model.model_validate(value)
             if isinstance(record, Todo) and any("time" not in note for note in value.get("progress", [])):
                 raise ValueError(f"{relative} contains progress without a timestamp")
-            closed = (
-                record.status in {"done", "cancelled"} if isinstance(record, Todo) else record.closed_at is not None
-            )
-            if closed != archived or (record.closed_at is not None) != archived:
+            closed = record.closed_at is not None
+            if closed != archived or (isinstance(record, Todo) and (record.status == "closed") != closed):
                 raise ValueError(f"{relative} contains a record with inconsistent archive state")
+            if isinstance(record, Todo) and not closed and record.close_note is not None:
+                raise ValueError(f"{relative} contains a close note on an active Todo")
             if record.id in records:
                 raise ValueError(f"{relative} contains duplicate id {record.id}")
             records[record.id] = record
@@ -175,9 +175,10 @@ class RecordStore:
         changes = {}
         for relative in {previous, target} - {None}:
             records = dict(self.files.get(relative, {}))
-            records.pop(record.id, None)
             if relative == target:
                 records[record.id] = record
+            else:
+                records.pop(record.id)
             values = [item.model_dump(mode="json", exclude_none=True) for item in records.values()]
             self.validate(values, relative)
             changes[relative] = {"before": self.versions.get(relative), "after": values}

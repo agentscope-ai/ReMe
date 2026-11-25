@@ -7,7 +7,7 @@ from pathlib import Path
 from pydantic import TypeAdapter
 
 from reme.schema.agent_message import AgentMessage
-from reme.schema.proactive_agent import TaskSettings
+from reme.schema.proactive_agent import ProactiveRuntimeSettings
 from reme.schema.agent_view import AgentSnapshot, AgentUpdate, AgentHeartbeat, AgentView, ClientInfo
 from reme.schema.stream_chunk import StreamChunk
 from reme.utils.agent_transcript import TranscriptProjector
@@ -49,7 +49,7 @@ def typescript(schema):
 def render():
     """One adapter exports every transitively referenced schema exactly once."""
     schema = TypeAdapter(
-        AgentMessage | AgentSnapshot | AgentUpdate | AgentHeartbeat | ClientInfo | TaskSettings,
+        AgentMessage | AgentSnapshot | AgentUpdate | AgentHeartbeat | ClientInfo | ProactiveRuntimeSettings,
     ).json_schema(mode="serialization")
     declarations = [f"export type {name} = {typescript(value)};" for name, value in sorted(schema["$defs"].items())]
     exports = [
@@ -64,6 +64,7 @@ def render():
         for name, model, field in (
             ("sessionStatus", "AgentView", "status"),
             ("activityPhase", "ClientActivity", "phase"),
+            ("activitySource", "ClientActivity", "source"),
             ("itemStatus", "TextItem", "status"),
             ("messageRole", "AgentMessage", "role"),
             ("messageSource", "AgentMessage", "source"),

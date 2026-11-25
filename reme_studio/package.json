@@ -19,7 +19,8 @@
     "build:mobile": "npm run build -w mobile --",
     "typecheck": "npm run typecheck -w desktop -w web -w mobile",
     "test": "npm run test -w client -w workbench -w desktop",
-    "format:check": "prettier --check desktop/src desktop/tests desktop/scripts/*.mjs desktop/*.json client workbench mobile/src mobile/*.json mobile/*.mts mobile/index.html web/src web/vite.config.ts web/*.json web/index.html *.json"
+    "format": "prettier --write \"**/*.{cjs,css,cts,html,js,json,jsx,mjs,mts,ts,tsx}\"",
+    "format:check": "prettier --check \"**/*.{cjs,css,cts,html,js,json,jsx,mjs,mts,ts,tsx}\""
   },
   "devDependencies": {
     "prettier": "3.9.10",

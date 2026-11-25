@@ -6,14 +6,37 @@ import WorkspaceTitlebar, {
   type Breadcrumb,
 } from "./workspace-titlebar.tsx";
 
+export function SidebarHeading({
+  eyebrow,
+  title,
+  children,
+}: {
+  eyebrow: string;
+  title: string;
+  children?: ReactNode;
+}) {
+  return (
+    <header className="module-sidebar-heading">
+      <span className="eyebrow" aria-hidden>
+        {eyebrow}
+      </span>
+      <div className="module-sidebar-title">
+        <h2>{title}</h2>
+        {children}
+      </div>
+    </header>
+  );
+}
+
 export default function SplitPane({
   name,
   sidebar,
   children,
   language,
   collapsed = false,
-  defaultWidth = 292,
-  minWidth = 240,
+  defaultWidth = 256,
+  defaultRatio,
+  minWidth = 224,
   maxWidth = 400,
   minContentWidth = 280,
   className = "",
@@ -26,6 +49,7 @@ export default function SplitPane({
   language: Language;
   collapsed?: boolean;
   defaultWidth?: number;
+  defaultRatio?: number;
   minWidth?: number;
   maxWidth?: number;
   minContentWidth?: number;
@@ -38,18 +62,19 @@ export default function SplitPane({
   const sidebarId = `sidebar-${name}`;
   const root = useRef<HTMLDivElement>(null);
   const [available, setAvailable] = useState<number>();
-  const [preferredWidth, setPreferredWidth] = useState(() => {
+  const storageKey =
+    defaultRatio === undefined ? `split:${name}` : `split:${name}:ratio`;
+  const [resizing, setResizing] = useState(false);
+  const [preferred, setPreferred] = useState(() => {
     try {
-      const saved = Number(localStorage.getItem(`split:${name}`));
-      return Math.max(
-        minWidth,
-        Math.min(
-          maxWidth,
-          Number.isFinite(saved) && saved > 0 ? saved : defaultWidth,
-        ),
-      );
+      const saved = Number(localStorage.getItem(storageKey));
+      return Number.isFinite(saved) &&
+        saved > 0 &&
+        (defaultRatio === undefined || saved < 1)
+        ? saved
+        : undefined;
     } catch {
-      return defaultWidth;
+      return undefined;
     }
   });
   useEffect(() => {
@@ -59,16 +84,24 @@ export default function SplitPane({
     observer.observe(root.current!);
     return () => observer.disconnect();
   }, []);
+  const availableWidth =
+    available || (defaultRatio ? defaultWidth / defaultRatio : Infinity);
   const maximum = Math.max(
     minWidth,
-    Math.min(maxWidth, (available || Infinity) - minContentWidth),
+    Math.min(maxWidth, availableWidth - minContentWidth),
   );
-  const width = Math.min(preferredWidth, maximum);
+  const clamp = (value: number) => Math.max(minWidth, Math.min(maximum, value));
+  const width = clamp(
+    defaultRatio
+      ? availableWidth * (preferred ?? defaultRatio)
+      : (preferred ?? defaultWidth),
+  );
   const resize = (value: number) => {
-    const next = Math.max(minWidth, Math.min(maximum, value));
-    setPreferredWidth(next);
+    const next = clamp(value);
+    const preference = defaultRatio ? next / availableWidth : next;
+    setPreferred(preference);
     try {
-      localStorage.setItem(`split:${name}`, String(next));
+      localStorage.setItem(storageKey, String(preference));
     } catch {
       /* In-memory resizing still works. */
     }
@@ -87,6 +120,7 @@ export default function SplitPane({
   return (
     <div
       ref={root}
+      data-resizing={resizing || undefined}
       className={`split-pane ${hasTitlebar ? "workspace-split" : ""} ${className}`}
       style={{ "--sidebar-width": `${width}px` } as React.CSSProperties}
     >
@@ -98,12 +132,14 @@ export default function SplitPane({
           collapsed={collapsed}
         />
       )}
-      {layout?.mobileSidebar
+      {hasTitlebar && layout?.mobileSidebar
         ? createPortal(panel, layout.mobileSidebar)
         : panel}
       <div
         className="split-handle"
-        hidden={collapsed || layout?.openNavigation !== undefined}
+        hidden={
+          collapsed || (hasTitlebar && layout?.openNavigation !== undefined)
+        }
         role="separator"
         aria-orientation="vertical"
         aria-label={resizeLabel ?? translator(language)("resizeSidebar")}
@@ -128,8 +164,10 @@ export default function SplitPane({
             event.preventDefault();
             event.currentTarget.focus();
             event.currentTarget.setPointerCapture(event.pointerId);
+            setResizing(true);
           }
         }}
+        onLostPointerCapture={() => setResizing(false)}
         onPointerMove={(event) => {
           if (event.currentTarget.hasPointerCapture(event.pointerId))
             resize(event.clientX - root.current!.getBoundingClientRect().left);

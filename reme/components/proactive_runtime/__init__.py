@@ -1,6 +1,5 @@
-"""Shared agent sessions, event consumption, inboxes and scheduling."""
+"""Per-runtime scheduling and execution."""
 
-from .base_proactive_runtime import BaseProactiveRuntime
-from .local_proactive_runtime import LocalProactiveRuntime
+from .runtime import ProactiveRuntime
 
-__all__ = ["BaseProactiveRuntime", "LocalProactiveRuntime"]
+__all__ = ["ProactiveRuntime"]

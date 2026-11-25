@@ -4,10 +4,11 @@ services:
     build:
       context: .
     init: false # The image already runs tini.
-    user: "${REME_UID:-1000}:${REME_GID:-1000}"
+    user: "0:0" # The entrypoint assigns its state directory and drops privileges.
     ports:
       - "${REME_BIND_ADDRESS:-127.0.0.1}:${REME_PUBLISHED_PORT:-2333}:${REME_PORT:-2333}"
     volumes:
+      - reme-state:/state
       - type: bind
         source: ${REME_DATA_DIR:-./.reme}
         target: /data
@@ -20,5 +21,11 @@ services:
       REME_HOST: 0.0.0.0
       REME_PORT: ${REME_PORT:-2333}
       REME_WORKSPACE_DIR: /data
+      REME_UID: ${REME_UID:-1000}
+      REME_GID: ${REME_GID:-1000}
+      REME_ADMIN_PUBLISHED_HOST: ${REME_BIND_ADDRESS:-127.0.0.1}
     restart: unless-stopped
     stop_grace_period: 60s
+
+volumes:
+  reme-state:

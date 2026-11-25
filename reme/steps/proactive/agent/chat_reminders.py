@@ -27,40 +27,40 @@ class ProcessChatRemindersStep(BaseChatAgentStep):
             return await self._execute(request)
 
     async def _execute(self, request: ProcessChatRemindersRequest):
-        runtime = self.proactive_runtime
-        if not any(identifier in runtime.notifications.pending for identifier in request.msg_ids):
+        manager = self.proactive_manager
+        if not any(identifier in manager.notifications.pending for identifier in request.msg_ids):
             self.context.response.answer = {"skipped": "already_read"}
             return self.context.response
         active_fork = request.priority == "P0"
-        if not active_fork and runtime.chat_lock.locked():
+        if not active_fork and manager.chat_lock.locked():
             self.context.response.answer = {"skipped": "busy"}
             return self.context.response
-        async with nullcontext() if active_fork else runtime.chat_lock:
-            if runtime.closed:
-                raise RuntimeError("Agent runtime is closed")
-            idle = max(0, (runtime.now() - runtime.notifications.last_activity_at).total_seconds())
+        async with nullcontext() if active_fork else manager.chat_lock:
+            if manager.closed:
+                raise RuntimeError("Proactive Manager is closed")
+            idle = max(0, (manager.now() - manager.notifications.last_activity_at).total_seconds())
             if request.priority != "P0" and idle < getattr(
-                runtime.notifications.config,
+                manager.notifications.config,
                 f"{request.priority.lower()}_idle_seconds",
             ):
                 self.context.response.answer = {"skipped": "not_idle"}
                 return self.context.response
             options = self.session_options()
-            current = await runtime.sessions.current(CHAT_AGENT_NAME) if active_fork else None
+            current = await manager.sessions.current(CHAT_AGENT_NAME) if active_fork else None
             session_id = current.session_id if current else await self.ensure_session(options)
-            status = await runtime.agent_wrapper.get_session_status(session_id)
+            status = await manager.agent_wrapper.get_session_status(session_id)
             if status.status not in ({"idle", "not_loaded", "active"} if active_fork else {"idle", "not_loaded"}):
                 self.context.response.answer = {"skipped": "busy"}
                 return self.context.response
             if active_fork and (
-                len(runtime.chat_tasks) > 1 or (runtime.chat_lock.locked() and status.status != "active")
+                len(manager.chat_tasks) > 1 or (manager.chat_lock.locked() and status.status != "active")
             ):
                 # Queued user input is not necessarily part of the native snapshot yet.
                 self.context.response.answer = {"skipped": "busy"}
                 return self.context.response
-        async with runtime.notifications.turn(session_id, request.priority, request.msg_ids) as turn:
-            if not turn.done and (inbox_items := await runtime.notifications.read_turn(turn)):
-                reply = await runtime.agent_wrapper.reply(
+        async with manager.notifications.turn(session_id, request.priority, request.msg_ids) as turn:
+            if not turn.done and (inbox_items := await manager.notifications.read_turn(turn)):
+                reply = await manager.agent_wrapper.reply(
                     self.prompt_format("hint", inbox_items=inbox_items),
                     system_prompt=options["system_prompt"],
                     job_tools=["submit_chat_reminder"],

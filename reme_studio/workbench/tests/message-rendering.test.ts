@@ -126,6 +126,58 @@ test("both roles render Markdown and each message has an independent Markdown do
   }
 });
 
+test("standalone reminder sources can move to the footer without rewriting the message", async () => {
+  const server = await createServer({
+    configFile: false,
+    root: fileURLToPath(new URL("../../", import.meta.url)),
+    server: { middlewareMode: true, watch: null, hmr: false, ws: false },
+  });
+  try {
+    const { splitReminderSource } = await server.ssrLoadModule(
+      "/workbench/src/message-body.tsx",
+    );
+    const path = "daily/2026-11-24/work_012500.md";
+    const body = "This is the reminder.";
+    const message: DisplayMessage = {
+      id: "reminder",
+      role: "assistant",
+      source: "proactive",
+      content: `${body}\n\n来源：work · ${path}`,
+      completed: true,
+      streaming: false,
+      status: null,
+    };
+    const source = splitReminderSource(message);
+    assert.equal(source.path, path);
+    assert.equal(source.display.content, body);
+    assert.ok(message.content.includes(path));
+
+    const item = content("source", `**Source:** [Run record](${path})`);
+    const structured = splitReminderSource({
+      ...message,
+      items: [content("body", body), item],
+    });
+    assert.equal(structured.path, path);
+    assert.equal(structured.display.items[0].text, body);
+    assert.equal(structured.display.items[1].text, "");
+    assert.ok(item.text.includes(path));
+
+    for (const text of [
+      `${body}\nSource: ${path}`,
+      `\`\`\`text\nSource: ${path}`,
+      `Source: ${path} and summary.md`,
+      "Source: ../outside.md",
+      "Source: [External](https://example.com/doc.md)",
+    ])
+      assert.equal(
+        splitReminderSource({ ...message, content: text }),
+        undefined,
+      );
+  } finally {
+    await server.close();
+  }
+});
+
 test("reasoning stays inside activity disclosure while prose, plans and completion remain visible in both languages", async () => {
   const server = await createServer({
     configFile: false,
@@ -133,9 +185,11 @@ test("reasoning stays inside activity disclosure while prose, plans and completi
     server: { middlewareMode: true, watch: null, hmr: false, ws: false },
   });
   try {
-    const { default: MessageBody, timelineItems } = await server.ssrLoadModule(
-      "/workbench/src/message-body.tsx",
-    );
+    const {
+      default: MessageBody,
+      timelineItems,
+      formatTaskResult,
+    } = await server.ssrLoadModule("/workbench/src/message-body.tsx");
     const reply = {
       content: "我先核查来源。\n\n来源已核实，正在整理结论。\n\n结果已经确认。",
       items: [
@@ -252,8 +306,49 @@ test("reasoning stays inside activity disclosure while prose, plans and completi
         /turn-completion/,
       );
       assert.doesNotMatch(
+        render(
+          {
+            ...message,
+            items: [],
+            content: " ",
+            status: {
+              kind: "status",
+              id: "done",
+              text: "Completed",
+              tone: "success",
+            },
+          },
+          language,
+        ),
+        /turn-completion|message-status/,
+      );
+      assert.doesNotMatch(
         render(message, language, true),
         /turn-completion|activity-group/,
+      );
+      const marker = "NO_KEY_INFORMATION";
+      const noUpdates = {
+        ...message,
+        content: `Checked sources.\n\n${marker}`,
+        items: [
+          ...reply.items.filter((item) => item.type === "tool"),
+          content("commentary", "Checked sources."),
+          { ...content("answer", marker), phase: "final_answer" },
+        ],
+      } satisfies DisplayMessage;
+      const task = formatTaskResult(noUpdates, language);
+      const taskHtml = render(task, language);
+      assert.match(taskHtml, /activity-group/);
+      assert.match(taskHtml, /Checked sources/);
+      assert.match(
+        taskHtml,
+        language === "zh" ? /本轮没有重要更新/ : /No significant updates/,
+      );
+      assert.doesNotMatch(taskHtml, /NO_KEY_INFORMATION/);
+      assert.match(render(noUpdates, language), /NO_KEY_INFORMATION/);
+      assert.equal(
+        formatTaskResult({ ...noUpdates, streaming: true }, language),
+        undefined,
       );
     }
   } finally {

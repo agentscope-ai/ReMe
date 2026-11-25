@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import argparse
+from base64 import urlsafe_b64encode
 import json
 import os
 from pathlib import Path
 import subprocess
+from secrets import token_bytes
 import tempfile
 import time
+from urllib.error import HTTPError
 from urllib.request import ProxyHandler, Request, build_opener
 import uuid
 
@@ -18,7 +21,9 @@ _OFFLINE_JOBS = {
         "codex_dialogue_cron",
         "screen_capture_cron",
         "finance_news_cron",
-        "stock_quotes_cron",
+        "gold_quotes_cron",
+        "oil_quotes_cron",
+        "nasdaq_quotes_cron",
         "btc_quotes_cron",
         "proactive_loop",
     ),
@@ -70,11 +75,24 @@ def start_container(
     image: str,
     container: str,
     data: Path,
+    state: Path,
     port: int = 2432,
     cli_override: bool = False,
     config: str = "default",
 ) -> str:
-    """Publish a random loopback port and mount only the disposable workspace."""
+    """Launch with separate writable workspace and supervisor state mounts."""
+    model = (
+        [
+            "--env",
+            "LLM_API_KEY=offline-smoke-fixture",
+            "--env",
+            "LLM_BASE_URL=http://127.0.0.1:1/v1",
+            "--env",
+            f"REME_ENCRYPTION_KEY={urlsafe_b64encode(token_bytes(32)).decode('ascii')}",
+        ]
+        if config == "proactive"
+        else ["--env", "LLM_API_KEY="]
+    )
     docker(
         "run",
         "--detach",
@@ -86,8 +104,11 @@ def start_container(
         f"127.0.0.1::{port}",
         "--mount",
         f"type=bind,source={data},target=/data",
+        "--mount",
+        f"type=bind,source={state},target=/state",
+        *model,
         "--env",
-        "LLM_API_KEY=",
+        "REME_ADMIN_PUBLISHED_HOST=127.0.0.1",
         "--env",
         "TZ=Europe/London",
         "--env",
@@ -115,6 +136,21 @@ def stop_container(container: str) -> None:
     logs = subprocess.check_output(["docker", "logs", container], text=True, stderr=subprocess.STDOUT)
     assert "Application shutdown complete" in logs, logs
     docker("rm", container)
+
+
+def check_admin(base_url: str, state: Path) -> dict:
+    """Verify that the published loopback requires the instance's private token."""
+    try:
+        request(base_url, "/admin/config")
+    except HTTPError as error:
+        assert error.code == 401
+    else:
+        raise AssertionError("Container management accepted a request without its token")
+
+    token = (state / "admin-token").read_text().strip()
+    config, _ = request(base_url, "/admin/config", headers={"Authorization": f"Bearer {token}"})
+    assert config["initialized"]
+    return config
 
 
 def check_mcp(base_url: str) -> None:
@@ -161,10 +197,17 @@ def run_smoke(image: str) -> None:
     )
     with tempfile.TemporaryDirectory(prefix="reme-docker-smoke-") as directory:
         data = Path(directory) / "data"
+        state = Path(directory) / "state"
+        proactive_state = Path(directory) / "proactive-state"
         data.mkdir()
+        state.mkdir(mode=0o700)
+        proactive_state.mkdir(mode=0o700)
         container = f"reme-smoke-{uuid.uuid4().hex[:12]}"
         try:
-            base_url = start_container(image, container, data)
+            base_url = start_container(image, container, data, state)
+            check_admin(base_url, state)
+            original_token = (state / "admin-token").read_bytes()
+            original_settings = (state / "settings.json").read_bytes()
             result, _ = request(base_url, "/version", {})
             assert result["success"] and result["answer"] == version
             check_mcp(base_url)
@@ -178,7 +221,10 @@ def run_smoke(image: str) -> None:
             assert note_file.stat().st_uid == os.getuid()
             stop_container(container)
             # Recreate with a different CLI port to catch probes using stale ENV defaults.
-            base_url = start_container(image, container, data, port=2433, cli_override=True)
+            base_url = start_container(image, container, data, state, port=2433, cli_override=True)
+            check_admin(base_url, state)
+            assert (state / "admin-token").read_bytes() == original_token
+            assert (state / "settings.json").read_bytes() == original_settings
             result, _ = request(base_url, "/read", {"path": "daily/2026-09-30/smoke.md"})
             assert result["success"] and "Durable quokka" in result["answer"]
             deadline = time.monotonic() + 30
@@ -191,7 +237,9 @@ def run_smoke(image: str) -> None:
                     raise AssertionError(f"Persisted memory was not indexed: {result}")
                 time.sleep(1)
             stop_container(container)
-            base_url = start_container(image, container, data, config="proactive")
+            base_url = start_container(image, container, data, proactive_state, config="proactive")
+            assert check_admin(base_url, proactive_state)["api_key_set"]
+            assert "offline-smoke-fixture" not in (proactive_state / "settings.json").read_text()
             page, _ = request(base_url, "/")
             assert isinstance(page, str) and '<div id="root">' in page
             result, _ = request(base_url, "/get_client_info", {})

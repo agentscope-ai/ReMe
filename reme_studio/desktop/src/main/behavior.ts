@@ -4,7 +4,7 @@ import {
   translator,
   UiError,
 } from "../../../client/src/i18n.ts";
-import type { Language, TranslationKey } from "../../../client/src/i18n.ts";
+import type { TranslationKey } from "../../../client/src/i18n.ts";
 import type {
   Activities,
   AnimationIntent,
@@ -56,7 +56,6 @@ export class BehaviorController {
   value: Behavior = {
     animation: { id: 0, clip: "idle", mode: "loop" },
     label: translate(defaultLanguage, "idle"),
-    error: "",
   };
   dragging = false;
   private activities: Activities = {};
@@ -67,7 +66,6 @@ export class BehaviorController {
   private deadline = Infinity;
   private started = false;
   private readonly unavailable = new Set<string>();
-  private language: Language = defaultLanguage;
   private touched: number;
   private nextAmbient: number;
   private ambient: string | null = null;
@@ -223,9 +221,6 @@ export class BehaviorController {
     now: number,
     segment?: AnimationIntent["segment"],
   ): Behavior {
-    const error = this.unavailable.size
-      ? translate(this.language, "animationUnavailable")
-      : "";
     if (this.unavailable.has(clip)) {
       clip = "idle";
       mode = "hold";
@@ -241,7 +236,7 @@ export class BehaviorController {
       ) {
         this.key = key;
         this.owner = owner;
-        this.value = { ...this.value, label, error };
+        this.value = { ...this.value, label };
         return this.value;
       }
       const smooth =
@@ -252,7 +247,7 @@ export class BehaviorController {
         ["thinking", "remembering"].includes(clip) &&
         ["thinking", "remembering"].includes(this.value.animation.clip);
       if (smooth && now - this.since < 350) {
-        this.value = { ...this.value, label, error };
+        this.value = { ...this.value, label };
         return this.value;
       }
       this.key = key;
@@ -269,22 +264,20 @@ export class BehaviorController {
           ...(segment ? { segment } : {}),
         },
         label,
-        error,
       };
-    } else if (label !== this.value.label || error !== this.value.error)
-      this.value = { ...this.value, label, error };
+    } else if (label !== this.value.label)
+      this.value = { ...this.value, label };
     return this.value;
   }
 
   resolve(input: Input, visible: boolean, now = Date.now()): Behavior {
-    this.language = input.settings.language;
     const level = input.settings.activityLevel;
     if (level !== this.activityLevel) {
       this.activityLevel = level;
       this.ambient = null;
       this.nextAmbient = this.nextIdle(now);
     }
-    const t = translator(this.language);
+    const t = translator(input.settings.language);
     if (!visible) {
       this.reminder = null;
       this.ambient = null;
@@ -431,7 +424,7 @@ export class BehaviorController {
       this.nextAmbient = this.nextIdle(now);
     }
     if (background && !input.chatFocused && !quiet) {
-      const label = t("taskBackground", { task: task![0] });
+      const label = t("proactiveRunning", { agent_name: task![0] });
       return select(
         "background",
         `background:${task![0]}:${background.started_at ?? background.turn_id}:${background.phase}`,

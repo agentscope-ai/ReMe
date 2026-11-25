@@ -8,6 +8,8 @@
   --accent-ink: light-dark(#fff, #18181a);
   --accent-soft: light-dark(#edeeee, #353537);
   --accent-line: light-dark(#d5d6d8, #545459);
+  --unread: light-dark(#2e6557, #a3d6c5);
+  --unread-soft: light-dark(#e7f2ed, #263b34);
   --line: light-dark(#e6e6e7, #3b3b3e);
   --soft: light-dark(#f0f0f1, #2d2d30);
   --surface: light-dark(#fffffff0, #28282bf0);

@@ -18,9 +18,16 @@ import type { StudioState, TagFiles } from "../../../client/src/protocol.ts";
 import { errorText, translator, UiError } from "../../../client/src/i18n.ts";
 import { useHost } from "../host.ts";
 import { useWorkspace } from "../resources.ts";
-import SplitPane from "../split-pane.tsx";
+import SplitPane, { SidebarHeading } from "../split-pane.tsx";
 import { buildTree, type FileTree } from "./model.ts";
 import DocumentPreview from "./DocumentPreview.tsx";
+import DocumentEditor from "./DocumentEditor.tsx";
+import {
+  TimelineHeading,
+  TimelineList,
+  TimelinePane,
+  timelineDay,
+} from "../timeline.tsx";
 
 const sources = [
   ["workspace", FolderTree, "workspaceTab"],
@@ -30,6 +37,7 @@ const sources = [
 ] as const;
 
 type KnowledgeSource = (typeof sources)[number][0];
+const DAILY_PAGE_SIZE = 40;
 
 function Tree({
   nodes,
@@ -75,7 +83,9 @@ function TreeNode({
     <>
       <button
         className={`file-tree-row ${selected === node.path ? "selected" : ""}`}
-        style={{ paddingInlineStart: 12 + depth * 15 }}
+        style={{
+          paddingInlineStart: `calc(var(--sidebar-row-inset) + ${depth * 15}px)`,
+        }}
         title={node.path}
         aria-expanded={node.children ? expanded : undefined}
         onClick={() =>
@@ -144,6 +154,7 @@ export default function Knowledge({
   const [tagError, setTagError] = useState<unknown>(null);
   const [page, setPage] = useState(1);
   const [pages, setPages] = useState(1);
+  const [dailyPage, setDailyPage] = useState(1);
   const [refresh, setRefresh] = useState(0);
   const [loading, setLoading] = useState(false);
   const [fileLoading, setFileLoading] = useState(false);
@@ -151,6 +162,11 @@ export default function Knowledge({
   const error =
     config && !available ? new UiError("workspaceUnavailable") : requestError;
   const [fileError, setFileError] = useState<unknown>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [navigationBlocked, setNavigationBlocked] = useState(false);
+  const editButton = useRef<HTMLButtonElement>(null);
+  const restoreEditFocus = useRef(false);
+  const openedTarget = useRef<number>(undefined);
   const loadedPath = useRef("");
   const documentScroll = useRef<HTMLDivElement>(null);
   const root =
@@ -169,16 +185,60 @@ export default function Knowledge({
   const browsingTags = source === "tags";
   const activeTags = browsingTags ? selectedTags : undefined;
   const showFiles = !browsingTags || Boolean(query || activeTags?.length);
+  const daily = source === "daily";
+  const showTimeline = daily || (browsingTags && showFiles);
+  const timelineItems = useMemo(() => {
+    if (!showTimeline) return [];
+    const items = paths.map((path) => {
+      const relative =
+        root && path.startsWith(root + "/")
+          ? path.slice(root.length + 1)
+          : path;
+      const title = relative.split("/").at(-1) || relative;
+      return {
+        id: path,
+        title,
+        date: daily
+          ? timelineDay(/^(\d{4}-\d{2}-\d{2})(?:\.md$|\/)/i.exec(relative)?.[1])
+          : undefined,
+        preview: relative === title ? undefined : relative,
+        leading: (
+          <span className="timeline-card-leading">
+            <FileText size={15} aria-hidden />
+          </span>
+        ),
+      };
+    });
+    if (daily) items.sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""));
+    return items;
+  }, [showTimeline, paths, root, daily]);
+  const dailyPages = Math.max(
+    1,
+    Math.ceil(timelineItems.length / DAILY_PAGE_SIZE),
+  );
+  const timelinePage = daily ? Math.min(dailyPage, dailyPages) : page;
   useEffect(() => {
-    if (!state.documentTarget) return;
+    const target = state.documentTarget;
+    if (!target) {
+      openedTarget.current = undefined;
+      return;
+    }
+    if (editorOpen || openedTarget.current === target.request) return;
+    openedTarget.current = target.request;
     setSource("workspace");
     setQuery("");
     setDraft("");
     setSelectedTags([]);
     setPage(1);
-    setSelected(state.documentTarget.path);
+    setSelected(target.path);
     setRefresh((value) => value + 1);
-  }, [state.documentTarget]);
+  }, [state.documentTarget, editorOpen]);
+  useEffect(() => {
+    if (!editorOpen && restoreEditFocus.current) {
+      restoreEditFocus.current = false;
+      editButton.current?.focus({ preventScroll: true });
+    }
+  }, [editorOpen]);
   useEffect(() => {
     if (!active || !browsingTags || !supportsTags) return;
     let live = true;
@@ -303,7 +363,7 @@ export default function Knowledge({
     return () => clearInterval(timer);
   }, [active, config]);
   useEffect(() => {
-    if (!selected) return;
+    if (!selected || editorOpen) return;
     let live = true;
     if (loadedPath.current !== selected) {
       setFileLoading(true);
@@ -328,7 +388,10 @@ export default function Knowledge({
             image: image
               ? `data:${result.metadata.mime};base64,${result.answer}`
               : undefined,
-            mtime: result.metadata.mtime as string | undefined,
+            mtime:
+              typeof result.metadata.mtime === "string"
+                ? result.metadata.mtime
+                : undefined,
           });
         }
       })
@@ -344,10 +407,23 @@ export default function Knowledge({
     return () => {
       live = false;
     };
-  }, [selected, refresh]);
+  }, [selected, refresh, editorOpen]);
+  const mtime = document?.mtime;
+  const canEdit = Boolean(
+    mtime &&
+    config?.jobs.includes("save_file") &&
+    /\.(mdx?|txt|csv|jsonl?|ya?ml)$/i.test(selected),
+  );
   const tree = useMemo(() => buildTree(paths, root), [paths, root]);
   const selectSource = (next: KnowledgeSource) => {
     if (next === source) return;
+    if (editorOpen) {
+      setNavigationBlocked(true);
+      return;
+    }
+    if (next === "daily" || source === "daily" || next === "tags")
+      setSelected("");
+    setDailyPage(1);
     setSource(next);
     setPage(1);
     setPages(1);
@@ -355,6 +431,11 @@ export default function Knowledge({
     setPaths([]);
   };
   const chooseTag = (tag: string) => {
+    if (editorOpen) {
+      setNavigationBlocked(true);
+      return;
+    }
+    setSelected("");
     if (!browsingTags) {
       selectSource("tags");
       setSelectedTags([tag]);
@@ -373,6 +454,85 @@ export default function Knowledge({
     void action({ type: "link.open", url, sourcePath: selected }).catch(
       setFileError,
     );
+  const selectDocument = (path: string) => {
+    if (editorOpen && path !== selected) {
+      setNavigationBlocked(true);
+      return;
+    }
+    setSelected(path);
+  };
+  const preview = selected && (
+    <div className="document-pane">
+      <div className="document-scroll" ref={documentScroll}>
+        {fileError !== null ? (
+          <div className="document-error" role="alert">
+            {errorText(fileError, state.settings.language)}
+            <button
+              className="secondary"
+              onClick={() => setRefresh((n) => n + 1)}
+            >
+              {t("retry")}
+            </button>
+          </div>
+        ) : fileLoading || loadedPath.current !== selected ? (
+          <div className="document-loading">{t("documentLoading")}</div>
+        ) : (
+          document &&
+          (document.image ? (
+            <img
+              className="knowledge-image"
+              src={document.image}
+              alt={selected}
+            />
+          ) : editorOpen && mtime ? (
+            <DocumentEditor
+              path={selected}
+              content={document.content}
+              mtime={mtime}
+              language={state.settings.language}
+              navigationBlocked={navigationBlocked}
+              save={async (content) => {
+                const { metadata } = await request({
+                  type: "save",
+                  path: selected,
+                  content,
+                  expectedMtime: mtime,
+                });
+                setDocument({
+                  content,
+                  mtime:
+                    typeof metadata.mtime === "string"
+                      ? metadata.mtime
+                      : undefined,
+                });
+                setRefresh((n) => n + 1);
+              }}
+              onClose={() => {
+                restoreEditFocus.current = true;
+                setEditorOpen(false);
+                setNavigationBlocked(false);
+              }}
+            />
+          ) : (
+            <DocumentPreview
+              key={selected}
+              path={selected}
+              content={document.content}
+              mtime={document.mtime}
+              tagKey={config?.tag_key ?? "memory_tags"}
+              onTag={supportsTags ? chooseTag : undefined}
+              onLink={openLink}
+              onCopy={(text) => action({ type: "clipboard.copy", text })}
+              onEdit={canEdit ? () => setEditorOpen(true) : undefined}
+              editRef={editButton}
+              language={state.settings.language}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+
   return (
     <SplitPane
       name="knowledge"
@@ -380,86 +540,89 @@ export default function Knowledge({
         selected
           ? [
               {
-                label: t("knowledge"),
-                onSelect: () => setSelected(""),
-                revealSidebar: true,
+                label: t("memory"),
+                onSelect: () => selectDocument(""),
+                revealSidebar: !editorOpen,
               },
               {
                 label: selected.split(/[\\/]/).at(-1) || selected,
                 title: selected,
               },
             ]
-          : [{ label: t("knowledge") }]
+          : [{ label: t("memory") }]
       }
       collapsed={collapsed}
       language={state.settings.language}
       sidebar={
         <>
-          <div className="sidebar-heading">
-            <span className="eyebrow">YOUR SECOND MEMORY</span>
-            <h1>
-              {t("knowledge")}
-              <button
-                className="icon-button"
-                aria-label={t("refreshFiles")}
-                onClick={() => setRefresh((n) => n + 1)}
-              >
-                <RefreshCw
-                  size={15}
-                  className={
-                    (showFiles && loading) ||
-                    (browsingTags && supportsTags && tagsLoading)
-                      ? "spinning"
-                      : ""
-                  }
-                />
-              </button>
-            </h1>
-            <p>{t("knowledgeCaption")}</p>
-          </div>
-          <form
-            className="knowledge-search"
-            onSubmit={(event) => {
-              event.preventDefault();
-              setQuery(draft.trim());
-              setPage(1);
-            }}
-          >
-            <Search size={15} />
-            <input
-              aria-label={t("searchKnowledge")}
-              placeholder={t("searchKnowledge")}
-              value={draft}
-              onChange={(event) => {
-                const value = event.target.value;
-                setDraft(value);
-                if (query && !value.trim()) {
-                  setQuery("");
-                  setPage(1);
+          <SidebarHeading eyebrow="KNOWLEDGE & HISTORY" title={t("memory")}>
+            <button
+              type="button"
+              className="icon-button"
+              aria-label={t("refreshMemory")}
+              title={t("refreshMemory")}
+              onClick={() => setRefresh((n) => n + 1)}
+            >
+              <RefreshCw
+                size={15}
+                aria-hidden
+                className={
+                  (showFiles && loading) ||
+                  (browsingTags && supportsTags && tagsLoading)
+                    ? "spinning"
+                    : ""
                 }
-              }}
-            />
-            <button aria-label={t("searchAction")}>
-              <ArrowRight size={14} />
+              />
             </button>
-          </form>
-          <div
-            className="source-tabs knowledge-source-tabs"
-            data-source={source}
-            role="group"
-            aria-label={t("knowledge")}
-          >
-            {sources.map(([id, Icon, key]) => (
-              <button
-                key={id}
-                aria-pressed={source === id}
-                className={source === id ? "active" : ""}
-                onClick={() => selectSource(id)}
-              >
-                <Icon size={14} aria-hidden />
-                <span>{t(key)}</span>
+          </SidebarHeading>
+          <div className="sidebar-controls">
+            <div
+              className="source-tabs knowledge-source-tabs"
+              data-source={source}
+              role="group"
+              aria-label={t("memory")}
+            >
+              {sources.map(([id, Icon, key]) => (
+                <button
+                  key={id}
+                  type="button"
+                  aria-pressed={source === id}
+                  className={source === id ? "active" : ""}
+                  onClick={() => selectSource(id)}
+                >
+                  <Icon size={14} aria-hidden />
+                  <span>{t(key)}</span>
+                </button>
+              ))}
+            </div>
+            <form
+              className="sidebar-search"
+              onSubmit={(event) => {
+                event.preventDefault();
+                setQuery(draft.trim());
+                setPage(1);
+                setDailyPage(1);
+              }}
+            >
+              <Search size={15} aria-hidden />
+              <input
+                aria-label={t("searchKnowledge")}
+                placeholder={t("searchKnowledge")}
+                value={draft}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setDraft(value);
+                  if (query && !value.trim()) {
+                    setQuery("");
+                    setPage(1);
+                    setDailyPage(1);
+                  }
+                }}
+              />
+              <button type="submit" aria-label={t("searchAction")}>
+                <ArrowRight size={14} aria-hidden />
               </button>
-            ))}
+            </form>
           </div>
           {browsingTags && (
             <section
@@ -561,7 +724,7 @@ export default function Knowledge({
                 nodes={tree}
                 selected={selected}
                 onOpen={(path) => {
-                  setSelected(path);
+                  selectDocument(path);
                   onNavigate?.();
                 }}
               />
@@ -590,44 +753,109 @@ export default function Knowledge({
         </>
       }
     >
-      {selected ? (
-        <div className="document-pane">
-          <div className="document-scroll" ref={documentScroll}>
-            {fileError !== null ? (
-              <div className="document-error" role="alert">
-                {errorText(fileError, state.settings.language)}
+      {showTimeline ? (
+        <TimelinePane
+          name={daily ? "daily-timeline" : "tag-timeline"}
+          language={state.settings.language}
+          listKey={JSON.stringify([source, query, timelinePage, activeTags])}
+          detailKey={selected}
+          onClose={editorOpen ? undefined : () => selectDocument("")}
+          heading={
+            <TimelineHeading
+              title={t(daily ? "dailyTab" : "memoryTagsTab")}
+              icon={daily ? <CalendarDays size={22} /> : <Tags size={22} />}
+              controls={
+                daily && (
+                  <span className="timeline-order">{t("timelineNewest")}</span>
+                )
+              }
+            />
+          }
+          list={
+            error !== null ? (
+              <p className="timeline-empty navigator-error" role="alert">
+                {errorText(error, state.settings.language)}{" "}
                 <button
-                  className="secondary"
+                  type="button"
+                  className="text-action"
                   onClick={() => setRefresh((n) => n + 1)}
                 >
                   {t("retry")}
                 </button>
-              </div>
-            ) : fileLoading ? (
-              <div className="document-loading">{t("documentLoading")}</div>
-            ) : (
-              document &&
-              (document.image ? (
-                <img
-                  className="knowledge-image"
-                  src={document.image}
-                  alt={selected}
-                />
-              ) : (
-                <DocumentPreview
-                  key={selected}
-                  path={selected}
-                  content={document.content}
-                  mtime={document.mtime}
-                  tagKey={config?.tag_key ?? "memory_tags"}
-                  onTag={supportsTags ? chooseTag : undefined}
-                  onLink={openLink}
+              </p>
+            ) : timelineItems.length ? (
+              <>
+                <TimelineList
+                  key={JSON.stringify([
+                    source,
+                    query,
+                    timelinePage,
+                    activeTags,
+                  ])}
                   language={state.settings.language}
+                  selected={selected}
+                  disabled={editorOpen}
+                  holdNew={daily && timelinePage === 1}
+                  undatedTogether={!daily}
+                  onSelect={selectDocument}
+                  items={
+                    daily
+                      ? timelineItems.slice(
+                          (timelinePage - 1) * DAILY_PAGE_SIZE,
+                          timelinePage * DAILY_PAGE_SIZE,
+                        )
+                      : timelineItems
+                  }
                 />
-              ))
-            )}
-          </div>
-        </div>
+                {daily && dailyPages > 1 && (
+                  <nav
+                    className="timeline-pagination"
+                    aria-label={t("navigation")}
+                  >
+                    <button
+                      className="icon-button"
+                      aria-label={t("previousPage")}
+                      disabled={editorOpen || timelinePage <= 1}
+                      onClick={() => {
+                        selectDocument("");
+                        setDailyPage(timelinePage - 1);
+                      }}
+                    >
+                      <ArrowLeft size={14} aria-hidden />
+                    </button>
+                    <span>
+                      {t("pageLabel", {
+                        page: timelinePage,
+                        total: dailyPages,
+                      })}
+                    </span>
+                    <button
+                      className="icon-button"
+                      aria-label={t("nextPage")}
+                      disabled={editorOpen || timelinePage >= dailyPages}
+                      onClick={() => {
+                        selectDocument("");
+                        setDailyPage(timelinePage + 1);
+                      }}
+                    >
+                      <ArrowRight size={14} aria-hidden />
+                    </button>
+                  </nav>
+                )}
+              </>
+            ) : (
+              <p className="timeline-empty">
+                {t(
+                  loading ? "documentLoading" : query ? "noMatches" : "noFiles",
+                )}
+              </p>
+            )
+          }
+        >
+          {preview}
+        </TimelinePane>
+      ) : selected ? (
+        preview
       ) : (
         <div className="knowledge-empty">
           <div className="knowledge-illustration">

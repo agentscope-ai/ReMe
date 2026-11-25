@@ -66,7 +66,13 @@ jobs:
           "${RUNNER_TEMP}/reme-package-smoke/bin/python" -m pip install "${REME_WHEEL}[as]"
           "${RUNNER_TEMP}/reme-package-smoke/bin/python" -m pip check
           cd "${RUNNER_TEMP}"
-          "${RUNNER_TEMP}/reme-package-smoke/bin/python" -c "import reme"
+          "${RUNNER_TEMP}/reme-package-smoke/bin/python" -I - <<'PY'
+          from importlib.resources import files
+
+          for name in ("manage-proactive-agent", "manage-todos-ideas"):
+              skill = files("reme").joinpath("skills", name, "SKILL.md")
+              assert f"name: {name}" in skill.read_text(encoding="utf-8")
+          PY
 
       - name: Build and verify Home plugin distribution
         run: |

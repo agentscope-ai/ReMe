@@ -38,7 +38,7 @@ class AgentListStep(_AgentViewStep):
         if self.parameters():
             raise ValueError("list_agents accepts no arguments")
         self.require_paths(self.workspace_path)
-        self.context.response.answer = await self.proactive_runtime.list_views()
+        self.context.response.answer = await self.proactive_manager.list_views()
         return self.context.response
 
 
@@ -48,7 +48,7 @@ class AgentSessionStep(_AgentViewStep):
 
     async def execute(self):
         request = self.request()
-        self.context.response.answer = await self.proactive_runtime.read_agent(request.agent_name)
+        self.context.response.answer = await self.proactive_manager.read_agent(request.agent_name)
         return self.context.response
 
 
@@ -58,10 +58,10 @@ class TaskDocumentStep(_AgentViewStep):
 
     async def execute(self):
         request = TaskDocumentRequest.model_validate(self.parameters())
-        runtime = self.proactive_runtime
-        self.require_paths(runtime.agents.directory)
-        agent = await runtime.definition(request.agent_name)
-        target = runtime.agents.task_path(agent)
+        manager = self.proactive_manager
+        self.require_paths(manager.registry.directory)
+        agent = await manager.definition(request.agent_name)
+        target = manager.registry.task_path(agent)
         self.require_paths(target)
         path = target.relative_to(self.workspace_path).as_posix()
         if request.action == "read":
@@ -90,7 +90,7 @@ class WatchAgentSessionStep(_AgentViewStep):
 
     async def execute(self):
         request = self.request()
-        async with aclosing(self.proactive_runtime.watch_agent(request.agent_name)) as events:
+        async with aclosing(self.proactive_manager.watch_agent(request.agent_name)) as events:
             async for event in events:
                 await self.context.add_stream_chunk(StreamChunk(chunk_type=ChunkEnum.DATA, chunk=event))
         return self.context.response
@@ -139,7 +139,7 @@ class AgentNewSessionStep(_AgentViewStep, BaseChatAgentStep):
             raise ValueError("create_chat_session accepts no arguments")
         self.require_paths(self.workspace_path)
         await self.new_session()
-        self.context.response.answer = await self.proactive_runtime.read_agent(CHAT_AGENT_NAME)
+        self.context.response.answer = await self.proactive_manager.read_agent(CHAT_AGENT_NAME)
         return self.context.response
 
 
@@ -149,7 +149,7 @@ class ListTaskRemindersStep(_AgentViewStep):
 
     async def execute(self):
         request = self.request(ListTaskRemindersRequest)
-        self.context.response.answer = await self.proactive_runtime.outbox.list(**request.model_dump())
+        self.context.response.answer = await self.proactive_manager.outbox.list(**request.model_dump())
         return self.context.response
 
 
@@ -159,7 +159,7 @@ class AgentReminderStep(_AgentViewStep):
 
     async def execute(self):
         request = self.request(AgentReminderRequest)
-        self.context.response.answer = await self.proactive_runtime.outbox.read(**request.model_dump())
+        self.context.response.answer = await self.proactive_manager.outbox.read(**request.model_dump())
         return self.context.response
 
 
@@ -169,5 +169,5 @@ class AgentInboxStep(_AgentViewStep):
 
     async def execute(self):
         request = self.request(AgentInboxRequest)
-        self.context.response.answer = await self.proactive_runtime.list_inputs(**request.model_dump())
+        self.context.response.answer = await self.proactive_manager.list_inputs(**request.model_dump())
         return self.context.response

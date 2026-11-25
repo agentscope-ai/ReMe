@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 
-from reme.components.proactive_runtime._internal.live_turn import LiveTurn, LiveTurns
+from reme.components.proactive_manager._internal.live_turn import LiveTurn, LiveTurns
 from reme.schema import StreamChunk
 
 
@@ -95,12 +95,12 @@ def test_cancellation_preserves_received_content_and_settles_only_the_live_turn(
 async def test_live_subscription_recovers_partial_output_without_polling_each_token(
     tmp_path,
 ):
-    from .test_proactive_runtime import running_runtime
-    from reme.components.proactive_runtime._internal.views import AgentViews
+    from .test_proactive_runtime import running_manager
+    from reme.components.proactive_manager._internal.views import AgentViews
     from reme.schema import SessionSnapshot, SessionStatus
     from unittest.mock import AsyncMock
 
-    async with running_runtime(tmp_path) as (runtime, _, wrapper):
+    async with running_manager(tmp_path) as (runtime, _, wrapper):
         sid = await runtime.sessions.ensure("Remy", wrapper, {}, runtime.now())
         wrapper.read_session = AsyncMock(
             return_value=SessionSnapshot(session_id=sid, state=SessionStatus(session_id=sid, status="active")),
@@ -130,12 +130,12 @@ async def test_live_subscription_recovers_partial_output_without_polling_each_to
 
 @pytest.mark.asyncio
 async def test_native_handoff_invalidates_every_subscribers_cached_snapshot(tmp_path):
-    from .test_proactive_runtime import running_runtime
-    from reme.components.proactive_runtime._internal.views import AgentViews
+    from .test_proactive_runtime import running_manager
+    from reme.components.proactive_manager._internal.views import AgentViews
     from reme.schema import SessionSnapshot, SessionStatus, SessionMessage
     from unittest.mock import AsyncMock
 
-    async with running_runtime(tmp_path) as (runtime, _, wrapper):
+    async with running_manager(tmp_path) as (runtime, _, wrapper):
         sid = await runtime.sessions.ensure("Remy", wrapper, {}, runtime.now())
         snapshot = SessionSnapshot(session_id=sid, state=SessionStatus(session_id=sid, status="idle"))
         wrapper.read_session = AsyncMock(side_effect=lambda _: snapshot)

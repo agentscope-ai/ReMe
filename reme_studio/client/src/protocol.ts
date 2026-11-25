@@ -33,7 +33,6 @@ export interface AnimationIntent {
 export interface Behavior {
   animation: AnimationIntent;
   label: string;
-  error: string;
 }
 
 export type PlaybackStatus = "started" | "ended" | "failed";
@@ -117,10 +116,13 @@ export interface Settings {
   voiceReminders: boolean;
   voiceVolume: number;
   anchor?: { x: number; y: number };
+  companionVisible?: boolean;
   windowBounds?: { x: number; y: number; width: number; height: number };
 }
 
-export type SettingsUpdate = Partial<Omit<Settings, "anchor" | "windowBounds">>;
+export type SettingsUpdate = Partial<
+  Omit<Settings, "anchor" | "windowBounds" | "companionVisible">
+>;
 export const WORKBENCH_PAGES = [
   "remy",
   "tasks",
@@ -151,6 +153,7 @@ export interface StudioState {
   sessionId: string | null;
   status: SessionStatus | null;
   messages: DisplayMessage[];
+  taskRunStatus?: StatusNotice;
   reminders: DisplayMessage[];
   pending: PendingTurn | null;
   surface: CompanionSurface | null;
@@ -214,6 +217,7 @@ export type StudioAction =
   | { type: "items.read" }
   | ({ type: "settings.update" } & SettingsUpdate)
   | { type: "document.open"; path: string }
+  | { type: "clipboard.copy"; text: string }
   | { type: "link.open"; url: string; sourcePath?: string };
 
 export type StudioCommand =
@@ -242,6 +246,7 @@ export interface JobResponse<T = unknown> {
 }
 
 export type WorkspaceRequest =
+  | import("./backend.ts").BackendRequest
   | import("./tasks.ts").TaskRequest
   | import("./notebook.ts").NotebookRequest
   | {
@@ -261,6 +266,7 @@ export type WorkspaceRequest =
     }
   | { type: "list"; path: string }
   | { type: "load"; path: string }
+  | { type: "save"; path: string; content: string; expectedMtime: string }
   | { type: "image"; path: string }
   | { type: "tags"; page: number }
   | { type: "tagFiles"; tags: string[]; path: string; page: number }

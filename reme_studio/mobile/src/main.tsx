@@ -57,7 +57,12 @@ window.remeHandleBack = () => {
       dialog.close();
     return true;
   }
-  const menu = document.querySelector<HTMLElement>(".context-menu");
+  const menu = Array.from(
+    document.querySelectorAll<HTMLElement>(".context-menu"),
+  ).find(
+    (element) =>
+      !element.closest("[inert]") && element.getClientRects().length > 0,
+  );
   if (menu) {
     menu.dispatchEvent(
       new KeyboardEvent("keydown", {

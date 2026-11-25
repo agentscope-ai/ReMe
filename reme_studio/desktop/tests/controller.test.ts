@@ -104,17 +104,16 @@ test("animation playback waits for the companion renderer before starting its ti
   controller.preview("happy");
   t.mock.timers.tick(6000);
   controller.setCompanionReady(false);
-  assert.equal(controller.state.behavior.error, "");
+  assert.equal(controller.state.behavior.animation.clip, "idle");
 
   controller.setCompanionReady(true);
   assert.equal(controller.state.behavior.animation.clip, "happy");
   const { id } = controller.state.behavior.animation;
   controller.reportPlayback(id, "started");
-  assert.equal(controller.state.behavior.error, "");
+  assert.equal(controller.state.behavior.animation.id, id);
 
   controller.reportPlayback(id, "failed");
   assert.equal(controller.state.behavior.animation.clip, "idle");
-  assert.notEqual(controller.state.behavior.error, "");
 });
 
 test("authoritative subscriptions reconcile replies and endpoint changes respect child turns", async (t) => {
@@ -229,6 +228,47 @@ test("authoritative subscriptions reconcile replies and endpoint changes respect
   waiting = false;
 
   controller.selectAgent("monitor");
+  const result = makeMessage({
+    id: "native-result",
+    session_id: "monitor-session",
+    turn_id: "native-turn",
+    content: "Task result",
+  });
+  for (const phase of [
+    "working",
+    "failed",
+    "interrupted",
+    "completed",
+  ] as const) {
+    listeners.get("monitor")!({
+      chunk_type: "data",
+      chunk: {
+        ...snapshot("monitor", [result]),
+        activities: {
+          monitor: {
+            source: "task",
+            phase,
+            turn_id: "batch",
+            session_id: phase === "completed" ? "monitor-session" : "",
+            tool: null,
+            started_at: "2026-11-24T03:00:00Z",
+          },
+        },
+      },
+    });
+    assert.deepEqual(
+      controller.state.messages.map(({ id, completed }) => [id, completed]),
+      [["native-result", true]],
+    );
+    assert.equal(
+      controller.state.taskRunStatus?.tone,
+      phase === "completed"
+        ? undefined
+        : phase === "working"
+          ? "working"
+          : "error",
+    );
+  }
   const active = snapshot("monitor");
   active.agent.status = "active";
   listeners.get("monitor")!({ chunk_type: "data", chunk: active });

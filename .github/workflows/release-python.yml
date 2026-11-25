@@ -121,17 +121,11 @@ jobs:
           manifest=""
           case "$RUNNER_OS" in
             macOS)
-              if [[ -n "$CSC_LINK" && -n "$APPLE_ID" && -n "$APPLE_APP_SPECIFIC_PASSWORD" && -n "$APPLE_TEAM_ID" ]]; then
-                export CSC_IDENTITY_AUTO_DISCOVERY=true
-                flags+=(--config.forceCodeSigning=true --config.mac.notarize=true)
-                manifest=latest-mac.yml
-              fi
+              flags+=(--config.mac.identity=- --config.mac.notarize=false)
               ;;
             Windows)
-              if [[ -n "$CSC_LINK" ]]; then
-                flags+=(--config.forceCodeSigning=true)
-                manifest=latest.yml
-              fi
+              flags+=(--config.win.signExecutable=false)
+              manifest=latest.yml
               ;;
             Linux) manifest=latest-linux.yml ;;
           esac
@@ -144,26 +138,21 @@ jobs:
           fi
           npm run dist --workspace desktop -- "${flags[@]}"
           if [[ -n "$manifest" ]]; then
-            test -s "desktop/dist/$manifest"
+            test -s "desktop/dist.noindex/$manifest"
           fi
         working-directory: reme_studio
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-          CSC_LINK: ${{ (runner.os == 'macOS' && secrets.MAC_CSC_LINK) || (runner.os == 'Windows' && secrets.WIN_CSC_LINK) || '' }}
-          CSC_KEY_PASSWORD: ${{ (runner.os == 'macOS' && secrets.MAC_CSC_KEY_PASSWORD) || (runner.os == 'Windows' && secrets.WIN_CSC_KEY_PASSWORD) || '' }}
-          APPLE_ID: ${{ runner.os == 'macOS' && secrets.APPLE_ID || '' }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ runner.os == 'macOS' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
-          APPLE_TEAM_ID: ${{ runner.os == 'macOS' && secrets.APPLE_TEAM_ID || '' }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: reme-desktop-${{ matrix.os }}
           path: |
-            reme_studio/desktop/dist/*.dmg
-            reme_studio/desktop/dist/*.zip
-            reme_studio/desktop/dist/*.exe
-            reme_studio/desktop/dist/*.AppImage
-            reme_studio/desktop/dist/*.blockmap
-            reme_studio/desktop/dist/latest*.yml
+            reme_studio/desktop/dist.noindex/*.dmg
+            reme_studio/desktop/dist.noindex/*.zip
+            reme_studio/desktop/dist.noindex/*.exe
+            reme_studio/desktop/dist.noindex/*.AppImage
+            reme_studio/desktop/dist.noindex/*.blockmap
+            reme_studio/desktop/dist.noindex/latest*.yml
           if-no-files-found: error
 
   publish-studio:

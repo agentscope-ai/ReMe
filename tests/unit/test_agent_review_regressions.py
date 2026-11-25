@@ -13,7 +13,7 @@ import pytest
 
 from reme.schema import Event, Response, SessionMessage
 from reme.steps.file_io import SaveStep, get_path_lock
-from .test_proactive_runtime import completed_result, running_runtime
+from .test_proactive_runtime import completed_result, running_manager
 from .test_inbox_fork import prepare
 
 
@@ -52,7 +52,7 @@ async def test_path_lock_survives_handoff_and_reclaims_unused_entries(tmp_path):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("action", ["disable", "delete", "window"])
 async def test_ineligible_reminders_release_capacity_and_resume_without_losing_unread_state(tmp_path, action):
-    async with running_runtime(tmp_path) as (runtime, _, _):
+    async with running_manager(tmp_path) as (runtime, _, _):
         for name, priority in (("first", "P2"), ("second", "P0")):
             await runtime.create(
                 {
@@ -65,7 +65,7 @@ async def test_ineligible_reminders_release_capacity_and_resume_without_losing_u
                 [Event(event_ts=runtime.now(), source="test", description="Finished")],
             )
             result, session = completed_result(runtime, name, priority=priority)
-            await runtime.run(name, AsyncMock(return_value=(result, session)))
+            await runtime.run_round(name, AsyncMock(return_value=(result, session)))
             if name == "first":
                 await runtime.outbox.sync()
                 if action == "delete":
@@ -99,8 +99,8 @@ async def test_ineligible_reminders_release_capacity_and_resume_without_losing_u
                 if worker := runtime.notifications.worker:
                     await worker
         assert len(handled) == 1
-        first = next(ref for ref in runtime.outbox.records if runtime.outbox.owners[ref] == "first")
-        assert runtime.outbox.records[first].read_at is None
+        first = next(ref for ref in runtime.outbox.entries if runtime.outbox.entries[ref].owner == "first")
+        assert runtime.outbox.entries[first].reminder.read_at is None
         assert "read_at" not in frontmatter.loads(runtime.files.path(first).read_text())
         assert not runtime.notifications.active_turn
         if action == "delete":
@@ -114,14 +114,14 @@ async def test_ineligible_reminders_release_capacity_and_resume_without_losing_u
             await runtime.update("first", {"enabled": True, "notify_window": None})
         await runtime.outbox.sync()
         assert first in runtime.notifications.pending
-        assert runtime.outbox.records[first].read_at is None
+        assert runtime.outbox.entries[first].reminder.read_at is None
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("content", ["The experiment finished.", ""])
 @pytest.mark.parametrize("changed_field", ["reminder_message", "reminder_priority"])
 async def test_decision_revalidates_after_a_queued_editor_save(tmp_path, monkeypatch, content, changed_field):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         args = await prepare(runtime, context)
         source = (await runtime.sessions.current("Remy")).session_id
         ref = args["msg_ids"][0]
@@ -163,7 +163,7 @@ async def test_decision_revalidates_after_a_queued_editor_save(tmp_path, monkeyp
 
 @pytest.mark.asyncio
 async def test_editor_cannot_save_between_native_delivery_and_acknowledgement(tmp_path):
-    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
         args = await prepare(runtime, context)
         source = (await runtime.sessions.current("Remy")).session_id
         ref = args["msg_ids"][0]
@@ -205,30 +205,30 @@ async def test_editor_cannot_save_between_native_delivery_and_acknowledgement(tm
 
 @pytest.mark.asyncio
 async def test_reenabled_task_waits_for_capacity_without_blocking_an_urgent_reminder(tmp_path):
-    async with running_runtime(tmp_path) as (runtime, _, _):
+    async with running_manager(tmp_path) as (runtime, _, _):
         for name, priority in (("first", "P2"), ("second", "P0")):
             await runtime.create({"agent_name": name, "task_description": "Report"})
             await runtime.append_events(name, [Event(event_ts=runtime.now(), source="test", description="Finished")])
             result, session = completed_result(runtime, name, priority=priority)
-            await runtime.run(name, AsyncMock(return_value=(result, session)))
+            await runtime.run_round(name, AsyncMock(return_value=(result, session)))
             if name == "first":
                 await runtime.outbox.sync()
                 await runtime.update(name, {"enabled": False})
         runtime.inbox.max_pending_items = 1
         await runtime.outbox.sync()
-        urgent = next(ref for ref in runtime.outbox.records if runtime.outbox.owners[ref] == "second")
+        urgent = next(ref for ref in runtime.outbox.entries if runtime.outbox.entries[ref].owner == "second")
         await runtime.update("first", {"enabled": True})
         await runtime.outbox.sync()
         assert urgent in runtime.notifications.pending
         await runtime.notifications.consume([urgent])
-        first = next(ref for ref in runtime.outbox.records if runtime.outbox.owners[ref] == "first")
+        first = next(ref for ref in runtime.outbox.entries if runtime.outbox.entries[ref].owner == "first")
         assert first in runtime.notifications.pending
-        assert runtime.outbox.records[first].read_at is None
+        assert runtime.outbox.entries[first].reminder.read_at is None
 
 
 @pytest.mark.asyncio
 async def test_native_decision_holds_file_lock_against_other_writers(tmp_path):
-    async with running_runtime(tmp_path) as (runtime, context, _):
+    async with running_manager(tmp_path) as (runtime, context, _):
         args = await prepare(runtime, context)
         ref = args["msg_ids"][0]
         items = [runtime.outbox.message(ref)]
@@ -240,5 +240,5 @@ async def test_native_decision_holds_file_lock_against_other_writers(tmp_path):
             await update(ref, chat_message_ids=["reme-proactive-example"])
 
         await asyncio.wait_for(other, 2)
-        item = runtime.outbox.records[ref]
+        item = runtime.outbox.entries[ref].reminder
         assert item.read_at and item.chat_message_ids == ["reme-proactive-example"]

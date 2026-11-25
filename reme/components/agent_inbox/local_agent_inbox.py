@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
-from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -28,7 +27,7 @@ from uuid import uuid4
 from pydantic import BaseModel
 
 from ...constants import WINDOWS_RESERVED_DEVICE_NAMES
-from .base_agent_inbox import BaseAgentInbox
+from .base_agent_inbox import BaseAgentInbox, InvalidInboxBatchError
 from ...core.registry import R
 from ...schema.agent_inbox import InboxItem, InboxReceipt
 from ...schema.event import Event
@@ -240,7 +239,8 @@ class LocalAgentInbox(BaseAgentInbox):
                 raise ValueError("persisted item exceeds claim_max_bytes; increase it before restarting")
             inbox.seen[item_id] = fingerprint
             self._add_pending(inbox, _Pending(item, len(raw)))
-            if self._pending_count > self.max_pending_items or self._pending_bytes > self.max_pending_bytes:
+            count, size = self._pending_usage(inbox)
+            if count > self.max_pending_items or size > self.max_pending_bytes:
                 raise ValueError("persisted backlog exceeds pending limits; increase them before restarting")
         if sum(len(batch.items) for batch in inbox.history) > self.max_read_items:
             raise ValueError("persisted read history exceeds max_read_items; increase it before restarting")
@@ -432,11 +432,11 @@ class LocalAgentInbox(BaseAgentInbox):
             item = self._validate(value)
             raw = self._encode(item)
             if len(raw) > self.max_item_bytes:
-                raise ValueError("item exceeds max_item_bytes; store large payloads in resource files")
+                raise InvalidInboxBatchError("item exceeds max_item_bytes; store large payloads in resource files")
             fingerprint = self._fingerprint(item)
             previous = prepared.get(item["id"])
             if previous is not None and previous[2] != fingerprint:
-                raise ValueError(f"conflicting item id: {item['id']}")
+                raise InvalidInboxBatchError(f"conflicting item id: {item['id']}")
             prepared[item["id"]] = (item, raw, fingerprint)
         return list(prepared.values())
 
@@ -459,15 +459,16 @@ class LocalAgentInbox(BaseAgentInbox):
                         if previous is None:
                             fresh.append(item)
                         elif previous != item[2]:
-                            raise ValueError(f"conflicting item id: {item[0]['id']}")
+                            raise InvalidInboxBatchError(f"conflicting item id: {item[0]['id']}")
                     count, size = len(fresh), sum(len(item[1]) for item in fresh)
                     if count > self.max_pending_items or size > self.max_pending_bytes:
-                        raise ValueError("append batch must fit the pending budgets")
+                        raise InvalidInboxBatchError("append batch must fit the pending budgets")
                     if not fresh:
                         return [item[0]["id"] for item in prepared]
+                    pending_count, pending_size = self._pending_usage(inbox)
                     if (
-                        self._pending_count + count <= self.max_pending_items
-                        and self._pending_bytes + size <= self.max_pending_bytes
+                        pending_count + count <= self.max_pending_items
+                        and pending_size + size <= self.max_pending_bytes
                     ):
                         break
                     if not wait:
@@ -492,6 +493,10 @@ class LocalAgentInbox(BaseAgentInbox):
             inbox.seen[item["id"]] = fingerprint
             self._add_pending(inbox, _Pending(item, len(raw)))
         self._changed.notify_all()
+
+    def _pending_usage(self, _inbox: _Inbox) -> tuple[int, int]:
+        """Use the shared capacity budget for local inboxes."""
+        return self._pending_count, self._pending_bytes
 
     def _add_pending(self, inbox: _Inbox, pending: _Pending) -> None:
         inbox.pending.append(pending)
@@ -552,22 +557,12 @@ class LocalAgentInbox(BaseAgentInbox):
             raise ValueError("unknown pending item ID")
         return (pending for pending in inbox.pending if pending.item["id"] in selected)
 
-    async def peek(self, name: str, *, item_ids: list[str] | None = None) -> dict | None:
-        """Inspect the first selected item without creating a claim."""
-        async with self._changed:
-            inbox = self._inbox(name)
-            if inbox.claim is not None or not inbox.pending:
-                return None
-            pending = next(self._claim_candidates(inbox, item_ids), None)
-            return deepcopy(pending.item) if pending is not None else None
-
     async def claim(
         self,
         name: str,
         limit: int | None = None,
         *,
         item_ids: list[str] | None = None,
-        batch_key: Callable[[dict], str | None] | None = None,
     ) -> dict | None:
         """Claim selected IDs or the next FIFO batch; release ownership on ack, nack or restart."""
         if limit is not None:
@@ -577,18 +572,12 @@ class LocalAgentInbox(BaseAgentInbox):
             if inbox.claim is not None or not inbox.pending:
                 return None
             items, size = [], 0
-            first_key = None
             for pending in self._claim_candidates(inbox, item_ids):
                 if (
                     len(items) >= min(limit or self.claim_max_items, self.claim_max_items, self.max_read_items)
                     or size + pending.size > self.claim_max_bytes
                 ):
                     break
-                if batch_key is not None:
-                    key = batch_key(pending.item)
-                    if items and key != first_key:
-                        break
-                    first_key = key
                 items.append(deepcopy(pending.item))
                 size += pending.size
             if not items:

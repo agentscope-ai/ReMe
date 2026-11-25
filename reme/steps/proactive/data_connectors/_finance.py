@@ -1,140 +1,63 @@
-"""File-backed collection and retryable delivery through the existing append_task_events Job."""
+"""Shared HTTP collection for financial news and quotes."""
 
-import asyncio
+from abc import abstractmethod
 from datetime import datetime
-from hashlib import sha256
 import math
 from pathlib import Path
 
 import httpx
 
 from .base_connector import BaseConnectorStep
-from ...file_io import check_path_permission
-from ....utils.files.path_lock import get_path_lock
 from ....utils.files.workspace_files import WorkspaceFiles
-from ....schema import Event, ResourceMetadata
-from ....schema.proactive_runtime import validate_agent_name
-from ....utils.async_utils import complete_in_thread
+from ....schema import ResourceMetadata
+from ....schema.resource_metadata import RESOURCE_METADATA_FILENAME
 
 
 class FinanceCollectorStep(BaseConnectorStep):
-    """Keep upstream payloads and per-package delivery receipts in workspace files."""
+    """Read and publish financial source records within the resource package lifecycle."""
 
     collected_at: datetime
     files: WorkspaceFiles
     resource_root: Path
 
-    def __init__(self, agent_name="finance", max_retries=3, request_timeout=20, request_interval=1, **kwargs):
-        super().__init__(**kwargs)
-        self.agent_name = validate_agent_name(agent_name)
+    def __init__(self, task_names=None, max_retries=3, request_timeout=20, **kwargs):
+        super().__init__(task_names=["proactive_fin"] if task_names is None else task_names, **kwargs)
         if type(max_retries) is not int or max_retries < 1:
             raise ValueError("max_retries must be a positive integer")
-        for name, value in (("request_timeout", request_timeout), ("request_interval", request_interval)):
-            if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
-                raise ValueError(f"{name} must be finite and nonnegative")
-        if request_timeout == 0:
-            raise ValueError("request_timeout must be positive")
+        if type(request_timeout) not in (int, float) or not math.isfinite(request_timeout) or request_timeout <= 0:
+            raise ValueError("request_timeout must be finite and positive")
         self.max_retries = max_retries
         self.request_timeout = request_timeout
-        self.request_interval = request_interval
 
     def resource_target(self):
         target, self.collected_at = super().resource_target()
-        return target, self.collected_at
-
-    async def execute(self):
-        target, _ = self.resource_target()
         self.files = WorkspaceFiles(self.workspace_path)
         self.resource_root = self.files.checked(target.parent.parent)
-        self.require_path(self.resource_root)
-        self.require_path(self.files.path(self.config_value("reme_agent_dir")))
-        if self.get_job("append_task_events") is None:
-            raise RuntimeError("Finance collectors require the append_task_events Job")
-        async with await get_path_lock(self.resource_root):
-            await self._deliver_pending()
-            await super().execute()
-            await self._deliver_pending()
-        return self.context.response
-
-    def require_path(self, path: Path):
-        """Authorize history and receipt access before network or file I/O."""
-        self.files.checked(path)
-        if not check_path_permission(self.workspace_path, path, self.context.get("_allowed_paths")):
-            raise PermissionError("no permission to access finance collector files")
+        return target, self.collected_at
 
     def manifests(self):
-        """Published manifests are recoverable collection evidence, including unsent batches."""
-        for path in sorted(self.resource_root.glob("*/*/metadata.json")):
+        """Find published source packages, including pending deliveries."""
+        for path in self.resource_root.glob(f"*/*/{RESOURCE_METADATA_FILENAME}"):
             self.require_path(path)
             yield path
 
-    def _already_collected(self):
-        """Use published packages to avoid duplicate quote snapshots in the same minute."""
-        minute = self.collected_at.replace(second=0, microsecond=0)
-        day = self.collected_at.date().isoformat()
-        for manifest in self.manifests():
-            if manifest.parent.parent.name != day:
-                continue
-            metadata = ResourceMetadata.model_validate_json(self.files.read(manifest))
-            if metadata.created_at.replace(second=0, microsecond=0) == minute:
-                return True
-        return False
+    def client(self, **kwargs):
+        """Use the same timeouts across finance feeds."""
+        return httpx.Client(timeout=httpx.Timeout(self.request_timeout, connect=5), **kwargs)
 
-    def saved_records(self, filename, model):
-        """Read retained source records; derived quote state can always be rebuilt."""
-        for manifest in self.manifests():
-            path = manifest.parent / filename
-            self.require_path(path)
-            for value in self.files.iter_jsonl(path):
-                self.check_stopped()
-                yield model.model_validate(value)
-
-    def delivery_ready(self, _path: Path, _metadata: ResourceMetadata) -> bool:
-        """Sources may defer a saved batch until their delivery window opens."""
-        return True
-
-    async def _deliver_pending(self):
-        manifests = await asyncio.to_thread(lambda: list(self.manifests()))
-        for path in manifests:
-            receipt = path.parent / f"delivery-{self.agent_name}.json"
-            self.require_path(receipt)
-            relative = path.parent.relative_to(self.workspace_path).as_posix()
-            event_id = f"resource-{sha256(relative.encode()).hexdigest()}"
-            expected = {"agent_name": self.agent_name, "event_id": event_id}
-            saved = await asyncio.to_thread(self.files.read_json, receipt, None)
-            if saved is not None:
-                if saved != expected:
-                    raise ValueError(f"Invalid finance delivery receipt: {receipt}")
-                continue
-            metadata = ResourceMetadata.model_validate_json(await asyncio.to_thread(self.files.read, path))
-            if metadata.source != self.source:
-                raise ValueError(f"Unexpected finance source: {metadata.source}")
-            payloads = [path, *(path.parent / item.path for item in metadata.files)]
-            for payload in payloads:
-                self.require_path(payload)
-                if not payload.is_file():
-                    raise ValueError(f"Missing finance resource: {payload}")
-            if not await asyncio.to_thread(self.delivery_ready, path, metadata):
-                continue
-            event = Event(
-                id=event_id,
-                event_ts=metadata.created_at,
-                source=self.source,
-                description=metadata.description,
-                paths=[item.relative_to(self.workspace_path).as_posix() for item in payloads],
-            )
-            response = await self.run_job(
-                "append_task_events",
-                agent_name=self.agent_name,
-                events=[event.model_dump(mode="json")],
-                _allowed_paths=self.context.get("_allowed_paths"),
-            )
-            if not response.success:
-                raise RuntimeError(f"Finance event delivery failed: {response.answer}")
-            await complete_in_thread(self.files.write_json, receipt, expected)
+    def write_records(self, directory, filename, records):
+        """Write a bounded, nonempty JSONL payload."""
+        if not records:
+            return []
+        content = "".join(record.model_dump_json() + "\n" for record in records)
+        if len(content.encode("utf-8")) > self.max_file_bytes():
+            raise ValueError("Finance data exceeds max_file_bytes")
+        self.check_stopped()
+        (directory / filename).write_text(content, encoding="utf-8")
+        return [{"path": filename}]
 
     def check_stopped(self):
-        """Interrupt pagination and retry delays when the owning Job is stopped."""
+        """Interrupt HTTP work and retry delays when the owning Job is stopped."""
         if self._cancelled.is_set() or (self.context.stop_event is not None and self.context.stop_event.is_set()):
             raise RuntimeError("Finance collection stopped")
 
@@ -168,13 +91,52 @@ class FinanceCollectorStep(BaseConnectorStep):
                 self.wait(2**attempt)
         raise RuntimeError("Finance request exhausted retries")
 
-    def write_records(self, directory: Path, filename: str, records: list) -> list[dict]:
-        """Publish nonempty records only, within the existing per-file byte limit."""
-        if not records:
+
+class QuoteCollectorStep(FinanceCollectorStep):
+    """Share polling and deduplication across independent quote feeds."""
+
+    filename: str
+    quote_model: type
+
+    def _already_collected(self):
+        """Use published packages to avoid duplicate quote snapshots in the same minute."""
+        minute = self.collected_at.replace(second=0, microsecond=0)
+        pattern = f"{minute:%Y-%m-%d}/{minute:%H%M}??_*/{RESOURCE_METADATA_FILENAME}"
+        for manifest in self.resource_root.glob(pattern):
+            self.require_path(manifest)
+            metadata = ResourceMetadata.model_validate_json(self.files.read(manifest))
+            if metadata.created_at.replace(second=0, microsecond=0) == minute:
+                return True
+        return False
+
+    def _saved_quotes(self):
+        """Rebuild quote state from published resources."""
+        for manifest in self.manifests():
+            path = manifest.parent / self.filename
+            self.require_path(path)
+            for value in self.files.iter_jsonl(path):
+                self.check_stopped()
+                yield self.quote_model.model_validate(value)
+
+    @abstractmethod
+    def fetch_quote(self, client: httpx.Client):
+        """Read and validate the provider's quote."""
+
+    @staticmethod
+    @abstractmethod
+    def changed(quote, previous):
+        """Check whether the quote is new and materially different."""
+
+    def received_at(self):
+        """Use the collection timezone for the time the response was received."""
+        return datetime.now(self.collected_at.tzinfo)
+
+    def collect(self, directory: Path) -> list[dict]:
+        if self._already_collected():
             return []
-        content = "".join(record.model_dump_json() + "\n" for record in records)
-        if len(content.encode("utf-8")) > self.max_file_bytes():
-            raise ValueError("Finance collection exceeds max_file_bytes")
-        self.check_stopped()
-        (directory / filename).write_text(content, encoding="utf-8")
-        return [{"path": filename}]
+        with self.client() as client:
+            quote = self.fetch_quote(client)
+        previous = max(self._saved_quotes(), key=lambda item: item.collected_at, default=None)
+        if previous is not None and not self.changed(quote, previous):
+            return []
+        return self.write_records(directory, self.filename, [quote])

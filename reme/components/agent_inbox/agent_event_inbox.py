@@ -36,6 +36,10 @@ class AgentEventInbox(LocalAgentInbox):
     def _inbox_path(self, name):
         return self._root / name / "inbox"
 
+    def _pending_usage(self, inbox):
+        """An inactive runtime must not consume other runtimes' queue capacity."""
+        return len(inbox.pending), inbox.pending_bytes
+
     @staticmethod
     def _validate(value):
         if isinstance(value, BaseModel):

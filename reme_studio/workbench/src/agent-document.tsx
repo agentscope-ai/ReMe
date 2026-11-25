@@ -9,12 +9,10 @@ import DocumentPreview from "./knowledge/DocumentPreview.tsx";
 export default function AgentDocument({
   state,
   path,
-  revision = 0,
   onEdit,
 }: {
   state: StudioState;
   path: string;
-  revision?: number;
   onEdit?: () => void;
 }) {
   const requestResource = useResource();
@@ -39,7 +37,7 @@ export default function AgentDocument({
     return () => {
       live = false;
     };
-  }, [path, completed, revision]);
+  }, [path, completed]);
   return (
     <div className="agent-document document-pane">
       <div className="agent-document-toolbar">

@@ -4,3 +4,7 @@
 package-lock.json
 client/src/wire.ts
 client/tests/contract-fixture.ts
+desktop/assets/remy/manifest.json
+mobile/android/
+mobile/ios/
+web/python/

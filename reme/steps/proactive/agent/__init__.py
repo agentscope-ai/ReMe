@@ -14,7 +14,7 @@ from .api import (
 from .base import BaseAgentStep
 from .chat import BaseChatAgentStep, ListChatSessionsStep
 from .chat_reminders import ProcessChatRemindersStep
-from .loop import ProactiveLoopStep
+from .loop import ProactiveLoopStep, RunProactiveAgentStep
 from .proactive import ProactiveAgentStep
 
 __all__ = [
@@ -33,4 +33,5 @@ __all__ = [
     "ProactiveLoopStep",
     "ListChatSessionsStep",
     "ProactiveAgentStep",
+    "RunProactiveAgentStep",
 ]

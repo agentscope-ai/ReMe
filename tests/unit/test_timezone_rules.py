@@ -11,7 +11,7 @@ import pytest
 
 from reme.components.file_catalog import LocalFileCatalog
 from reme.components.job import cron_job
-from reme.components.proactive_runtime import LocalProactiveRuntime
+from reme.components.proactive_manager import LocalProactiveManager
 from reme.core.context import ApplicationContext, RuntimeContext
 from reme.steps.evolve import _evolve
 from reme.steps.evolve.auto_memory import AutoMemoryStep
@@ -38,7 +38,7 @@ def test_midnight_schedule_and_calendar_dates_share_rules(tmp_path, monkeypatch,
 
     monkeypatch.setattr(cron_job, "datetime", SimpleNamespace(datetime=FixedDatetime))
     for module in (
-        "reme.components.proactive_runtime.local_proactive_runtime",
+        "reme.components.proactive_manager.local_proactive_manager",
         "reme.components.file_catalog.base_file_catalog",
         "reme.steps.proactive.data_connectors.base_connector",
         "reme.steps.proactive.data_connectors.codex_dialogue",
@@ -62,7 +62,7 @@ def test_midnight_schedule_and_calendar_dates_share_rules(tmp_path, monkeypatch,
         day = captured_at.date()
         assert target.parent.name == midnight.date().isoformat()
     elif consumer == "runtime":
-        day = LocalProactiveRuntime(app_context=context).now().date()
+        day = LocalProactiveManager(app_context=context).now().date()
     elif consumer == "daily":
         day = _evolve.now(configured_timezone).date()
     elif consumer == "retention":

@@ -2,6 +2,17 @@ import Foundation
 
 @MainActor
 final class StudioRequests {
+    private final class Redirects: NSObject, URLSessionTaskDelegate {
+        func urlSession(
+            _ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+            newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void
+        ) {
+            let management = task.originalRequest?.url?.pathComponents.contains("admin") == true
+            let authenticated = task.originalRequest?.value(forHTTPHeaderField: "Authorization") != nil
+            completionHandler(management || authenticated ? nil : request)
+        }
+    }
+
     private final class Request {
         var opening: Task<Void, Never>?
         var task: URLSessionDataTask?
@@ -14,19 +25,23 @@ final class StudioRequests {
         config.urlCredentialStorage = nil
         // The shared client controls timeouts. A chat may wait on a long tool call.
         config.timeoutIntervalForRequest = config.timeoutIntervalForResource
-        return URLSession(configuration: config)
+        return URLSession(configuration: config, delegate: Redirects(), delegateQueue: nil)
     }()
     private var active: [Int: Request] = [:]
 
     deinit { session.invalidateAndCancel() }
 
-    func open(id: Int, url: URL, body: String, accept: String, reply: @escaping (Any?, String?) -> Void) {
+    func open(id: Int, url: URL, method: String, body: String, accept: String, authorization: String,
+              reply: @escaping (Any?, String?) -> Void) {
         cancel(id: id)
         var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.httpBody = Data(body.utf8)
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpMethod = method
+        if !body.isEmpty && method == "POST" {
+            request.httpBody = Data(body.utf8)
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
         if !accept.isEmpty { request.setValue(accept, forHTTPHeaderField: "Accept") }
+        if !authorization.isEmpty { request.setValue(authorization, forHTTPHeaderField: "Authorization") }
 
         let entry = Request()
         active[id] = entry

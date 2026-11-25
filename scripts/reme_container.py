@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 from pathlib import Path
 import sys
 from urllib.request import ProxyHandler, Request, build_opener
 
 HEALTH_STATE_PATH = Path("/tmp/reme-health.json")
+STATE_DIRECTORY = Path("/state")
 _ENV_OVERRIDES = {
     "REME_CONFIG": "config",
     "REME_WORKSPACE_DIR": "workspace_dir",
@@ -34,13 +36,11 @@ def start_command(arguments: list[str], environment: dict[str, str]) -> list[str
 
 def write_health_state(command: list[str], state_path: Path = HEALTH_STATE_PATH) -> None:
     """Record only the effective HTTP address, never credentials or user data."""
-    from reme.components.service.cli_service import prepare_start_config
+    from reme.components.service.cli_service import prepare_start_service
     from reme.config import parse_kwargs
     from reme.constants import REME_DEFAULT_HOST, REME_DEFAULT_PORT, normalize_connect_host
-    from reme.plugin import resolve_plugin_runtime
 
-    config = resolve_plugin_runtime(prepare_start_config(parse_kwargs(*command[2:]))).config
-    service = config.get("service") or {}
+    service = prepare_start_service(parse_kwargs(*command[2:]))
     if service.get("backend") != "http":
         return
     host = normalize_connect_host(service.get("host") or REME_DEFAULT_HOST)
@@ -72,9 +72,38 @@ def healthcheck(state_path: Path = HEALTH_STATE_PATH) -> int:
     return 1
 
 
+def drop_privileges(*, prepare_state: bool) -> None:
+    """Assign the private volume to the configured account before running any command."""
+    if os.name != "posix" or os.geteuid() != 0:
+        return
+    uid = int(os.getenv("REME_UID", "1000"))
+    gid = int(os.getenv("REME_GID", "1000"))
+    if uid <= 0 or gid <= 0:
+        raise ValueError("REME_UID and REME_GID must be positive")
+    if prepare_state:
+        directory = os.open(STATE_DIRECTORY, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.fchown(directory, uid, gid)
+            os.fchmod(directory, 0o700)
+            for name in ("lock", "admin-token", "settings.json", "state.json"):
+                for entry in (name, name + ".tmp"):
+                    try:
+                        mode = os.stat(entry, dir_fd=directory, follow_symlinks=False).st_mode
+                    except FileNotFoundError:
+                        continue
+                    if stat.S_ISREG(mode):
+                        os.chown(entry, uid, gid, dir_fd=directory, follow_symlinks=False)
+        finally:
+            os.close(directory)
+    os.setgroups([])
+    os.setgid(gid)
+    os.setuid(uid)
+
+
 def main() -> int:
     """Prepare startup, then replace this process so signals reach ReMe."""
     arguments = sys.argv[1:]
+    drop_privileges(prepare_state=arguments != ["--healthcheck"])
     if arguments == ["--healthcheck"]:
         return healthcheck()
 
@@ -88,10 +117,13 @@ def main() -> int:
     if arguments[0] in start_actions:
         from reme.utils.env_utils import load_env
 
+        inherited = dict(os.environ)
         load_env()
         arguments = start_command(arguments[1:], dict(os.environ))
         write_health_state(arguments)
-    os.execvp(arguments[0], arguments)
+        os.execvpe(arguments[0], arguments, inherited)
+    else:
+        os.execvp(arguments[0], arguments)
     return 0
 
 

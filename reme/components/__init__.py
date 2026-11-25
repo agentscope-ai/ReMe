@@ -19,8 +19,8 @@ from . import file_store
 from . import job
 from . import keyword_index
 from . import outbound_proxy
-from . import proactive_runtime
-from .proactive_runtime import BaseProactiveRuntime, LocalProactiveRuntime
+from . import proactive_manager
+from .proactive_manager import BaseProactiveManager, LocalProactiveManager
 from . import service
 from . import tag_index
 from . import tokenizer
@@ -32,11 +32,11 @@ __all__ = [
     "BaseAgentInbox",
     "LocalAgentInbox",
     "AgentEventInbox",
-    "BaseProactiveRuntime",
-    "LocalProactiveRuntime",
+    "BaseProactiveManager",
+    "LocalProactiveManager",
     # base components
     "agent_wrapper",
-    "proactive_runtime",
+    "proactive_manager",
     "anthropic_relay",
     "codex_app_server",
     "agent_inbox",

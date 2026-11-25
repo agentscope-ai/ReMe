@@ -1,4 +1,4 @@
-"""Finance schedules collect into isolated files and use the real append_task_events Job."""
+"""Finance schedules collect into isolated files and deliver through the Proactive Manager."""
 
 # pylint: disable=protected-access,missing-function-docstring,redefined-outer-name
 
@@ -13,15 +13,13 @@ import httpx
 import pytest
 
 from reme.core.context import ApplicationContext, RuntimeContext
-from reme.components import LocalProactiveRuntime
+from reme.components import LocalProactiveManager
 from reme.utils.files.workspace_files import WorkspaceFiles
 from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.agent_inbox import AgentEventInbox
-from reme.components.job import BaseJob
-from reme.schema import CryptoQuote, FinanceNewsItem, Response, StockQuote
-from reme.steps.proactive.data_connectors import BtcQuotesStep, FinanceNewsStep, StockQuotesStep
-from reme.steps.proactive.data_connectors import base_connector, btc_quotes, stock_quotes
-from reme.steps.proactive.data_connectors.stock_quotes import _active_session
+from reme.schema import CryptoQuote, FinanceNewsItem, MarketQuote
+from reme.steps.proactive.data_connectors import BtcQuotesStep, FinanceNewsStep, TencentQuotesStep
+from reme.steps.proactive.data_connectors import _finance, base_connector
 
 _SHANGHAI = ZoneInfo("Asia/Shanghai")
 
@@ -31,8 +29,7 @@ def clock(monkeypatch):
     value = Mock(wraps=datetime)
     value.now.return_value = datetime(2026, 11, 16, 10, 0, tzinfo=_SHANGHAI)
     monkeypatch.setattr(base_connector, "datetime", value)
-    monkeypatch.setattr(btc_quotes, "datetime", value)
-    monkeypatch.setattr(stock_quotes, "datetime", value)
+    monkeypatch.setattr(_finance, "datetime", value)
     return value
 
 
@@ -56,19 +53,18 @@ def mock_http(monkeypatch):
 async def collector_runtime(tmp_path):
     context = ApplicationContext(workspace_dir=str(tmp_path), reme_agent_dir="reme_agents", language="zh")
     inbox = AgentEventInbox(app_context=context)
-    runtime = LocalProactiveRuntime(
+    runtime = LocalProactiveManager(
         app_context=context,
-        agents=[{"agent_name": "finance", "task_description": "偏好 AI 相关的财经新闻"}],
+        runtimes=[{"agent_name": "proactive_fin", "task_description": "关注主要行情和财联社电报"}],
     )
     context.components = {
         "agent_inbox": {"default": inbox},
         "agent_wrapper": {"default": Mock(spec=BaseAgentWrapper)},
-        "proactive_runtime": {"default": runtime},
+        "proactive_manager": {"default": runtime},
     }
-    job = BaseJob(app_context=context, steps=[{"backend": "append_task_events_step"}])
-    append = AsyncMock(side_effect=job.__call__)
-    context.jobs["append_task_events"] = append
-    async with inbox, runtime, job:
+    append = AsyncMock(side_effect=runtime.deliver_events)
+    runtime.deliver_events = append
+    async with inbox, runtime:
         runtime.watcher.cancel()
         await asyncio.gather(runtime.watcher, return_exceptions=True)
         runtime.watcher = None
@@ -88,14 +84,46 @@ def news_batch(clock):
     return [news_row(2, now - timedelta(minutes=1)), news_row(1, now - timedelta(hours=25))]
 
 
-def tencent_response(request, quoted="2026/11/16 09:45:00", price="90.55", previous="93.8"):
-    rows = []
-    for key in request.url.params["q"].split(","):
-        fields = [""] * 33
-        fields[1], fields[2] = "股票名称", key[2:]
-        fields[3], fields[4], fields[30], fields[32] = price, previous, quoted, "-3.46"
-        rows.append(f'v_{key}="{"~".join(fields)}";')
-    return httpx.Response(200, content="\n".join(rows).encode("gb18030"))
+def gold_response(clock, *, price="2420", previous_close="2200", quoted_at=None):
+    local = quoted_at or clock.now.return_value - timedelta(seconds=1)
+    fields = [price, "10", price, price, price, "2200", local.strftime("%H:%M:%S"), previous_close]
+    fields += ["2270", "0", "0", "0", local.date().isoformat(), "伦敦金（现货黄金）"]
+    payload = f'v_hf_XAU="{",".join(fields)}";\n'
+    return httpx.Response(200, content=payload.encode("gb18030"))
+
+
+@pytest.mark.parametrize("instrument,ticker,symbol", [("oil", "hf_CL", "CL"), ("nasdaq", "us.IXIC", "IXIC")])
+@pytest.mark.asyncio
+async def test_new_instruments_publish_the_right_quote_and_timestamp(
+    tmp_path,
+    clock,
+    mock_http,
+    instrument,
+    ticker,
+    symbol,
+):
+    quoted_at = clock.now.return_value - timedelta(seconds=30)
+    if instrument == "oil":
+        fields = ["97", "-3", "97", "97", "100", "96", quoted_at.strftime("%H:%M:%S"), "100"]
+        fields += ["100", "0", "0", "0", quoted_at.date().isoformat(), "纽约原油"]
+        payload = ",".join(fields)
+    else:
+        new_york = quoted_at.astimezone(ZoneInfo("America/New_York"))
+        fields = ["200", "纳斯达克", ".IXIC", "97", "100"] + ["0"] * 25 + [new_york.strftime("%Y-%m-%d %H:%M:%S")]
+        payload = "~".join(fields)
+    requests = mock_http(lambda _: httpx.Response(200, content=f'v_{ticker}="{payload}";'.encode("gb18030")))
+
+    async with collector_runtime(tmp_path) as (context, inbox, _):
+        await TencentQuotesStep(instrument=instrument, app_context=context)()
+        (event,) = (await inbox.claim("proactive_fin"))["items"]
+        assert event["source"] == f"{instrument}_quotes"
+        quote = MarketQuote.model_validate_json((tmp_path / event["paths"][0]).read_text())
+        assert quote.symbol == symbol
+        assert (quote.price, quote.previous_close, quote.change_percent) == (97, 100, -3)
+        assert quote.quoted_at == quoted_at
+        assert quote.collected_at == clock.now.return_value
+
+    assert dict(requests[0].url.params) == {"q": ticker}
 
 
 def btc_statistics(clock):
@@ -110,77 +138,39 @@ def btc_statistics(clock):
 
 
 @pytest.mark.asyncio
-async def test_news_uses_existing_job_and_source_files_deduplicate_after_restart(tmp_path, clock, mock_http):
-    requests = mock_http(lambda _: news_response(news_batch(clock)))
-    async with collector_runtime(tmp_path) as (context, inbox, append):
-        response = await FinanceNewsStep(app_context=context, request_interval=0)()
-        assert response.success
-        event = (await inbox.claim("finance"))["items"][0]
-        assert event["source"] == "finance_news"
-        assert append.await_args.kwargs["agent_name"] == "finance"
-        assert append.await_args.kwargs["events"][0]["id"] == event["id"]
-        manifest, payload = event["paths"]
-        item = FinanceNewsItem.model_validate_json((tmp_path / payload).read_text())
-        assert item.news_id == "2" and item.content == "AI news full text"
-        assert item.url == "https://www.cls.cn/detail/2"
-        assert (tmp_path / manifest).parent.joinpath("delivery-finance.json").is_file()
-    async with collector_runtime(tmp_path) as (context, inbox, append):
-        response = await FinanceNewsStep(app_context=context, request_interval=0)()
-        assert response.answer == {"skipped": "no_new_data"}
-        assert (await inbox.snapshot("finance"))["pending_count"] == 1
-        append.assert_not_awaited()
-    assert len(requests) == 2
-    assert len(list(tmp_path.glob("resource/finance_news/*/*/news.jsonl"))) == 1
-
-
-@pytest.mark.asyncio
-async def test_news_paginates_until_window_boundary_and_deduplicates_overlapping_pages(tmp_path, clock, mock_http):
-    now = clock.now.return_value
-    pages = [
-        [news_row(3, now - timedelta(minutes=1)), news_row(2, now - timedelta(hours=2))],
-        [news_row(2, now - timedelta(hours=2)), news_row(1, now - timedelta(hours=25))],
-    ]
-    requests = mock_http(lambda _: news_response(pages.pop(0)))
-    async with collector_runtime(tmp_path) as (context, inbox, _):
-        await FinanceNewsStep(app_context=context, request_interval=0)()
-        event = (await inbox.claim("finance"))["items"][0]
-        items = [
-            FinanceNewsItem.model_validate_json(line)
-            for line in (tmp_path / event["paths"][1]).read_text().splitlines()
-        ]
-        assert [item.news_id for item in items] == ["2", "3"]
-    assert int(requests[1].url.params["last_time"]) == int((now - timedelta(hours=2)).timestamp())
-    assert requests[0].headers["referer"] == "https://www.cls.cn/telegraph"
-    assert "sign" in requests[0].url.params
-
-
-@pytest.mark.asyncio
-async def test_no_new_news_creates_no_package_or_event(tmp_path, clock, mock_http):
-    mock_http(lambda _: news_response(news_batch(clock)[1:]))
-    async with collector_runtime(tmp_path) as (context, inbox, append):
-        assert (await FinanceNewsStep(app_context=context)()).answer == {"skipped": "no_new_data"}
-        append.assert_not_awaited()
-        assert (await inbox.snapshot("finance"))["pending_count"] == 0
-    assert not list(tmp_path.glob("resource/*/*/*"))
-    assert not list(tmp_path.glob(".reme-resource-*"))
-
-
-@pytest.mark.asyncio
 async def test_failed_delivery_retries_original_package_before_collecting_again(tmp_path, clock, mock_http):
-    mock_http(lambda _: news_response(news_batch(clock)))
+    mock_http(lambda _: gold_response(clock))
     async with collector_runtime(tmp_path) as (context, inbox, append):
-        append.return_value = Response(success=False, answer="queue full")
+        append.return_value = {"deliveries": {}, "rejected": {}, "errors": {"proactive_fin": "queue full"}}
         append.side_effect = lambda **_: append.return_value
         with pytest.raises(RuntimeError, match="queue full"):
-            await FinanceNewsStep(app_context=context)()
+            await TencentQuotesStep(instrument="gold", app_context=context)()
         original = append.await_args.kwargs["events"][0]
-        assert (await inbox.snapshot("finance"))["pending_count"] == 0
-        assert not list(tmp_path.glob("resource/**/delivery-finance.json"))
+        assert (await inbox.snapshot("proactive_fin"))["pending_count"] == 0
+        (receipt,) = tmp_path.glob("resource/**/.delivery.json")
+        assert WorkspaceFiles(tmp_path).read_json(receipt, {})["pending"] == ["proactive_fin"]
     async with collector_runtime(tmp_path) as (context, inbox, append):
-        await FinanceNewsStep(app_context=context)()
+        await TencentQuotesStep(instrument="gold", app_context=context, task_names=["another_task"])()
         assert append.await_args.kwargs["events"] == [original]
-        assert (await inbox.snapshot("finance"))["pending_count"] == 1
+        assert append.await_args.kwargs["task_names"] == ["proactive_fin"]
+        assert (await inbox.snapshot("proactive_fin"))["pending_count"] == 1
     assert len(list(tmp_path.glob("resource/**/metadata.json"))) == 1
+
+
+@pytest.mark.asyncio
+async def test_rejected_finance_target_gets_a_terminal_receipt(tmp_path, clock, mock_http):
+    mock_http(lambda _: gold_response(clock))
+    async with collector_runtime(tmp_path) as (context, inbox, append):
+        step = TencentQuotesStep(instrument="gold", app_context=context, task_names=["proactive_fin", "missing"])
+        assert (await step()).success
+        (receipt,) = tmp_path.glob("resource/**/.delivery.json")
+        assert (
+            WorkspaceFiles(tmp_path).read_json(receipt, {})["rejected"]["missing"]
+            == "proactive agent not found: missing"
+        )
+        assert (await inbox.snapshot("proactive_fin"))["pending_count"] == 1
+        assert (await step()).success
+        assert append.await_count == 1
 
 
 @pytest.mark.asyncio
@@ -190,11 +180,11 @@ async def test_successful_append_without_delivery_receipt_is_idempotent_after_re
     mock_http,
     monkeypatch,
 ):
-    mock_http(lambda _: news_response(news_batch(clock)))
+    mock_http(lambda _: gold_response(clock))
     write = WorkspaceFiles.write_json
 
     def fail_receipt(files, path, value):
-        if path.name == "delivery-finance.json":
+        if path.name == ".delivery.json" and not value["pending"]:
             raise OSError("receipt unavailable")
         return write(files, path, value)
 
@@ -202,340 +192,99 @@ async def test_successful_append_without_delivery_receipt_is_idempotent_after_re
         with monkeypatch.context() as patch:
             patch.setattr(WorkspaceFiles, "write_json", fail_receipt)
             with pytest.raises(OSError, match="receipt unavailable"):
-                await FinanceNewsStep(app_context=context)()
-        assert (await inbox.snapshot("finance"))["pending_count"] == 1
+                await TencentQuotesStep(instrument="gold", app_context=context)()
+        assert (await inbox.snapshot("proactive_fin"))["pending_count"] == 1
     async with collector_runtime(tmp_path) as (context, inbox, append):
-        await FinanceNewsStep(app_context=context)()
+        await TencentQuotesStep(instrument="gold", app_context=context)()
         append.assert_awaited_once()
-        assert (await inbox.snapshot("finance"))["pending_count"] == 1
+        assert (await inbox.snapshot("proactive_fin"))["pending_count"] == 1
     assert len(list(tmp_path.glob("resource/**/metadata.json"))) == 1
 
 
 @pytest.mark.asyncio
-async def test_concurrent_collectors_do_not_duplicate_news(tmp_path, clock, mock_http):
-    mock_http(lambda _: news_response(news_batch(clock)))
+async def test_concurrent_collectors_do_not_duplicate_quotes(tmp_path, clock, mock_http):
+    mock_http(lambda _: gold_response(clock))
     async with collector_runtime(tmp_path) as (context, inbox, append):
-        await asyncio.gather(*(FinanceNewsStep(app_context=context)() for _ in range(2)))
+        await asyncio.gather(*(TencentQuotesStep(instrument="gold", app_context=context)() for _ in range(2)))
         append.assert_awaited_once()
-        assert (await inbox.snapshot("finance"))["pending_count"] == 1
-
-
-@pytest.mark.parametrize("kind", ["api_error", "missing_rows", "invalid_record", "stalled", "oversized"])
-@pytest.mark.asyncio
-async def test_bad_news_response_never_publishes_partial_data(tmp_path, clock, mock_http, kind):
-    data = {"errno": 1} if kind == "api_error" else {"errno": 0, "data": {}}
-    if kind == "invalid_record":
-        data["data"]["roll_data"] = [news_batch(clock)[0], {"ctime": "invalid"}]
-    if kind == "stalled":
-        data["data"]["roll_data"] = [news_row(2, clock.now.return_value)]
-    mock_http(lambda _: httpx.Response(200, json=data))
-    async with collector_runtime(tmp_path) as (context, inbox, append):
-        options = {"max_file_bytes": 1} if kind == "oversized" else {}
-        with pytest.raises((ValueError, KeyError)):
-            await FinanceNewsStep(app_context=context, **options)()
-        append.assert_not_awaited()
-        assert (await inbox.snapshot("finance"))["pending_count"] == 0
-    assert not list(tmp_path.glob("resource/**/metadata.json"))
+        assert (await inbox.snapshot("proactive_fin"))["pending_count"] == 1
 
 
 @pytest.mark.asyncio
 async def test_http_errors_retry_before_publishing(tmp_path, clock, mock_http, monkeypatch):
-    responses = [httpx.Response(503), news_response(news_batch(clock))]
+    responses = [httpx.Response(503), gold_response(clock)]
     requests = mock_http(lambda _: responses.pop(0))
-    monkeypatch.setattr(FinanceNewsStep, "wait", lambda *_: None)
+    monkeypatch.setattr(TencentQuotesStep, "wait", lambda *_: None)
     async with collector_runtime(tmp_path) as (context, inbox, _):
-        await FinanceNewsStep(app_context=context)()
-        assert (await inbox.snapshot("finance"))["pending_count"] == 1
+        await TencentQuotesStep(instrument="gold", app_context=context)()
+        assert (await inbox.snapshot("proactive_fin"))["pending_count"] == 1
     assert len(requests) == 2
 
 
 @pytest.mark.asyncio
 async def test_scope_denial_precedes_history_reads_and_network(tmp_path, clock, mock_http):
-    requests = mock_http(lambda _: news_response(news_batch(clock)))
+    requests = mock_http(lambda _: gold_response(clock))
     async with collector_runtime(tmp_path) as (context, _, append):
         with pytest.raises(PermissionError):
-            await FinanceNewsStep(app_context=context)(RuntimeContext(_allowed_paths=["resource"]))
+            await TencentQuotesStep(instrument="gold", app_context=context)(RuntimeContext(_allowed_paths=["resource"]))
         append.assert_not_awaited()
     assert not requests and not (tmp_path / "resource").exists()
 
 
 @pytest.mark.asyncio
-async def test_cancellation_interrupts_pagination_without_publishing(tmp_path, clock, mock_http):
-    requested = ThreadEvent()
-
-    def page(_):
-        requested.set()
-        return news_response(news_batch(clock)[:1])
-
-    mock_http(page)
+async def test_gold_saves_only_changed_xau_quotes(tmp_path, clock, mock_http):
+    original_time = clock.now.return_value - timedelta(seconds=1)
+    price, quoted_at = "2420", original_time
+    requests = mock_http(lambda _: gold_response(clock, price=price, quoted_at=quoted_at))
     async with collector_runtime(tmp_path) as (context, inbox, append):
-        task = asyncio.create_task(FinanceNewsStep(app_context=context, request_interval=30)())
-        assert await asyncio.to_thread(requested.wait, 2)
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await asyncio.wait_for(task, 2)
-        append.assert_not_awaited()
-        assert (await inbox.snapshot("finance"))["pending_count"] == 0
-    assert not list(tmp_path.glob("resource/**/metadata.json"))
-    assert not list(tmp_path.glob(".reme-resource-*"))
+        assert (await TencentQuotesStep(instrument="gold", app_context=context)()).success
+        event = (await inbox.claim("proactive_fin"))["items"][0]
+        assert event["source"] == "gold_quotes"
+        quote = MarketQuote.model_validate_json((tmp_path / event["paths"][0]).read_text())
+        assert (quote.symbol, quote.currency, quote.source) == ("XAUUSD", "USD", "tencent")
+        assert (quote.price, quote.previous_close, quote.change_percent) == (2420, 2200, 10)
+        assert quote.quoted_at == original_time
+        assert quote.collected_at == clock.now.return_value
 
+        clock.now.return_value += timedelta(minutes=5)
+        quoted_at += timedelta(minutes=5)
+        assert (await TencentQuotesStep(instrument="gold", app_context=context)()).answer == {"skipped": "no_new_data"}
 
-@pytest.mark.parametrize(
-    ("market", "time", "expected"),
-    [
-        ("HK", "2026-11-16T10:00", "2026-11-16"),
-        ("HK", "2026-11-16T09:29:59", None),
-        ("HK", "2026-11-16T09:30", "2026-11-16"),
-        ("HK", "2026-11-16T12:00", None),
-        ("HK", "2026-11-16T12:30", None),
-        ("HK", "2026-11-16T13:00", "2026-11-16"),
-        ("HK", "2026-11-15T10:00", None),
-        ("HK", "2026-10-01T10:00", None),
-        ("HK", "2026-12-24T13:00", None),
-        ("HK", "2026-12-24T12:00", None),
-        ("HK", "2026-11-16T15:59:59", "2026-11-16"),
-        ("HK", "2026-11-16T16:00", None),
-        ("HK", "2026-11-16T16:20", None),
-        ("HK", "2026-11-16T16:31", None),
-        ("US", "2026-11-14T02:00", "2026-11-13"),
-        ("US", "2026-11-14T05:00", None),
-        ("US", "2026-11-15T02:00", None),
-        ("US", "2026-11-26T23:00", None),
-        ("US", "2026-11-28T02:31", None),
-        ("US", "2026-07-10T21:30", "2026-07-10"),
-        ("US", "2026-11-13T21:30", None),
-    ],
-)
-def test_market_calendars_cover_holidays_breaks_dst_and_session_boundaries(market, time, expected):
-    pytest.importorskip("exchange_calendars")
-    session = _active_session(market, datetime.fromisoformat(time).replace(tzinfo=_SHANGHAI))
-    assert (session.isoformat() if session else None) == expected
-
-
-@pytest.mark.asyncio
-async def test_quote_snapshots_batch_active_market_and_deduplicate_the_same_minute(tmp_path, clock, mock_http):
-    pytest.importorskip("exchange_calendars")
-    requests = mock_http(tencent_response)
-    async with collector_runtime(tmp_path) as (context, inbox, append):
-        await StockQuotesStep(app_context=context)()
-        batch = await inbox.claim("finance")
-        event = batch["items"][0]
-        quotes = [
-            StockQuote.model_validate_json(line) for line in (tmp_path / event["paths"][1]).read_text().splitlines()
-        ]
-        assert {quote.symbol for quote in quotes} == {"01810.HK", "09988.HK", "00700.HK"}
-        assert all(quote.quote_age_seconds == 900 for quote in quotes)
-        assert all(quote.change_percent == pytest.approx(-3.4648) for quote in quotes)
-        assert (await StockQuotesStep(app_context=context)()).answer == {"skipped": "no_new_data"}
-        clock.now.return_value += timedelta(minutes=1)
-        await StockQuotesStep(app_context=context)()
-        assert (await inbox.snapshot("finance"))["pending_count"] == 1
+        clock.now.return_value += timedelta(minutes=5)
+        price, quoted_at = "2430", original_time - timedelta(seconds=1)
+        assert (await TencentQuotesStep(instrument="gold", app_context=context)()).answer == {"skipped": "no_new_data"}
         assert append.await_count == 1
-    assert len(requests) == 2
-    assert requests[0].url.params["q"] == "hk01810,hk09988,hk00700"
 
-
-@pytest.mark.asyncio
-async def test_quote_freshness_uses_receipt_time_when_prices_update_during_request(tmp_path, clock, mock_http):
-    pytest.importorskip("exchange_calendars")
-    received_at = clock.now.return_value + timedelta(seconds=2)
-
-    def respond(request):
-        clock.now.return_value = received_at
-        return tencent_response(request, quoted="2026/11/16 10:00:01")
-
-    mock_http(respond)
     async with collector_runtime(tmp_path) as (context, inbox, _):
-        await StockQuotesStep(app_context=context)()
-        event = (await inbox.claim("finance"))["items"][0]
-        quotes = [
-            StockQuote.model_validate_json(line) for line in (tmp_path / event["paths"][1]).read_text().splitlines()
-        ]
-        assert len(quotes) == 3
-        assert all(quote.collected_at == received_at and quote.quote_age_seconds == 1 for quote in quotes)
+        quoted_at = clock.now.return_value - timedelta(seconds=1)
+        assert (await TencentQuotesStep(instrument="gold", app_context=context)()).success
+        assert (await inbox.snapshot("proactive_fin"))["pending_count"] == 2
+
+    assert len(requests) == 4
+    assert all(
+        request.url.host == "qt.gtimg.cn" and dict(request.url.params) == {"q": "hf_XAU"} for request in requests
+    )
 
 
+@pytest.mark.parametrize("kind", ["missing", "zero_close", "nan_price", "future_timestamp"])
 @pytest.mark.asyncio
-async def test_us_quotes_use_new_york_date_even_on_beijing_saturday(tmp_path, clock, mock_http):
-    pytest.importorskip("exchange_calendars")
-    clock.now.return_value = datetime(2026, 11, 14, 2, 0, tzinfo=_SHANGHAI)
-    requests = mock_http(lambda request: tencent_response(request, quoted="2026-11-13 12:45:00"))
-    async with collector_runtime(tmp_path) as (context, inbox, _):
-        await StockQuotesStep(app_context=context)()
-        event = (await inbox.claim("finance"))["items"][0]
-        quotes = [
-            StockQuote.model_validate_json(line) for line in (tmp_path / event["paths"][1]).read_text().splitlines()
-        ]
-        assert {quote.symbol for quote in quotes} == {"AAPL", "AMZN", "META"}
-        assert {quote.trading_date.isoformat() for quote in quotes} == {"2026-11-13"}
-    assert requests[0].url.params["q"] == "usAAPL,usAMZN,usMETA"
-
-
-@pytest.mark.asyncio
-async def test_closed_markets_do_not_request_quotes(tmp_path, clock, mock_http):
-    pytest.importorskip("exchange_calendars")
-    clock.now.return_value = datetime(2026, 11, 15, 10, 0, tzinfo=_SHANGHAI)
-    requests = mock_http(tencent_response)
-    async with collector_runtime(tmp_path) as (context, _, append):
-        assert (await StockQuotesStep(app_context=context)()).answer == {"skipped": "no_new_data"}
-        append.assert_not_awaited()
-    assert not requests and not list(tmp_path.glob("resource/*/*/*"))
-
-
-@pytest.mark.parametrize("kind", ["missing", "wrong_symbol", "zero_close", "nan_price", "future"])
-@pytest.mark.asyncio
-@pytest.mark.usefixtures("clock")
-async def test_bad_quotes_fail_without_publishing_a_partial_snapshot(tmp_path, mock_http, kind):
-    pytest.importorskip("exchange_calendars")
-
-    def respond(request):
+async def test_invalid_gold_quotes_publish_nothing(tmp_path, clock, mock_http, kind):
+    def respond(_):
         if kind == "missing":
-            return httpx.Response(200, content=b'v_hk01810="";')
-        if kind == "future":
-            return tencent_response(request, quoted="2026/11/16 11:00:00")
-        response = tencent_response(
-            request,
-            price="nan" if kind == "nan_price" else "90.55",
-            previous="0" if kind == "zero_close" else "93.8",
-        )
-        if kind == "wrong_symbol":
-            return httpx.Response(200, content=response.content.replace(b"~01810~", b"~00700~"))
-        return response
+            return httpx.Response(200, text='v_hf_XAU="";')
+        if kind == "zero_close":
+            return gold_response(clock, previous_close="0")
+        if kind == "nan_price":
+            return gold_response(clock, price="NaN")
+        return gold_response(clock, quoted_at=clock.now.return_value + timedelta(minutes=5))
 
     mock_http(respond)
     async with collector_runtime(tmp_path) as (context, inbox, append):
         with pytest.raises(ValueError):
-            await StockQuotesStep(app_context=context)()
+            await TencentQuotesStep(instrument="gold", app_context=context)()
         append.assert_not_awaited()
-        assert (await inbox.snapshot("finance"))["pending_count"] == 0
+        assert (await inbox.snapshot("proactive_fin"))["pending_count"] == 0
     assert not list(tmp_path.glob("resource/**/metadata.json"))
-
-
-@pytest.mark.asyncio
-@pytest.mark.usefixtures("clock")
-async def test_previous_trading_day_quotes_are_not_published_as_today(tmp_path, mock_http):
-    pytest.importorskip("exchange_calendars")
-    mock_http(lambda request: tencent_response(request, quoted="2026/11/13 16:08:00"))
-    async with collector_runtime(tmp_path) as (context, _, append):
-        assert (await StockQuotesStep(app_context=context)()).answer == {"skipped": "no_new_data"}
-        append.assert_not_awaited()
-    assert not list(tmp_path.glob("resource/**/metadata.json"))
-
-
-@pytest.mark.asyncio
-async def test_stock_changes_survive_restart_and_preserve_a_return_to_the_previous_price(tmp_path, clock, mock_http):
-    pytest.importorskip("exchange_calendars")
-    price = "90.55"
-    mock_http(lambda request: tencent_response(request, price=price))
-    for value, count in (("90.55", 1), ("90.55", 1), ("91.00", 2), ("90.55", 3)):
-        price = value
-        async with collector_runtime(tmp_path) as (context, inbox, _):
-            await StockQuotesStep(app_context=context)()
-            assert (await inbox.snapshot("finance"))["pending_count"] == count
-        clock.now.return_value += timedelta(minutes=5)
-    assert len(list(tmp_path.glob("resource/stock_quotes/*/*/quotes.jsonl"))) == 3
-
-
-@pytest.mark.asyncio
-async def test_stock_batch_contains_only_changed_symbols_and_rejects_older_quotes(tmp_path, clock, mock_http):
-    pytest.importorskip("exchange_calendars")
-    quoted = "2026/11/16 09:45:00"
-    price = "90.55"
-
-    def respond(request):
-        body = tencent_response(request, quoted=quoted).content
-        return httpx.Response(200, content=body.replace(b"90.55", price.encode(), 1))
-
-    mock_http(respond)
-    async with collector_runtime(tmp_path) as (context, inbox, append):
-        await StockQuotesStep(app_context=context)()
-        clock.now.return_value += timedelta(minutes=5)
-        quoted, price = "2026/11/16 10:01:00", "91"
-        result = await StockQuotesStep(app_context=context)()
-        lines = (tmp_path / result.answer["path"]).parent.joinpath("quotes.jsonl").read_text().splitlines()
-        assert [StockQuote.model_validate_json(line).symbol for line in lines] == ["01810.HK"]
-        clock.now.return_value += timedelta(minutes=5)
-        quoted, price = "2026/11/16 09:55:00", "92"
-        assert (await StockQuotesStep(app_context=context)()).answer == {"skipped": "no_new_data"}
-        assert append.await_count == 2 and (await inbox.snapshot("finance"))["pending_count"] == 2
-
-
-@pytest.mark.parametrize("closed", ["2026-11-16T12:30", "2026-11-16T16:20", "2026-11-22T10:00"])
-@pytest.mark.asyncio
-async def test_stock_failed_delivery_waits_for_an_open_market_after_restart(tmp_path, clock, mock_http, closed):
-    pytest.importorskip("exchange_calendars")
-    requests = mock_http(tencent_response)
-    async with collector_runtime(tmp_path) as (context, _, append):
-        append.side_effect = None
-        append.return_value = Response(success=False, answer="queue full")
-        with pytest.raises(RuntimeError, match="queue full"):
-            await StockQuotesStep(app_context=context)()
-        original = append.await_args.kwargs["events"]
-    clock.now.return_value = datetime.fromisoformat(closed).replace(tzinfo=_SHANGHAI)
-    async with collector_runtime(tmp_path) as (context, inbox, append):
-        assert (await StockQuotesStep(app_context=context)()).answer == {"skipped": "no_new_data"}
-        append.assert_not_awaited()
-        assert (await inbox.snapshot("finance"))["pending_count"] == 0
-    assert len(requests) == 1
-    clock.now.return_value = datetime(2026, 11, 23, 10, 0, tzinfo=_SHANGHAI)
-    async with collector_runtime(tmp_path) as (context, inbox, append):
-        await StockQuotesStep(app_context=context)()
-        assert append.await_args_list[0].kwargs["events"] == original
-        assert (await inbox.snapshot("finance"))["pending_count"] == 1
-
-
-@pytest.mark.asyncio
-async def test_stock_pending_hk_batch_is_not_delivered_during_us_hours(tmp_path, clock, mock_http):
-    pytest.importorskip("exchange_calendars")
-    requests = mock_http(
-        lambda request: tencent_response(
-            request,
-            quoted="2026-11-13 12:45:00" if request.url.params["q"].startswith("us") else "2026/11/16 09:45:00",
-        ),
-    )
-    async with collector_runtime(tmp_path) as (context, _, append):
-        append.side_effect = None
-        append.return_value = Response(success=False, answer="queue full")
-        with pytest.raises(RuntimeError, match="queue full"):
-            await StockQuotesStep(app_context=context)()
-    clock.now.return_value = datetime(2026, 11, 16, 23, 0, tzinfo=_SHANGHAI)
-    async with collector_runtime(tmp_path) as (context, inbox, append):
-        await StockQuotesStep(app_context=context)()
-        append.assert_not_awaited()
-        assert (await inbox.snapshot("finance"))["pending_count"] == 0
-    assert requests[-1].url.params["q"] == "usAAPL,usAMZN,usMETA"
-
-
-@pytest.mark.asyncio
-async def test_stock_request_crossing_close_saves_without_delivering_until_reopen(tmp_path, clock, mock_http):
-    pytest.importorskip("exchange_calendars")
-    clock.now.return_value = datetime(2026, 11, 16, 15, 59, 59, tzinfo=_SHANGHAI)
-
-    def respond(request):
-        clock.now.return_value += timedelta(seconds=2)
-        return tencent_response(request, quoted="2026/11/16 15:59:59")
-
-    mock_http(respond)
-    async with collector_runtime(tmp_path) as (context, inbox, append):
-        await StockQuotesStep(app_context=context)()
-        append.assert_not_awaited()
-        assert (await inbox.snapshot("finance"))["pending_count"] == 0
-        assert len(list(tmp_path.glob("resource/stock_quotes/*/*/metadata.json"))) == 1
-        clock.now.return_value = datetime(2026, 11, 17, 9, 30, tzinfo=_SHANGHAI)
-        await StockQuotesStep(app_context=context)()
-        append.assert_awaited_once()
-        assert (await inbox.snapshot("finance"))["pending_count"] == 1
-
-
-@pytest.mark.asyncio
-async def test_stock_new_trading_day_is_recorded_even_when_price_is_unchanged(tmp_path, clock, mock_http):
-    pytest.importorskip("exchange_calendars")
-    mock_http(lambda request: tencent_response(request, quoted=clock.now.return_value.strftime("%Y/%m/%d %H:%M:%S")))
-    async with collector_runtime(tmp_path) as (context, inbox, append):
-        await StockQuotesStep(app_context=context)()
-        clock.now.return_value += timedelta(days=1)
-        await StockQuotesStep(app_context=context)()
-        assert append.await_count == 2 and (await inbox.snapshot("finance"))["pending_count"] == 2
 
 
 @pytest.mark.asyncio
@@ -544,9 +293,9 @@ async def test_btc_collects_on_weekends_and_deduplicates_the_observed_minute(tmp
     requests = mock_http(lambda _: httpx.Response(200, json=btc_statistics(clock)))
     async with collector_runtime(tmp_path) as (context, inbox, append):
         await BtcQuotesStep(app_context=context)()
-        event = (await inbox.claim("finance"))["items"][0]
+        event = (await inbox.claim("proactive_fin"))["items"][0]
         assert event["source"] == "btc_quotes"
-        quote = CryptoQuote.model_validate_json((tmp_path / event["paths"][1]).read_text())
+        quote = CryptoQuote.model_validate_json((tmp_path / event["paths"][0]).read_text())
         assert quote.symbol == "BTCUSDT" and quote.currency == "USDT"
         assert quote.price == 66000 and quote.change_24h_percent == 10
         assert quote.window_end - quote.window_start == timedelta(hours=24)
@@ -555,7 +304,7 @@ async def test_btc_collects_on_weekends_and_deduplicates_the_observed_minute(tmp
         assert (await BtcQuotesStep(app_context=context)()).answer == {"skipped": "no_new_data"}
         clock.now.return_value += timedelta(minutes=1)
         await BtcQuotesStep(app_context=context)()
-        assert (await inbox.snapshot("finance"))["pending_count"] == 1
+        assert (await inbox.snapshot("proactive_fin"))["pending_count"] == 1
         assert append.await_count == 1
     assert len(requests) == 2
     assert requests[0].url.host == "data-api.binance.vision"
@@ -571,7 +320,7 @@ async def test_btc_same_minute_deduplication_survives_restart(tmp_path, clock, m
     async with collector_runtime(tmp_path) as (context, inbox, append):
         assert (await BtcQuotesStep(app_context=context)()).answer == {"skipped": "no_new_data"}
         append.assert_not_awaited()
-        assert (await inbox.snapshot("finance"))["pending_count"] == 1
+        assert (await inbox.snapshot("proactive_fin"))["pending_count"] == 1
     assert len(requests) == 1
 
 
@@ -580,14 +329,14 @@ async def test_btc_failed_delivery_reuses_the_saved_batch_after_restart(tmp_path
     requests = mock_http(lambda _: httpx.Response(200, json=btc_statistics(clock)))
     async with collector_runtime(tmp_path) as (context, _, append):
         append.side_effect = None
-        append.return_value = Response(success=False, answer="queue full")
+        append.return_value = {"deliveries": {}, "rejected": {}, "errors": {"proactive_fin": "queue full"}}
         with pytest.raises(RuntimeError, match="queue full"):
             await BtcQuotesStep(app_context=context)()
         original = append.await_args.kwargs["events"]
     async with collector_runtime(tmp_path) as (context, inbox, append):
         await BtcQuotesStep(app_context=context)()
         assert append.await_args.kwargs["events"] == original
-        assert (await inbox.snapshot("finance"))["pending_count"] == 1
+        assert (await inbox.snapshot("proactive_fin"))["pending_count"] == 1
     assert len(requests) == 1
     assert len(list(tmp_path.glob("resource/btc_quotes/*/*/btc.jsonl"))) == 1
 
@@ -611,7 +360,7 @@ async def test_invalid_btc_statistics_produce_no_files_or_events(tmp_path, clock
         with pytest.raises(ValueError):
             await BtcQuotesStep(app_context=context)()
         append.assert_not_awaited()
-        assert (await inbox.snapshot("finance"))["pending_count"] == 0
+        assert (await inbox.snapshot("proactive_fin"))["pending_count"] == 0
     assert not list(tmp_path.glob("resource/**/metadata.json"))
 
 
@@ -632,7 +381,7 @@ async def test_btc_business_changes_survive_restart_and_ignore_window_only_updat
     ):
         async with collector_runtime(tmp_path) as (context, inbox, _):
             await BtcQuotesStep(app_context=context)()
-            assert (await inbox.snapshot("finance"))["pending_count"] == count
+            assert (await inbox.snapshot("proactive_fin"))["pending_count"] == count
         clock.now.return_value += timedelta(minutes=5)
     assert len(list(tmp_path.glob("resource/btc_quotes/*/*/btc.jsonl"))) == 4
 
@@ -647,7 +396,106 @@ async def test_btc_older_statistics_do_not_replace_the_latest_observation(tmp_pa
         payload["lastPrice"] = "67000"
         payload["closeTime"] -= 1000
         assert (await BtcQuotesStep(app_context=context)()).answer == {"skipped": "no_new_data"}
-        assert append.await_count == 1 and (await inbox.snapshot("finance"))["pending_count"] == 1
+        assert append.await_count == 1 and (await inbox.snapshot("proactive_fin"))["pending_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_news_uses_existing_job_and_source_files_deduplicate_after_restart(tmp_path, clock, mock_http):
+    requests = mock_http(lambda _: news_response(news_batch(clock)))
+    async with collector_runtime(tmp_path) as (context, inbox, append):
+        response = await FinanceNewsStep(app_context=context, request_interval=0)()
+        assert response.success
+        event = (await inbox.claim("proactive_fin"))["items"][0]
+        assert event["source"] == "finance_news"
+        assert append.await_args.kwargs["task_names"] == ["proactive_fin"]
+        assert append.await_args.kwargs["events"][0].id == event["id"]
+        (markdown_path,) = event["paths"]
+        markdown = tmp_path / markdown_path
+        assert markdown.name == "news.md"
+        assert "[AI 新闻](https://www.cls.cn/detail/2)" in markdown.read_text()
+        assert "AI news full text" in markdown.read_text()
+        item = FinanceNewsItem.model_validate_json(markdown.with_name("news.jsonl").read_text())
+        assert item.news_id == "2" and item.content == "AI news full text"
+        assert item.url == "https://www.cls.cn/detail/2"
+        assert WorkspaceFiles(tmp_path).read_json(markdown.with_name(".delivery.json"), {})["pending"] == []
+    async with collector_runtime(tmp_path) as (context, inbox, append):
+        response = await FinanceNewsStep(app_context=context, request_interval=0)()
+        assert response.answer == {"skipped": "no_new_data"}
+        assert (await inbox.snapshot("proactive_fin"))["pending_count"] == 1
+        append.assert_not_awaited()
+    assert len(requests) == 2
+    assert len(list(tmp_path.glob("resource/finance_news/*/*/news.jsonl"))) == 1
+
+
+@pytest.mark.asyncio
+async def test_news_paginates_until_window_boundary_and_deduplicates_overlapping_pages(tmp_path, clock, mock_http):
+    now = clock.now.return_value
+    pages = [
+        [news_row(3, now - timedelta(minutes=1)), news_row(2, now - timedelta(hours=2))],
+        [news_row(2, now - timedelta(hours=2)), news_row(1, now - timedelta(hours=25))],
+    ]
+    requests = mock_http(lambda _: news_response(pages.pop(0)))
+    async with collector_runtime(tmp_path) as (context, inbox, _):
+        await FinanceNewsStep(app_context=context, request_interval=0)()
+        event = (await inbox.claim("proactive_fin"))["items"][0]
+        items = [
+            FinanceNewsItem.model_validate_json(line)
+            for line in (tmp_path / event["paths"][0]).with_name("news.jsonl").read_text().splitlines()
+        ]
+        assert [item.news_id for item in items] == ["2", "3"]
+    assert int(requests[1].url.params["last_time"]) == int((now - timedelta(hours=2)).timestamp())
+    assert requests[0].headers["referer"] == "https://www.cls.cn/telegraph"
+    assert "sign" in requests[0].url.params
+
+
+@pytest.mark.asyncio
+async def test_no_new_news_creates_no_package_or_event(tmp_path, clock, mock_http):
+    mock_http(lambda _: news_response(news_batch(clock)[1:]))
+    async with collector_runtime(tmp_path) as (context, inbox, append):
+        assert (await FinanceNewsStep(app_context=context)()).answer == {"skipped": "no_new_data"}
+        append.assert_not_awaited()
+        assert (await inbox.snapshot("proactive_fin"))["pending_count"] == 0
+    assert not list(tmp_path.glob("resource/*/*/*"))
+    assert not list(tmp_path.glob(".reme-resource-*"))
+
+
+@pytest.mark.parametrize("kind", ["api_error", "missing_rows", "invalid_record", "stalled", "oversized"])
+@pytest.mark.asyncio
+async def test_bad_news_response_never_publishes_partial_data(tmp_path, clock, mock_http, kind):
+    data = {"errno": 1} if kind == "api_error" else {"errno": 0, "data": {}}
+    if kind == "invalid_record":
+        data["data"]["roll_data"] = [news_batch(clock)[0], {"ctime": "invalid"}]
+    if kind == "stalled":
+        data["data"]["roll_data"] = [news_row(2, clock.now.return_value)]
+    mock_http(lambda _: httpx.Response(200, json=data))
+    async with collector_runtime(tmp_path) as (context, inbox, append):
+        options = {"max_file_bytes": 1} if kind == "oversized" else {}
+        with pytest.raises((ValueError, KeyError)):
+            await FinanceNewsStep(app_context=context, **options)()
+        append.assert_not_awaited()
+        assert (await inbox.snapshot("proactive_fin"))["pending_count"] == 0
+    assert not list(tmp_path.glob("resource/**/metadata.json"))
+
+
+@pytest.mark.asyncio
+async def test_cancellation_interrupts_pagination_without_publishing(tmp_path, clock, mock_http):
+    requested = ThreadEvent()
+
+    def page(_):
+        requested.set()
+        return news_response(news_batch(clock)[:1])
+
+    mock_http(page)
+    async with collector_runtime(tmp_path) as (context, inbox, append):
+        task = asyncio.create_task(FinanceNewsStep(app_context=context, request_interval=30)())
+        assert await asyncio.to_thread(requested.wait, 2)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, 2)
+        append.assert_not_awaited()
+        assert (await inbox.snapshot("proactive_fin"))["pending_count"] == 0
+    assert not list(tmp_path.glob("resource/**/metadata.json"))
+    assert not list(tmp_path.glob(".reme-resource-*"))
 
 
 @pytest.mark.asyncio
@@ -698,7 +546,7 @@ async def test_news_progress_is_not_advanced_when_manifest_publication_fails(tmp
                 await FinanceNewsStep(app_context=context)()
         assert not (tmp_path / "resource/finance_news/progress.json").exists()
         await FinanceNewsStep(app_context=context)()
-        assert (await inbox.snapshot("finance"))["pending_count"] == 1
+        assert (await inbox.snapshot("proactive_fin"))["pending_count"] == 1
 
 
 @pytest.mark.asyncio
@@ -709,8 +557,13 @@ async def test_news_overlap_keeps_late_records_without_repeating_known_ids(tmp_p
     async with collector_runtime(tmp_path) as (context, inbox, append):
         await FinanceNewsStep(app_context=context)()
         clock.now.return_value += timedelta(minutes=5)
-        rows = [news_row(3, start + timedelta(minutes=4)), news_row(4, start - timedelta(minutes=2)), *rows]
+        identical = {**news_row(3, start + timedelta(minutes=4), "新消息"), "title": "新消息"}
+        rows = [identical, news_row(4, start - timedelta(minutes=2)), *rows]
         result = await FinanceNewsStep(app_context=context)()
-        lines = (tmp_path / result.answer["path"]).parent.joinpath("news.jsonl").read_text().splitlines()
+        package = (tmp_path / result.answer["path"]).parent
+        lines = package.joinpath("news.jsonl").read_text().splitlines()
         assert {FinanceNewsItem.model_validate_json(line).news_id for line in lines} == {"3", "4"}
-        assert append.await_count == 2 and (await inbox.snapshot("finance"))["pending_count"] == 2
+        markdown = package.joinpath("news.md").read_text()
+        assert markdown.count("新消息") == 1
+        assert "/detail/3)" in markdown and "/detail/4)" in markdown and "/detail/2)" not in markdown
+        assert append.await_count == 2 and (await inbox.snapshot("proactive_fin"))["pending_count"] == 2

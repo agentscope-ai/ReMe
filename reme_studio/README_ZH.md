@@ -53,9 +53,15 @@ Android 和 iOS 发布暂未启用。
 PyPI 和 npm 的 Trusted Publishing 绑定到 `release-python.yml`。GitHub 的 `pypi` 和 `npm` 环境需要允许
 `v*` 等版本标签。
 
-桌面端左侧「设置」上方的「检查更新」读取 GitHub Releases。用户可以下载新版，然后选择「重启安装」。
-本地预览包通过下载页更新。桌面端和 ReMe 服务分别升级。
+桌面体验版通过 GitHub Releases 分发，不需要 Apple 或 Windows 发布证书。macOS 使用临时签名，不进行
+Apple 公证；Windows 安装包不签名。首次打开下载的应用时，系统可能要求确认允许运行。
 
-发布流程为 Linux AppImage 和完成签名的安装包启用应用内更新。macOS 正式包需要配置 `MAC_CSC_LINK`、
-`MAC_CSC_KEY_PASSWORD`、`APPLE_ID`、`APPLE_APP_SPECIFIC_PASSWORD` 和 `APPLE_TEAM_ID`。
-Windows 正式包需要配置 `WIN_CSC_LINK` 和 `WIN_CSC_KEY_PASSWORD`。缺少所需凭据的平台通过下载页更新。
+桌面端左侧「设置」上方提供「检查更新」。Windows 和 Linux AppImage 发布包从 GitHub Releases 检查新版，
+用户选择下载后，再通过「重启安装」覆盖当前应用。下载文件会按发布元数据中的 SHA-512 校验。
+macOS 原生自动更新要求正式签名身份，因此 macOS 和本地预览包通过 GitHub 下载页更新。
+
+macOS 升级时先退出桌面端，再用 DMG 中的新版替换 `/Applications/ReMe Studio.app`。Windows 也可直接运行
+新版安装程序，保持原安装目录和用户范围。这些升级会保留桌面端设置和 ReMe 工作区。ReMe 服务按需单独升级。
+
+本地 `pack` 和 `dist` 构建复用 `desktop/dist.noindex/`，避免生成的应用进入 Spotlight。日常预览使用
+`npm run dev:desktop`；自定义预览输出目录也应以 `.noindex` 结尾。

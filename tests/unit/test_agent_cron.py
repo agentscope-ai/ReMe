@@ -14,7 +14,7 @@ import pytest
 
 from reme.schema import Event, Response
 from reme.utils import timezone_utils
-from .test_proactive_runtime import running_runtime
+from .test_proactive_runtime import running_manager
 
 INVALID_SCHEDULES = ("0 0 31 2 *", "0 0 1 1 * 0 2025")
 NOW = datetime(2026, 11, 19, tzinfo=ZoneInfo("Asia/Shanghai"))
@@ -42,7 +42,7 @@ async def test_proactive_cron_uses_local_timezone_rules(
     explicit_timezone,
 ):
     monkeypatch.setenv("TZ", zone_name)
-    async with running_runtime(tmp_path) as (runtime, context, _):
+    async with running_manager(tmp_path) as (runtime, context, _):
         context.app_config.timezone = zone_name if explicit_timezone else None
         clock = [datetime.fromisoformat(instant).astimezone(ZoneInfo(zone_name))]
         monkeypatch.setattr(runtime, "now", lambda: clock[0])
@@ -50,9 +50,9 @@ async def test_proactive_cron_uses_local_timezone_rules(
         assert (await runtime.status("timer"))["next_trigger_at"] == next_trigger
 
         agent = await runtime.definition("timer")
-        await runtime._schedule_cron(agent)
+        await runtime.runtimes[agent.agent_name]._schedule_cron(agent)
         clock[0] = datetime.fromisoformat(next_trigger)
-        await runtime._schedule_cron(agent)
+        await runtime.runtimes[agent.agent_name]._schedule_cron(agent)
         assert (await runtime.inbox.snapshot("timer"))["pending_count"] == 1
 
 
@@ -69,7 +69,7 @@ async def test_local_cron_uses_active_host_rules(tmp_path, monkeypatch, host_nam
     monkeypatch.setattr(timezone_utils, "get_localzone_name", lambda: host_name)
     monkeypatch.setattr(timezone_utils, "get_localzone", lambda: ZoneInfo("Etc/UTC"))
 
-    async with running_runtime(tmp_path / "workspace") as (runtime, context, _):
+    async with running_manager(tmp_path / "workspace") as (runtime, context, _):
         context.app_config.timezone = None
         anchor = datetime(2026, 11, 25, 8, tzinfo=rules)
         monkeypatch.setattr(runtime, "now", lambda: anchor)
@@ -82,21 +82,21 @@ async def test_local_cron_uses_active_host_rules(tmp_path, monkeypatch, host_nam
 @pytest.mark.parametrize("cron", INVALID_SCHEDULES)
 @pytest.mark.asyncio
 async def test_unusable_cron_is_rejected_before_creating_files(tmp_path, monkeypatch, cron):
-    async with running_runtime(tmp_path) as (runtime, _, _):
+    async with running_manager(tmp_path) as (runtime, _, _):
         monkeypatch.setattr(runtime, "now", lambda: NOW)
         with pytest.raises(ValueError, match="next date"):
             await runtime.create({"agent_name": "timer", "task_description": "Report", "cron": cron})
-        assert not (runtime.agents.directory / "timer").exists()
-        assert (await runtime.list_agents())["total"] == 0
+        assert not (runtime.registry.directory / "timer").exists()
+        assert [item["agent_name"] for item in (await runtime.list_views())["items"]] == ["Remy"]
 
 
 @pytest.mark.parametrize("cron", INVALID_SCHEDULES)
 @pytest.mark.asyncio
 async def test_unusable_cron_update_preserves_existing_files(tmp_path, monkeypatch, cron):
-    async with running_runtime(tmp_path) as (runtime, _, _):
+    async with running_manager(tmp_path) as (runtime, _, _):
         monkeypatch.setattr(runtime, "now", lambda: NOW)
         await runtime.create({"agent_name": "timer", "task_description": "Report", "cron": "* * * * *"})
-        directory = runtime.agents.path("timer")
+        directory = runtime.registry.path("timer")
         before = {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in directory.iterdir() if path.is_file()}
         with pytest.raises(ValueError, match="next date"):
             await runtime.update("timer", {"cron": cron})
@@ -107,15 +107,15 @@ async def test_unusable_cron_update_preserves_existing_files(tmp_path, monkeypat
 @pytest.mark.parametrize("cron", INVALID_SCHEDULES)
 @pytest.mark.asyncio
 async def test_retained_unusable_cron_survives_restart_without_blocking_other_tasks(tmp_path, monkeypatch, cron):
-    async with running_runtime(tmp_path) as (runtime, _, _):
+    async with running_manager(tmp_path) as (runtime, _, _):
         monkeypatch.setattr(runtime, "now", lambda: NOW)
         await runtime.create({"agent_name": "aaa_bad", "task_description": "Report", "cron": "* * * * *"})
-        path = runtime.agents.path("aaa_bad") / "config.json"
+        path = runtime.registry.path("aaa_bad") / "config.json"
         config = json.loads(path.read_text())
         runtime.files.write_json(path, {**config, "cron": cron})
         saved = path.read_bytes()
 
-    async with running_runtime(tmp_path) as (runtime, _, _):
+    async with running_manager(tmp_path) as (runtime, _, _):
         monkeypatch.setattr(runtime, "now", lambda: NOW)
         await runtime.create({"agent_name": "healthy", "task_description": "Report"})
         await runtime.append_events("healthy", [Event(event_ts=NOW, source="test", description="Finished")])
@@ -123,7 +123,7 @@ async def test_retained_unusable_cron_survives_restart_without_blocking_other_ta
 
         async def run_job(name, **kwargs):
             assert name == "run_proactive_agent" and kwargs["agent_name"] == "healthy"
-            return Response(answer=await runtime.run("healthy", execute))
+            return Response(answer=await runtime.run_round("healthy", execute))
 
         await runtime.tick(run_job)
         await asyncio.wait_for(asyncio.gather(*runtime.workers.values()), 2)
@@ -151,23 +151,23 @@ async def test_retained_unusable_cron_survives_restart_without_blocking_other_ta
 
 @pytest.mark.asyncio
 async def test_final_cached_cron_trigger_is_delivered_once_after_schedule_expires(tmp_path, monkeypatch):
-    async with running_runtime(tmp_path) as (runtime, _, _):
+    async with running_manager(tmp_path) as (runtime, _, _):
         clock = [datetime(2026, 12, 31, 23, 59, tzinfo=NOW.tzinfo)]
         monkeypatch.setattr(runtime, "now", lambda: clock[0])
         await runtime.create(
             {"agent_name": "timer", "task_description": "Report", "cron": "0 0 1 1 * 0 2027"},
         )
         agent = await runtime.definition("timer")
-        await runtime._schedule_cron(agent)
-        clock[0] = runtime.execution("timer").schedule[1]
-        await runtime._schedule_cron(agent)
-        await runtime._schedule_cron(agent)
+        await runtime.runtimes[agent.agent_name]._schedule_cron(agent)
+        clock[0] = runtime.runtimes["timer"].schedule[1]
+        await runtime.runtimes[agent.agent_name]._schedule_cron(agent)
+        await runtime.runtimes[agent.agent_name]._schedule_cron(agent)
         assert (await runtime.inbox.snapshot("timer"))["pending_count"] == 1
         assert (await runtime.status("timer"))["next_trigger_at"] is None
         execute = AsyncMock(return_value=(None, "session-test"))
 
         async def run_job(_name, **_kwargs):
-            return Response(answer=await runtime.run("timer", execute))
+            return Response(answer=await runtime.run_round("timer", execute))
 
         await runtime.tick(run_job)
         await asyncio.wait_for(asyncio.gather(*runtime.workers.values()), 2)
@@ -175,7 +175,7 @@ async def test_final_cached_cron_trigger_is_delivered_once_after_schedule_expire
         execute.assert_awaited_once()
         assert (await runtime.inbox.snapshot("timer"))["pending_count"] == 0
         assert not runtime.workers
-        assert runtime.execution("timer").schedule[1] is None
+        assert runtime.runtimes["timer"].schedule[1] is None
 
 
 @pytest.mark.asyncio
@@ -183,7 +183,7 @@ async def test_date_limited_cron_delivers_both_folds_before_exhaustion(tmp_path,
     zone = ZoneInfo("America/New_York")
     first = datetime(2026, 11, 1, 1, 30, tzinfo=zone)
     second = first.replace(fold=1)
-    async with running_runtime(tmp_path) as (runtime, context, _):
+    async with running_manager(tmp_path) as (runtime, context, _):
         context.app_config.timezone = zone.key
         clock = [first.replace(minute=29)]
         monkeypatch.setattr(runtime, "now", lambda: clock[0])
@@ -191,38 +191,70 @@ async def test_date_limited_cron_delivers_both_folds_before_exhaustion(tmp_path,
             {"agent_name": "timer", "task_description": "Report", "cron": "30 1 1 11 * 0 2026"},
         )
         agent = await runtime.definition("timer")
-        await runtime._schedule_cron(agent)
+        await runtime.runtimes[agent.agent_name]._schedule_cron(agent)
         clock[0] = first
-        await runtime._schedule_cron(agent)
+        await runtime.runtimes[agent.agent_name]._schedule_cron(agent)
         assert (await runtime.status("timer"))["next_trigger_at"] == second.isoformat()
         assert (await runtime.inbox.snapshot("timer"))["pending_count"] == 1
 
         clock[0] = second
-        await runtime._schedule_cron(agent)
+        await runtime.runtimes[agent.agent_name]._schedule_cron(agent)
         assert (await runtime.inbox.snapshot("timer"))["pending_count"] == 2
         assert (await runtime.status("timer"))["next_trigger_at"] is None
-        await runtime._schedule_cron(agent)
+        await runtime.runtimes[agent.agent_name]._schedule_cron(agent)
         assert (await runtime.inbox.snapshot("timer"))["pending_count"] == 2
 
 
 @pytest.mark.asyncio
+async def test_invalid_inbox_path_does_not_block_other_runtimes(tmp_path, monkeypatch):
+    async with running_manager(tmp_path) as (runtime, _, _):
+        monkeypatch.setattr(runtime, "now", lambda: NOW)
+        for name in ("aaa_bad", "healthy"):
+            await runtime.create({"agent_name": name, "task_description": "Report"})
+        inbox = runtime.registry.path("aaa_bad") / "inbox"
+        inbox.rmdir()
+        inbox.symlink_to(runtime.registry.path("healthy") / "inbox", target_is_directory=True)
+        await runtime.append_events("healthy", [Event(event_ts=NOW, source="test", description="Finished")])
+        started = asyncio.Event()
+
+        async def execute(*_args, **_kwargs):
+            started.set()
+            return Response()
+
+        run_job = AsyncMock(side_effect=execute)
+        await runtime.tick(run_job)
+        await asyncio.wait_for(started.wait(), 2)
+
+        run_job.assert_awaited_once_with("run_proactive_agent", agent_name="healthy")
+        assert "without symlinks" in runtime.runtimes["aaa_bad"].scheduler_error
+        entries = {item["agent_name"]: item for item in (await runtime.list_views())["items"]}
+        assert set(entries) == {"Remy", "aaa_bad", "healthy"}
+        assert entries["aaa_bad"]["status"] == "error"
+        assert "without symlinks" in entries["aaa_bad"]["error"]
+        inbox.unlink()
+        inbox.mkdir()
+        await runtime.tick(run_job)
+        assert runtime.runtimes["aaa_bad"].scheduler_error is None
+
+
+@pytest.mark.asyncio
 async def test_schedule_calculation_runs_only_when_needed(tmp_path, monkeypatch):
-    async with running_runtime(tmp_path) as (runtime, _, _):
+    async with running_manager(tmp_path) as (runtime, _, _):
         clock = [NOW]
         monkeypatch.setattr(runtime, "now", lambda: clock[0])
         await runtime.create({"agent_name": "timer", "task_description": "Report", "cron": "* * * * *"})
         agent = await runtime.definition("timer")
-        calculate = Mock(wraps=runtime._next_cron_time)
-        monkeypatch.setattr(runtime, "_next_cron_time", calculate)
+        calculate = Mock(wraps=runtime.runtimes["timer"]._next_cron_time)
+        monkeypatch.setattr(runtime.runtimes["timer"], "_next_cron_time", calculate)
 
-        await runtime._schedule_cron(agent)
-        next_trigger = runtime.execution("timer").schedule[1]
-        await runtime._schedule_cron(agent)
+        await runtime.runtimes[agent.agent_name]._schedule_cron(agent)
+        next_trigger = runtime.runtimes["timer"].schedule[1]
+        await runtime.runtimes[agent.agent_name]._schedule_cron(agent)
         await runtime.update("timer", {"min_trigger_interval_seconds": 30})
         assert (await runtime.status("timer"))["next_trigger_at"] == next_trigger.isoformat()
         calculate.assert_called_once()
 
         clock[0] = next_trigger
-        await runtime._schedule_cron(await runtime.definition("timer"))
+        await runtime.runtimes["timer"]._schedule_cron(await runtime.definition("timer"))
         assert calculate.call_count == 2
         assert (await runtime.inbox.snapshot("timer"))["pending_count"] == 1

@@ -180,7 +180,7 @@ export class PresentationController {
     return task
       ? {
           ...activityNotice(task[1], state.settings.language),
-          text: t("taskBackground", { task: task[0] }),
+          text: t("proactiveRunning", { agent_name: task[0] }),
         }
       : null;
   }

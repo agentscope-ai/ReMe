@@ -6,6 +6,8 @@ import {
   type NotebookKind,
 } from "../../../client/src/notebook.ts";
 
+import { DetailHeading } from "../timeline.tsx";
+
 export interface RecordDraft {
   id?: string;
   project: string;
@@ -33,13 +35,36 @@ export default function RecordEditor({
   const t = translator(language);
   return (
     <form
-      className="notebook-editor"
+      className="detail-article notebook-editor"
       onSubmit={(event) => {
         event.preventDefault();
         onSave();
       }}
     >
-      <h1>{t(draft.id ? "notebookEdit" : "notebookCapture")}</h1>
+      <DetailHeading
+        title={t(
+          draft.id
+            ? "notebookEdit"
+            : kind === "todo"
+              ? "notebookNewTodo"
+              : "notebookNewIdea",
+        )}
+        actions={
+          <>
+            <button
+              type="button"
+              className="subtle"
+              disabled={busy}
+              onClick={onCancel}
+            >
+              {t("documentDiscard")}
+            </button>
+            <button className="primary" disabled={busy || !draft.text.trim()}>
+              {t(busy ? "notebookSaving" : "notebookSave")}
+            </button>
+          </>
+        }
+      />
       <label>
         <span>{t("notebookText")}</span>
         <textarea
@@ -88,19 +113,6 @@ export default function RecordEditor({
           />
         </label>
       )}
-      <div className="notebook-actions">
-        <button className="primary" disabled={busy || !draft.text.trim()}>
-          {t(busy ? "notebookSaving" : "notebookSave")}
-        </button>
-        <button
-          type="button"
-          className="secondary"
-          disabled={busy}
-          onClick={onCancel}
-        >
-          {t("notebookCancel")}
-        </button>
-      </div>
     </form>
   );
 }

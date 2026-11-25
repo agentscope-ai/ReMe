@@ -24,6 +24,16 @@ export default defineConfig({
       "/api": {
         target: "http://127.0.0.1:2333",
         rewrite: (path) => path.slice(4),
+        configure(proxy) {
+          proxy.on("proxyReq", (outgoing, request) => {
+            const host = request.headers.host;
+            if (
+              request.headers.origin === `http://${host}` ||
+              request.headers.origin === `https://${host}`
+            )
+              outgoing.removeHeader("origin");
+          });
+        },
       },
     },
   },

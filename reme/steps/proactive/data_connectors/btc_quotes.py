@@ -2,11 +2,10 @@
 
 from datetime import datetime, timezone
 import json
-from pathlib import Path
 
 import httpx
 
-from ._finance import FinanceCollectorStep
+from ._finance import QuoteCollectorStep
 from ....core.registry import R
 from ....schema.finance import CryptoQuote
 
@@ -14,38 +13,37 @@ _URL = "https://data-api.binance.vision/api/v3/ticker/24hr"
 
 
 @R.register("btc_quotes_step")
-class BtcQuotesStep(FinanceCollectorStep):
+class BtcQuotesStep(QuoteCollectorStep):
     """Publish changed spot statistics around the clock, including weekends."""
 
     source = "btc_quotes"
+    filename = "btc.jsonl"
+    quote_model = CryptoQuote
     description = (
         "BTC/USDT spot statistics from Binance. Read btc.jsonl; change_24h_percent is the rolling 24-hour change, "
-        "not a stock's change from previous close. Prices are in USDT. Use window_end and collected_at for freshness."
+        "and prices are in USDT. Use window_end and collected_at for freshness."
     )
 
-    def collect(self, directory: Path) -> list[dict]:
-        if self._already_collected():
-            return []
-        with httpx.Client(timeout=httpx.Timeout(self.request_timeout, connect=5)) as client:
-            payload = json.loads(self.request(client, _URL, params={"symbol": "BTCUSDT"}))
+    def fetch_quote(self, client: httpx.Client) -> CryptoQuote:
+        payload = json.loads(self.request(client, _URL, params={"symbol": "BTCUSDT"}))
         if not isinstance(payload, dict) or payload.get("symbol") != "BTCUSDT":
             raise ValueError("Binance returned missing or invalid BTCUSDT statistics")
         opening = float(payload["openPrice"])
         if opening <= 0:
             raise ValueError("Invalid BTCUSDT 24-hour opening price")
         price = float(payload["lastPrice"])
-        quote = CryptoQuote(
+        return CryptoQuote(
             price=price,
             open_24h=opening,
             change_24h_percent=round((price / opening - 1) * 100, 4),
             window_start=datetime.fromtimestamp(int(payload["openTime"]) / 1000, timezone.utc),
             window_end=datetime.fromtimestamp(int(payload["closeTime"]) / 1000, timezone.utc),
-            collected_at=datetime.now(self.collected_at.tzinfo),
+            collected_at=self.received_at(),
         )
-        previous = max(self.saved_records("btc.jsonl", CryptoQuote), key=lambda item: item.collected_at, default=None)
-        if previous is not None and (
-            quote.window_end < previous.window_end
-            or (quote.price, quote.open_24h) == (previous.price, previous.open_24h)
-        ):
-            return []
-        return self.write_records(directory, "btc.jsonl", [quote])
+
+    @staticmethod
+    def changed(quote, previous):
+        return quote.window_end >= previous.window_end and (quote.price, quote.open_24h) != (
+            previous.price,
+            previous.open_24h,
+        )

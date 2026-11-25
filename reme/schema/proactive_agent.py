@@ -9,6 +9,7 @@ from pydantic import (
     ConfigDict,
     Field,
     StrictBool,
+    ValidationInfo,
     field_validator,
     model_validator,
 )
@@ -16,18 +17,42 @@ from pydantic import (
 from ..constants import CHAT_AGENT_NAME
 from .agent_message import ClientModel
 from .event import Event
-from .proactive_runtime import AgentName, AgentReminder, InboxPriority
+from .proactive_runtime import AgentName, AgentReminder, InboxPriority, validate_agent_name
 
 CRON_EVENT_SOURCE = "cron"
 
 
+def validate_task_names(names):
+    """Validate recipient identities and preserve their configured order."""
+    if not isinstance(names, list) or not names:
+        raise ValueError("task_names must be a nonempty list")
+    targets = [validate_agent_name(name) for name in names]
+    if len({name.casefold() for name in targets}) != len(targets):
+        raise ValueError("task_names must be unique")
+    return targets
+
+
 class AppendTaskEventsRequest(BaseModel):
-    """Append a nonempty batch of observations to one existing background task."""
+    """Append a nonempty batch of observations to existing background tasks."""
 
     model_config = ConfigDict(extra="forbid")
 
-    agent_name: AgentName
+    task_names: list[AgentName] = Field(min_length=1)
     events: list[Event] = Field(min_length=1)
+
+    @field_validator("task_names")
+    @classmethod
+    def validate_targets(cls, names):
+        """Require one or more distinct recipients."""
+        return validate_task_names(names)
+
+    @field_validator("events")
+    @classmethod
+    def validate_sources(cls, events):
+        """Keep scheduled triggers private to the runtime."""
+        if any(event.source == CRON_EVENT_SOURCE for event in events):
+            raise ValueError("cron is a reserved framework source")
+        return events
 
 
 class NotificationWindow(BaseModel):
@@ -48,7 +73,7 @@ class NotificationWindow(BaseModel):
         return current >= self.start or current < self.end
 
 
-class TaskSettings(ClientModel):
+class ProactiveRuntimeSettings(ClientModel):
     """One set of editable settings shared by task definitions and client views."""
 
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
@@ -78,11 +103,12 @@ class TaskSettings(ClientModel):
         return expression
 
 
-class ProactiveAgentConfig(TaskSettings):
+class ProactiveRuntimeConfig(ProactiveRuntimeSettings):
     """A named task with internal batching limits; requirements live in TASK.md."""
 
     agent_name: AgentName
     max_batch_events: int = Field(default=20, ge=1, strict=True)
+    step_backend: Literal["proactive_agent_step", "proactive_notebook_step"] = "proactive_agent_step"
 
     @field_validator("agent_name")
     @classmethod
@@ -92,8 +118,15 @@ class ProactiveAgentConfig(TaskSettings):
             raise ValueError(f"{CHAT_AGENT_NAME} is a reserved agent name")
         return value
 
+    @model_validator(mode="after")
+    def validate_notebook_trigger(self):
+        """Run the Notebook step only on observed events."""
+        if self.step_backend == "proactive_notebook_step" and self.cron is not None:
+            raise ValueError("Notebook runs only on events and cannot have a cron schedule")
+        return self
 
-class CreateProactiveAgentConfig(ProactiveAgentConfig):
+
+class CreateProactiveRuntimeConfig(ProactiveRuntimeConfig):
     """Accept initial task text only when creating an Agent."""
 
     task_description: str = Field(min_length=1, max_length=100000)
@@ -107,7 +140,7 @@ class CreateProactiveAgentConfig(ProactiveAgentConfig):
         return value
 
 
-class ProactiveAgent(ProactiveAgentConfig):
+class ProactiveRuntimeDefinition(ProactiveRuntimeConfig):
     """The creation name is the immutable application identity, including after restoration."""
 
     model_config = ConfigDict(extra="forbid")
@@ -124,11 +157,18 @@ class ProactiveRecordDecision(BaseModel):
     reminder_priority: Literal[InboxPriority, "skip"]
     reminder_message: str = Field(max_length=100000)
 
-    @field_validator("reminder_message")
     @classmethod
-    def nonblank_reminder_message(cls, value):
-        """Require the inbox message or the reason for skipping delivery."""
-        if not value.strip():
+    def parse(cls, value):
+        """Read only the fields used by the round, including after structured generation."""
+        return cls.model_validate(value, extra="ignore")
+
+    @field_validator("reminder_message", mode="before")
+    @classmethod
+    def validate_reminder_text(cls, value, info: ValidationInfo):
+        """Accept an empty YAML value for a skipped reminder."""
+        if info.data.get("reminder_priority") == "skip":
+            return "" if value is None else value
+        if isinstance(value, str) and not value.strip():
             raise ValueError("reminder_message must not be blank")
         return value
 
@@ -139,7 +179,7 @@ class ProactiveRecordDecision(BaseModel):
         return AgentReminder(priority=self.reminder_priority, message=self.reminder_message, id=path)
 
 
-class ManageProactiveAgentRequest(TaskSettings):
+class ManageProactiveAgentRequest(ProactiveRuntimeSettings):
     """Named task operations expose only the fields relevant to each action."""
 
     model_config = ConfigDict(extra="forbid")

@@ -6,12 +6,12 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ..constants import CHAT_AGENT_NAME
 from .proactive_runtime import AgentName, AgentType
-from .agent_activity import ActivityPhase
+from .agent_activity import ActivityPhase, ActivitySource
 from .agent_message import AgentMessage, ClientModel
-from .proactive_agent import TaskSettings
+from .proactive_agent import ProactiveRuntimeSettings
 
 
-class AgentView(TaskSettings):
+class AgentView(ProactiveRuntimeSettings):
     """A visible identity; paths refer to original workspace files, never copies."""
 
     model_config = ConfigDict(extra="forbid")
@@ -67,10 +67,11 @@ class TaskDocumentRequest(BaseModel):
 
 
 class ClientActivity(ClientModel):
-    """An activity is identified by its Agent map key, not by redundant task IDs."""
+    """For task activities, turn_id identifies a run and session_id may be empty during preparation."""
 
     session_id: str
     turn_id: str
+    source: ActivitySource
     phase: ActivityPhase
     tool: str | None = None
     started_at: str | None = None

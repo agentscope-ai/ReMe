@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Literal, TYPE_CHECKING
 
 from ...constants import PROACTIVE_MESSAGE_ID_PREFIX
-from .base_agent_wrapper import BaseAgentWrapper
+from .base_agent_wrapper import BUILTIN_SKILLS_ROOT, BaseAgentWrapper
 from . import codex_session_history
 from .session_append import check_guard, check_identity, validate_append
 from ..codex_app_server._session_history import item_chunks
@@ -90,14 +90,18 @@ class CodexAgentWrapper(BaseAgentWrapper):
         return self._merged_kwargs(kwargs)
 
     def _ensure_skills(self, skills: list[str] | str | None) -> None:
-        """Expose selected project skills through Codex's repo-level directory."""
-        sources = self._resolve_project_skills(skills)
+        """Expose built-in skills at the working directory and link project skills as configured."""
+        sources = self._resolve_skill_sources(skills)
         if not sources:
             return
 
         target_root = self.project_path / ".agents" / "skills"
-        target_root.mkdir(parents=True, exist_ok=True)
+        cwd = self.cwd.resolve()
         for name, source in sources.items():
+            if source.parent == BUILTIN_SKILLS_ROOT:
+                self._publish_builtin_skill(cwd, ".agents/skills", source)
+                continue
+            target_root.mkdir(parents=True, exist_ok=True)
             target = target_root / name
             if target.is_symlink():
                 if target.resolve() == source.resolve():

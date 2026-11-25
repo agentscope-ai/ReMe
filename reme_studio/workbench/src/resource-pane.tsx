@@ -1,47 +1,67 @@
 import { useState, type ReactNode } from "react";
 import {
-  ArrowDownLeft,
-  ArrowLeft,
   ArrowUpRight,
+  Bell,
+  CalendarDays,
   ChevronLeft,
   ChevronRight,
+  FileText,
   Inbox,
-  Sparkles,
+  Send,
 } from "lucide-react";
 import type {
   StudioState,
   DisplayMessage,
   ItemTarget,
-  EventState,
 } from "../../client/src/protocol.ts";
 import { translator } from "../../client/src/i18n.ts";
 import { useHost } from "./host.ts";
-import { formatDate } from "./resources.ts";
+import { formatDate, plainText } from "./resources.ts";
 import ContextMenu from "./context-menu.tsx";
-import MessageBody from "./message-body.tsx";
-import SplitPane from "./split-pane.tsx";
+import MessageBody, { splitReminderSource } from "./message-body.tsx";
+import {
+  TimelineHeading,
+  TimelineList,
+  TimelinePane,
+  type TimelineItem,
+} from "./timeline.tsx";
 
-export interface ResourceRow {
-  id: string;
-  title: string;
-  preview: string;
-  time?: string | null;
-  badge?: string;
-  state?: Exclude<EventState, "all">;
-  unread?: boolean;
+export interface ResourceRow extends TimelineItem {
   target?: ItemTarget;
+}
+
+export function resourceSummary(content: string, fallback: string) {
+  const lead = content.trimStart().split(/\r?\n[ \t]*\r?\n/, 1)[0];
+  return plainText(lead) || fallback;
+}
+
+/** Promote a plain, standalone first line without hiding formatted content. */
+export function resourceDetail(content: string, fallback: string) {
+  const text = content.trimStart();
+  const lead = /^(?:#{1,6} +)?([^\r\n]{1,72})\r?\n(?:[ \t]*\r?\n)+/.exec(text);
+  if (
+    lead &&
+    plainText(lead[1]) === lead[1] &&
+    text.slice(lead[0].length).trim()
+  )
+    return { title: lead[1], content: text.slice(lead[0].length) };
+  return { title: fallback, content };
 }
 
 export default function ResourcePane({
   state,
+  view,
   rows,
   selected,
   onSelect,
   controls,
   pagination,
+  listKey,
+  loading,
   children,
 }: {
   state: StudioState;
+  view: "reminders" | "inbox" | "outbox";
   rows: ResourceRow[];
   selected: string;
   onSelect: (id: string) => void;
@@ -52,122 +72,117 @@ export default function ResourcePane({
     total: number;
     onPage: (offset: number) => void;
   };
+  listKey?: string;
+  loading?: boolean;
   children?: ReactNode;
 }) {
   const { action } = useHost();
-  const t = translator(state.settings.language);
+  const language = state.settings.language;
+  const t = translator(language);
   const [menu, setMenu] = useState<{
     target: ItemTarget;
     x: number;
     y: number;
   } | null>(null);
   const [error, setError] = useState<string>();
+  const Icon = view === "reminders" ? Bell : view === "inbox" ? Inbox : Send;
   return (
-    <SplitPane
-      name="resources"
-      className={`resource-browser ${selected ? "has-selection" : ""}`}
-      language={state.settings.language}
-      defaultWidth={300}
-      minWidth={240}
-      maxWidth={440}
-      resizeLabel={t("resizeResourceList")}
-      sidebar={
-        <div className="resource-list-pane">
-          {controls && <div className="resource-controls">{controls}</div>}
-          {error && (
-            <p className="action-error" role="alert">
-              {error}
-            </p>
-          )}
-          <div className="resource-list">
+    <>
+      {error && (
+        <p className="action-error" role="alert">
+          {error}
+        </p>
+      )}
+      <TimelinePane
+        name="resources"
+        language={language}
+        listKey={listKey}
+        detailKey={selected}
+        onClose={() => onSelect("")}
+        heading={
+          <TimelineHeading
+            title={t(view)}
+            icon={<Icon size={22} />}
+            controls={
+              <>
+                <div className="resource-controls">{controls}</div>
+                <span className="timeline-order">
+                  <CalendarDays size={14} aria-hidden />
+                  {t("timelineNewest")}
+                </span>
+              </>
+            }
+          />
+        }
+        list={
+          <>
             {rows.length ? (
-              rows.map((row) => (
-                <button
-                  key={row.id}
-                  className={`resource-row ${selected === row.id ? "selected" : ""}`}
-                  aria-pressed={selected === row.id}
-                  onClick={() => onSelect(row.id)}
-                  onContextMenu={(event) => {
-                    if (row.target) {
-                      event.preventDefault();
-                      setMenu({
-                        target: row.target,
-                        x: event.clientX,
-                        y: event.clientY,
-                      });
-                    }
-                  }}
-                >
-                  <div className="resource-row-meta">
-                    <span className="resource-sender">
-                      {row.unread && <i className="unread-dot" />}
-                      {row.title}
-                    </span>
-                    <time>{formatDate(row.time, state.settings.language)}</time>
-                  </div>
-                  <p>{row.preview}</p>
-                  <div className="resource-row-footer">
-                    <span data-state={row.state}>{row.badge}</span>
-                  </div>
-                </button>
-              ))
+              <TimelineList
+                key={listKey}
+                items={rows}
+                language={language}
+                selected={selected}
+                onSelect={onSelect}
+                holdNew={
+                  pagination?.offset === undefined || pagination.offset === 0
+                }
+                onItemMenu={(id, x, y) => {
+                  const target = rows.find((row) => row.id === id)?.target;
+                  if (target) setMenu({ target, x, y });
+                  return Boolean(target);
+                }}
+              />
             ) : (
-              <div className="resource-empty">
-                <Inbox size={30} strokeWidth={1.3} />
-                <p>{t("noUpdates")}</p>
-              </div>
+              <p className="timeline-empty">
+                {t(loading ? "documentLoading" : "noUpdates")}
+              </p>
             )}
-          </div>
-          {pagination && pagination.total > pagination.limit && (
-            <nav className="resource-pagination" aria-label={t("navigation")}>
-              <button
-                className="icon-button"
-                disabled={!pagination.offset}
-                aria-label={t("inboxPrevious")}
-                onClick={() =>
-                  pagination.onPage(
-                    Math.max(0, pagination.offset - pagination.limit),
-                  )
-                }
-              >
-                <ChevronLeft size={16} />
-              </button>
-              <span>
-                {Math.floor(pagination.offset / pagination.limit) + 1} /{" "}
-                {Math.max(1, Math.ceil(pagination.total / pagination.limit))}
-              </span>
-              <button
-                className="icon-button"
-                disabled={
-                  pagination.offset + pagination.limit >= pagination.total
-                }
-                aria-label={t("inboxNext")}
-                onClick={() =>
-                  pagination.onPage(pagination.offset + pagination.limit)
-                }
-              >
-                <ChevronRight size={16} />
-              </button>
-            </nav>
-          )}
-        </div>
-      }
-    >
-      <div className="resource-detail">
-        {selected && (
-          <button className="resource-back" onClick={() => onSelect("")}>
-            <ArrowLeft size={15} />
-            {t("backToList")}
-          </button>
-        )}
-        {children ?? (
-          <div className="resource-empty">
-            <ArrowDownLeft size={32} strokeWidth={1.2} />
-            <h3>{t("selectResource")}</h3>
-            <p>{t("selectResourceHint")}</p>
-          </div>
-        )}
-      </div>
+            {pagination && pagination.total > pagination.limit && (
+              <nav className="timeline-pagination" aria-label={t("navigation")}>
+                <button
+                  type="button"
+                  className="icon-button"
+                  disabled={!pagination.offset}
+                  aria-label={t("inboxPrevious")}
+                  onClick={() =>
+                    pagination.onPage(
+                      Math.max(0, pagination.offset - pagination.limit),
+                    )
+                  }
+                >
+                  <ChevronLeft size={16} aria-hidden />
+                </button>
+                <span>
+                  {t("pageLabel", {
+                    page: Math.floor(pagination.offset / pagination.limit) + 1,
+                    total: Math.ceil(pagination.total / pagination.limit),
+                  })}
+                </span>
+                <button
+                  type="button"
+                  className="icon-button"
+                  disabled={
+                    pagination.offset + pagination.limit >= pagination.total
+                  }
+                  aria-label={t("inboxNext")}
+                  onClick={() =>
+                    pagination.onPage(pagination.offset + pagination.limit)
+                  }
+                >
+                  <ChevronRight size={16} aria-hidden />
+                </button>
+              </nav>
+            )}
+          </>
+        }
+      >
+        {selected &&
+          (children ?? (
+            <p className="timeline-empty">
+              {t(loading ? "documentLoading" : "itemUnavailable")}
+            </p>
+          ))}
+      </TimelinePane>
       {menu && (
         <ContextMenu
           position={{ x: menu.x, y: menu.y }}
@@ -196,7 +211,7 @@ export default function ResourcePane({
           }))}
         />
       )}
-    </SplitPane>
+    </>
   );
 }
 
@@ -205,62 +220,81 @@ export function ResourceMessage({
   message,
   sourcePath,
   target,
-  children,
+  sender,
+  metadata,
 }: {
   state: StudioState;
   message: DisplayMessage;
   sourcePath?: string;
   target?: ItemTarget;
-  children?: ReactNode;
+  sender: string;
+  metadata?: ReactNode;
 }) {
   const { action } = useHost();
   const t = translator(state.settings.language);
   const [error, setError] = useState<string>();
+  const source = splitReminderSource(message, state.clientInfo?.workspace_dir);
+  const paths = [...new Set([source?.path, sourcePath])].filter(
+    (path): path is string => Boolean(path),
+  );
   const run = (value: Parameters<typeof action>[0]) =>
     void action(value).catch((reason) => setError(String(reason)));
   return (
-    <article className="resource-article">
-      <div className="resource-article-heading">
-        <Sparkles size={18} />
-        <time>{formatDate(message.createdAt, state.settings.language)}</time>
-      </div>
-      {children}
+    <article className="detail-article">
+      <header className="detail-meta resource-message-meta">
+        <span>{sender}</span>
+        {metadata}
+        {message.createdAt && (
+          <time dateTime={message.createdAt}>
+            {formatDate(message.createdAt, state.settings.language)}
+          </time>
+        )}
+      </header>
       {error && (
         <p className="action-error" role="alert">
           {error}
         </p>
       )}
       <MessageBody
-        message={message}
+        message={source?.display ?? message}
         language={state.settings.language}
         onLink={(url) => run({ type: "link.open", url, sourcePath })}
       />
-      {target && (
-        <div className="resource-actions">
-          {sourcePath && (
+      {(paths.length > 0 || target) && (
+        <footer className="detail-section resource-actions">
+          {paths.map((path) => (
+            <a
+              key={path}
+              className="subtle resource-source-link"
+              href={`#reme-file=${encodeURIComponent(path)}`}
+              aria-label={t("openReminderSource", { path })}
+              title={path}
+              onClick={(event) => {
+                event.preventDefault();
+                run({ type: "document.open", path });
+              }}
+            >
+              <FileText size={14} aria-hidden />
+              <span>{path.split(/[\\/]/).at(-1) || path}</span>
+            </a>
+          ))}
+          {target && (
             <button
               className="subtle"
-              onClick={() => run({ type: "document.open", path: sourcePath })}
+              disabled={
+                state.connection !== "connected" ||
+                state.status === "active" ||
+                !!state.pending?.streaming
+              }
+              onClick={() =>
+                run({ type: "item.action", action: "explain", target })
+              }
             >
-              {t("openInKnowledge")}
-              <ArrowUpRight size={14} />
+              {t("explainReminder")}
+              <ArrowUpRight size={14} aria-hidden />
             </button>
           )}
-          <button
-            className="subtle"
-            disabled={
-              state.connection !== "connected" ||
-              state.status === "active" ||
-              !!state.pending?.streaming
-            }
-            onClick={() =>
-              run({ type: "item.action", action: "explain", target })
-            }
-          >
-            {t("explainReminder")}
-            <ArrowUpRight size={14} />
-          </button>
-        </div>
+        </footer>
       )}
     </article>
   );

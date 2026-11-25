@@ -30,8 +30,8 @@ docker compose up --build -d
 ```
 
 需要模型驱动的记忆演化时，如果尚无 `.env`，将仓库根目录的 `example.env` 复制为 `.env`，再填写模型凭证。
-Compose 在运行时注入这个可选文件；Docker 构建排除 `.env` 文件。Compose 的 `--env-file` 用于配置变量替换，
-`REME_ENV_FILE` 则选择实际注入容器的环境文件。
+保存模型或语音凭证前，在容器的运行时环境中设置 `REME_ENCRYPTION_KEY`。生成一次 Fernet 密钥，并在后续启动中保持一致。
+Compose 在运行时注入可选的 `.env` 文件。`--env-file` 用于配置变量替换，`REME_ENV_FILE` 选择实际注入容器的文件。
 
 ## 使用发布镜像
 
@@ -40,11 +40,13 @@ Docker 工作流在 main 分支检查成功后发布 `ghcr.io/agentscope-ai/reme
 镜像发布从仓库启用该工作流后开始生效。
 
 ```bash
-mkdir -p "$HOME/.reme"
+mkdir -p "$HOME/.reme" "$HOME/.reme-state"
 docker run -d --name reme \
   --user "$(id -u):$(id -g)" \
   -p 127.0.0.1:2333:2333 \
+  -e REME_ADMIN_PUBLISHED_HOST=127.0.0.1 \
   --mount "type=bind,source=$HOME/.reme,target=/data" \
+  --mount "type=bind,source=$HOME/.reme-state,target=/state" \
   --restart unless-stopped \
   ghcr.io/agentscope-ai/reme:main
 ```
@@ -52,6 +54,8 @@ docker run -d --name reme \
 需要模型凭证时，在镜像名之前添加 `--env-file /path/to/model.env`。需要固定部署版本时，将 `main` 替换为发布版本或
 镜像 digest。使用 Compose 拉取镜像时，设置 `REME_IMAGE`，再运行 `docker compose pull` 和
 `docker compose up -d --no-build`。
+
+通过 `docker exec reme cat /state/admin-token` 读取此容器的本机管理令牌。
 
 ## 路径、配置和端口
 
@@ -74,12 +78,12 @@ docker run -d --name reme \
 
 显式的 `start key=value` 参数优先于容器的 `REME_*` 配置，后者覆盖配置文件中的对应键。在 Compose 运行时环境文件中
 设置 `TZ` 可指定默认时区。配置文件或启动参数显式指定的 `timezone` 优先于 `TZ`。
-
-已有部署请将运行时环境文件或 Docker 参数中的 `REME_TIMEZONE=America/New_York` 改为 `TZ=America/New_York`。
-`REME_TIMEZONE` 已移除。需要覆盖配置文件中指定的时区时，显式传入 `start timezone=America/New_York`。
+要覆盖配置文件中的时区，传入 `start timezone=America/New_York`。
 
 镜像默认将日志写到容器输出。传入 `log_to_file=true` 可启用 `/app/logs` 下的文件日志，需要另外挂载才能持久保存。
 临时 home `/tmp/reme-home` 和探针地址文件均为可丢弃数据，不承担工作区存储职责。
+
+Compose 将后端设置保存到 `reme-state` 卷。入口将状态卷交给配置的 UID/GID 后，以该用户运行 ReMe。使用默认回环映射时，通过 `docker compose exec reme cat /state/admin-token` 读取实例令牌并解锁「设置 → 后端」。设置了 `REME_ADMIN_TOKEN` 时使用其值。远程管理需要显式配置的令牌和 HTTPS。
 
 需要自定义完整的 Job/Component 配置时，将 `reme/config/default.yaml` 复制为 `reme.yaml` 并修改，在 `.env` 中设置
 `REME_CONFIG=/etc/reme/config.yaml`，再添加 `compose.override.yaml`：

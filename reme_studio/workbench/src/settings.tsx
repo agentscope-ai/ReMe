@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   Cable,
+  Server,
   Palette,
   Sparkles,
   Bell,
@@ -19,11 +20,14 @@ import { errorText, translator } from "../../client/src/i18n.ts";
 import { useHost } from "./host.ts";
 import { Switch } from "./ui.tsx";
 import VoiceSettings from "./speech/settings.tsx";
-import SplitPane from "./split-pane.tsx";
+import SplitPane, { SidebarHeading } from "./split-pane.tsx";
 import { githubUrl } from "./workspace-titlebar.tsx";
+import BackendSettingsPanel from "./backend-settings.tsx";
+import type { NavigationGuard } from "../../client/src/backend.ts";
 
 const sections = [
   ["general", Cable, "generalHint"],
+  ["backendSettings", Server, "backendHint"],
   ["appearance", Palette, "appearanceHint"],
   ["remy", Sparkles, "remyHint"],
   ["notificationSettings", Bell, "notificationSettingsHint"],
@@ -36,7 +40,11 @@ export default function Settings({
   version,
   companionVisible,
   desktop,
+  windowTransparency,
+  open,
   editableEndpoint,
+  navigate = (next) => next(),
+  registerGuard,
   collapsed,
   onNavigate,
 }: {
@@ -44,7 +52,11 @@ export default function Settings({
   version: string;
   companionVisible: boolean;
   desktop: boolean;
+  windowTransparency: boolean;
+  open: boolean;
   editableEndpoint: boolean;
+  navigate?: NavigationGuard;
+  registerGuard?: (guard: NavigationGuard | null) => void;
   collapsed?: boolean;
   onNavigate?: () => void;
 }) {
@@ -86,32 +98,32 @@ export default function Settings({
       <SplitPane
         name="settings"
         path={[
-          { label: t("settings"), onSelect: () => setSection("general") },
+          {
+            label: t("settings"),
+            onSelect: () => navigate(() => setSection("general")),
+          },
           { label: current[0] === "remy" ? "Remy" : t(current[0]) },
         ]}
         language={state.settings.language}
         collapsed={collapsed}
-        defaultWidth={240}
         sidebar={
           <>
-            <div className="sidebar-heading">
-              <span className="eyebrow">YOUR SPACE</span>
-              <h1>{t("settings")}</h1>
-              <p>{t("settingsCaption")}</p>
-            </div>
+            <SidebarHeading eyebrow="YOUR SPACE" title={t("settings")} />
             <nav className="settings-nav" aria-label={t("desktopSettings")}>
               {items.map(([id, Icon]) => (
                 <button
                   key={id}
+                  type="button"
+                  className="settings-nav-item"
                   aria-current={section === id ? "page" : undefined}
                   onClick={() => {
-                    setSection(id);
-                    onNavigate?.();
+                    navigate(() => {
+                      setSection(id);
+                      onNavigate?.();
+                    });
                   }}
                 >
-                  <span className={`settings-nav-icon ${id}`}>
-                    <Icon size={16} />
-                  </span>
+                  <Icon size={16} aria-hidden />
                   {id === "remy" ? "Remy" : t(id)}
                 </button>
               ))}
@@ -196,6 +208,14 @@ export default function Settings({
                 <p className="settings-note">{t("shortcutHint")}</p>
               </>
             )}
+            {section === "backendSettings" && (
+              <BackendSettingsPanel
+                key={state.settings.endpoint}
+                language={state.settings.language}
+                active={open}
+                registerGuard={registerGuard}
+              />
+            )}
             {section === "appearance" && (
               <>
                 <div className="setting-group appearance-group">
@@ -250,23 +270,25 @@ export default function Settings({
                   </div>
                 </div>
                 <div className="setting-group">
-                  <div className="setting-row">
-                    <div>
-                      <h3>{t("transparentBackground")}</h3>
-                      <p>{t("transparentBackgroundHint")}</p>
+                  {windowTransparency && (
+                    <div className="setting-row">
+                      <div>
+                        <h3>{t("transparentBackground")}</h3>
+                        <p>{t("transparentBackgroundHint")}</p>
+                      </div>
+                      <Switch
+                        aria-label={t("transparentBackground")}
+                        checked={state.settings.transparentBackground}
+                        disabled={saving}
+                        onCheckedChange={(transparentBackground) =>
+                          void run({
+                            type: "settings.update",
+                            transparentBackground,
+                          })
+                        }
+                      />
                     </div>
-                    <Switch
-                      aria-label={t("transparentBackground")}
-                      checked={state.settings.transparentBackground}
-                      disabled={saving}
-                      onCheckedChange={(transparentBackground) =>
-                        void run({
-                          type: "settings.update",
-                          transparentBackground,
-                        })
-                      }
-                    />
-                  </div>
+                  )}
                   <div className="setting-row">
                     <div>
                       <h3>{t("interfaceLanguage")}</h3>

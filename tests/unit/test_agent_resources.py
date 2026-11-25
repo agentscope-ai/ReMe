@@ -9,7 +9,7 @@ import pytest
 from reme.core.context import RuntimeContext
 from reme.schema.agent_view import AgentInboxRequest, ListTaskRemindersRequest, AgentReminderRequest
 from reme.steps.proactive.agent import AgentInboxStep, ListTaskRemindersStep, AgentReminderStep
-from .test_proactive_runtime import completed_result, create_agent, running_runtime
+from .test_proactive_runtime import completed_result, create_agent, running_manager
 from .test_agent_inbox import event, make_inbox
 
 
@@ -39,13 +39,13 @@ async def test_event_pages_are_ordered_isolated_snapshots_without_claiming_or_wr
 
 @pytest.mark.asyncio
 async def test_inbox_outbox_and_reminder_reads_share_canonical_files(tmp_path):
-    async with running_runtime(tmp_path) as (runtime, context, _):
+    async with running_manager(tmp_path) as (runtime, context, _):
         await create_agent(runtime)
         await runtime.create({"agent_name": "other", "task_description": "Other"})
         now = runtime.now()
         hour = (now.hour + 1) % 24
         await runtime.update("monitor", {"notify_window": {"start": f"{hour:02}:00", "end": f"{hour:02}:01"}})
-        await runtime.run("monitor", AsyncMock(return_value=completed_result(runtime)))
+        await runtime.run_round("monitor", AsyncMock(return_value=completed_result(runtime)))
         task = ListTaskRemindersStep(app_context=context)
         inbox = AgentInboxStep(app_context=context)
         reminder = AgentReminderStep(app_context=context)
@@ -74,7 +74,7 @@ async def test_inbox_outbox_and_reminder_reads_share_canonical_files(tmp_path):
 
 @pytest.mark.asyncio
 async def test_inbox_endpoint_accepts_chat_and_tasks_and_preserves_processing_state(tmp_path):
-    async with running_runtime(tmp_path) as (runtime, context, _):
+    async with running_manager(tmp_path) as (runtime, context, _):
         await create_agent(runtime)
         task = AgentInboxStep(app_context=context)
         assert (await task()).answer == {"items": [], "total": 0, "offset": 0, "limit": 20}

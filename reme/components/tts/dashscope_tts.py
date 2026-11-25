@@ -11,7 +11,10 @@ from ...constants import SSE_MEDIA_TYPE
 from .base_tts import BaseTTS
 from ...core.registry import R
 from ...schema.speech import AudioFormat, TTSResult
-from ...utils.dashscope_speech import DashScopeSpeechClient
+from ...utils.dashscope_speech import DEFAULT_DASHSCOPE_BASE_URL, DashScopeSpeechClient
+
+DEFAULT_DASHSCOPE_TTS_MODEL = "qwen-audio-3.1-tts-plus"
+DEFAULT_DASHSCOPE_TTS_VOICE = "longanhuan_v3.1"
 
 
 class _SynthesisOptions(BaseModel):
@@ -27,13 +30,13 @@ class DashScopeTTS(BaseTTS):
 
     def __init__(
         self,
-        model: str = "qwen-audio-3.1-tts-plus",
-        voice: str = "longanhuan_v3.1",
+        model: str = DEFAULT_DASHSCOPE_TTS_MODEL,
+        voice: str = DEFAULT_DASHSCOPE_TTS_VOICE,
         audio_format: AudioFormat = "mp3",
         sample_rate: int = 22050,
         parameters: dict | None = None,
         api_key: str = "",
-        base_url: str = "https://dashscope.aliyuncs.com/api/v1",
+        base_url: str = DEFAULT_DASHSCOPE_BASE_URL,
         timeout: float = 60,
         **kwargs,
     ):

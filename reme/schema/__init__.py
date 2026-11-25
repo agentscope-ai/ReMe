@@ -42,14 +42,14 @@ from .proactive import (
 from .emb_node import EmbNode
 from .event import Event
 from .agent_inbox import InboxItem, InboxReceipt
-from .finance import CryptoQuote, FinanceNewsItem, StockQuote
+from .finance import CryptoQuote, FinanceNewsItem, MarketQuote
 from .proactive_agent import (
-    CreateProactiveAgentConfig,
+    CreateProactiveRuntimeConfig,
     ManageProactiveAgentRequest,
     NotificationWindow,
-    ProactiveAgent,
-    ProactiveAgentConfig,
-    TaskSettings,
+    ProactiveRuntimeDefinition,
+    ProactiveRuntimeConfig,
+    ProactiveRuntimeSettings,
 )
 from .file_chunk import FileChunk
 from .file_front_matter import FileFrontMatter
@@ -84,7 +84,7 @@ __all__ = [
     "AgentHeartbeat",
     "ClientActivity",
     "ClientInfo",
-    "TaskSettings",
+    "ProactiveRuntimeSettings",
     "AgentReply",
     "collect_reply",
     "replay_reply",
@@ -102,7 +102,7 @@ __all__ = [
     "InboxReceipt",
     "InboxItem",
     "FinanceNewsItem",
-    "StockQuote",
+    "MarketQuote",
     "CryptoQuote",
     "AgentView",
     "AgentRequest",
@@ -113,9 +113,9 @@ __all__ = [
     "ChatAgentConfig",
     "ManageProactiveAgentRequest",
     "NotificationWindow",
-    "ProactiveAgent",
-    "ProactiveAgentConfig",
-    "CreateProactiveAgentConfig",
+    "ProactiveRuntimeDefinition",
+    "ProactiveRuntimeConfig",
+    "CreateProactiveRuntimeConfig",
     "AgentReminder",
     "AgentName",
     "AgentType",

@@ -4,6 +4,7 @@ import {
   useEffect,
   useId,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -14,24 +15,55 @@ import {
 } from "../../../client/src/i18n.ts";
 import { useHost } from "../host.ts";
 import { watchReadReceipt } from "../read-receipt.ts";
-import MessageBody from "../message-body.tsx";
+import MessageBody, {
+  formatTaskResult,
+  isCompletedTurn,
+  splitReminderSource,
+} from "../message-body.tsx";
 import type { StudioState } from "../../../client/src/protocol.ts";
 import { useCapture } from "../speech/use-capture.ts";
 import { messageKey } from "../../../client/src/message-key.ts";
 import { useChatScroll } from "./use-chat-scroll.ts";
-import { ArrowUpRight, Bell, CalendarClock, Radar } from "lucide-react";
+import {
+  Bell,
+  BookOpenText,
+  CalendarClock,
+  Check,
+  ChevronRight,
+  FileText,
+  Headphones,
+  List,
+  LoaderCircle,
+  Radar,
+  RotateCcw,
+  Sparkle,
+  Square,
+} from "lucide-react";
 import { WorkspaceLayout } from "../workspace-titlebar.tsx";
+
+const speechIcons = {
+  idle: Headphones,
+  loading: LoaderCircle,
+  playing: Square,
+  error: RotateCcw,
+};
 
 export default function Chat({
   state,
   active,
   draft,
   onDraft,
+  canClearContext,
+  clearDialogOpen,
+  onClearDialogChange,
 }: {
   draft: string;
   onDraft: (value: string) => void;
   state: StudioState;
   active: boolean;
+  canClearContext: boolean;
+  clearDialogOpen: boolean;
+  onClearDialogChange: (open: boolean) => void;
 }) {
   const { action, openRecorder } = useHost();
   const mobile = Boolean(useContext(WorkspaceLayout)?.openNavigation);
@@ -51,9 +83,11 @@ export default function Chat({
     setCommandIndex(0);
     onDraft(next);
   };
-  const agentName =
-    state.agents?.find((agent) => agent.agent_name === state.selectedAgentName)
-      ?.agent_name ?? "Remy";
+  const agent = state.agents?.find(
+    (item) => item.agent_name === state.selectedAgentName,
+  );
+  const agentName = agent?.agent_name ?? "Remy";
+  const automaticEvent = agent?.agent_type === "event" && !state.pending;
   const [error, setError] = useState<unknown>(null);
   const {
     history,
@@ -73,6 +107,15 @@ export default function Chat({
     historyWindow.start < state.messages.length
       ? historyWindow.start
       : Math.max(0, state.messages.length - 80);
+  const workspace = state.clientInfo?.workspace_dir;
+  const historyMessages = useMemo(
+    () =>
+      state.messages.slice(historyStart).map((message) => ({
+        message,
+        source: splitReminderSource(message, workspace),
+      })),
+    [state.messages, historyStart, workspace],
+  );
   const openLink = useCallback((url: string) => {
     void action({ type: "link.open", url }).catch(setError);
   }, []);
@@ -124,17 +167,13 @@ export default function Chat({
     state.connection === "connected" &&
     state.status !== "error" &&
     (isRemy || Boolean(state.sessionId));
-  const clearDisabled =
-    clearing ||
-    streaming ||
-    state.connection !== "connected" ||
-    !state.clientInfo;
+  const clearDisabled = clearing || !canClearContext;
   const commands = isRemy
     ? [
         {
           name: "/clear",
           label: t("clearContext"),
-          run: () => clearDialog.current?.showModal(),
+          run: () => onClearDialogChange(true),
         },
       ]
     : [];
@@ -210,6 +249,9 @@ export default function Chat({
   useEffect(() => {
     if (state.chatVisible && active && !clearing) input.current?.focus();
   }, [state.chatVisible, active, focusSession, clearing]);
+  useEffect(() => {
+    if (active && isRemy && clearDialogOpen) clearDialog.current?.showModal();
+  }, [active, isRemy, clearDialogOpen]);
 
   useEffect(() => {
     const root = history.current;
@@ -236,7 +278,7 @@ export default function Chat({
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
-          const id = (entry.target as HTMLElement).dataset.messageId!;
+          const id = (entry.target as HTMLElement).dataset.readAnchor!;
           if (entry.isIntersecting) visible.add(id);
           else visible.delete(id);
         }
@@ -245,9 +287,10 @@ export default function Chat({
       { root, threshold: 0.3 },
     );
     root
-      .querySelectorAll<HTMLElement>("[data-proactive=true] .proactive-label")
+      .querySelectorAll<HTMLElement>("[data-read-anchor]")
       .forEach((element) => {
-        if (readable.has(element.dataset.messageId!)) observer.observe(element);
+        if (readable.has(element.dataset.readAnchor!))
+          observer.observe(element);
       });
     return () => {
       receipt.close();
@@ -298,6 +341,30 @@ export default function Chat({
   };
 
   const home = isRemy && messages.length === 0;
+  const quickPrompts = home && (
+    <div className="conversation-prompts">
+      {(
+        [
+          ["promptScheduledQuery", "quickSchedule", CalendarClock],
+          ["promptTemporaryQuery", "quickReminder", Bell],
+          ["promptProactiveQuery", "quickWatch", Radar],
+        ] as const
+      ).map(([query, label, Icon]) => (
+        <button
+          key={query}
+          type="button"
+          title={t(query)}
+          onClick={() => {
+            setQuery(t(query));
+            input.current?.focus();
+          }}
+        >
+          <Icon size={15} strokeWidth={1.75} aria-hidden />
+          <span>{t(label)}</span>
+        </button>
+      ))}
+    </div>
+  );
   return (
     <main className="conversation-pane" data-home={home}>
       {state.connectionError && (
@@ -336,7 +403,6 @@ export default function Chat({
           )}
         </div>
       )}
-
       <div
         hidden={home}
         ref={history}
@@ -360,112 +426,182 @@ export default function Chat({
               {t("loadEarlierMessages")}
             </button>
           )}
-          {messages.slice(historyStart).map((message) => (
-            <article
-              key={messageKey(message)}
-              data-message-id={message.id}
-              data-proactive={message.source === "proactive"}
-              data-task-input={message.taskInput}
-              className={`message ${message.role} ${focusedId === message.id ? "message-focused" : ""}`}
-            >
-              {message.source === "proactive" && (
-                <div className="proactive-label" data-message-id={message.id}>
-                  <span aria-hidden>✦</span>{" "}
-                  {t(
-                    message.role === "user"
-                      ? "automaticTurn"
-                      : "proactiveLabel",
-                  )}
-                </div>
-              )}
+          {historyMessages.map(({ message, source }) => {
+            const proactive = message.source === "proactive";
+            const reminder = proactive && message.role === "assistant";
+            const completed = isCompletedTurn(message);
+            const result = automaticEvent
+              ? formatTaskResult(message, language)
+              : undefined;
+            const canAct =
+              message.role === "assistant" &&
+              message.completed &&
+              Boolean(message.content.trim()) &&
+              !result &&
+              !message.error &&
+              message.status?.tone !== "error";
+            const playback = voice?.messageId === message.id ? voice : null;
+            const SpeechIcon = speechIcons[playback?.phase ?? "idle"];
+            const speakLabel = playback
+              ? playback.phase === "error"
+                ? "speechRetry"
+                : "stopSpeech"
+              : "readAloud";
+            const speechHint = t(
+              state.speech.tts ? speakLabel : "speechTtsUnavailable",
+            );
+            const body = (
               <MessageBody
-                message={message}
+                message={source?.display ?? result ?? message}
                 language={language}
+                showCompletion={false}
                 onLink={openLink}
               />
-              {message.role === "assistant" &&
-                message.completed &&
-                message.content &&
-                !message.error &&
-                message.status?.tone !== "error" && (
-                  <div className="message-actions">
-                    <button
-                      type="button"
-                      className="read-aloud"
-                      disabled={
-                        !state.speech.tts || !state.speech.ready || !ready
-                      }
-                      aria-label={t(
-                        voice?.messageId === message.id
-                          ? voice.phase === "error"
-                            ? "speechRetry"
-                            : "stopSpeech"
-                          : "readAloud",
-                      )}
-                      title={t(
-                        !state.speech.tts
-                          ? "speechTtsUnavailable"
-                          : voice?.messageId === message.id
-                            ? voice.phase === "error"
-                              ? "speechRetry"
-                              : "stopSpeech"
-                            : "readAloud",
-                      )}
-                      aria-pressed={voice?.messageId === message.id}
-                      onClick={() =>
-                        void run(
-                          voice?.messageId === message.id
-                            ? {
-                                type:
-                                  voice.phase === "error"
-                                    ? "speech.retry"
-                                    : "speech.stop",
-                              }
-                            : {
-                                type: "speech.speak",
-                                sessionId: state.sessionId!,
-                                messageId: message.id,
-                              },
-                        )
-                      }
-                    >
-                      <span aria-hidden>
-                        {voice?.messageId === message.id &&
-                        voice.phase !== "error"
-                          ? "■"
-                          : "♫"}
-                      </span>
-                      {t(
-                        voice?.messageId === message.id
-                          ? voice.phase === "loading"
-                            ? "speechLoading"
-                            : voice.phase === "error"
-                              ? "speechRetry"
-                              : "stopSpeech"
-                          : "readAloud",
-                      )}
-                    </button>
-                    {message.source === "proactive" && (
-                      <button
-                        type="button"
-                        className="explain-reminder"
-                        disabled={busy || !ready}
-                        onClick={() =>
-                          void run({
-                            type: "item.action",
-                            action: "explain",
-                            target: { kind: "message", id: message.id },
-                          })
-                        }
-                      >
-                        {t("explainReminder")}
-                        <ArrowUpRight size={13} aria-hidden />
-                      </button>
-                    )}
+            );
+            return (
+              <article
+                key={messageKey(message)}
+                data-message-id={message.id}
+                data-proactive={proactive}
+                data-task-input={message.taskInput}
+                className={`message ${message.role} ${focusedId === message.id ? "message-focused" : ""}`}
+              >
+                {proactive && (
+                  <span
+                    className="message-read-anchor"
+                    data-read-anchor={message.id}
+                    aria-hidden
+                  />
+                )}
+                {proactive && message.role === "user" && (
+                  <div className="proactive-label">
+                    <Sparkle size={15} aria-hidden />
+                    {t("automaticTurn")}
                   </div>
                 )}
-            </article>
-          ))}
+                {message.taskInput ? (
+                  <details className="task-input">
+                    <summary>
+                      <List size={15} aria-hidden />
+                      <span>{t("taskInput")}</span>
+                      <ChevronRight
+                        size={13}
+                        className="activity-chevron"
+                        aria-hidden
+                      />
+                    </summary>
+                    {body}
+                  </details>
+                ) : (
+                  body
+                )}
+                {(reminder || completed || canAct) && (
+                  <footer className="message-footer">
+                    {(reminder || completed) && (
+                      <span
+                        className="message-footer-status"
+                        title={reminder ? t("proactiveLabel") : undefined}
+                      >
+                        {reminder ? (
+                          <Sparkle size={15} aria-hidden />
+                        ) : (
+                          <Check size={15} aria-hidden />
+                        )}
+                        {t(reminder ? "proactiveStatus" : "completed")}
+                      </span>
+                    )}
+                    {source && (
+                      <a
+                        className="message-source-link"
+                        href={`#reme-file=${encodeURIComponent(source.path)}`}
+                        aria-label={t("openReminderSource", {
+                          path: source.path,
+                        })}
+                        title={t("openReminderSource", { path: source.path })}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          openLink(event.currentTarget.hash);
+                        }}
+                      >
+                        <FileText size={14} aria-hidden />
+                      </a>
+                    )}
+                    {canAct && (
+                      <div className="message-actions">
+                        <button
+                          type="button"
+                          disabled={
+                            !state.speech.tts || !state.speech.ready || !ready
+                          }
+                          aria-label={t(speakLabel)}
+                          data-tooltip={speechHint}
+                          aria-pressed={Boolean(playback)}
+                          onClick={() =>
+                            void run(
+                              playback
+                                ? {
+                                    type:
+                                      playback.phase === "error"
+                                        ? "speech.retry"
+                                        : "speech.stop",
+                                  }
+                                : {
+                                    type: "speech.speak",
+                                    sessionId: state.sessionId!,
+                                    messageId: message.id,
+                                  },
+                            )
+                          }
+                        >
+                          <SpeechIcon
+                            size={15}
+                            aria-hidden
+                            className={
+                              playback?.phase === "loading"
+                                ? "activity-spinner"
+                                : undefined
+                            }
+                          />
+                        </button>
+                        {reminder && (
+                          <button
+                            type="button"
+                            aria-label={t("explainReminder")}
+                            data-tooltip={t("explainReminder")}
+                            disabled={busy || !ready}
+                            onClick={() =>
+                              void run({
+                                type: "item.action",
+                                action: "explain",
+                                target: { kind: "message", id: message.id },
+                              })
+                            }
+                          >
+                            <BookOpenText size={15} aria-hidden />
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </footer>
+                )}
+              </article>
+            );
+          })}
+          {state.taskRunStatus && (
+            <div
+              className={`task-run-status message-status ${state.taskRunStatus.tone}`}
+              role="status"
+            >
+              {state.taskRunStatus.tone === "working" && (
+                <LoaderCircle
+                  size={15}
+                  className="activity-spinner"
+                  aria-hidden
+                />
+              )}
+              {state.taskRunStatus.text}
+            </div>
+          )}
         </div>
         {!following && messages.length > 0 && (
           <button
@@ -483,6 +619,7 @@ export default function Chat({
           className="workspace-dialog"
           aria-labelledby={`${composerId}-clear-title`}
           aria-describedby={`${composerId}-clear-description`}
+          onClose={() => onClearDialogChange(false)}
         >
           <h2 id={`${composerId}-clear-title`}>{t("clearContextTitle")}</h2>
           <p id={`${composerId}-clear-description`}>
@@ -508,7 +645,10 @@ export default function Chat({
           </footer>
         </dialog>
       )}
-      <footer className="chat-composer">
+      {quickPrompts}
+      <footer
+        className={`chat-composer${home && !mobile ? " welcome-composer" : ""}`}
+      >
         {capture.notice && (
           <div className="voice-notice" role="status">
             {t("speechNoInput")}
@@ -739,43 +879,34 @@ export default function Chat({
           )}
         </form>
         <div className="composer-meta">
-          <span
-            className={`connection-dot ${state.connection === "connected" ? "online" : ""}`}
-          />
-          <span>
+          <span className="composer-location">
+            <span
+              className={`connection-dot ${state.connection === "connected" ? "online" : ""}`}
+              aria-hidden
+            />
             {state.connection === "connected"
               ? t("memoryLocation")
               : t("waitingService")}
           </span>
           <span className="keyboard-hint">
-            {state.speech.asr && <span>{t("voiceShortcutHint")}</span>}
-            <span>{t("newlineHint")}</span>
+            {state.speech.asr && (
+              <ShortcutHint template={t("voiceShortcutHint")} keys="Ctrl + R" />
+            )}
+            <ShortcutHint template={t("newlineHint")} keys="Shift + Enter" />
           </span>
         </div>
       </footer>
-      {home && (
-        <div className="conversation-prompts">
-          {(
-            [
-              ["promptScheduledQuery", "quickSchedule", CalendarClock],
-              ["promptTemporaryQuery", "quickReminder", Bell],
-              ["promptProactiveQuery", "quickWatch", Radar],
-            ] as const
-          ).map(([query, label, Icon]) => (
-            <button
-              key={query}
-              title={t(query)}
-              onClick={() => {
-                setQuery(t(query));
-                input.current?.focus();
-              }}
-            >
-              {mobile && <Icon size={15} strokeWidth={1.75} aria-hidden />}
-              <span>{t(label)}</span>
-            </button>
-          ))}
-        </div>
-      )}
     </main>
+  );
+}
+
+function ShortcutHint({ template, keys }: { template: string; keys: string }) {
+  const [before, after] = template.split("{shortcut}");
+  return (
+    <span>
+      {before}
+      <kbd>{keys}</kbd>
+      {after}
+    </span>
   );
 }

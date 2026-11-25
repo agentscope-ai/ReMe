@@ -1,6 +1,5 @@
 """Source records saved by the scheduled finance collectors."""
 
-from datetime import date
 from typing import Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
@@ -19,23 +18,28 @@ class FinanceNewsItem(BaseModel):
     url: str
 
 
-class StockQuote(BaseModel):
-    """A regular-session quote with explicit market time and observation time."""
+class MarketQuote(BaseModel):
+    """A Tencent market quote with its previous close."""
 
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
-    symbol: str
-    name: str = Field(min_length=1)
-    market: Literal["HK", "US"]
-    currency: Literal["HKD", "USD"]
-    trading_date: date
-    price: float = Field(gt=0)
-    previous_close: float = Field(gt=0)
+    symbol: Literal["XAUUSD", "CL", "IXIC"]
+    currency: Literal["USD"] = "USD"
+    price: float
+    previous_close: float
     change_percent: float
     quoted_at: AwareDatetime
     collected_at: AwareDatetime
-    quote_age_seconds: float = Field(ge=0)
     source: Literal["tencent"] = "tencent"
+
+    @model_validator(mode="after")
+    def validate_quote(self):
+        """Validate the provider's time and the prices for this instrument."""
+        if self.symbol != "CL" and (self.price <= 0 or self.previous_close <= 0):
+            raise ValueError("Price and previous close must be positive")
+        if self.quoted_at > self.collected_at:
+            raise ValueError("quoted_at must not follow collected_at")
+        return self
 
 
 class CryptoQuote(BaseModel):

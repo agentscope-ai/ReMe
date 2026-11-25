@@ -285,7 +285,7 @@ class AsAgentWrapper(BaseAgentWrapper):
 
     def _resolve_skills(self, skills: list[str] | str | None) -> list[str]:
         """Resolve configured skill names to AgentScope local skill directories."""
-        return [str(path) for path in self._resolve_project_skills(skills).values()]
+        return [str(path) for path in self._resolve_skill_sources(skills).values()]
 
     def _create_agent(self, *, options: dict[str, Any], **kwargs: Any) -> Agent:
         """Construct the SDK agent while subclasses reuse ReMe's tool and session wiring."""

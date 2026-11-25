@@ -1,22 +1,27 @@
 import { useEffect, useState } from "react";
-import { ArrowUpRight, ListFilter, RefreshCw } from "lucide-react";
+import { ArrowUpRight, FileText, ListFilter, RefreshCw } from "lucide-react";
 import type {
   TaskReminder,
   StudioState,
   EventState,
   InputEvent,
+  ResourcePage,
   WorkspaceRequest,
 } from "../../client/src/protocol.ts";
 import { errorText, translator } from "../../client/src/i18n.ts";
 import { useHost } from "./host.ts";
 import {
   formatDate,
-  plainText,
   useResource,
   resourceSource,
-  useResourcePage,
+  usePollingResource,
 } from "./resources.ts";
-import ResourcePane, { ResourceMessage } from "./resource-pane.tsx";
+import ResourcePane, {
+  ResourceMessage,
+  resourceSummary,
+  resourceDetail,
+} from "./resource-pane.tsx";
+import { DetailHeading, TimelineBadge } from "./timeline.tsx";
 
 type ListedResource =
   InputEvent | (TaskReminder & { state: InputEvent["state"] });
@@ -24,9 +29,11 @@ type ListedResource =
 export default function AgentResources({
   state,
   inbox,
+  revision,
 }: {
   state: StudioState;
   inbox: boolean;
+  revision?: number;
 }) {
   const requestResource = useResource();
   const { action } = useHost();
@@ -38,6 +45,7 @@ export default function AgentResources({
   const [selected, setSelected] = useState("");
   const [focusedMail, setFocusedMail] = useState<TaskReminder>();
   const [readError, setReadError] = useState<unknown>(null);
+  const [readAttempt, setReadAttempt] = useState(0);
   const request: WorkspaceRequest = inbox
     ? { type: "inbox", agentName, offset, state: filter }
     : {
@@ -46,9 +54,15 @@ export default function AgentResources({
         offset,
         state: filter === "processing" ? "pending" : filter,
       };
-  const { page, error, loading, refresh } = useResourcePage<ListedResource>(
+  const {
+    data: page,
+    error,
+    loading,
+    refresh,
+  } = usePollingResource<ResourcePage<ListedResource>>(
     request,
     active && state.connection === "connected",
+    revision,
   );
   useEffect(() => {
     if (
@@ -90,7 +104,15 @@ export default function AgentResources({
     return () => {
       live = false;
     };
-  }, [inbox, selected, agentName, Boolean(listed), Boolean(page), active]);
+  }, [
+    inbox,
+    selected,
+    agentName,
+    Boolean(listed),
+    Boolean(page),
+    active,
+    readAttempt,
+  ]);
   const item =
     listed ??
     (focusedMail?.id === selected
@@ -99,8 +121,11 @@ export default function AgentResources({
           state: focusedMail.read_at ? "processed" : "pending",
         }
       : undefined);
-  const stateLabel = (value: string) =>
-    t(
+  const stateLabel = (value: string) => {
+    if (!inbox && value === "pending") return t("resourceDelivered");
+    if ((agentName === "Remy" || !inbox) && value === "processed")
+      return t("resourceRemyProcessed");
+    return t(
       value === "pending"
         ? "resourcePending"
         : value === "processing"
@@ -109,20 +134,43 @@ export default function AgentResources({
             ? "resourceProcessed"
             : "resourceAll",
     );
+  };
   const open = (path: string) =>
     void action({ type: "document.open", path }).catch(setReadError);
+  const eventSource =
+    item && "event" in item
+      ? resourceSource(item.event.source, state.settings.language)
+      : "";
+  const eventDetail =
+    item && "event" in item
+      ? resourceDetail(item.event.description, eventSource)
+      : undefined;
   return (
     <>
       {(error ?? readError) != null && (
         <p className="action-error" role="alert">
           {errorText(error ?? readError, state.settings.language)}{" "}
-          <button className="subtle" onClick={refresh}>
+          <button
+            className="subtle"
+            onClick={() => {
+              refresh();
+              setReadAttempt((attempt) => attempt + 1);
+            }}
+          >
             {t("retry")}
           </button>
         </p>
       )}
       <ResourcePane
         state={state}
+        view={inbox ? "inbox" : "outbox"}
+        listKey={`${filter}:${offset}`}
+        loading={
+          loading ||
+          Boolean(
+            selected && !item && !readError && (agentName === "Remy" || !inbox),
+          )
+        }
         selected={selected}
         onSelect={setSelected}
         controls={
@@ -157,7 +205,7 @@ export default function AgentResources({
             <button
               className="icon-button"
               onClick={refresh}
-              aria-label={t("refreshFiles")}
+              aria-label={t(inbox ? "refreshInbox" : "refreshFiles")}
             >
               <RefreshCw size={14} className={loading ? "spinning" : ""} />
             </button>
@@ -177,76 +225,127 @@ export default function AgentResources({
             : undefined
         }
         rows={(page?.items ?? []).map((value) => {
-          if ("event" in value)
+          const badge = (
+            <TimelineBadge
+              tone={value.state === "pending" && inbox ? "warning" : undefined}
+            >
+              {"priority" in value ? `${value.priority} · ` : ""}
+              {stateLabel(value.state)}
+            </TimelineBadge>
+          );
+          if ("event" in value) {
+            const source = resourceSource(
+              value.event.source,
+              state.settings.language,
+            );
             return {
               id: value.event.id,
-              title: resourceSource(
-                value.event.source,
-                state.settings.language,
+              title: resourceSummary(value.event.description, source),
+              date: value.event.event_ts,
+              leading: (
+                <span className="timeline-card-leading">
+                  <FileText size={15} aria-hidden />
+                </span>
               ),
-              preview: value.event.description,
-              time: value.event.event_ts,
-              badge: stateLabel(value.state),
-              state: value.state,
+              metadata: (
+                <>
+                  <span>{source}</span>
+                  {badge}
+                </>
+              ),
             };
+          }
           return {
             id: value.id,
-            title: value.from_agent_name,
-            preview: plainText(value.message),
-            time: value.delivered_at,
-            badge: `${value.priority} · ${stateLabel(value.state)}`,
-            state: value.state,
+            title: resourceSummary(value.message, value.from_agent_name),
+            date: value.delivered_at,
+            metadata: (
+              <>
+                <span>{value.from_agent_name}</span>
+                {badge}
+              </>
+            ),
             target: { kind: "mail" as const, agentName, id: value.id },
           };
         })}
       >
         {item &&
           ("event" in item ? (
-            <article className="resource-article">
-              <div className="resource-event-meta">
-                {stateLabel(item.state)} ·{" "}
-                {formatDate(item.event.event_ts, state.settings.language)}
-              </div>
-              <h2 className="resource-title">
-                {resourceSource(item.event.source, state.settings.language)}
-              </h2>
-              <p className="resource-description">{item.event.description}</p>
-              {item.consume_ts && (
-                <p className="resource-timestamp">
-                  {t("processedAt")}{" "}
-                  {formatDate(item.consume_ts, state.settings.language)}
-                </p>
-              )}
-              <details className="resource-files">
-                <summary>
-                  {t("relatedFiles")}{" "}
-                  <span className="count-badge">{item.event.paths.length}</span>
-                </summary>
-                <div className="resource-links">
-                  {item.event.paths.map((path) => (
-                    <button
-                      key={path}
-                      className="resource-path"
-                      title={path}
-                      onClick={() => open(path)}
+            <article className="detail-article">
+              <DetailHeading
+                title={eventDetail?.title ?? eventSource}
+                metadata={
+                  <>
+                    {eventDetail?.title !== eventSource && (
+                      <span>{eventSource}</span>
+                    )}
+                    <time dateTime={item.event.event_ts}>
+                      {formatDate(item.event.event_ts, state.settings.language)}
+                    </time>
+                    <TimelineBadge
+                      tone={item.state === "pending" ? "warning" : undefined}
                     >
-                      {path.split(/[\\/]/).at(-1) || path}
-                      <ArrowUpRight size={14} />
-                    </button>
-                  ))}
+                      {stateLabel(item.state)}
+                    </TimelineBadge>
+                  </>
+                }
+              />
+              {eventDetail?.content && (
+                <p className="detail-prose">{eventDetail.content}</p>
+              )}
+              {(item.consume_ts ||
+                item.event.paths.length > 0 ||
+                eventSource !== item.event.source) && (
+                <div className="detail-section">
+                  {item.consume_ts && (
+                    <p className="resource-timestamp">
+                      {t("processedAt")}{" "}
+                      <time dateTime={item.consume_ts}>
+                        {formatDate(item.consume_ts, state.settings.language)}
+                      </time>
+                    </p>
+                  )}
+                  {item.event.paths.length > 0 && (
+                    <details className="resource-files">
+                      <summary>
+                        {t("relatedFiles")}{" "}
+                        <span className="count-badge">
+                          {item.event.paths.length}
+                        </span>
+                      </summary>
+                      <div className="resource-links">
+                        {item.event.paths.map((path) => (
+                          <button
+                            key={path}
+                            type="button"
+                            className="resource-path"
+                            title={path}
+                            onClick={() => open(path)}
+                          >
+                            <span>
+                              {path.split(/[\\/]/).at(-1) || path}
+                              {path.includes("/") && <small>{path}</small>}
+                            </span>
+                            <ArrowUpRight size={14} aria-hidden />
+                          </button>
+                        ))}
+                      </div>
+                    </details>
+                  )}
+                  {eventSource !== item.event.source && (
+                    <details className="resource-original">
+                      <summary>{t("originalInformation")}</summary>
+                      <p>{item.event.source}</p>
+                    </details>
+                  )}
                 </div>
-              </details>
-              <details className="resource-original">
-                <summary>{t("originalInformation")}</summary>
-                <p>{item.event.source}</p>
-                {item.event.paths.map((path) => (
-                  <p key={path}>{path}</p>
-                ))}
-              </details>
+              )}
             </article>
           ) : (
             <ResourceMessage
+              key={item.id}
               state={state}
+              sender={item.from_agent_name}
               message={{
                 id: item.id,
                 role: "assistant",
@@ -259,15 +358,12 @@ export default function AgentResources({
               }}
               sourcePath={item.id}
               target={{ kind: "mail", agentName, id: item.id }}
-            >
-              <div className="mail-receipts">
-                <span className="priority-pill">{item.priority}</span>
-                <span>
-                  {t("fromAgent")} {item.from_agent_name}
-                </span>
-                <span>{stateLabel(item.state)}</span>
-              </div>
-            </ResourceMessage>
+              metadata={
+                <TimelineBadge>
+                  {item.priority} · {stateLabel(item.state)}
+                </TimelineBadge>
+              }
+            />
           ))}
       </ResourcePane>
     </>

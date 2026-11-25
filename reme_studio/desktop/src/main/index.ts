@@ -44,6 +44,9 @@ import { WORKBENCH_PAGES } from "../../../client/src/protocol.ts";
 import { channels } from "../protocol.ts";
 import type { DesktopAction } from "../protocol.ts";
 import studioIconPath from "../../../workbench/public/reme-app-icon.png?asset";
+import macIconPath from "../../assets/reme-mac-icon.png?asset";
+import trayTemplatePath from "../../assets/remeTrayTemplate.png?asset";
+import trayTemplateRetinaPath from "../../assets/remeTrayTemplate@2x.png?asset";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 app.setName("ReMe Studio");
@@ -173,6 +176,7 @@ else {
           refreshTray();
         },
       );
+      controller.setCompanionVisible(windows.companionVisible);
       const canCapture = () =>
         !quitting &&
         windows!.chat.isVisible() &&
@@ -493,8 +497,7 @@ else {
             windows!.resetPosition();
             return;
           case "companion.visibility":
-            if (action.visible) windows!.showCompanion();
-            else windows!.hideCompanion();
+            windows!.setCompanionVisibility(action.visible);
             return;
           case "agent.select":
             if (
@@ -607,6 +610,13 @@ else {
                 ? { voiceVolume: action.voiceVolume }
                 : {}),
             });
+          case "clipboard.copy":
+            if (event.sender.id !== windows!.chat.webContents.id)
+              throw new UiError("invalidSender");
+            if (typeof action.text !== "string")
+              throw new UiError("invalidAction");
+            clipboard.writeText(action.text);
+            return;
           case "document.open":
           case "link.open": {
             const href =
@@ -689,12 +699,22 @@ else {
         }
       });
 
-      const characterIcon = nativeImage.createFromPath(
-        path.join(directory, "frames/idle/00.png"),
-      );
-      app.dock?.setIcon(studioIconPath);
-      const icon = characterIcon.resize({ width: 20, height: 20 });
-      tray = new Tray(icon);
+      let trayIcon: Electron.NativeImage;
+      if (process.platform === "darwin") {
+        app.dock?.setIcon(macIconPath);
+        const [standard, retina] = await Promise.all([
+          readFile(trayTemplatePath),
+          readFile(trayTemplateRetinaPath),
+        ]);
+        trayIcon = nativeImage.createFromBuffer(standard);
+        trayIcon.addRepresentation({ scaleFactor: 2, buffer: retina });
+        trayIcon.setTemplateImage(true);
+      } else {
+        trayIcon = nativeImage
+          .createFromPath(studioIconPath)
+          .resize({ width: 20, height: 20 });
+      }
+      tray = new Tray(trayIcon);
       const menu = () =>
         desktopMenu(
           controller!,

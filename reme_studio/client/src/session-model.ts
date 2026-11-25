@@ -49,7 +49,8 @@ export class SessionModel {
         !activity ||
         typeof activity.session_id !== "string" ||
         typeof activity.turn_id !== "string" ||
-        !clientEnums.activityPhase.includes(activity.phase)
+        !clientEnums.activityPhase.includes(activity.phase) ||
+        !clientEnums.activitySource.includes(activity.source)
       )
         throw new UiError("invalidActivity");
     }
