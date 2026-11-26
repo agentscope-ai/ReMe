@@ -57,22 +57,32 @@ class StatStep(BaseStep):
         # outside the scope are dropped before the precedence above applies,
         # and before their filesystem metadata is probed, so an out-of-scope
         # directory or file can neither shadow an authorized note, reveal
-        # that it exists, nor fail the request with an OS error.
+        # that it exists, nor fail the request with an OS error. Each
+        # candidate is checked only when the precedence reaches it, and a
+        # candidate that cannot be resolved (e.g. a symlink loop) is treated
+        # as unauthorized, so it cannot stop an authorized fallback.
         original_target = target
         md_target, _is_md = gate_md(target)
         allowed_paths = self.context.get("_allowed_paths")
-        original_ok = check_path_permission(workspace_dir, original_target, allowed_paths)
-        md_ok = check_path_permission(workspace_dir, md_target, allowed_paths)
+        checked: dict[Path, bool] = {}
 
-        if original_ok and original_target.is_dir():
+        def allowed(candidate: Path) -> bool:
+            if candidate not in checked:
+                try:
+                    checked[candidate] = check_path_permission(workspace_dir, candidate, allowed_paths)
+                except (OSError, RuntimeError):
+                    checked[candidate] = False
+            return checked[candidate]
+
+        if allowed(original_target) and original_target.is_dir():
             target = original_target
-        elif md_ok and md_target.exists():
+        elif allowed(md_target) and md_target.exists():
             target = md_target
-        elif original_ok and original_target.exists():
+        elif allowed(original_target) and original_target.exists():
             target = original_target
-        elif md_ok:
+        elif allowed(md_target):
             target = md_target
-        elif original_ok:
+        elif allowed(original_target):
             target = original_target
         else:
             self.context.response.success = False

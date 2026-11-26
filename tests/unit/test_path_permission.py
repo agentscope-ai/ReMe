@@ -523,6 +523,21 @@ async def test_stat_does_not_probe_out_of_scope_candidates(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_stat_unresolvable_markdown_candidate_does_not_block_directory():
+    """A symlink loop at the .md sibling must not stop stat on an authorized directory."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        _seed(Path(tmp), "notes/daily/2026-01-01/a.txt", "x\n")
+        loop = Path(tmp) / "notes/daily/2026-01-01.md"
+        loop.symlink_to(loop.name)
+        store = await _make_store()
+
+        resp = await _run(StatStep, store, path="notes/daily/2026-01-01", _allowed_paths=["notes/daily/2026-01-01"])
+        assert resp.success is True, resp.answer
+        assert resp.metadata["type"] == "dir"
+        await store.close()
+
+
+@pytest.mark.asyncio
 async def test_stat_scope_rejects_outside_path():
     """StatStep honors the scope and does not reveal outside frontmatter or existence."""
     with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
