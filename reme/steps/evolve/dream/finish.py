@@ -131,6 +131,15 @@ def render_summary(state: DreamState) -> str:
             lines.append(f"- [{target}][{action}]{suffix}")
     if state.failed_paths:
         lines.append(f"- Failed paths: {', '.join(state.failed_paths)}")
+    if state.failed_unit_changed_paths:
+        lines.append(
+            f"- Changed during failed units (left in place, review): {', '.join(state.failed_unit_changed_paths)}",
+        )
+    if state.failed_unit_missing_paths:
+        lines.append(
+            "- Changed during failed units, missing at end of run (review): "
+            f"{', '.join(state.failed_unit_missing_paths)}",
+        )
     if state.warnings:
         lines.append(f"- Warnings: {'; '.join(state.warnings)}")
     if state.errors:

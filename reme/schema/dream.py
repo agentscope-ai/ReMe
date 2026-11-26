@@ -60,6 +60,21 @@ class DreamState(BaseModel):
     )
     failed_units: list[dict] = Field(default_factory=list)
     failed_paths: list[str] = Field(default_factory=list)
+    failed_unit_changed_paths: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Digest files that changed while a failed unit ran and still differ from the start of the run. "
+            "They are left in place for review, because the job cannot tell who wrote them."
+        ),
+    )
+    failed_unit_missing_paths: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Digest files that existed at the start of the run, changed while a failed unit ran, and are "
+            "missing at the end of the run. The removal may have happened later in the run; they are not "
+            "restored, because the job cannot tell who removed them."
+        ),
+    )
     processed_paths: list[str] | None = Field(
         default=None,
         description=(
