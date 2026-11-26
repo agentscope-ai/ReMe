@@ -1,0 +1,56 @@
+name: CI / Codex status app
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/ci-codex-status-app.yml"
+      - "integrations/codex/status-app/**"
+      - "integrations/codex/plugins/reme/ui/**"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/ci-codex-status-app.yml"
+      - "integrations/codex/status-app/**"
+      - "integrations/codex/plugins/reme/ui/**"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and test Codex status app
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: integrations/codex/status-app
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24.16.0"
+          cache: npm
+          cache-dependency-path: integrations/codex/status-app/package-lock.json
+
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+      - name: Check the committed status app matches the build
+        working-directory: integrations/codex/plugins/reme/ui
+        run: |
+          if [ -n "$(git status --porcelain -- .)" ]; then
+            echo "::error::plugins/reme/ui differs from a fresh build. Run 'npm run build' in integrations/codex/status-app and commit the result."
+            git status --short -- .
+            git diff --stat -- .
+            exit 1
+          fi
