@@ -8,6 +8,7 @@ per-invocation RuntimeContext, where the file I/O steps read it.
 Covers:
 - ReadStep / EditStep / WriteStep / FrontmatterUpdateStep honoring the scope.
 - DeleteStep / MoveStep / FrontmatterDeleteStep honoring the scope.
+- ReadImageStep / StatStep honoring the scope.
 - MoveStep rejecting retarget rewrites that would land outside the scope.
 - Exact-file scope (least privilege) vs directory scope, custom daily dirs.
 - Fail-closed behavior for invalid injected constraints.
@@ -35,6 +36,8 @@ from reme.steps.file_io.frontmatter_delete import FrontmatterDeleteStep
 from reme.steps.file_io.frontmatter_update import FrontmatterUpdateStep
 from reme.steps.file_io.move import MoveStep
 from reme.steps.file_io.read import ReadStep
+from reme.steps.file_io.read_image import ReadImageStep
+from reme.steps.file_io.stat import StatStep
 from reme.steps.file_io.write import WriteStep
 from reme.utils.documents.wikilink_handler import WikilinkHandler
 
@@ -422,6 +425,144 @@ async def test_frontmatter_delete_scope_rejects_outside_note():
 
         resp = await _run(FrontmatterDeleteStep, store, path=NOTE, keys=["status"], **scope)
         assert resp.success is True
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_read_image_scope_rejects_outside_file():
+    """ReadImageStep honors the scope; unknown suffixes are base64-encoded, so it can read any file."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        _seed(Path(tmp), NOTE, "target\n")
+        _seed(Path(tmp), "secrets/token.txt", "s3cr3t\n")
+        store = await _make_store()
+        scope = {"_allowed_paths": [NOTE]}
+
+        resp = await _run(ReadImageStep, store, path="secrets/token.txt", **scope)
+        assert resp.success is False
+        assert "no permission" in str(resp.answer).lower()
+        assert "czNjcjN0" not in str(resp.answer)
+
+        resp = await _run(ReadImageStep, store, path=NOTE, **scope)
+        assert resp.success is True
+
+        resp = await _run(ReadImageStep, store, path="secrets/token.txt")
+        assert resp.success is True
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_read_image_denial_echoes_the_requested_path():
+    """A denied symlink reports the path that was asked for, not where the link points."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        _seed(Path(tmp), NOTE, "target\n")
+        secret = _seed(Path(tmp), "secrets/photo.png", "s3cr3t\n")
+        (Path(tmp) / "images").mkdir()
+        (Path(tmp) / "images/link.png").symlink_to(secret)
+        store = await _make_store()
+
+        resp = await _run(ReadImageStep, store, path="images/link.png", _allowed_paths=[NOTE])
+        assert resp.success is False
+        assert resp.metadata["path"] == "images/link.png"
+        assert "secrets" not in str(resp.metadata) and "secrets" not in str(resp.answer)
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_stat_out_of_scope_directory_does_not_shadow_authorized_note():
+    """A same-name directory outside the scope must not win over the authorized Markdown note."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        _seed(Path(tmp), NOTE, "target\n")
+        _seed(Path(tmp), NOTE.removesuffix(".md") + "/attachment.txt", "x\n")
+        store = await _make_store()
+        suffixless = NOTE.removesuffix(".md")
+
+        resp = await _run(StatStep, store, path=suffixless, _allowed_paths=[NOTE])
+        assert resp.success is True
+        assert resp.metadata["type"] == "file"
+        assert resp.metadata["resolved_path"].endswith("podcast-habits.md")
+
+        # Without a scope the directory keeps its priority.
+        resp = await _run(StatStep, store, path=suffixless)
+        assert resp.success is True and resp.metadata["type"] == "dir"
+
+        # With neither candidate in scope, the directory's existence is not revealed.
+        resp = await _run(StatStep, store, path=suffixless, _allowed_paths=[OUTSIDE])
+        assert resp.success is False
+        assert "no permission" in str(resp.answer).lower()
+        assert "exists" not in resp.metadata and "type" not in resp.metadata
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_stat_does_not_probe_out_of_scope_candidates(monkeypatch):
+    """An OS error on an out-of-scope candidate must not stop stat on the authorized one."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        _seed(Path(tmp), "notes/LICENSE", "MIT\n")
+        store = await _make_store()
+        forbidden = (Path(tmp) / "notes/LICENSE.md").resolve()
+        probed: list[str] = []
+        real_exists, real_is_dir = Path.exists, Path.is_dir
+
+        def guarded(real):
+            def probe(self, *args, **kwargs):
+                if self.resolve() == forbidden:
+                    probed.append(real.__name__)
+                    raise PermissionError(13, "Permission denied", str(self))
+                return real(self, *args, **kwargs)
+
+            return probe
+
+        monkeypatch.setattr(Path, "exists", guarded(real_exists))
+        monkeypatch.setattr(Path, "is_dir", guarded(real_is_dir))
+
+        resp = await _run(StatStep, store, path="notes/LICENSE", _allowed_paths=["notes/LICENSE"])
+        assert resp.success is True, resp.answer
+        assert resp.metadata["type"] == "file"
+        assert not probed
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_stat_unresolvable_markdown_candidate_does_not_block_directory():
+    """A symlink loop at the .md sibling must not stop stat on an authorized directory."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        _seed(Path(tmp), "notes/daily/2026-01-01/a.txt", "x\n")
+        loop = Path(tmp) / "notes/daily/2026-01-01.md"
+        loop.symlink_to(loop.name)
+        store = await _make_store()
+
+        resp = await _run(StatStep, store, path="notes/daily/2026-01-01", _allowed_paths=["notes/daily/2026-01-01"])
+        assert resp.success is True, resp.answer
+        assert resp.metadata["type"] == "dir"
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_stat_scope_rejects_outside_path():
+    """StatStep honors the scope and does not reveal outside frontmatter or existence."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        _seed(Path(tmp), NOTE, "target\n")
+        _seed(Path(tmp), OUTSIDE, "---\nowner: alice\n---\nroadmap\n")
+        store = await _make_store()
+        scope = {"_allowed_paths": [NOTE]}
+
+        resp = await _run(StatStep, store, path=OUTSIDE, **scope)
+        assert resp.success is False
+        assert "no permission" in str(resp.answer).lower()
+        assert "frontmatter" not in resp.metadata
+        assert "exists" not in resp.metadata
+
+        resp = await _run(StatStep, store, path="topics/missing.md", **scope)
+        assert resp.success is False
+        assert "no permission" in str(resp.answer).lower()
+
+        resp = await _run(StatStep, store, path=NOTE, **scope)
+        assert resp.success is True
+        assert resp.metadata["type"] == "file"
+
+        resp = await _run(StatStep, store, path=OUTSIDE)
+        assert resp.success is True
+        assert resp.metadata["frontmatter"] == {"owner": "alice"}
         await store.close()
 
 

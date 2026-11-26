@@ -23,7 +23,7 @@ from pathlib import Path
 
 import frontmatter
 
-from ._path import display_path, gate_md, resolve_path
+from ._path import check_path_permission, display_path, gate_md, resolve_path
 from ..base_step import BaseStep
 from ...core.registry import R
 
@@ -51,10 +51,45 @@ class StatStep(BaseStep):
         # side, and directory probing is a supported use of this step.
         # Otherwise fall back to the original when the .md candidate is
         # missing but the original exists (e.g., an extension-less file).
+        #
+        # Honor the request-scoped ``_allowed_paths`` constraint like ``read``
+        # (stat also returns the frontmatter of Markdown files). Candidates
+        # outside the scope are dropped before the precedence above applies,
+        # and before their filesystem metadata is probed, so an out-of-scope
+        # directory or file can neither shadow an authorized note, reveal
+        # that it exists, nor fail the request with an OS error. Each
+        # candidate is checked only when the precedence reaches it, and a
+        # candidate that cannot be resolved (e.g. a symlink loop) is treated
+        # as unauthorized, so it cannot stop an authorized fallback.
         original_target = target
-        target, _is_md = gate_md(target)
-        if original_target.is_dir() or (not target.exists() and original_target.exists()):
+        md_target, _is_md = gate_md(target)
+        allowed_paths = self.context.get("_allowed_paths")
+        checked: dict[Path, bool] = {}
+
+        def allowed(candidate: Path) -> bool:
+            if candidate not in checked:
+                try:
+                    checked[candidate] = check_path_permission(workspace_dir, candidate, allowed_paths)
+                except (OSError, RuntimeError):
+                    checked[candidate] = False
+            return checked[candidate]
+
+        if allowed(original_target) and original_target.is_dir():
             target = original_target
+        elif allowed(md_target) and md_target.exists():
+            target = md_target
+        elif allowed(original_target) and original_target.exists():
+            target = original_target
+        elif allowed(md_target):
+            target = md_target
+        elif allowed(original_target):
+            target = original_target
+        else:
+            self.context.response.success = False
+            self.context.response.answer = "Error: no permission to access this path"
+            self.context.response.metadata.update({"path": path, "error": "no permission to access this path"})
+            self.logger.info(f"[{self.name}] path={path} permission denied")
+            return
         if not target.exists():
             probed = display_path(workspace_dir, target)
             self.context.response.success = False

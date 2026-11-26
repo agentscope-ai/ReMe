@@ -1,4 +1,10 @@
-"""Read an image file as base64; oversized images degrade to path + metadata."""
+"""Read an image file as base64; oversized images degrade to path + metadata.
+
+Permission: honors the request-scoped ``_allowed_paths`` constraint injected
+by the server into the RuntimeContext, like ``read``. Files with an unknown
+suffix are still returned as base64, so without the check a scoped request
+could read any workspace file through this step.
+"""
 
 import base64
 
@@ -6,7 +12,7 @@ import aiofiles
 import aiofiles.os
 
 from ._base import _FileIOStep
-from ._path import NON_IMAGE_WARNING, gate_image, resolve_path
+from ._path import NON_IMAGE_WARNING, check_path_permission, gate_image, resolve_path
 from ...core.registry import R
 from ...constants import DEFAULT_MAX_IMAGE_BYTES
 
@@ -51,6 +57,11 @@ class ReadImageStep(_FileIOStep):
             return None
 
         target, is_image, mime = gate_image(target)
+        if not check_path_permission(self.workspace_path, target, self.context.get("_allowed_paths")):
+            # Echo the request: ``target`` is canonicalized and could reveal
+            # where an out-of-scope symlink points.
+            self._fail("no permission to access this file", path=raw)
+            return None
         if not is_image:
             self.logger.info(f"[{self.name}] {NON_IMAGE_WARNING} path={target}")
 
