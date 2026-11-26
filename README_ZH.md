@@ -54,6 +54,10 @@
 - [ROADMAP] - **[ReMe5 前瞻 · Proactive Runtime](docs/zh/reme5_preview.md)**。ReMe 将以文件化记忆为核心，
   支持事件触发和时间触发的后台任务。你可以把需要持续跟进的事交给 ReMe，有新进展时它会记下来，并在需要时提醒你。
   我们计划在 **2026 年底前**发布 ReMe5，欢迎先看我们的设计方案、开发计划和里程碑。
+- [2026.11] - **`NEW`** **[HoMe](https://reme.agentscope.io/zh/blog_20261124) 代码现已发布**：[HoMe 论文](https://arxiv.org/abs/2611.34624)
+  的实现以 ReMe 插件形式提供，根据评测反馈自动诊断失败、优化记忆系统。LongMemEval 测试集与 BEAM 1M 得分分别提升
+  2.8pp 和 5.4pp，平均 query token 分别减少 59.2% 和 40.7%。
+- [2026.11] - **`NEW`** 我们发布了论文 **[HoMe: Toward Practical Harness Optimization of Memory Systems for AI Assistants](https://arxiv.org/abs/2611.34624)**。
 - [2026.10] - **[基于决策模型的上下文压缩](docs/zh/context_compaction.md)**：根据下一步任务判断旧工具证据的保留价值，
   保护关键历史，并返回可回溯的压缩建议；提供 SVG 流程图、两个真实模型集成场景和 14-query 固定摘要实验，包含强制 Hermes 摘要基线。
 - [2026.10] - **[ReMe 多模态记忆更新](https://reme.agentscope.io/zh/blog_20261009)**：Auto Memory 将会话图片和上下文一起
@@ -351,13 +355,24 @@ ReMe 遵循 capture → index → consolidate → recall 的循环。workspace �
 
 ReMe 通过 Agent 多轮搜索与读取的方式，评测多会话和超长上下文中的文本与多模态记忆能力。下表为仓库中已公开的参考实验结果；模型、prompt、数据集和评判细节见各评测文档。
 
+### 长程记忆
+
+| 基准                                                                        | 设置        |            样本量 | Agentic 得分；平均 query token | 主要检验内容                   |
+| --------------------------------------------------------------------------- | ----------- | ----------------: | -----------: | ------------------------------ |
+| **[LongMemEval cleaned-s](https://reme.agentscope.io/zh/benchmarks/longmemeval)** | **整体**    |        **500 题** |    **89.4% / 44.3K** | 跨会话检索、知识更新与时间推理 |
+| [BEAM](https://reme.agentscope.io/zh/benchmarks/beam)                             | 100K 上下文 | 20 cases / 400 题 |        66.1% / 65.0K | 十类长上下文记忆任务           |
+| [BEAM](https://reme.agentscope.io/zh/benchmarks/beam)                             | 1M 上下文   | 35 cases / 700 题 |        65.0% / 101.8K | 超长对话设置                   |
+| [LongMemEval cleaned-s](https://reme.agentscope.io/zh/benchmarks/longmemeval) | Optimized by HoMe | 测试集 250 题 | 91.6% / 17.9K | HoMe 优化记忆系统 |
+| [BEAM](https://reme.agentscope.io/zh/benchmarks/beam) | 1M 上下文，optimized by HoMe on Beam100K | 35 cases / 700 题 | 70.4% / 60.4K | HoMe 优化记忆系统 |
+
+### 多模态记忆
+
 | 基准                                                                        | 设置        |            样本量 | Agentic 得分 | 主要检验内容                   |
 | --------------------------------------------------------------------------- | ----------- | ----------------: | -----------: | ------------------------------ |
-| **[LongMemEval cleaned-s](https://reme.agentscope.io/zh/benchmarks/longmemeval)** | **整体**    |        **500 题** |    **89.4%** | 跨会话检索、知识更新与时间推理 |
-| [BEAM](https://reme.agentscope.io/zh/benchmarks/beam)                             | 100K 上下文 | 20 cases / 400 题 |        66.1% | 十类长上下文记忆任务           |
-| [BEAM](https://reme.agentscope.io/zh/benchmarks/beam)                             | 1M 上下文   | 35 cases / 700 题 |        65.0% | 超长对话设置                   |
 | [MemLens-256K](benchmark/memlens/docs/zh/evaluation.md) | ReMe Image · Qwen3.8-Max | 189 / 195 题 | 72.49% | 多模态长历史问答 |
 | [MobileMem-Omni](benchmark/mobilemem/docs/zh/evaluation.md) | ReMe Image · Qwen3.8-Max | 20 位用户 / 1,333 题 | 60.69% | 个人视觉记忆与推理 |
+
+### 主动记忆
 
 在仓库的 [π-Bench 评测](https://reme.agentscope.io/zh/benchmarks/pibench)中，ReMe Agent 在 5 种用户角色上的平均 **PROC 得分为 0.580**
 ，比相同测试模型配置的 NanoBot 高 2.4%。PROC 用于评估隐藏意图完成、针对性澄清、跨会话偏好和规范复用、跨任务依赖推断以及欠规格请求推进等主动性能力。

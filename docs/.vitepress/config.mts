@@ -237,6 +237,7 @@ function singlePageSidebar(language: "zh" | "en", page: "blog" | "faq"): Default
         { text: zh ? "ReMe介绍" : "About ReMe", link: `/${language}/reme-blog` },
         { text: zh ? "记忆标签" : "Memory Tags", link: `/${language}/blog_20260920` },
         { text: zh ? "图片记忆" : "Image Memory", link: `/${language}/blog_20261009` },
+        { text: "HoMe", link: `/${language}/blog_20261124` },
       ],
     }];
   }

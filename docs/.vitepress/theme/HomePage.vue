@@ -52,7 +52,7 @@ const translations = {
     benchmarks: [
       { name: "LongMemEval", setting: "500 题 · cleaned-s", score: 89.4 },
       { name: "BEAM 100K", setting: "20 cases · 400 题", score: 66.1 },
-      { name: "BEAM 1M", setting: "35 cases · 700 题", score: 65.0 },
+      { name: "BEAM 1M", setting: "35 cases · 700 题 · HoMe 优化", score: 70.4 },
     ],
     piLabel: "π-Bench 主动性",
     piDetail: "5 类用户画像的平均 PROC 得分",
@@ -111,7 +111,7 @@ const translations = {
     benchmarks: [
       { name: "LongMemEval", setting: "500 questions · cleaned-s", score: 89.4 },
       { name: "BEAM 100K", setting: "20 cases · 400 questions", score: 66.1 },
-      { name: "BEAM 1M", setting: "35 cases · 700 questions", score: 65.0 },
+      { name: "BEAM 1M", setting: "35 cases · 700 questions · HoMe optimized", score: 70.4 },
     ],
     piLabel: "π-Bench proactivity",
     piDetail: "Average PROC score across five personas",

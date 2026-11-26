@@ -31,6 +31,8 @@ const externalDocuments = [
   ["en/plugins/lme.md", "plugins/lme/README.md"],
   ["zh/plugins/beam.md", "plugins/beam/README_ZH.md"],
   ["en/plugins/beam.md", "plugins/beam/README.md"],
+  ["zh/plugins/home.md", "plugins/home/README.md"],
+  ["en/plugins/home.md", "plugins/home/README.md"],
   ["zh/benchmarks/beam.md", "benchmark/beam/README_ZH.md"],
   ["en/benchmarks/beam.md", "benchmark/beam/README.md"],
   ["zh/benchmarks/longmemeval.md", "benchmark/longmemeval/README_ZH.md"],
@@ -46,6 +48,12 @@ const externalDocuments = [
 ];
 
 const externalDocumentRewrites = {
+  "plugins/home/README.md": [
+    ["(src/reme_home/evaluation/docker/README.md)", "(https://github.com/agentscope-ai/ReMe/blob/main/plugins/home/src/reme_home/evaluation/docker/README.md)"],
+    ["(examples/prepare.yaml)", "(https://github.com/agentscope-ai/ReMe/blob/main/plugins/home/examples/prepare.yaml)"],
+    ["(../../benchmark/beam/README.md#", "(../benchmarks/beam#"],
+    ["(../../benchmark/longmemeval/README.md#", "(../benchmarks/longmemeval#"],
+  ],
   "README.md": [
     ['href="./LICENSE"', 'href="https://github.com/agentscope-ai/ReMe/blob/main/LICENSE"'],
     ['href="./README.md"', 'href="/en/overview"'],
