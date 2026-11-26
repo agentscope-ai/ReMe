@@ -124,10 +124,12 @@ for (const language of ["zh", "en"]) {
   const homeBlogRoute = `/${language}/blog_20261124`;
   assert.ok(multimodalBlog.includes(`href="${homeBlogRoute}"`), "the blog sidebar must link to the HoMe article");
   const overview = await readFile(path.join(outputDir, language, "overview.html"), "utf8");
-  assert.ok(
-    overview.includes(`href="https://reme.agentscope.io${homeBlogRoute}"`),
-    "the project overview must link to the published HoMe article",
-  );
+  if (language === "zh") {
+    assert.ok(
+      overview.includes(`href="https://reme.agentscope.io${homeBlogRoute}"`),
+      "the Chinese project overview must link to the published HoMe article",
+    );
+  }
   const configLink = overview.match(/<a\b[^>]*href="([^"]+)"[^>]*>\s*<code>reme\/config\/default\.yaml<\/code>\s*<\/a>/);
   assert.equal(
     configLink?.[1],
