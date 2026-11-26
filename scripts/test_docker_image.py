@@ -148,7 +148,7 @@ def check_admin(base_url: str, state: Path) -> dict:
         raise AssertionError("Container management accepted a request without its token")
 
     token = (state / "admin-token").read_text().strip()
-    config, _ = request(base_url, "/admin/config", headers={"Authorization": f"Bearer {token}"})
+    config, _ = request(base_url, "/admin/config", headers={"X-ReMe-Admin-Token": token})
     assert config["initialized"]
     return config
 

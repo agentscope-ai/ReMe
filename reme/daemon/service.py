@@ -88,14 +88,9 @@ def build_gateway(
             if not remote_management or not admin_token:
                 raise HTTPException(403, "Remote ReMe management is disabled")
         if admin_token or not local:
-            expected = ("Bearer " + admin_token).encode("utf-8")
-            supplied = request.headers.get("authorization", "").encode("utf-8")
-            if not admin_token or not secrets.compare_digest(supplied, expected):
-                raise HTTPException(
-                    401,
-                    "A ReMe administrator token is required",
-                    headers={"WWW-Authenticate": "Bearer"},
-                )
+            supplied = request.headers.get("x-reme-admin-token", "").encode("utf-8")
+            if not admin_token or not secrets.compare_digest(supplied, admin_token.encode("utf-8")):
+                raise HTTPException(401, "A ReMe administrator token is required")
         origin = request.headers.get("origin")
         if origin is None:
             if request.headers.get("sec-fetch-site") == "cross-site":

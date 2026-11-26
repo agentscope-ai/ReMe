@@ -89,7 +89,7 @@ export class ReMeClient {
         : "";
     const headers = new Headers({ "Content-Type": "application/json" });
     if (request.credentials?.endpoint === this.endpoint)
-      headers.set("Authorization", `Bearer ${request.credentials.token}`);
+      headers.set("X-ReMe-Admin-Token", request.credentials.token);
     const response = await this.fetchRequest(
       `${this.endpoint}/admin/${action}${query}`,
       {

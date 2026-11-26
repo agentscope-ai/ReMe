@@ -18,9 +18,10 @@ test("administrator credentials stay scoped to the selected backend", async () =
     signal,
   );
   assert.equal(
-    new Headers(requests[0].headers).get("authorization"),
-    "Bearer test-admin",
+    new Headers(requests[0].headers).get("x-reme-admin-token"),
+    "test-admin",
   );
+  assert.equal(new Headers(requests[0].headers).get("authorization"), null);
   assert.equal(requests[0].redirect, "error");
   await assert.rejects(
     new ReMeClient("https://different.example", fetchRequest).manage(
@@ -28,6 +29,10 @@ test("administrator credentials stay scoped to the selected backend", async () =
       signal,
     ),
     (error) => error instanceof UiError && error.key === "backendAuthRequired",
+  );
+  assert.equal(
+    new Headers(requests[1].headers).get("x-reme-admin-token"),
+    null,
   );
   assert.equal(new Headers(requests[1].headers).get("authorization"), null);
 });

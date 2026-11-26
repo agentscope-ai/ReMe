@@ -308,6 +308,12 @@ User settings are imported once from startup configuration, system environment v
 
 The supervisor stores settings, credentials, and restart status under `~/.config/reme/instances/`. The startup directory, configuration, listen address, and port identify the default instance. Set `REME_DAEMON_DIR` to choose a private directory outside the workspace. Docker Compose keeps `/state` separate from `/data`. Management is available on a local loopback listener. To enable remote management, configure a random `REME_ADMIN_TOKEN` and connect over HTTPS. Enter the token in Studio when prompted. A separately hosted Web frontend must proxy `/admin/` through its own origin. Management has its own endpoints and is independent of Jobs and MCP.
 
+Studio and management clients send the administrator token only in `X-ReMe-Admin-Token`.
+
+When a proxy terminates HTTPS, preserve the public `Host` and set `X-Forwarded-Proto: https`. Enable `service.proxy_headers=true` and restrict `service.forwarded_allow_ips` to trusted proxy IPs or CIDRs. Use `*` only when the listener is reachable exclusively through trusted proxies.
+
+[ModelScope Docker Studios](https://github.com/modelscope/modelscope-skills/blob/main/skills/ms-studio-deploy/SKILL.md#docker-studio-reference) reserve `Authorization` and require port `7860`. Use `REME_PORT=7860`, `REME_CONFIG=proactive`, and the proxy settings above. Store `REME_ADMIN_TOKEN` and a persistent `REME_ENCRYPTION_KEY` in platform Secrets.
+
 ## Notebook projects
 
 Start the service with `reme start config=proactive`, then run these commands in another terminal.
