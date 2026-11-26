@@ -28,6 +28,8 @@ class ComponentEnum(str, Enum):
 
     FILE_CATALOG = "file_catalog"
 
+    ACTION_ITEM_STORE = "action_item_store"
+
     AGENT_INBOX = "agent_inbox"
 
     PROACTIVE_MANAGER = "proactive_manager"
