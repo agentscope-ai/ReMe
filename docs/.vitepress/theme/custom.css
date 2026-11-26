@@ -64,35 +64,18 @@ body {
 }
 
 @media (min-width: 960px) {
+  /* VitePress 2 lays the bar out with flexbox and reserves the sidebar column
+     for the title on doc pages. Size the title to the logo and name instead,
+     so search sits next to it and the full menu fits at the desktop breakpoint. */
   .VPNavBar.has-sidebar .container > .title {
-    width: 113px !important;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: none !important;
     padding-right: 0 !important;
-  }
-
-  .VPNavBar.has-sidebar .content {
-    padding-left: 113px !important;
   }
 
   .VPNavBarSearch {
     padding-left: 24px !important;
-  }
-}
-
-@media (min-width: 1496px) {
-  .VPNavBar.has-sidebar .container {
-    position: relative !important;
-    max-width: 1496px !important;
-    margin: 0 auto !important;
-  }
-
-  .VPNavBar.has-sidebar .container > .title {
-    width: 81px !important;
-    padding-left: 0 !important;
-  }
-
-  .VPNavBar.has-sidebar .content {
-    padding-right: 0 !important;
-    padding-left: 81px !important;
   }
 }
 
