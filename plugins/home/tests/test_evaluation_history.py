@@ -46,6 +46,41 @@ def manifest(response):
 
 
 @pytest.mark.asyncio
+async def test_archived_evaluation_keeps_budget_charge_and_reserves_attempt_id(app, prepared, tmp_path):
+    commit_candidate(prepared)
+    first = await app.run_job("home_evaluate", case_ids=["1"])
+    assert first.success, first.answer
+    first_manifest = manifest(first)
+    plan_path = prepared / first_manifest["sampling"]["plan_path"]
+    original_plan = plan_path.read_bytes()
+    first_run = Path(first.answer["result_dir"])
+    archived = first_run.rename(tmp_path / "archived-evaluation")
+
+    state = read_state(prepared)
+    assert state["successful_round"] == 0 and not state["cases"]
+    assert validation_budget_status(prepared, 1)["remaining_validations"] == 0
+    assert rebuild_sampling_state(prepared) == state
+
+    second = await app.run_job("home_evaluate", case_ids=["2"], max_evaluations=2)
+
+    assert second.success, second.answer
+    new_manifest = manifest(second)
+    assert new_manifest["validation_id"] == "2"
+    assert new_manifest["sampling"]["round"] == 2
+    assert new_manifest["sampling"]["plan_path"] != first_manifest["sampling"]["plan_path"]
+    assert plan_path.read_bytes() == original_plan
+    assert second.answer["validation_budget"]["remaining_validations"] == 0
+    assert set(read_state(prepared)["cases"]) == {"2"}
+
+    archived.rename(first_run)
+    restored_state = read_state(prepared)
+    assert restored_state["successful_round"] == 2
+    assert set(restored_state["cases"]) == {"1", "2"}
+    assert rebuild_sampling_state(prepared) == restored_state
+    assert validation_budget_status(prepared, 2)["used_validations"] == 2
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("cancelled", [False, True])
 async def test_completion_waits_for_concurrent_code_browsing(app, prepared, monkeypatch, cancelled):
     from reme_home.code.component import OPERATIONS
@@ -341,6 +376,7 @@ async def test_history_and_observations_rebuild_without_touching_artifacts(app, 
 
 @pytest.mark.asyncio
 async def test_call_policy_merges_component_defaults_without_mutating_them(app, prepared):
+    commit_candidate(prepared)
     evaluator = app.context.components["home.evaluation"]["default"]
     evaluator.sampling_policy = SamplingPolicy(max_cases=2, max_queries=2, temperature=0.7, ewma_alpha=0.6)
     response = await app.run_job("home_evaluate", sampling=True, sampling_policy={"max_cases": 1})
@@ -376,6 +412,7 @@ async def test_call_policy_merges_component_defaults_without_mutating_them(app, 
 
 @pytest.mark.asyncio
 async def test_job_defaults_and_hidden_agent_injection_use_one_job(app, prepared):
+    commit_candidate(prepared)
     job = app.context.jobs["home_evaluate"]
     assert "home_validate" not in app.context.jobs
     job.kwargs.update(sampling=True, sampling_policy={"max_cases": 1})
@@ -526,6 +563,7 @@ async def test_history_job_defaults_and_agent_injection_are_enforced(app, prepar
 
 @pytest.mark.asyncio
 async def test_legacy_cache_rebuild_and_explicit_null_query_budget(app, prepared):
+    commit_candidate(prepared)
     evaluator = app.context.components["home.evaluation"]["default"]
     evaluator.sampling_policy = SamplingPolicy(max_cases=2, max_queries=1)
     result = await app.run_job("home_evaluate", sampling=True, sampling_policy={"max_queries": None})
@@ -624,7 +662,7 @@ async def test_registration_failure_invalidates_only_caches(
 
 @pytest.mark.asyncio
 async def test_process_exit_after_completion_recovers_before_next_evaluation(app, prepared):
-    from reme.application import Application
+    from reme import Application
 
     config = app.config.model_dump(mode="json")
     await app.close()
@@ -636,13 +674,13 @@ import os
 import sys
 from unittest.mock import AsyncMock
 sys.path[:] = json.loads(sys.argv[1])
-from reme.application import Application
+from reme import Application
 from reme_home.evaluation import component
 from test_evaluation import FakeFactory
 import reme.plugin
 entries = {name: EntryPoint(name=name, value=value, group="reme.plugins") for name, value in
            [("home", "reme_home"), ("beam-judge", "judge_beam")]}
-reme.plugin.find_entry_points = lambda group, name: [entries[name]]
+reme.plugin.manager.find_entry_points = lambda group, name: [entries[name]]
 component.DockerReMeSandboxFactory = FakeFactory
 async def run():
     app = Application(**json.loads(sys.argv[2]))

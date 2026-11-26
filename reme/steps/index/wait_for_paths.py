@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 
 
 @R.register("wait_for_paths_step")

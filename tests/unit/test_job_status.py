@@ -12,11 +12,10 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from reme.application import Application
-from reme.components import ApplicationContext
+from reme import Application
+from reme.core.context import ApplicationContext, RuntimeContext
 from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.job import BackgroundJob, BaseJob, CronJob, StreamJob
-from reme.components.runtime_context import RuntimeContext
 from reme.components.service import HttpService
 from reme.enumeration import ChunkEnum
 from reme.schema import ApplicationConfig, JobConfig, Response, StreamChunk
@@ -476,6 +475,191 @@ async def test_cron_records_triggers_not_scheduler_and_continues_after_failure(c
         assert check_job_count("test", context) == 2
     finally:
         await job.close()
+
+
+@pytest.mark.asyncio
+async def test_cron_initializes_before_scheduling_with_isolated_contexts_and_fresh_steps(context):
+    """Initialization is one ordered execution per start, separate from each scheduled run."""
+    initialized = []
+    triggered = []
+    steps = []
+    waits = 0
+
+    async def first(step):
+        initialized.append(step.context)
+        steps.append(step)
+        assert step.context.data == {"source": "configured"}
+        step.context["initializing"] = True
+        step.context.response.answer = "initialization only"
+        step.context.response.metadata["initializing"] = True
+
+    async def second(step):
+        assert step.context is initialized[-1]
+        assert step.context["initializing"]
+
+    async def body(step):
+        triggered.append(step.context)
+        steps.append(step)
+        assert step.context.data == {"source": "configured"}
+        assert step.context.response.answer == ""
+        assert step.context.response.metadata == {}
+
+    job = _job(
+        context,
+        CronJob,
+        cron="*/5 * * * *",
+        source="configured",
+        init_steps=[
+            {"backend": "callback_step", "callback": first},
+            {"backend": "callback_step", "callback": second},
+        ],
+        steps=[{"backend": "callback_step", "callback": body}],
+    )
+
+    async def wait(_delay):
+        nonlocal waits
+        waits += 1
+        assert len(initialized) == starts
+        if waits % 3 == 0:
+            job._stop_event.set()
+
+    job._wait_or_stop = wait
+    job._next_fire_delay = lambda: 0
+    for starts in (1, 2):
+        await job.start()
+        try:
+            await asyncio.wait_for(job._task, 2)
+            assert len(triggered) == starts * 2
+            records = context.get_job_status()["test"]
+            assert len(records) == starts * 3
+            assert all(record["status"] == "succeeded" for record in records)
+        finally:
+            await job.close()
+        assert job.init_step_specs == []
+    contexts = initialized + triggered
+    assert len({id(item) for item in contexts}) == len(contexts)
+    assert len({id(step) for step in steps}) == len(steps)
+    assert "init_steps" not in job.kwargs
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["exception", "response"])
+async def test_cron_retries_failed_initialization_before_scheduling(context, failure):
+    """Both error forms stop the init chain and reach the existing supervisor."""
+    attempts = []
+    finished = []
+    waits = 0
+
+    async def initialize(step):
+        attempts.append(step)
+        assert step.context.response.success
+        if len(attempts) == 1:
+            if failure == "exception":
+                raise ValueError("init failed")
+            step.context.response.success = False
+            step.context.response.answer = "init failed"
+
+    async def finish(step):
+        finished.append(step)
+
+    job = _job(
+        context,
+        CronJob,
+        cron="* * * * *",
+        init_steps=[
+            {"backend": "callback_step", "callback": initialize},
+            {"backend": "callback_step", "callback": finish},
+        ],
+    )
+
+    def next_delay():
+        assert len(attempts) == 2 and len(finished) == 1
+        return 0
+
+    async def wait(_delay):
+        nonlocal waits
+        waits += 1
+        if waits == 1:
+            assert len(attempts) == 1 and not finished
+            record = context.get_job_status()["test"][0]
+            assert record["status"] == "failed"
+            assert record["failed_step"] == ["callback_step"]
+            assert "init failed" in record["error"]
+        else:
+            job._stop_event.set()
+
+    job._next_fire_delay = next_delay
+    job._wait_or_stop = wait
+    await job.start()
+    try:
+        await asyncio.wait_for(job._task, 2)
+        assert waits == 2
+        assert attempts[0] is not attempts[1]
+        assert [record["status"] for record in context.get_job_status()["test"]] == ["succeeded", "failed"]
+    finally:
+        await job.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("backend", ["", "missing_step"])
+async def test_cron_rejects_invalid_init_steps_before_spawning_scheduler(context, backend):
+    """Invalid initializer registrations fail startup without leaving a running task."""
+    job = _job(context, CronJob, cron="* * * * *", init_steps=[{"backend": backend}])
+    with pytest.raises(ValueError, match="backend"):
+        await job.start()
+    assert job._task is None
+    assert not job.is_started
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cooperative", [True, False])
+async def test_cron_shutdown_during_initialization_never_starts_schedule(context, cooperative):
+    """Initialization uses the background stop signal and cancellation cleanup."""
+    entered = asyncio.Event()
+    exited = asyncio.Event()
+
+    async def initialize(step):
+        entered.set()
+        try:
+            await (step.context.stop_event.wait() if cooperative else asyncio.Event().wait())
+        finally:
+            exited.set()
+
+    async def unexpected(_step):
+        pytest.fail("shutdown must stop the initialization chain")
+
+    job = _job(
+        context,
+        CronJob,
+        cron="* * * * *",
+        close_timeout=0.01,
+        init_steps=[
+            {"backend": "callback_step", "callback": initialize},
+            {"backend": "callback_step", "callback": unexpected},
+        ],
+        steps=[{"backend": "callback_step", "callback": unexpected}],
+    )
+    job._next_fire_delay = lambda: pytest.fail("shutdown must not start the schedule")
+    await job.start()
+    try:
+        await asyncio.wait_for(entered.wait(), 2)
+    finally:
+        await job.close()
+    assert exited.is_set()
+    assert job._task is None
+    assert job.init_step_specs == []
+    assert context.get_job_status()["test"][0]["status"] == ("stopped" if cooperative else "cancelled")
+
+
+@pytest.mark.parametrize("cls", [BaseJob, StreamJob, BackgroundJob])
+def test_init_steps_are_cron_only_and_never_become_runtime_inputs(context, cls):
+    """The shared typed option is consumed, and unsupported backends fail explicitly."""
+    config = JobConfig(backend=cls.__name__, init_steps=[{"backend": "callback_step"}])
+    assert config.init_steps[0].backend == "callback_step"
+    with pytest.raises(ValueError, match="only supported by cron"):
+        _job(context, cls, **config.model_dump(exclude={"backend"}))
+    job = _job(context, cls, **JobConfig().model_dump(exclude={"backend"}))
+    assert "init_steps" not in job.kwargs
 
 
 @pytest.mark.asyncio

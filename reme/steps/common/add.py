@@ -1,7 +1,7 @@
 """Simple step that adds two numbers — used as a demo tool for agent wrapper."""
 
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 
 
 @R.register("add_step")

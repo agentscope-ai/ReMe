@@ -3,14 +3,14 @@
 from typing import TYPE_CHECKING, Any
 
 from .base_service import BaseService
-from ..component_registry import R
+from ...core.registry import R
 from ..job import BaseJob
 from ...constants import REME_DEFAULT_HOST, REME_DEFAULT_PORT
 from .mcp_tools import add_mcp_job
 
 if TYPE_CHECKING:
     from fastmcp.server.server import Transport
-    from ...application import Application
+    from ...core.application import Application
 
 
 @R.register("mcp")

@@ -6,9 +6,9 @@ from agentscope.model._model_usage import ChatUsage
 import pytest
 
 from reme.components.agent_wrapper import AsAgentWrapper, BaseAgentWrapper
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.schema import TokenUsage
-from reme.utils import global_counter_get_all
+from reme.utils.counter import global_counter_get_all
 
 
 class _UsageWrapper(BaseAgentWrapper):
@@ -155,7 +155,7 @@ async def test_agentscope_records_usage_in_both_return_modes(tmp_path, monkeypat
         return None
 
     monkeypatch.setattr(wrapper, "_build_agent", build_agent)
-    monkeypatch.setattr(wrapper, "_dump_state", dump_state)
+    monkeypatch.setattr(wrapper._sessions, "save", dump_state)  # pylint: disable=protected-access
     if streaming:
         chunks = [chunk async for chunk in wrapper.reply_stream("hello")]
         result = chunks[-1].chunk

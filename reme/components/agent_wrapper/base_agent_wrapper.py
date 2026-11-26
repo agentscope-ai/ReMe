@@ -1,25 +1,51 @@
 """Base agent wrapper component."""
 
 from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+from hashlib import sha256
 from importlib import metadata
 from pathlib import Path
-from typing import Any, ClassVar, TYPE_CHECKING
+from typing import Any, ClassVar, Literal, TYPE_CHECKING
 
 from pydantic import BaseModel
 
-from ..base_component import BaseComponent
+from ..base import BaseComponent
 from ..outbound_proxy import BaseOutboundProxy
 from ...enumeration import ChunkEnum, ComponentEnum
 from ...schema import AgentReply, SessionMessage, SessionSnapshot, SessionStatus, StreamChunk, TokenUsage
 from ...schema.agent_reply import AgentReplyStatus, collect_reply
-from ...utils import global_counter_add_many
+from ...utils.counter import global_counter_add_many
+from ...utils.files.workspace_files import WorkspaceFiles
 
 if TYPE_CHECKING:
     from ..job.base_job import BaseJob
 
 
+BUILTIN_SKILLS_ROOT = Path(__file__).resolve().parents[2] / "skills"
+
+
 class BaseAgentWrapper(BaseComponent):
-    """Abstract base for agent wrapper components with swappable backends."""
+    """One session contract for Codex, Claude Code and AgentScope.
+
+    Every backend forks current context independently, including during a turn.
+    Immediate append submits without the generation lock; idle append waits.
+    Both return only after durable persistence, with the same retry identity.
+
+    Codex owns its native active-input queue. Claude uses the invocation's live
+    SDK client, since another resumed CLI cannot update its in-memory context.
+    Claude's no-query batches are serialized to prevent queued user frames
+    being merged into another message's durable ID.
+    AgentScope queues observations until model-input/reply boundaries, because
+    concurrent observe() during SDK compression can be overwritten.
+
+    Native ephemeral threads are a Codex feature: they inherit model context,
+    but cannot expose hydrated turns or provide durable append receipts.
+    Claude/AgentScope forks remain file-backed; releasing runtime resources
+    never deletes history.
+    The shared read-only hint restricts builtins in Claude/AgentScope; it is
+    not their OS command sandbox. Native tool/network settings remain specific
+    to each SDK.
+    """
 
     component_type = ComponentEnum.AGENT_WRAPPER
     SDK_PACKAGE: ClassVar[str | None] = None
@@ -79,8 +105,7 @@ class BaseAgentWrapper(BaseComponent):
 
         A relative configured path resolves from the workspace so applications
         can keep runtime data in a subdirectory such as ``.reme`` while loading
-        project assets from its parent. The workspace remains the default for
-        backward compatibility.
+        project assets from its parent. Defaults to the workspace.
         """
         if not self._project_path:
             return self.workspace_path
@@ -94,8 +119,8 @@ class BaseAgentWrapper(BaseComponent):
         """Project-level skills directory shared by agent backends."""
         return self.project_path / "skills"
 
-    def _resolve_project_skills(self, skills: list[str] | str | None) -> dict[str, Path]:
-        """Resolve selected skill names to validated project directories."""
+    def _resolve_skill_sources(self, skills: list[str] | str | None) -> dict[str, Path]:
+        """Resolve named skills, falling back to the package when the project has no override."""
         if skills is None:
             return {}
         if skills == "all":
@@ -115,12 +140,45 @@ class BaseAgentWrapper(BaseComponent):
             if not name or Path(name).name != name or name in {".", ".."}:
                 raise ValueError(f"Invalid skill name: {name!r}")
             source = self.project_skills_root / name
+            builtin = BUILTIN_SKILLS_ROOT / name
+            if not (source / "SKILL.md").is_file() and (builtin / "SKILL.md").is_file():
+                source = builtin
             if not source.is_dir():
                 raise FileNotFoundError(f"Skill directory not found: {source}")
             if not (source / "SKILL.md").is_file():
                 raise FileNotFoundError(f"Skill '{name}' is missing SKILL.md: {source}")
             sources[name] = source
         return sources
+
+    def _publish_builtin_skill(self, owner: Path, directory: str, source: Path) -> None:
+        """Publish a regular skill file, updating only copies still owned by ReMe."""
+        files = WorkspaceFiles(owner)
+        root = files.workspace / directory
+        target = root / source.name
+        if root.resolve() != root or target.is_symlink() or (target.exists() and not target.is_dir()):
+            return
+        manifest = target / "SKILL.md"
+        receipt = target / ".reme-skill"
+        if manifest.is_symlink() or receipt.is_symlink():
+            return
+
+        content = (source / "SKILL.md").read_text(encoding="utf-8")
+        digest = sha256(content.encode("utf-8")).hexdigest()
+        if manifest.exists():
+            if not manifest.is_file() or not receipt.is_file():
+                return
+            current = files.read(manifest)
+            if current == content:
+                return
+            previous = sha256(current.encode("utf-8")).hexdigest()
+            if previous not in files.read(receipt).splitlines():
+                return
+            # A retry can recognize either version if publication stops after writing the receipt.
+            files.write(receipt, f"{previous}\n{digest}\n")
+            files.write(manifest, content)
+        else:
+            files.write(receipt, f"{digest}\n")
+            files.write(manifest, content, create_only=True)
 
     @property
     def subprocess_environment(self) -> dict[str, str]:
@@ -278,11 +336,27 @@ class BaseAgentWrapper(BaseComponent):
         raise NotImplementedError(f"{type(self).__name__} does not support session compaction")
 
     async def create_session(self, **kwargs) -> str:
-        """Create a resumable empty session without generating a reply."""
+        """Create a resumable session without generating a reply.
+
+        With resume and fork_session=True, capture source context in an independent
+        session without waiting for or interrupting a running source. Running
+        tools are not cloned; unfinished work is closed only in the branch.
+        Subsequent source messages are not automatically copied into the fork.
+        """
         raise NotImplementedError(f"{type(self).__name__} does not support session creation")
 
     async def release_session(self, session_id: str) -> None:
         """Release idle runtime resources; persisted session history remains available."""
+
+    @asynccontextmanager
+    async def session_guard(self, session_id: str, *, expected_revision: str):
+        """Hold generation and append writers while committing a content-dependent decision."""
+        raise NotImplementedError("This agent backend does not support guarded decisions")
+        yield  # pylint: disable=unreachable
+
+    async def session_exists(self, session_id: str) -> bool:
+        """Check whether a session can be resumed without generating a reply."""
+        raise NotImplementedError(f"{type(self).__name__} does not support session existence checks")
 
     async def get_session_path(self, session_id: str) -> Path | None:
         """Return the native session file path, or None when no path is available.
@@ -290,6 +364,9 @@ class BaseAgentWrapper(BaseComponent):
         The returned path may precede file creation. Lookup errors propagate.
         """
         raise NotImplementedError(f"{type(self).__name__} does not support session path lookup")
+
+    async def get_tool_calls(self, session_id: str, turn_id: str | None = None) -> list[dict[str, Any]] | None:
+        """Read saved calls for a turn, or None when only live events are available."""
 
     async def read_session(self, session_id: str) -> SessionSnapshot:
         """Read display history without waiting for the session to become idle."""
@@ -305,10 +382,24 @@ class BaseAgentWrapper(BaseComponent):
         content: str,
         *,
         message_id: str,
+        role: Literal["user", "assistant"] = "assistant",
         timeout: float = 30,
         expected_turn_id: str | None = None,
+        expected_revision: str | None = None,
+        delivery: str = "idle",
     ) -> SessionMessage:
-        """Append an idempotent assistant message, optionally requiring the current conversation turn."""
+        """Append a user or assistant message once without generating a reply.
+
+        The optional revision guard rejects any changed display content; the turn guard checks only its anchor.
+        Idle delivery waits for generation. Immediate delivery submits during
+        generation and may wait until a native processing/SDK event boundary.
+
+        Successful return confirms native persistence, not merely input-queue acceptance.
+        Acceptance need not interrupt the current model request or start another turn.
+        A timeout or cancellation after submission does not prove rejection: retry with
+        the same message_id, role and content. An already accepted request keeps its
+        original identity and is recovered before applying guards for a new append.
+        """
         raise NotImplementedError(f"{type(self).__name__} does not support session appending")
 
     async def reply_stream(self, inputs: Any, **kwargs) -> AsyncGenerator[StreamChunk, None]:

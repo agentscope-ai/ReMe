@@ -18,8 +18,8 @@ import pytest
 from openai_codex.generated.v2_all import AgentMessageThreadItem, ItemCompletedNotification
 
 from reme.components.agent_wrapper import AsAgentWrapper, CcAgentWrapper
-from reme.components.application_context import ApplicationContext
-from reme.utils import global_counter_get_all
+from reme.core.context import ApplicationContext
+from reme.utils.counter import global_counter_get_all
 
 from .test_codex_agent_wrapper import _Turn, _usage_event, system as _codex_system
 
@@ -42,7 +42,7 @@ def _agentscope(tmp_path, monkeypatch, message, model=None):
     )
     wrapper.as_llm = SimpleNamespace(model=model)
     monkeypatch.setattr(wrapper, "_build_agent", AsyncMock(return_value=(agent, "hello")))
-    monkeypatch.setattr(wrapper, "_dump_state", AsyncMock())
+    monkeypatch.setattr(wrapper._sessions, "save", AsyncMock())  # pylint: disable=protected-access
     return wrapper
 
 
@@ -142,7 +142,7 @@ async def test_agentscope_propagates_cancellation_even_if_sdk_returns_a_message(
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
-    wrapper._dump_state.assert_awaited_once_with(agent.state)  # pylint: disable=protected-access
+    wrapper._sessions.save.assert_awaited_once()  # pylint: disable=protected-access
     counters = global_counter_get_all(wrapper.app_context.metadata, ["__token_counter", wrapper.name])
     assert counters["children"]["total_tokens"]["value"] == 12
 
@@ -179,7 +179,7 @@ async def test_claude_outcome_preserves_native_result(tmp_path, monkeypatch, ove
         if message.is_error:
             raise RuntimeError("Claude Code returned an error result: turn limit")
 
-    monkeypatch.setattr("claude_agent_sdk.query", query)
+    monkeypatch.setattr(CcAgentWrapper, "_stream_messages", staticmethod(query))
     wrapper = CcAgentWrapper(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
     result = await wrapper.reply("hello")
 
@@ -213,7 +213,7 @@ async def test_claude_does_not_hide_transport_errors_or_cancellation(tmp_path, m
             raise asyncio.CancelledError()
         raise RuntimeError("transport disconnected")
 
-    monkeypatch.setattr("claude_agent_sdk.query", query)
+    monkeypatch.setattr(CcAgentWrapper, "_stream_messages", staticmethod(query))
     wrapper = CcAgentWrapper(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
     with pytest.raises(asyncio.CancelledError if cancelled else RuntimeError, match=None if cancelled else "transport"):
         await wrapper.reply("hello")
@@ -352,7 +352,7 @@ async def test_claude_preserves_unprojected_native_messages_and_final_outcome(tm
         for message in native:
             yield message
 
-    monkeypatch.setattr("claude_agent_sdk.query", query)
+    monkeypatch.setattr(CcAgentWrapper, "_stream_messages", staticmethod(query))
     wrapper = CcAgentWrapper(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
     reply = await wrapper.reply("hello", output_schema={})
     assert len(calls) == 1

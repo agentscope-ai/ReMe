@@ -10,10 +10,10 @@ import sys
 import time
 from asyncio.subprocess import Process
 
+from ...constants import REME_IPV4_LOOPBACK_HOST
 from .base import BaseOutboundProxy, OutboundProxyEndpoint
-from ..component_registry import R
+from ...core.registry import R
 
-_LOOPBACK = "127.0.0.1"
 _START_ATTEMPTS = 3
 _PROCESS_CLOSE_TIMEOUT = 5.0
 _PROCESS_OUTPUT_LIMIT = 4096
@@ -73,13 +73,14 @@ class SshHttpOutboundProxy(BaseOutboundProxy):
                 raise RuntimeError("Outbound proxy failed to allocate listener ports.")
 
             assert self._http_port is not None
-            self._endpoint = OutboundProxyEndpoint(http_url=f"http://{_LOOPBACK}:{self._http_port}")
+            self._endpoint = OutboundProxyEndpoint(http_url=f"http://{REME_IPV4_LOOPBACK_HOST}:{self._http_port}")
             self._monitor_task = asyncio.create_task(
                 self._monitor_processes(),
                 name=f"outbound-proxy-monitor:{self.name}",
             )
             self.logger.info(
-                f"Outbound proxy ready http={_LOOPBACK}:{self._http_port} " f"socks={_LOOPBACK}:{self._socks_port}",
+                f"Outbound proxy ready http={REME_IPV4_LOOPBACK_HOST}:{self._http_port} "
+                f"socks={REME_IPV4_LOOPBACK_HOST}:{self._socks_port}",
             )
         except BaseException:
             await self._stop_processes()
@@ -145,7 +146,7 @@ class SshHttpOutboundProxy(BaseOutboundProxy):
     @staticmethod
     def _pick_free_port() -> int:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
-            listener.bind((_LOOPBACK, 0))
+            listener.bind((REME_IPV4_LOOPBACK_HOST, 0))
             return int(listener.getsockname()[1])
 
     @classmethod
@@ -173,7 +174,7 @@ class SshHttpOutboundProxy(BaseOutboundProxy):
             self._ssh_executable,
             "-N",
             "-D",
-            f"{_LOOPBACK}:{self._socks_port}",
+            f"{REME_IPV4_LOOPBACK_HOST}:{self._socks_port}",
             "-o",
             "BatchMode=yes",
             "-o",
@@ -213,9 +214,9 @@ class SshHttpOutboundProxy(BaseOutboundProxy):
             "-m",
             "pproxy",
             "-l",
-            f"http://{_LOOPBACK}:{self._http_port}",
+            f"http://{REME_IPV4_LOOPBACK_HOST}:{self._http_port}",
             "-r",
-            f"socks5://{_LOOPBACK}:{self._socks_port}",
+            f"socks5://{REME_IPV4_LOOPBACK_HOST}:{self._socks_port}",
         )
         self._bridge_process = await asyncio.create_subprocess_exec(
             *command,
@@ -256,13 +257,15 @@ class SshHttpOutboundProxy(BaseOutboundProxy):
             if process.returncode is not None:
                 raise RuntimeError(f"{label} process exited with status {process.returncode}.")
             try:
-                _reader, writer = await asyncio.open_connection(_LOOPBACK, port)
+                _reader, writer = await asyncio.open_connection(REME_IPV4_LOOPBACK_HOST, port)
                 writer.close()
                 await writer.wait_closed()
                 return
             except OSError:
                 await asyncio.sleep(min(0.05, max(0.0, deadline - loop.time())))
-        raise TimeoutError(f"{label} listener did not become ready on {_LOOPBACK}:{port} within {timeout:g}s.")
+        raise TimeoutError(
+            f"{label} listener did not become ready on {REME_IPV4_LOOPBACK_HOST}:{port} within {timeout:g}s.",
+        )
 
     async def _monitor_processes(self) -> None:
         attempt = 0

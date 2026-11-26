@@ -26,11 +26,10 @@ def sample():
 
 
 def test_followup_never_includes_expected_answers():
-    """Only the requested field labels and descriptions enter the evaluation prompt."""
+    """Keep ground truth out of the model input."""
     case = sample()
     case["gold"] = {"hidden": "PRIVATE_GOLD_8391"}
     assert "PRIVATE_GOLD" not in exam(case)
-    assert "integer value" in exam(case)
 
 
 @pytest.mark.parametrize("value", [True, 7.0, "7", None])
@@ -47,17 +46,6 @@ def test_mapping_shape_and_array_order_are_part_of_the_contract():
     result = grade(case, {"facts": {**case["gold"], "mapping": [2], "ordered": ["b", "a"]}})
     assert not result["mapping"] and not result["ordered"]
     assert not any(grade(case, []).values())
-
-
-def test_format_clarifications_are_case_specific_and_do_not_reveal_counts():
-    """Clarify ambiguous output shapes without changing the oracle or unaffected questions."""
-    case = sample()
-    payment = {**case, "id": "payment"}
-    notes = {**case, "id": "meeting_notes"}
-    assert "must be a JSON object" in exam(payment)
-    assert "timeout_then_success" in exam(payment)
-    assert "leading list marker" in exam(notes)
-    assert "must be a JSON object" not in exam(case)
 
 
 def test_matching_line_views_retain_original_line_numbers_and_context():

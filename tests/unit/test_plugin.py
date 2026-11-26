@@ -6,13 +6,14 @@ from pathlib import Path
 
 import pytest
 
-from reme.application import Application
-from reme.components.base_component import BaseComponent, ComponentMixin
-from reme.components.component_registry import ComponentRegistry, R
+from reme import Application
+from reme.components.base import BaseComponent, ComponentMixin
+from reme.core.registry import ComponentRegistry, R
 from reme.config.config_parser import _load_config
 from reme.enumeration import ComponentEnum
-from reme.plugin import Backend, Plugin, PluginManager, _load_backend
-from reme.plugin_manifest import parse_plugin_manifest
+from reme.plugin import Backend, Plugin, PluginManager, resolve_plugin_runtime
+from reme.plugin.manager import _load_backend
+from reme.plugin.manifest import parse_plugin_manifest
 from reme.schema import ApplicationConfig
 
 
@@ -41,7 +42,7 @@ class _FakeEntryPoints(list):
 
 
 def _set_entry_points(monkeypatch, *entries):
-    monkeypatch.setattr("reme.entry_point.metadata.entry_points", lambda: _FakeEntryPoints(entries))
+    monkeypatch.setattr("reme.core.entry_point.metadata.entry_points", lambda: _FakeEntryPoints(entries))
 
 
 @pytest.mark.parametrize("name", ["lme", "beam"])
@@ -80,6 +81,33 @@ def test_plugin_application_defaults_expand_environment(monkeypatch):
     manager = PluginManager([Plugin(name="example", config={"limit": "${PLUGIN_LIMIT}"})])
 
     assert manager.merge_config({})["limit"] == 12
+
+
+def test_only_effective_plugin_defaults_require_environment(monkeypatch):
+    monkeypatch.delenv("REME_TEST_PLUGIN_URL", raising=False)
+    monkeypatch.setenv("REME_TEST_PLUGIN_CREDENTIAL", '{"kind": "api"}')
+    manager = PluginManager(
+        [
+            Plugin(name="example", config={"credential": "${REME_TEST_PLUGIN_CREDENTIAL}"}),
+            Plugin(name="default-url", config={"credential": {"base_url": "${REME_TEST_PLUGIN_URL}"}}),
+        ],
+    )
+
+    assert manager.merge_config({"credential": {"base_url": "configured", "label": "${USER_LITERAL}"}}) == {
+        "credential": {"kind": "api", "base_url": "configured", "label": "${USER_LITERAL}"},
+    }
+    with pytest.raises(ValueError, match="undefined env var: REME_TEST_PLUGIN_URL"):
+        manager.merge_config({})
+
+
+@pytest.mark.parametrize("value", ["home", {"home": True}, ["home", 1]])
+def test_invalid_plugin_list_is_rejected_before_discovery(monkeypatch, value):
+    def unexpected_lookup(*_args):
+        pytest.fail("Plugin discovery must follow config validation")
+
+    monkeypatch.setattr("reme.plugin.manager.find_entry_points", unexpected_lookup)
+    with pytest.raises(ValueError, match="'plugins' must be a list of strings"):
+        resolve_plugin_runtime({"plugins": value})
 
 
 def test_plugin_registers_into_only_the_supplied_registry():
@@ -144,16 +172,16 @@ def test_plugin_backend_collision_fails_with_both_owners():
         registry.add("same", OtherStep, owner="second")
 
 
-def test_plugin_manager_loads_explicit_entry_point(monkeypatch):
-    descriptor = Plugin(name="example", backends=(Backend("example_step", _PluginStep),))
+def test_plugin_manager_rejects_object_entry_points_without_importing_them(monkeypatch):
+    loaded = []
     _set_entry_points(
         monkeypatch,
-        _FakeEntryPoint("example", "example:plugin", lambda: descriptor, "reme.plugins"),
+        _FakeEntryPoint("example", "example:plugin", lambda: loaded.append(True), "reme.plugins"),
     )
 
-    manager = PluginManager.discover(["example"])
-
-    assert manager.plugins == (descriptor,)
+    with pytest.raises(ValueError, match="package-only entry point and plugin.yaml"):
+        PluginManager.discover(["example"])
+    assert not loaded
 
 
 def test_plugin_manager_loads_package_manifest(monkeypatch, tmp_path):
@@ -161,7 +189,7 @@ def test_plugin_manager_loads_package_manifest(monkeypatch, tmp_path):
     package.mkdir()
     (package / "__init__.py").write_text("", encoding="utf-8")
     (package / "backend.py").write_text(
-        "from reme.components.base_component import ComponentMixin\n"
+        "from reme.components.base import ComponentMixin\n"
         "from reme.enumeration import ComponentEnum\n"
         "class ExampleStep(ComponentMixin):\n"
         "    component_type = ComponentEnum.STEP\n",
@@ -259,18 +287,21 @@ def test_plugin_manager_rejects_multiple_entry_point_providers(monkeypatch):
 
 
 def test_plugin_entry_point_import_side_effect_does_not_leak(monkeypatch, tmp_path):
-    class UndeclaredClient(ComponentMixin):
-        component_type = ComponentEnum.CLIENT
-
-    descriptor = Plugin(name="example")
-
-    def load_plugin():
-        R.register(UndeclaredClient, "undeclared-client")
-        return descriptor
-
+    package = tmp_path / "side_effect_plugin"
+    package.mkdir()
+    (package / "__init__.py").write_text(
+        "from reme.components.base import ComponentMixin\n"
+        "from reme.core.registry import R\n"
+        "@R.register('undeclared-client')\n"
+        "class UndeclaredClient(ComponentMixin):\n"
+        "    component_type = 'client'\n",
+        encoding="utf-8",
+    )
+    (package / "plugin.yaml").write_text("{}\n", encoding="utf-8")
+    monkeypatch.syspath_prepend(str(tmp_path))
     _set_entry_points(
         monkeypatch,
-        _FakeEntryPoint("example", "example:plugin", load_plugin, "reme.plugins"),
+        _FakeEntryPoint("example", "side_effect_plugin", lambda: None, "reme.plugins"),
     )
 
     app = Application(

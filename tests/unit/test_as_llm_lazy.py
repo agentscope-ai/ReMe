@@ -9,7 +9,7 @@ import pytest
 
 from agentscope.model import ChatResponse
 
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.components.as_llm import BaseAsLLM
 from reme.components.job import BaseJob
 from reme.enumeration import ComponentEnum
@@ -19,6 +19,63 @@ class LazyAsLLM(BaseAsLLM):
     """Use an isolated mock credential boundary."""
 
     credential_cls = Mock()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("initially_started", [False, True])
+async def test_queued_lifecycle_transitions_finish_in_call_order(initially_started):
+    """A later start must finish after an earlier close's entire transition."""
+    from reme.components.as_llm import OpenAIAsLLM
+
+    first, replacement = Mock(), Mock()
+    first.client.close = AsyncMock()
+    replacement.client.close = AsyncMock()
+    model_cls = Mock(side_effect=[first, replacement])
+    llm = OpenAIAsLLM(backend="openai", model="synthetic")
+    llm.credential_cls = Mock()
+    llm.credential_cls.return_value.get_chat_model_class.return_value = model_cls
+    if initially_started:
+        await llm.start()
+        assert llm.model is first
+    tasks = []
+    async with llm._lock:
+        for operation in ([llm.close, llm.start] if initially_started else [llm.start, llm.close, llm.start]):
+            tasks.append(asyncio.create_task(operation()))
+            await asyncio.sleep(0)
+    await asyncio.wait_for(asyncio.gather(*tasks), 2)
+    assert llm.is_started and not llm._closed
+    assert llm.model is (replacement if initially_started else first)
+    if initially_started:
+        first.client.close.assert_awaited_once_with()
+    else:
+        first.client.close.assert_not_awaited()
+    await llm.close()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_queued_close_restores_live_model_access():
+    """Cancelling a closer before it owns shutdown must release its lazy-access fence."""
+    from reme.components.as_llm import OpenAIAsLLM
+
+    llm = OpenAIAsLLM(backend="openai", model="synthetic")
+    model = Mock()
+    model.client.close = AsyncMock()
+    llm.credential_cls = Mock()
+    llm.credential_cls.return_value.get_chat_model_class.return_value.return_value = model
+    await llm.start()
+    assert llm.model is model
+    async with llm._lock:
+        closer = asyncio.create_task(llm.close())
+        await asyncio.sleep(0)
+        with pytest.raises(RuntimeError, match="after close"):
+            _ = llm.model
+        closer.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await closer
+    assert llm.is_started and not llm._closed
+    assert llm.model is model
+    model.client.close.assert_not_awaited()
+    await llm.close()
 
 
 def test_start_without_credentials_and_initialize_once():

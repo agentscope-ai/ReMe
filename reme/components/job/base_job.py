@@ -4,10 +4,10 @@ import asyncio
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
-from ..application_context import ApplicationContext
-from ..base_component import BaseComponent
-from ..component_registry import R
-from ..runtime_context import RuntimeContext, _current_job_execution
+from ...schema.response import JOB_ERROR_METADATA_KEY
+from ..base import BaseComponent
+from ...core.registry import R
+from ...core.context import ApplicationContext, RuntimeContext, _current_job_execution
 from ...enumeration import ComponentEnum
 from ...schema import ComponentConfig, Response
 
@@ -69,8 +69,11 @@ class BaseJob(BaseComponent):
         enable_serve: bool = True,
         enabled: bool = True,
         track_execution: bool | None = None,
+        init_steps: list[ComponentConfig | dict] | None = None,
         **kwargs,
     ):
+        if init_steps:
+            raise ValueError("init_steps is only supported by cron jobs")
         super().__init__(**kwargs)
         self.description = description
         self.parameters = parameters or {}
@@ -156,8 +159,8 @@ class BaseJob(BaseComponent):
             try:
                 await self._run_steps(context)
             except Exception as e:
-                self.logger.exception(f"Failed to execute job: {e}")
                 context.response.success = False
                 context.response.answer = _describe_exception(e)
-                context.response.metadata["reme.job_error"] = _exception_details(e)
+                self.logger.exception(f"Job '{self.name}' failed: {context.response.answer}")
+                context.response.metadata[JOB_ERROR_METADATA_KEY] = _exception_details(e)
         return context.response

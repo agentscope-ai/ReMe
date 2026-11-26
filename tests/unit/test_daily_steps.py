@@ -32,9 +32,10 @@ import pytest
 
 import frontmatter
 
-from reme.components import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.components.file_store import LocalFileStore
 from reme.enumeration import ComponentEnum
+from reme.schema import ApplicationConfig
 from reme.steps.file_io import (
     daily_list as daily_list_step,
     daily_reindex as daily_reindex_step,
@@ -48,7 +49,7 @@ warnings.filterwarnings("ignore", category=DeprecationWarning, module="pkg_resou
 def _today() -> str:
     from reme.steps.evolve import now
 
-    return now("Asia/Shanghai").strftime("%Y-%m-%d")
+    return now(ApplicationConfig().timezone).strftime("%Y-%m-%d")
 
 
 async def _make_store_with_dailies(entries: list[tuple[str, str, str]]) -> LocalFileStore:

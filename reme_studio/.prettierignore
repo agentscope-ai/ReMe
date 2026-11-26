@@ -1,21 +1,10 @@
-# Build output
-.next/
-.vinext/
-dist/
-dist-static/
-dist-demo/
-out/
-src/reme_studio/static/
-
-# Dependencies
-node_modules/
-
-# Cache and local state
-.cache/
-.wrangler/
-*.cache
-
-# Misc
-coverage/
-.vscode/
-.idea/
+**/node_modules/
+**/dist*/
+**/out/
+package-lock.json
+client/src/wire.ts
+client/tests/contract-fixture.ts
+desktop/assets/remy/manifest.json
+mobile/android/
+mobile/ios/
+web/python/

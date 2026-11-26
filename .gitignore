@@ -48,6 +48,9 @@ temp*/
 # Local tool indexes (rebuildable, machine-local)
 .codegraph/
 
+# Local previews and experiment outputs
+/outputs/
+
 # ReMe runtime data
 .reme/
 reme_workspace/

@@ -3,6 +3,29 @@
 from .application_config import ApplicationConfig, ComponentConfig, JobConfig
 from .agent_reply import AgentReply, collect_reply, replay_reply
 from .agent_session import SessionMessage, SessionSnapshot, SessionStatus
+from .proactive_runtime import (
+    AgentName,
+    AgentType,
+    AgentSession,
+    ChatAgentConfig,
+    NotificationConfig,
+    AgentReminder,
+    SubmitChatReminderRequest,
+)
+from .agent_activity import AgentActivity
+from .agent_message import AgentMessage, ArtifactItem, SummaryItem, TextItem, ToolAction, ToolItem
+from .agent_view import (
+    AskAgentRequest,
+    AgentRequest,
+    AgentSessionView,
+    TaskDocumentRequest,
+    AgentView,
+    AgentSnapshot,
+    AgentUpdate,
+    AgentHeartbeat,
+    ClientActivity,
+    ClientInfo,
+)
 from .compaction import CallDecision, CompactionOptions, CompactionRequest, CompactionResult
 from .dream import (
     DreamExtractOutput,
@@ -17,21 +40,51 @@ from .proactive import (
     ProactiveTopic,
 )
 from .emb_node import EmbNode
+from .event import Event
+from .agent_inbox import InboxItem, InboxReceipt
+from .finance import CryptoQuote, FinanceNewsItem, MarketQuote
+from .proactive_agent import (
+    CreateProactiveRuntimeConfig,
+    ManageProactiveAgentRequest,
+    NotificationWindow,
+    ProactiveRuntimeDefinition,
+    ProactiveRuntimeConfig,
+    ProactiveRuntimeSettings,
+)
 from .file_chunk import FileChunk
 from .file_front_matter import FileFrontMatter
 from .graph_snapshot import GraphSnapshot, GraphSnapshotEdge, GraphSnapshotNode
+from .idea import Idea
 from .job_execution import JobExecution, JobExecutionStatus
-from .pa_event import PaEvent
+from .notebook import IdeaRequest, TodoRequest
 from .file_link import FileLink
 from .file_node import FileNode
 from .request import Request
 from .response import Response
 from .resource_metadata import ResourceFile, ResourceMetadata
 from .stream_chunk import StreamChunk
+from .speech import ASRResult, AudioFormat, TTSResult
 from .token_usage import TokenUsage
+from .todo import Todo, TodoProgress
 from .traverse_graph import TraverseGraph, TraverseGraphEdge, TraverseGraphNode
 
 __all__ = [
+    "ASRResult",
+    "AudioFormat",
+    "TTSResult",
+    "AgentActivity",
+    "AgentMessage",
+    "ArtifactItem",
+    "SummaryItem",
+    "TextItem",
+    "ToolAction",
+    "ToolItem",
+    "AgentSnapshot",
+    "AgentUpdate",
+    "AgentHeartbeat",
+    "ClientActivity",
+    "ClientInfo",
+    "ProactiveRuntimeSettings",
     "AgentReply",
     "collect_reply",
     "replay_reply",
@@ -45,6 +98,29 @@ __all__ = [
     "DreamState",
     "DreamUnit",
     "EmbNode",
+    "Event",
+    "InboxReceipt",
+    "InboxItem",
+    "FinanceNewsItem",
+    "MarketQuote",
+    "CryptoQuote",
+    "AgentView",
+    "AgentRequest",
+    "AskAgentRequest",
+    "TaskDocumentRequest",
+    "AgentSessionView",
+    "AgentSession",
+    "ChatAgentConfig",
+    "ManageProactiveAgentRequest",
+    "NotificationWindow",
+    "ProactiveRuntimeDefinition",
+    "ProactiveRuntimeConfig",
+    "CreateProactiveRuntimeConfig",
+    "AgentReminder",
+    "AgentName",
+    "AgentType",
+    "NotificationConfig",
+    "SubmitChatReminderRequest",
     "FileChunk",
     "FileFrontMatter",
     "FileLink",
@@ -52,11 +128,12 @@ __all__ = [
     "GraphSnapshot",
     "GraphSnapshotEdge",
     "GraphSnapshotNode",
+    "Idea",
+    "IdeaRequest",
     "IntegrateOutcome",
     "JobConfig",
     "JobExecution",
     "JobExecutionStatus",
-    "PaEvent",
     "ProactiveResult",
     "ProactiveState",
     "ProactiveStateFile",
@@ -70,6 +147,9 @@ __all__ = [
     "SessionStatus",
     "StreamChunk",
     "TokenUsage",
+    "Todo",
+    "TodoProgress",
+    "TodoRequest",
     "TraverseGraph",
     "TraverseGraphEdge",
     "TraverseGraphNode",

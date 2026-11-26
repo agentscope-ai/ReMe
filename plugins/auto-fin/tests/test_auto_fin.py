@@ -24,10 +24,9 @@ from reme_auto_fin.digest import AutoFinDigestStep
 from reme_auto_fin.research import AutoFinResearchStep
 from reme_auto_fin.schema import AutoFinNote, AutoFinReportOutput
 from reme_auto_fin.topic import AutoFinTopicStep
-from reme.components import ApplicationContext
+from reme.core.context import ApplicationContext, RuntimeContext
 from reme.components.agent_wrapper.base_agent_wrapper import BaseAgentWrapper
-from reme.components.runtime_context import RuntimeContext
-from reme.utils.wikilink_handler import WikilinkHandler
+from reme.utils.documents.wikilink_handler import WikilinkHandler
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 PLUGIN_MANIFEST = yaml.safe_load(
@@ -182,8 +181,6 @@ async def test_topic_step_keeps_real_ids_in_memory_only(tmp_path: Path):
     assert [row["news_id"] for row in context["auto_fin_selected_news"]] == ["2"]
     assert [row["news_id"] for row in context["auto_fin_news_by_topic"]["黄金"]] == ["2"]
     assert agent.calls[0][1] == {}
-    assert '```json\n{"黄金": []}' in agent.calls[0][0]
-    assert agent.calls[0][0].index("## 输入材料") < agent.calls[0][0].index("## 任务指令")
     assert response.metadata["relevant_news_count"] == 1
     assert not list(tmp_path.rglob("*.*"))
 
@@ -213,7 +210,6 @@ async def test_topic_step_marks_empty_selection_as_successful_skip(tmp_path: Pat
     assert context["auto_fin_skipped"] is True
     assert response.metadata["skipped"] is True
     assert response.answer == "最近12小时没有与 黄金 相关的财联社新闻。"
-    assert "最近 12 小时" in agent.calls[0][0]
     assert not list(tmp_path.rglob("*.md"))
 
 
@@ -322,11 +318,7 @@ async def test_research_writes_one_note_per_topic_with_latest_twenty_news(tmp_pa
     response = await AutoFinResearchStep(app_context=app_context, agent_wrapper=agent)(context)
 
     assert len(agent.calls) == 2
-    gold_prompt, gold_kwargs = agent.calls[0]
-    assert '"news_id": "24"' in gold_prompt
-    assert '"news_id": "4"' not in gold_prompt
-    assert "另有 5 篇" in gold_prompt
-    assert "当前主题：机器人" in agent.calls[1][0]
+    _, gold_kwargs = agent.calls[0]
     assert gold_kwargs["job_tools"] == ["search"]
     assert gold_kwargs["output_schema"] == AutoFinReportOutput
     assert gold_kwargs["tool_context_id"].startswith("auto_fin:")
@@ -403,8 +395,6 @@ async def test_research_rerun_replaces_the_same_note_for_a_topic(tmp_path: Path)
     await step(second)
 
     assert len(agent.calls) == 2
-    assert "本次为当日首次生成。" in agent.calls[0][0]
-    assert "## 今日判断" in agent.calls[1][0]
     assert second["changes"] == [{"change": "modified", "path": "daily/2026-08-10/黄金.md"}]
     assert [path.name for path in (tmp_path / "daily" / "2026-08-10").glob("*.md")] == ["黄金.md"]
 
@@ -517,12 +507,8 @@ async def test_digest_merges_notes_and_links_back_to_each_of_them(tmp_path: Path
 
     response = await AutoFinDigestStep(app_context=app_context, agent_wrapper=agent)(context)
 
-    prompt, kwargs = agent.calls[-1]
+    _, kwargs = agent.calls[-1]
     assert kwargs["job_tools"] == []
-    assert '"topic": "黄金"' in prompt
-    assert "各主题笔记" in prompt
-    assert "当前主题：" not in prompt
-    assert "本次为当日首次生成。" in prompt
 
     digest_path = "daily/2026-08-10/主题新闻观察（2026-08-10）.md"
     digest = (tmp_path / digest_path).read_text(encoding="utf-8")

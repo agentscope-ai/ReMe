@@ -3,10 +3,10 @@
 from pathlib import Path
 
 from .base_file_graph import BaseFileGraph
-from ..component_registry import R
+from ...core.registry import R
 from ...enumeration import LinkScopeEnum
 from ...schema import FileLink, FileNode
-from ...utils.jsonl_zst import read_jsonl_zst, write_jsonl_zst
+from ...utils.files.jsonl_zst import read_jsonl_zst, write_jsonl_zst
 
 
 @R.register("local")

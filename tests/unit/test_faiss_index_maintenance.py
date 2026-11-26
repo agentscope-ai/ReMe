@@ -16,7 +16,7 @@ from .file_store_test_support import (
     FakeEmbeddingStore,
     _new_faiss_store,
     _seed_unembedded_chunk,
-    _settle_reindex,
+    _watch_reindex_publication,
     chunk,
     node,
 )
@@ -137,7 +137,7 @@ async def test_faiss_backfill_compacts_when_tombstones_cross_threshold():
 
 
 @pytest.mark.asyncio
-async def test_faiss_backfill_mass_delta_uses_async_reindex():
+async def test_faiss_backfill_mass_delta_uses_async_reindex(monkeypatch):
     """With async_reindex, a delta that rivals the live rows (initial mass
     backfill into an empty index) goes through the background worker."""
     with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
@@ -148,10 +148,11 @@ async def test_faiss_backfill_mass_delta_uses_async_reindex():
 
         await _seed_unembedded_chunk(store, "a", "a.md", "alpha text")
         await _seed_unembedded_chunk(store, "b", "b.md", "beta text")
+        published = _watch_reindex_publication(store, monkeypatch)
         await store._backfill_missing_embeddings()
 
         assert store._reindex_worker_task is not None  # routed off-loop
-        await _settle_reindex(store)
+        await asyncio.wait_for(published.wait(), timeout=5.0)
         assert set(store._id_to_row) == {"a", "b"}
         assert [c.id for c in await store.vector_search("alpha", 5, {})][0] == "a"
         await store.close()
@@ -265,7 +266,7 @@ async def test_faiss_optimize_index_compacts_inline_when_sync():
 
 
 @pytest.mark.asyncio
-async def test_faiss_optimize_index_uses_worker_when_async():
+async def test_faiss_optimize_index_uses_worker_when_async(monkeypatch):
     """optimize_index() submits the rebuild to the background worker under async_reindex."""
     with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
         store = _new_faiss_store("t_faiss_optimize_async", async_reindex=True)
@@ -280,10 +281,11 @@ async def test_faiss_optimize_index_uses_worker_when_async():
         assert len(store._tombstones) == 3
 
         store.max_tombstones = 2
+        published = _watch_reindex_publication(store, monkeypatch)
         await store.optimize_index()
 
         assert store._reindex_worker_task is not None  # routed off-loop
-        await _settle_reindex(store)
+        await asyncio.wait_for(published.wait(), timeout=5.0)
         assert store._tombstones == set()
         assert set(store._id_to_row) == {"c0", "c1", "c2", "c3"}
         await store.close()

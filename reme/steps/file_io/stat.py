@@ -25,7 +25,7 @@ import frontmatter
 
 from ._path import display_path, gate_md, resolve_path
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 
 
 @R.register("stat_step")

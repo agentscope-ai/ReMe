@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter
 
 from .base_as_decision_model import BaseAsDecisionModel
-from ..component_registry import R
+from ...core.registry import R
 from ...utils.async_utils import complete_in_thread
 
 if TYPE_CHECKING:

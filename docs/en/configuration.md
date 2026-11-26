@@ -69,7 +69,7 @@ Keep secrets in `.env` or the process environment, never in committed configurat
 | `resource_dir` | `resource` | External resources |
 | `daily_dir` | `daily` | Daily memory |
 | `digest_dir` | `digest` | Consolidated long-term memory |
-| `timezone` | `Asia/Shanghai` | IANA timezone used for dates and cron jobs |
+| `timezone` | System timezone, falling back to `Asia/Shanghai` | IANA timezone used for dates and cron jobs |
 | `language` | empty | Default language for LLM interactions |
 | `plugins` | `[]` | Installed plugins enabled for this Application |
 | `service` | HTTP | Service configuration |
@@ -78,6 +78,10 @@ Keep secrets in `.env` or the process environment, never in committed configurat
 | `components` | defaults | Components grouped by type and name |
 
 `session_dir` must remain workspace-relative.
+
+When `timezone` is omitted, ReMe uses a valid IANA name from `TZ` or detects the system's IANA timezone at startup.
+Set `timezone: Asia/Shanghai` to keep the previous default across machines. An explicit `timezone: null` resolves local rules from `TZ` or the host's native timezone configuration. Cron jobs, collectors, daily notes, and retention dates share these rules.
+Set `TZ` to an IANA name such as `America/New_York`, or leave the variable unset. Empty values, invalid names, POSIX rule strings, and file paths raise an error when ReMe resolves the process timezone.
 
 ## Enabling jobs
 
@@ -97,6 +101,36 @@ local calls. Background and cron jobs are never service-exposed.
 Set it explicitly to override either default, for example `reme start jobs.chat.track_execution=true`.
 Execution records are memory-only and disappear when the Application is recreated. `job_history_limit=0` retains only
 running executions. See [Job execution status](./operations.md#job-execution-status) for queries and step paths.
+
+## Cron initialization
+
+Cron Jobs accept optional `init_steps` (default `[]`). They run in order before the scheduler waits for its first
+trigger. For example, the proactive preset keeps Codex dialogue initialization and collection in one Job:
+
+```yaml
+jobs:
+  codex_dialogue_cron:
+    backend: cron
+    cron: "*/5 * * * *"
+    init_steps:
+      - backend: codex_dialogue_init_step
+        codex_home: &codex_home ${CODEX_HOME:-~/.codex}
+    steps:
+      - backend: codex_dialogue_step
+        task_names: [proactive_memory, proactive_note]
+        codex_home: *codex_home
+```
+
+Set `task_names` on the collector Step. Pending deliveries retain the recipients saved with each batch.
+
+Only `steps` run at each scheduled time, using the application's timezone. Initialization and each trigger get fresh
+Step instances and separate runtime contexts and execution records. Share durable progress through workspace files
+or Components, rather than initialization outputs. Waiting creates no execution record.
+
+An initialization exception or `success=False` stops the initialization chain and prevents scheduling. With supervision
+enabled, the existing background supervisor retries with backoff; `supervisor=false` leaves the failure unretried.
+Initialization runs again whenever the job body restarts, so its Steps must be idempotent. Shutdown uses the same stop
+signal and cancellation cleanup as other background Jobs. Nonempty `init_steps` are rejected by other built-in Job types.
 
 ## LLM
 
@@ -226,6 +260,35 @@ headroom, independent of the host model tokenizer.
 
 See [Context compaction with decision models](./context_compaction.md) for the strategy, SVG walkthrough, and live integration cases.
 
+## Speech recognition and synthesis
+
+The `proactive` configuration exposes `asr` and `tts` for Desktop voice input and playback.
+The `demo` preset extends it with the `speech_demo` TTS-to-ASR round trip.
+Set `DASHSCOPE_API_KEY`, then start the service:
+
+```bash
+reme start config=demo
+```
+
+From another terminal:
+
+```bash
+reme tts text="Hello from ReMe."
+reme speech_demo text="Hello from ReMe."
+```
+
+`asr` accepts Base64 `audio`, `audio_format` (`wav`, `mp3`, `pcm`, or `opus`), and optional `sample_rate`.
+Its answer is the recognized text; silence returns an empty string. `tts` returns Base64 `audio`, `format`,
+`sample_rate`, and `is_last=true` inside the standard response answer. Provider failures return `success=false`.
+
+Select components through Step settings `asr: <name>` and `tts: <name>`. Configure model, voice, provider `parameters`,
+and timeout under `components.asr` and `components.tts`. Missing credentials do not prevent startup.
+DashScope speech uses its native `/api/v1` base URL, separately from OpenAI-compatible LLM endpoints.
+
+Implement `BaseASR.transcribe` or `BaseTTS.stream` to add a backend; `BaseTTS.synthesize` collects the same stream.
+Components exchange audio bytes; Steps handle Base64 transport. Capture and playback belong to the client.
+See `reme/components/asr/`, `reme/components/tts/`, and `reme/schema/speech.py` for the contracts.
+
 ## Embeddings
 
 Vector retrieval is disabled by default. Credentials alone do not enable it: configure `as_embedding`, `embedding_store`, and connect the store to `file_store`.
@@ -253,6 +316,8 @@ components:
 ```
 
 Rebuild the embedding index after changing the model or dimensions.
+
+Configure the Inbox, execution wrapper, Remy's initial memory, background tasks, and reminder delays through `components.proactive_manager.default`. See [Proactive Runtime](./services.md#proactive-runtime).
 
 ## Service and Jobs
 

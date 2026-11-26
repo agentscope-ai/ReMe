@@ -1,13 +1,28 @@
-name: Release / ReMe Python package
+name: Release / ReMe
 
-# Publishing a GitHub Release is the primary release trigger for reme-ai; workflow_dispatch is the recovery path.
-# Manual runs publish the version in reme/__init__.py from the selected ref.
-# Configure a PyPI Trusted Publisher for this repository, workflow, and its pypi environment first.
-
-run-name: Publish reme-ai ${{ github.event.release.tag_name || github.ref_name }}
+# A published GitHub Release builds all distributions from its tag.
+# Configure PyPI and npm trusted publishers for this workflow.
+run-name: Publish ReMe ${{ github.ref_name }}
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_pypi:
+        description: Publish reme-ai and reme-studio to PyPI
+        default: true
+        type: boolean
+      publish_npm:
+        description: Publish Studio to npm
+        default: true
+        type: boolean
+      publish_desktop:
+        description: Publish Windows, macOS, and Linux installers to GitHub Releases
+        default: true
+        type: boolean
+      publish_docker:
+        description: Publish the versioned Docker image to GHCR
+        default: true
+        type: boolean
   release:
     types: [published]
 
@@ -15,19 +30,49 @@ permissions:
   contents: read
 
 concurrency:
-  group: publish-reme-ai
+  group: publish-reme
   cancel-in-progress: false
 
 jobs:
+  prepare:
+    name: Verify release tag and version
+    if: github.event_name == 'release' || inputs.publish_pypi || inputs.publish_npm || inputs.publish_desktop || inputs.publish_docker
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      sha: ${{ steps.version.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.11'
+      - name: Validate source version
+        id: version
+        run: |
+          if [[ "$GITHUB_REF_TYPE" != tag || "$(git rev-parse HEAD)" != "$GITHUB_SHA" ]]; then
+            echo "::error::Run this workflow from the release tag."
+            exit 1
+          fi
+          python -m pip install packaging
+          python scripts/bump_version.py --check --expected-version "$GITHUB_REF_NAME"
+          printf 'tag=%s\nsha=%s\n' "$GITHUB_REF_NAME" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+
   build:
     name: Build and verify distributions
+    if: github.event_name == 'release' || inputs.publish_pypi || inputs.publish_npm
+    needs: prepare
     uses: ./.github/workflows/_build-python-packages.yml
     with:
-      expected_version: ${{ github.event.release.tag_name }}
+      expected_version: ${{ needs.prepare.outputs.tag }}
+      source_ref: ${{ needs.prepare.outputs.sha }}
       upload_artifacts: true
 
   publish-reme:
-    needs: build
+    needs: publish-studio
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: pypi
@@ -46,3 +91,158 @@ jobs:
         with:
           packages-dir: dist/reme
           skip-existing: true
+
+  desktop:
+    name: Package Desktop (${{ matrix.os }})
+    if: github.event_name == 'release' || inputs.publish_desktop
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '22.22.3'
+          cache: npm
+          cache-dependency-path: reme_studio/package-lock.json
+      - run: npm ci --prefix reme_studio
+      - name: Package desktop installers
+        shell: bash
+        run: |
+          npm exec --workspace desktop -- install-electron
+          flags=()
+          manifest=""
+          case "$RUNNER_OS" in
+            macOS)
+              flags+=(--config.mac.identity=- --config.mac.notarize=false)
+              ;;
+            Windows)
+              flags+=(--config.win.signExecutable=false)
+              manifest=latest.yml
+              ;;
+            Linux) manifest=latest-linux.yml ;;
+          esac
+          if [[ -n "$manifest" ]]; then
+            flags+=(
+              --config.publish.provider=github
+              --config.publish.owner="$GITHUB_REPOSITORY_OWNER"
+              --config.publish.repo="${GITHUB_REPOSITORY#*/}"
+            )
+          fi
+          npm run dist --workspace desktop -- "${flags[@]}"
+          if [[ -n "$manifest" ]]; then
+            test -s "desktop/dist.noindex/$manifest"
+          fi
+        working-directory: reme_studio
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: reme-desktop-${{ matrix.os }}
+          path: |
+            reme_studio/desktop/dist.noindex/*.dmg
+            reme_studio/desktop/dist.noindex/*.zip
+            reme_studio/desktop/dist.noindex/*.exe
+            reme_studio/desktop/dist.noindex/*.AppImage
+            reme_studio/desktop/dist.noindex/*.blockmap
+            reme_studio/desktop/dist.noindex/latest*.yml
+          if-no-files-found: error
+
+  publish-studio:
+    if: github.event_name == 'release' || inputs.publish_pypi
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: studio-distributions
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086
+        with:
+          packages-dir: dist/studio
+          skip-existing: true
+
+  publish-studio-npm:
+    if: github.event_name == 'release' || inputs.publish_npm
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: studio-distributions
+          path: dist
+      - env:
+          STUDIO_PACKAGE: '@agentscope-ai/reme_studio'
+        run: |
+          package=$(find dist/studio-npm -name '*.tgz' -print -quit)
+          version=$(tar -xOf "$package" package/package.json | node -p "JSON.parse(require('node:fs').readFileSync(0)).version")
+          if remote=$(npm view "$STUDIO_PACKAGE@$version" dist.integrity); then
+            actual=$(node -e "const fs=require('node:fs'); const crypto=require('node:crypto'); console.log('sha512-'+crypto.createHash('sha512').update(fs.readFileSync(process.argv[1])).digest('base64'))" "$package")
+            test "$remote" = "$actual"
+          else
+            npm publish "$package" --access public --provenance
+          fi
+
+  publish-desktop:
+    if: github.event_name == 'release' || inputs.publish_desktop
+    needs: [prepare, desktop]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          pattern: reme-desktop-*
+          merge-multiple: true
+          path: dist/desktop
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          shopt -s nullglob
+          installers=(dist/desktop/*.dmg dist/desktop/*.zip dist/desktop/*.exe dist/desktop/*.AppImage dist/desktop/*.blockmap)
+          manifests=(dist/desktop/latest*.yml)
+          test "${#installers[@]}" -gt 0
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]] &&
+            ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json tagName >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" "${installers[@]}" "${manifests[@]}" \
+              --repo "$GITHUB_REPOSITORY" --verify-tag --latest=false --title "$RELEASE_TAG"
+            exit
+          fi
+          gh release upload "$RELEASE_TAG" "${installers[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+          if (( ${#manifests[@]} )); then
+            gh release upload "$RELEASE_TAG" "${manifests[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+          fi
+
+  publish-docker:
+    if: github.event_name == 'release' || inputs.publish_docker
+    needs: prepare
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/docker.yml
+    with:
+      release_tag: ${{ needs.prepare.outputs.tag }}
+      source_ref: ${{ needs.prepare.outputs.sha }}

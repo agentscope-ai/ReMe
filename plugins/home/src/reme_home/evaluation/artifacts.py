@@ -9,7 +9,7 @@ import tarfile
 import tempfile
 from uuid import uuid4
 
-from ..preparation.data.models import CaseSpec, QuerySpec
+from ..preparation.data.models import CaseSpec, GroundTruth, QuerySpec
 
 from ..workspace import _validate_directory
 from .compaction import round_scores
@@ -75,9 +75,9 @@ def _dumps_compact_leaf_containers(value) -> str:
                 collect_strings(child)
 
     collect_strings(value)
-    marker_prefix = f"\0meta-reme-singleton-{uuid4().hex}-"
+    marker_prefix = f"\0compact-json-{uuid4().hex}-"
     while any(item.startswith(marker_prefix) for item in strings):
-        marker_prefix = f"\0meta-reme-singleton-{uuid4().hex}-"
+        marker_prefix = f"\0compact-json-{uuid4().hex}-"
 
     replacements: dict[str, str] = {}
 
@@ -165,7 +165,7 @@ def inspect_archive(path: Path, max_bytes: int, destination: Path | None = None)
 
 
 def average_tokens(queries: list[dict]) -> dict:
-    """Average candidate answer total tokens over returned queries, like Meta-ReMe."""
+    """Average candidate answer token totals over all returned queries."""
     totals = {}
     for query in queries:
         usage_by_model = (query.get("answer_result") or {}).get("token_usage", {})
@@ -181,7 +181,7 @@ def average_tokens(queries: list[dict]) -> dict:
 
 
 def summarize(run: Path, cases: list, *, scoring_required: bool = True) -> dict:
-    """Rebuild compact optimizer evidence with Meta-ReMe's expected-query denominator."""
+    """Rebuild optimizer evidence using the expected query count for the overall score."""
     rows, all_scores, query_results = {}, [], []
     case_counts = {"completed": 0, "candidate_failure": 0, "infra_error": 0}
     construction_counts = {"success": 0, "partial_success": 0, "failure": 0}
@@ -303,7 +303,7 @@ def rebuild_summary(run: Path) -> dict:
         CaseSpec(
             case_id=case_id,
             sessions=[],
-            queries=[QuerySpec(query_id=query_id, question="", golden_answer=None) for query_id in query_ids],
+            queries=[QuerySpec(query_id=query_id, question="", groundtruth=GroundTruth()) for query_id in query_ids],
         )
         for case_id, query_ids in manifest["query_ids"].items()
     ]

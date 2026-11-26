@@ -1,0 +1,232 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1780" height="1120" viewBox="0 0 1780 1120" role="img" aria-labelledby="title desc">
+  <title id="title">A task in Proactive Runtime</title>
+  <desc id="desc">Independent collectors publish Codex dialogue and screenshots to the work Agent. External sources can submit observations through the same Event Inbox. The Agent claims a batch and starts a fresh native session using TASK.md and the original inputs. An event task can skip writing if there is no key information. A daily record contains the new findings and the reminder decision. The Chat Inbox reads delivered reminders from the same records.</desc>
+  <metadata>Source: reme/config/proactive.yaml; reme/schema/application_config.py; reme/steps/proactive/data_connectors/base_connector.py; reme/steps/proactive/data_connectors/codex_dialogue.py; reme/steps/proactive/data_connectors/_codex_dialogue.py; reme/steps/proactive/agent/proactive.py; reme/steps/proactive/agent/proactive.yaml; reme/components/proactive_manager/_internal/outbox.py; reme/components/agent_inbox/agent_event_inbox.py. Drawn from the current working tree. Claude Code is an illustrative external source. Paths use the defaults workspace_dir=.reme, resource_dir=resource, daily_dir=daily and reme_agent_dir=reme_agents; directory settings may be overridden. {date} is an application-local calendar date; {batch} is HHMMSS_random6. Permanent work Agent shown. All events and decisions are illustrative.</metadata>
+  <defs>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; fill: #22383F; }
+      .title { font-size: 38px; font-weight: 700; letter-spacing: -1px; }
+      .section { font-size: 14px; font-weight: 600; letter-spacing: 1.6px; }
+      .heading { font-size: 25px; font-weight: 650; letter-spacing: -.4px; }
+      .body { font-size: 16px; }
+      .small { font-size: 14px; }
+      .muted { fill: #697E85; }
+      .teal { fill: #147D80; }
+      .purple { fill: #775AA6; }
+      .file { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace; font-size: 13.5px; fill: #62767E; }
+      .line { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+      .white { fill: #FFFFFF; }
+    </style>
+    <marker id="teal" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto-start-reverse">
+      <path d="M1 1L6 3.5L1 6" fill="none" stroke="#45999A" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+    </marker>
+    <marker id="purple" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto-start-reverse">
+      <path d="M1 1L6 3.5L1 6" fill="none" stroke="#9A83BA" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+    </marker>
+    <marker id="gold" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto-start-reverse">
+      <path d="M1 1L6 3.5L1 6" fill="none" stroke="#BE9859" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+    </marker>
+    <marker id="light" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+      <path d="M1 1L6 3.5L1 6" fill="none" stroke="#91BCBF" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+    </marker>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#173A42" flood-opacity=".08" />
+    </filter>
+  </defs>
+
+  <rect width="1780" height="1120" fill="#F8FAFA" />
+  <text x="64" y="43" class="section teal">REME / 01</text>
+  <text x="64" y="91" class="title">A task in Proactive Runtime</text>
+  <rect x="1588" y="53" width="128" height="32" rx="16" fill="#EAF1F1" />
+  <text x="1652" y="74" class="small muted" text-anchor="middle">Work example</text>
+  <path d="M64 118H1716" class="line" stroke="#DFE8E8" />
+
+  <!-- Three aligned stages keep the primary flow separate from file access. -->
+  <g data-role="section-headings">
+    <text x="64" y="166" class="section teal">01</text>
+    <text x="100" y="166" class="section muted">COLLECT INPUTS</text>
+    <text x="548" y="166" class="section teal">02</text>
+    <text x="584" y="166" class="section muted">PROCESS A BATCH</text>
+    <text x="1308" y="166" class="section purple">03</text>
+    <text x="1344" y="166" class="section muted">REMIND IF NEEDED</text>
+  </g>
+
+  <g data-role="input-sources">
+    <g data-box="64,204,118,80">
+      <rect x="64" y="204" width="118" height="80" rx="12" fill="#FFFFFF" stroke="#DDE7E7" />
+      <text x="123" y="237" font-size="19" font-weight="650" text-anchor="middle">Codex</text>
+      <text x="123" y="260" font-size="12.5" class="muted" text-anchor="middle">Dialogue</text>
+    </g>
+    <g data-box="200,204,118,80">
+      <rect x="200" y="204" width="118" height="80" rx="12" fill="#FFFFFF" stroke="#DDE7E7" />
+      <text x="259" y="237" font-size="16" font-weight="650" text-anchor="middle">Claude Code</text>
+      <text x="259" y="260" font-size="12.5" class="muted" text-anchor="middle">Traj · event API</text>
+    </g>
+    <g data-box="336,204,118,80">
+      <rect x="336" y="204" width="118" height="80" rx="12" fill="#FFFFFF" stroke="#DDE7E7" />
+      <text x="395" y="237" font-size="19" font-weight="650" text-anchor="middle">Screens</text>
+      <text x="395" y="260" font-size="12.5" class="muted" text-anchor="middle">Screenshots</text>
+    </g>
+    <path d="M123 285V304Q123 310 129 310H253Q259 310 259 316V334M395 285V304Q395 310 389 310H265Q259 310 259 316M259 285V310" class="line" stroke="#A6C8C9" stroke-width="1.5" />
+    <path d="M259 322V334" class="line" stroke="#45999A" stroke-width="1.7" marker-end="url(#teal)" />
+  </g>
+
+  <g data-role="event-inbox" data-box="64,336,390,284">
+    <rect x="64" y="336" width="390" height="284" rx="16" fill="#FFFFFF" stroke="#DDE7E7" />
+    <text x="88" y="375" class="heading">Event Inbox</text>
+    <text x="88" y="402" class="small muted">Pending events · oldest first</text>
+    <path d="M143 441V574" class="line" stroke="#E0EAEA" stroke-width="1.5" />
+    <g data-role="inbox-event">
+      <text x="128" y="447" class="small muted" text-anchor="end">09:00</text>
+      <circle cx="143" cy="442" r="4" fill="#45999A" />
+      <text x="164" y="442" font-size="15" font-weight="650">Codex</text>
+      <text x="164" y="465" class="small muted">Building Proactive Project</text>
+    </g>
+    <g data-role="inbox-event">
+      <text x="128" y="507" class="small muted" text-anchor="end">09:05</text>
+      <circle cx="143" cy="502" r="4" fill="#45999A" />
+      <text x="164" y="502" font-size="15" font-weight="650">Claude Code</text>
+      <text x="164" y="525" class="small muted">Fixing ReMe bug</text>
+    </g>
+    <g data-role="inbox-event">
+      <text x="128" y="567" class="small muted" text-anchor="end">09:10</text>
+      <circle cx="143" cy="562" r="4" fill="#45999A" />
+      <text x="164" y="562" font-size="15" font-weight="650">Screenshot</text>
+      <text x="164" y="585" class="small muted">Writing work report</text>
+    </g>
+  </g>
+  <text x="64" y="650" class="small muted">Observations and scheduled triggers share this inbox.</text>
+  <g data-role="inbox-to-run">
+    <path d="M455 463H546" class="line" stroke="#45999A" stroke-width="1.8" stroke-dasharray="4 5" marker-end="url(#teal)" />
+    <text x="501" y="438" font-size="13" class="teal" text-anchor="middle">Claim</text>
+    <text x="501" y="454" font-size="13" class="teal" text-anchor="middle">events</text>
+  </g>
+
+  <g data-role="segmented-run-cycle">
+    <text x="548" y="202" class="small muted">Wait between runs</text>
+    <text x="1228" y="202" class="small muted" text-anchor="end">No continuous model calls</text>
+    <rect x="548" y="218" width="680" height="34" rx="8" fill="#E8EFEF" />
+    <rect x="688" y="218" width="18" height="34" fill="#7EB7B8" />
+    <rect x="866" y="218" width="36" height="34" fill="#147D80" data-role="selected-run" />
+    <rect x="1082" y="218" width="18" height="34" fill="#7EB7B8" />
+    <text x="618" y="240" class="small muted" text-anchor="middle">Sleep</text>
+    <text x="786" y="240" class="small muted" text-anchor="middle">Sleep</text>
+    <text x="884" y="240" font-size="11" font-weight="600" class="white" text-anchor="middle">Run</text>
+    <text x="992" y="240" class="small muted" text-anchor="middle">Sleep</text>
+    <text x="1164" y="240" class="small muted" text-anchor="middle">Sleep</text>
+  </g>
+  <g data-role="expanded-run">
+    <path d="M866 254L548 296H1228L902 254Z" fill="#D9ECEC" fill-opacity=".65" />
+    <text x="884" y="280" font-size="12" class="teal" text-anchor="middle">One run, expanded</text>
+  </g>
+
+  <g data-role="proactive-run" data-box="548,296,680,324">
+    <rect x="548" y="296" width="680" height="324" rx="20" fill="#183A43" filter="url(#shadow)" />
+    <circle cx="581" cy="330" r="4" fill="#78D6C4" />
+    <text x="596" y="335" font-size="12" font-weight="600" letter-spacing="1.5" style="fill:#A5D4D0">FRESH SESSION</text>
+    <text x="576" y="377" font-size="32" font-weight="650" letter-spacing="-.6" class="white">A proactive run</text>
+    <g data-box="576,406,194,88">
+      <rect x="576" y="406" width="194" height="88" rx="12" fill="#244A53" stroke="#365C64" />
+      <text x="596" y="440" font-size="21" font-weight="600" class="white">Read</text>
+      <text x="596" y="464" class="small" style="fill:#B3CED1">TASK.md<tspan x="596" dy="17">Original inputs</tspan></text>
+    </g>
+    <g data-box="790,406,194,88">
+      <rect x="790" y="406" width="194" height="88" rx="12" fill="#244A53" stroke="#365C64" />
+      <text x="810" y="440" font-size="21" font-weight="600" class="white">Search history</text>
+      <text x="810" y="468" class="small" style="fill:#B3CED1">Check prior reminders</text>
+    </g>
+    <g data-box="1004,406,196,88">
+      <rect x="1004" y="406" width="196" height="88" rx="12" fill="#244A53" stroke="#365C64" />
+      <text x="1024" y="440" font-size="21" font-weight="600" class="white">Save result</text>
+      <text x="1024" y="468" class="small" style="fill:#B3CED1">Record the decision</text>
+    </g>
+    <path d="M774 450H786" class="line" stroke="#91BCBF" stroke-width="1.3" marker-end="url(#light)" />
+    <path d="M988 450H1000" class="line" stroke="#91BCBF" stroke-width="1.3" marker-end="url(#light)" />
+    <path d="M576 521H1200" class="line" stroke="#36565E" />
+    <text x="576" y="547" class="body" style="fill:#D3E6E5">Observation runs can skip writing if they find no key information.</text>
+    <text x="576" y="574" class="small" style="fill:#9CBBC0">Local search budget: ten calls per run by default.</text>
+    <text x="576" y="598" class="small" style="fill:#9CBBC0">Check recent records first. Save progress and the decision together.</text>
+  </g>
+
+  <path data-role="run-to-outbox" d="M1229 463H1306" class="line" stroke="#9A83BA" stroke-width="1.8" marker-end="url(#purple)" />
+  <g data-role="outbox-examples" data-box="1308,196,408,356">
+    <rect x="1308" y="196" width="408" height="356" rx="16" fill="#FFFFFF" stroke="#E2DBEC" />
+    <text x="1332" y="238" class="heading purple">Outbox</text>
+    <text x="1332" y="266" class="small muted">Reminder text comes from the daily record</text>
+    <g data-role="reminder-types">
+      <rect x="1332" y="290" width="36" height="22" rx="6" fill="#EEE9F5" />
+      <text x="1350" y="306" font-size="12" font-weight="600" class="purple" text-anchor="middle">P0</text>
+      <text x="1378" y="306" class="small muted">Due or urgent</text>
+      <rect x="1512" y="290" width="36" height="22" rx="6" fill="#EEE9F5" />
+      <text x="1530" y="306" font-size="12" font-weight="600" class="purple" text-anchor="middle">P1</text>
+      <text x="1558" y="306" class="small muted">Meaningful change</text>
+      <rect x="1332" y="330" width="36" height="22" rx="6" fill="#EEE9F5" />
+      <text x="1350" y="346" font-size="12" font-weight="600" class="purple" text-anchor="middle">P2</text>
+      <text x="1378" y="346" class="small muted">Relevant discovery</text>
+    </g>
+    <path d="M1332 372H1692" class="line" stroke="#EEEAF3" />
+    <g data-role="reminder-example">
+      <rect x="1332" y="392" width="52" height="24" rx="6" fill="#EEE9F5" />
+      <text x="1358" y="409" font-size="12" font-weight="600" class="purple" text-anchor="middle">P0</text>
+      <text x="1398" y="409" font-size="15">Scheduled reminder is due.</text>
+    </g>
+    <g data-role="reminder-example">
+      <rect x="1332" y="430" width="52" height="24" rx="6" fill="#EEE9F5" />
+      <text x="1358" y="447" font-size="12" font-weight="600" class="purple" text-anchor="middle">P1</text>
+      <text x="1398" y="447" font-size="15">Project A has new results.</text>
+    </g>
+    <g data-role="reminder-example">
+      <rect x="1332" y="468" width="52" height="24" rx="6" fill="#EEE9F5" />
+      <text x="1358" y="485" font-size="12" font-weight="600" class="purple" text-anchor="middle">P2</text>
+      <text x="1398" y="485" font-size="15">A relevant paper is available.</text>
+    </g>
+    <text x="1332" y="523" class="small muted">Publish after the round is committed.</text>
+  </g>
+  <path d="M1512 553V598" class="line" stroke="#9A83BA" stroke-width="1.7" marker-end="url(#purple)" />
+  <text x="1530" y="580" font-size="13" class="purple">Committed reminders only</text>
+  <g data-role="chat-inbox" data-box="1308,600,408,68">
+    <rect x="1308" y="600" width="408" height="68" rx="12" fill="#FFFFFF" stroke="#E2DBEC" />
+    <text x="1332" y="629" font-size="21" font-weight="650" class="purple">Chat Agent Inbox</text>
+    <text x="1332" y="651" class="small muted">References to committed daily records</text>
+  </g>
+
+  <g data-role="file-connections" stroke-width="1.7">
+    <path data-role="file-link-source" d="M333 774C333 700 600 715 600 627" class="line" stroke="#8BB9BA" marker-end="url(#teal)" />
+    <path data-role="file-link-task" d="M890 774V627" class="line" stroke="#8BB9BA" marker-end="url(#teal)" />
+    <path data-role="file-link-record" d="M1140 627C1140 715 1446 700 1446 774" class="line" stroke="#CEB58D" marker-start="url(#gold)" marker-end="url(#gold)" />
+  </g>
+  <text x="64" y="725" font-size="21" font-weight="650">Workspace files</text>
+
+  <g data-role="workspace-files">
+    <g data-box="64,778,538,246" data-path="resource/{source}/{date}/{batch}/metadata.json">
+      <rect x="64" y="778" width="538" height="246" rx="14" fill="#FFFFFF" stroke="#DDE7E7" />
+      <rect x="84" y="796" width="58" height="24" rx="6" fill="#E8F2F1" />
+      <text x="113" y="813" font-size="11" font-weight="650" letter-spacing=".8" class="teal" text-anchor="middle">READ</text>
+      <text x="84" y="856" font-size="22" font-weight="650">Source files</text>
+      <text x="84" y="883" font-size="15" class="muted">Built-in manifests and payloads</text>
+      <text x="84" y="923" class="file">resource/{source}/{date}/{batch}/metadata.json</text>
+      <text x="84" y="998" font-size="13" class="muted">{batch} = HHMMSS_random6</text>
+    </g>
+    <g data-box="620,778,538,246" data-path="reme_agents/work/TASK.md">
+      <rect x="620" y="778" width="538" height="246" rx="14" fill="#FFFFFF" stroke="#DDE7E7" />
+      <rect x="640" y="796" width="58" height="24" rx="6" fill="#E8F2F1" />
+      <text x="669" y="813" font-size="11" font-weight="650" letter-spacing=".8" class="teal" text-anchor="middle">READ</text>
+      <text x="640" y="856" font-size="22" font-weight="650">Task description</text>
+      <text x="640" y="883" font-size="15" class="muted">Task requirements and reminder preferences</text>
+      <text x="640" y="923" class="file">reme_agents/work/TASK.md</text>
+    </g>
+    <g data-box="1176,778,540,246" data-path="daily/{date}/work_HHMMSS.md">
+      <rect x="1176" y="778" width="540" height="246" rx="14" fill="#FFFFFF" stroke="#E7E0D5" />
+      <rect x="1196" y="796" width="128" height="24" rx="6" fill="#F6EFE3" />
+      <text x="1260" y="813" font-size="11" font-weight="650" letter-spacing=".5" style="fill:#A07A3D" text-anchor="middle">READ &amp; WRITE</text>
+      <text x="1196" y="856" font-size="22" font-weight="650">Daily records</text>
+      <text x="1196" y="883" font-size="15" class="muted">Search past records and write this run's result</text>
+      <text x="1196" y="923" class="file">daily/{date}/work_HHMMSS.md</text>
+      <text x="1196" y="962" font-size="13" class="muted">Body holds new findings and sources</text>
+      <text x="1196" y="989" font-size="13" class="muted">Frontmatter holds the reminder decision</text>
+    </g>
+  </g>
+  <text x="64" y="1050" font-size="12" class="muted">Paths are relative to the workspace root (default: .reme/). Directory settings may be overridden.</text>
+  <text x="64" y="1072" font-size="12" class="muted">Codex collector state: resource/codex_dialogue/{progress.jsonl,pending.json}. Screenshots use an independent collection job.</text>
+  <text x="1716" y="1103" font-size="12" class="muted" text-anchor="end">REME / PROACTIVE RUNTIME</text>
+</svg>

@@ -1,0 +1,50 @@
+/* Shared by the workspace, mobile hosts, and transparent companion surfaces. */
+:root {
+  --theme-preview-light: #f9f9f9;
+  --theme-preview-dark: #222224;
+  --ink: light-dark(#1c1e21, #ededee);
+  --muted: light-dark(#48494c, #b6b6ba);
+  --accent: light-dark(#1c1e21, #f0f0f1);
+  --accent-ink: light-dark(#fff, #18181a);
+  --accent-soft: light-dark(#edeeee, #353537);
+  --accent-line: light-dark(#d5d6d8, #545459);
+  --unread: light-dark(#2e6557, #a3d6c5);
+  --unread-soft: light-dark(#e7f2ed, #263b34);
+  --line: light-dark(#e6e6e7, #3b3b3e);
+  --soft: light-dark(#f0f0f1, #2d2d30);
+  --surface: light-dark(#fffffff0, #28282bf0);
+  --page: light-dark(#fefefef5, #18181af5);
+  --glass: light-dark(#f9f9f9d4, #222224d4);
+  --surface-opaque: light-dark(#fff, #28282b);
+  --page-opaque: light-dark(#fefefe, #18181a);
+  --glass-opaque: light-dark(
+    var(--theme-preview-light),
+    var(--theme-preview-dark)
+  );
+  --card: light-dark(#ffffffb8, #ffffff06);
+  --floating: light-dark(#fafafaf7, #28282bfa);
+  --shadow: light-dark(0 3px 14px #1c1e210c, 0 3px 14px #00000020);
+  --scrim: light-dark(#1c1e2140, #0007);
+  --warning: light-dark(#87642a, #dfbf86);
+  --warning-soft: light-dark(#f5eedf, #3e3527);
+  --error: light-dark(#a04f47, #e7aaa0);
+  --error-soft: light-dark(#f7e9e5, #432e2a);
+  --text-caption: 12px;
+  --text-ui: 13px;
+  --text-body: 14px;
+  --text-heading: 16px;
+  --text-title: 18px;
+  --text-document: 22px;
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-strong: 600;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+}

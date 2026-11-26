@@ -12,8 +12,8 @@ import yaml
 from reme.components.service import cli_service
 from reme.components.service.cli_service import CliService
 from reme import reme as reme_module
-from reme.components.base_component import ComponentMixin
-from reme.components.component_registry import create_application_registry
+from reme.components.base import ComponentMixin
+from reme.core.registry import create_application_registry
 from reme.enumeration import ComponentEnum
 from reme.plugin import Backend, Plugin, PluginManager, PluginRuntime
 
@@ -34,8 +34,13 @@ def _recording_client(seen, output="ok", base=object):
             return None
 
         async def __call__(self, action: str, **kwargs):
-            seen["action"] = action
-            seen["payload"] = kwargs
+            async for chunk in self.call_job(action, kwargs):
+                yield chunk
+
+        async def call_job(self, job_name: str, payload: dict):
+            """Record route and payload separately, including action-bearing jobs."""
+            seen["action"] = job_name
+            seen["payload"] = payload
             yield output
 
     return RecordingClient
@@ -116,7 +121,7 @@ def test_main_saves_loaded_environment_in_start_config(monkeypatch):
     """The startup config keeps the environment captured by the single global load."""
     observed = {}
 
-    class FakeReMe:
+    class FakeApplication:
         """Capture the fully resolved application configuration."""
 
         def __init__(self, **kwargs):
@@ -130,8 +135,9 @@ def test_main_saves_loaded_environment_in_start_config(monkeypatch):
     main_globals = reme_module.main.__globals__
     monkeypatch.setattr("sys.argv", ["reme", "start"])
     monkeypatch.setitem(main_globals, "load_env", lambda: {"TOOL_ENV": "configured"})
+    monkeypatch.setitem(main_globals, "prepare_start_service", lambda _kwargs: {"backend": "cli"})
     monkeypatch.setitem(main_globals, "prepare_start_config", lambda _kwargs: {"service": {"backend": "cli"}})
-    monkeypatch.setitem(main_globals, "ReMe", FakeReMe)
+    monkeypatch.setitem(main_globals, "Application", FakeApplication)
 
     reme_module.main()
 
@@ -299,6 +305,19 @@ def test_call_server_passes_client_kwargs_to_client(monkeypatch, capsys):
     assert capsys.readouterr().out == "ok\n"
 
 
+def test_cli_preserves_job_action_argument(monkeypatch, capsys):
+    """The route name and a Todo/Idea action can coexist in one CLI invocation."""
+    seen = {}
+    _set_client_backend(monkeypatch, _recording_client(seen))
+    monkeypatch.setattr(reme_module, "running_app_config", lambda: None)
+    monkeypatch.setattr(reme_module, "load_env", lambda: {})
+    monkeypatch.setattr(sys, "argv", ["reme", "todo", "action=create", "project=ReMe", "text=记录事项"])
+    reme_module.main()
+    assert seen["action"] == "todo"
+    assert seen["payload"] == {"action": "create", "project": "ReMe", "text": "记录事项"}
+    assert capsys.readouterr().out == "ok\n"
+
+
 def test_call_server_treats_show_metadata_as_client_kwarg(monkeypatch, capsys):
     """show_metadata controls client display and is not sent as a tool argument."""
     seen = {}
@@ -414,6 +433,45 @@ def test_call_server_uses_running_plugins_and_their_service_defaults(monkeypatch
     assert seen["action"] == "search"
     assert seen["payload"] == {"query": "hello"}
     assert capsys.readouterr().out == "plugin-ok\n"
+
+
+def test_call_server_uses_caller_config_when_running_config_cannot_be_replayed(tmp_path, monkeypatch, capsys):
+    """An incomplete process replay can locate a port but cannot select the job client."""
+    monkeypatch.delenv("REME_TEST_SERVER_ONLY_TOKEN", raising=False)
+    server_config = tmp_path / "server.yaml"
+    server_config.write_text("service: {backend: http, host: '${REME_TEST_SERVER_ONLY_TOKEN}'}\n")
+    client_config = tmp_path / "client.yaml"
+    client_config.write_text("service: {port: 8128}\n")
+    proc = SimpleNamespace(
+        info={"pid": 17, "cmdline": ["reme", "start", f"config={server_config}", "service.port=8127"]},
+        cwd=lambda: str(tmp_path),
+    )
+    monkeypatch.setattr(reme_module.psutil, "process_iter", lambda _attrs: iter([proc]))
+    seen = {}
+    _set_client_backend(monkeypatch, _recording_client(seen))
+
+    asyncio.run(reme_module.call_server("version", config=str(client_config)))
+
+    assert seen["client_kwargs"] == {"port": 8128}
+    assert seen["payload"] == {}
+    assert capsys.readouterr().out == "ok\n"
+
+
+def test_cli_client_discovery_keeps_plugins_without_loading_provider_settings(tmp_path, monkeypatch):
+    """A client process needs only the running service configuration and enabled plugins."""
+    monkeypatch.delenv("REME_TEST_SERVER_ONLY_TOKEN", raising=False)
+    path = tmp_path / "server.yaml"
+    path.write_text(
+        "plugins: [example]\nservice: {backend: http, port: 8127}\n"
+        "components: {model: {default: {api_key: '${REME_TEST_SERVER_ONLY_TOKEN}'}}}\n",
+    )
+    proc = SimpleNamespace(
+        info={"pid": 17, "cmdline": ["reme", "start", f"config={path}"]},
+        cwd=lambda: str(tmp_path),
+    )
+    monkeypatch.setattr(reme_module.psutil, "process_iter", lambda _attrs: iter([proc]))
+
+    assert reme_module.running_app_config() == {"plugins": ["example"], "service": {"backend": "http", "port": 8127}}
 
 
 def test_call_server_skips_local_fallback_when_server_is_running(monkeypatch, capsys):

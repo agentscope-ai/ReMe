@@ -5,7 +5,7 @@ from pathlib import Path
 
 import aiofiles
 
-from ..base_component import BaseComponent
+from ..base import BaseComponent
 from ...enumeration import ComponentEnum
 
 

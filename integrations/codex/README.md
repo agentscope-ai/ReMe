@@ -6,6 +6,62 @@ Connect Codex to your ReMe service to remember project decisions, preferences, a
 across conversations. ReMe can automatically record and recall memories, and organize them each day.
 Your memory files stay in your own ReMe workspace.
 
+The host integration gives existing conversations access to ReMe's long-term memory. The [Proactive Runtime](https://reme.agentscope.io/en/proactive_runtime) can also use this agent as an execution backend for its own tasks. Those runs use task-owned sessions.
+
+## HTTP connection (default)
+
+The default plugin connects directly to ReMe's HTTP MCP endpoint. It starts no persistent Python
+proxy per conversation. Automatic recall and recording still use short-lived Python Hooks, so the
+host needs Python 3.11+ and `fastmcp>=4.1.4,<5` for those Hooks.
+
+Start the shared service in one terminal. Both `default` and `proactive` configurations use HTTP;
+`proactive` also needs HTTP for desktop APIs and streaming chat.
+
+```bash
+reme start config=default workspace_dir=/absolute/path/to/reme-workspace service.tool_error_on_failure=true
+```
+
+In another terminal, prepare a user-owned installation source from your checkout:
+
+```bash
+python3 /absolute/path/to/ReMe/integrations/configure_mcp.py codex
+codex plugin marketplace add "${CODEX_HOME:-$HOME/.codex}/reme/plugin-marketplace"
+codex plugin add reme@reme-codex
+```
+
+The script reads `${CODEX_HOME:-~/.codex}/reme/config.json`; only overrides are required. To change
+the address for both the native MCP connection and Hooks, rerun it with
+`--mcp-url http://127.0.0.1:2444/mcp`. For a nondefault address already in JSON, omit that option.
+After changing the address or transport, reinstall the plugin from this source and
+restart Codex. Other JSON Hook options take effect on the next Hook invocation. The generated
+source is replaceable; settings, queued turns, and logs remain outside it. No plugin cache is edited.
+If an HTTP installation still points at an old address, Hooks skip work with `hook_failed` until
+the plugin is regenerated and reinstalled, rather than using two different memory services.
+
+When migrating an existing marketplace registered from the checkout, first run
+`codex plugin remove reme@reme-codex` and `codex plugin marketplace remove reme-codex`, then add
+the generated source above. Settings and pending memories remain in the host's `reme/` directory.
+Review and trust every ReMe Hook in `/hooks` or the desktop Hooks settings after installation.
+
+Ask Codex to use `health_check` to check the connection, `search` to recall memory, or `auto_dream`
+for explicitly requested consolidation. Check `reme/hooks.log`, the local queue, and the service's
+daily notes to verify automatic delivery; a successful health check does not prove a turn was saved.
+HTTP mode uses the service's `dream_cron` schedule; the plugin's `autoDreamEnabled`, `dreamCron`,
+and `dreamHint` settings apply to stdio mode only. HTTP search uses the service tool's defaults;
+the plugin's `searchLimit` and `recallMinScore` still control automatic recall.
+
+| Connection | Explicit tools | Settings and local diagnostics | Daily consolidation |
+| --- | --- | --- | --- |
+| HTTP (default) | ReMe service tools, including `search`, `health_check`, `status`, `auto_dream` | JSON settings, local queue and logs | ReMe service schedule |
+| stdio (optional) | Service tools plus `reme_search`, `reme_status`, `reme_run_dream` | JSON plus the existing native settings form and status card | Existing plugin scheduler, or the service schedule |
+
+To select the existing stdio implementation, run the same configuration command with
+`--transport stdio`, then reinstall the plugin and restart Codex. It still connects to the shared
+HTTP service through its Python proxy. The following guide and screenshots describe that mode.
+
+<details>
+<summary>Optional stdio mode: native settings, status card, and plugin scheduler</summary>
+
 The screenshots below were captured in Codex desktop. Click an image to view it at full size.
 
 ## Before you start
@@ -54,7 +110,8 @@ Enable daily consolidation in only one place for the same workspace.
 Use the absolute path to your checkout:
 
 ```bash
-codex plugin marketplace add /absolute/path/to/ReMe/integrations/codex
+python3 /absolute/path/to/ReMe/integrations/configure_mcp.py codex --transport stdio
+codex plugin marketplace add "${CODEX_HOME:-$HOME/.codex}/reme/plugin-marketplace"
 codex plugin add reme@reme-codex
 ```
 
@@ -259,11 +316,14 @@ For further diagnosis, check `~/.codex/reme/hooks.log`. If you set `CODEX_HOME`,
 instead of `~/.codex`. Avoid deleting `reme/` while troubleshooting: it also contains your settings
 and conversations still waiting to be saved.
 
-To update, refresh your checkout and reinstall:
+To update, refresh your checkout, regenerate the stdio installation source, and reinstall:
 
 ```bash
+python3 /absolute/path/to/ReMe/integrations/configure_mcp.py codex --transport stdio
 codex plugin remove reme@reme-codex
 codex plugin add reme@reme-codex
 ```
 
 Restart Codex and review changed Hooks. Your saved settings and pending memories are preserved.
+
+</details>

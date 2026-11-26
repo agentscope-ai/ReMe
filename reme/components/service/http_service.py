@@ -3,6 +3,7 @@
 import asyncio
 import warnings
 from collections.abc import AsyncGenerator
+from contextlib import aclosing
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -14,15 +15,23 @@ from fastapi.staticfiles import StaticFiles
 from starlette.routing import Route
 
 from .base_service import BaseService
-from ..component_registry import R
+from ...core.registry import R
 from ..job import BaseJob, StreamJob
-from ...constants import REME_DEFAULT_HOST, REME_DEFAULT_PORT
+from ...constants import (
+    DEFAULT_MCP_PATH,
+    OPENAPI_SCHEMA_PATH,
+    REME_DEFAULT_HOST,
+    REME_DEFAULT_PORT,
+    REME_SSE_DONE_MARKER,
+    SSE_MEDIA_TYPE,
+)
 from ...schema import Request, Response
-from ...utils import execute_stream_task, resolve_web_static_dir
+from ...utils.streaming import execute_stream_task
+from .web_static import resolve_web_static_dir
 from .mcp_tools import add_mcp_job
 
 if TYPE_CHECKING:
-    from ...application import Application
+    from ...core.application import Application
 
 
 # uvicorn 0.41 still imports these deprecated websockets symbols on startup,
@@ -41,10 +50,10 @@ class HttpService(BaseService):
         self,
         host: str = REME_DEFAULT_HOST,
         port: int = REME_DEFAULT_PORT,
-        web_enabled: bool = True,
+        web_enabled: bool = False,
         web_static_dir: str | None = None,
         mcp_enabled: bool = True,
-        mcp_path: str = "/mcp",
+        mcp_path: str = DEFAULT_MCP_PATH,
         mcp_stateless_http: bool = False,
         injected_job_kwargs: dict[str, Any] | None = None,
         tool_error_on_failure: bool = False,
@@ -88,6 +97,7 @@ class HttpService(BaseService):
         self.service = FastAPI(
             title=app.config.app_name,
             lifespan=lifespan,
+            openapi_url=OPENAPI_SCHEMA_PATH,
         )
         for server in servers.values():
             gateway = server.jobs_mcp
@@ -224,7 +234,7 @@ class HttpService(BaseService):
             char.isspace() or ord(char) < 32 or ord(char) == 127 for char in path
         ):
             raise ValueError("mcp_path must be a literal URL path without route, query, or fragment syntax")
-        if path in {"/assets", "/docs", "/redoc", "/openapi.json"}:
+        if path in {"/assets", "/docs", "/redoc", OPENAPI_SCHEMA_PATH}:
             raise ValueError(f"mcp_path conflicts with reserved HTTP path {path!r}")
         return path
 
@@ -232,7 +242,7 @@ class HttpService(BaseService):
         """Register a job as POST /{job.name} returning a JSON Response."""
 
         async def endpoint(request: Request) -> Response:
-            return await job(**request.model_dump(exclude_none=True))
+            return await job(**request.model_dump(exclude_unset=True))
 
         self.service.post(
             f"/{job.name}",
@@ -246,19 +256,15 @@ class HttpService(BaseService):
         async def endpoint(request: Request) -> StreamingResponse:
             stream_queue: asyncio.Queue = asyncio.Queue(maxsize=job.stream_queue_size)
             task = asyncio.create_task(
-                job(stream_queue=stream_queue, **request.model_dump(exclude_none=True)),
+                job(stream_queue=stream_queue, **request.model_dump(exclude_unset=True)),
             )
 
             async def body() -> AsyncGenerator[bytes, None]:
-                async for chunk in execute_stream_task(
-                    stream_queue=stream_queue,
-                    task=task,
-                    task_name=job.name,
-                    output_format="bytes",
-                ):
-                    assert isinstance(chunk, bytes)
-                    yield chunk
+                async with aclosing(execute_stream_task(stream_queue, task, job.name)) as chunks:
+                    async for chunk in chunks:
+                        payload = REME_SSE_DONE_MARKER if chunk.done else chunk.model_dump_json()
+                        yield f"data:{payload}\n\n".encode()
 
-            return StreamingResponse(body(), media_type="text/event-stream")
+            return StreamingResponse(body(), media_type=SSE_MEDIA_TYPE)
 
         self.service.post(f"/{job.name}")(endpoint)

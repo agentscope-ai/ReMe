@@ -7,18 +7,18 @@ from typing import Any, TYPE_CHECKING
 from agentscope.model import ChatModelBase
 
 from ..components.agent_wrapper.base_agent_wrapper import BaseAgentWrapper
-from ..components.base_component import ComponentMixin
-from ..components.component_registry import R
+from ..components.base import ComponentMixin
+from ..core.registry import R
 from ..components.file_catalog import BaseFileCatalog
 from ..components.file_store import BaseFileStore
-from ..components.prompt_handler import PromptHandler
-from ..components.runtime_context import RuntimeContext
+from .prompt import PromptHandler
+from ..core.context import RuntimeContext
 from ..enumeration import ComponentEnum
 from ..schema import ApplicationConfig, Response
 from ..constants import DEFAULT_MAX_FILE_BYTES
 
 if TYPE_CHECKING:
-    from ..components import ApplicationContext
+    from ..core.context import ApplicationContext
     from ..components.job import BaseJob
 
 _UNSET = object()
@@ -194,10 +194,11 @@ class BaseStep(ComponentMixin, ABC):
 
     def config_value(self, key: str):
         """Return an app config value, falling back to ApplicationConfig defaults."""
-        defaults = ApplicationConfig()
-        cfg = self.app_context.app_config if self.app_context is not None else defaults
-        value = getattr(cfg, key)
-        return getattr(defaults, key) if value in (None, "") else value
+        if self.app_context is not None:
+            value = getattr(self.app_context.app_config, key)
+            if value not in (None, ""):
+                return value
+        return getattr(ApplicationConfig(), key)
 
     def max_file_bytes(self) -> int:
         """Return the content-processing size limit from Step or Job context."""

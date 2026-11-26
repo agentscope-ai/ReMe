@@ -21,6 +21,16 @@ class BranchArguments(SpecModel):
     )
 
 
+class SwitchArguments(BranchArguments):
+    """Select a literal branch or a uniquely identified preserved evaluation."""
+
+    branch_name: str = Field(
+        min_length=1,
+        max_length=100,
+        description="Existing local branch name, evaluated-<SHA prefix>, or unique evaluated commit SHA prefix.",
+    )
+
+
 class CommitArguments(SpecModel):
     """Commit the complete candidate change with an explicit message."""
 
@@ -70,7 +80,7 @@ ARGUMENTS = {
     "status": NoArguments,
     "list_branches": NoArguments,
     "create_branch": BranchArguments,
-    "switch_branch": BranchArguments,
+    "switch_branch": SwitchArguments,
     "merge_branch": BranchArguments,
     "commit": CommitArguments,
     "diff": DiffArguments,

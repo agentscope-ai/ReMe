@@ -5,11 +5,11 @@ from types import SimpleNamespace
 
 from rich.console import Console
 
-from reme import application as application_module
-from reme.application import Application
+from reme.core import application as application_module
+from reme import Application
 from reme.constants import REME_DEFAULT_HOST, REME_DEFAULT_PORT
 from reme.schema import ApplicationConfig, ComponentConfig
-from reme.utils import logo_utils
+from reme.core import banner as logo_utils
 
 
 def _render_logo(monkeypatch, config: ApplicationConfig, runtime_service=None) -> str:
@@ -75,6 +75,38 @@ def test_logo_mcp_fallback_matches_service_defaults(monkeypatch) -> None:
 
     assert "Transport: sse" in output
     assert f"http://{REME_DEFAULT_HOST}:{REME_DEFAULT_PORT}/sse" in output
+
+
+def test_logo_brackets_ipv6_http_address(monkeypatch) -> None:
+    """Advertise IPv6 hosts as valid URLs, including the wildcard's loopback."""
+    config = ApplicationConfig(service=ComponentConfig(backend="http"))
+
+    for host, shown in (
+        ("::1", "[::1]"),
+        ("::", "[::1]"),
+        # Lowercase hex literals look like Rich markup tags; they must survive rendering.
+        ("fd00::1", "[fd00::1]"),
+        ("fe80::1%en0", "[fe80::1%en0]"),
+    ):
+        output = _render_logo(monkeypatch, config, SimpleNamespace(host=host, port=8123))
+
+        assert f"http://{shown}:8123" in output
+        assert f"http://{shown}:8123/mcp" in output
+        assert "http://::1:8123" not in output
+        assert "http://:8123" not in output
+
+
+def test_logo_brackets_ipv6_mcp_address(monkeypatch) -> None:
+    """Advertise IPv6 MCP endpoints as valid URLs."""
+    config = ApplicationConfig(service=ComponentConfig(backend="mcp"))
+    for host in ("::1", "fd00::1", "fe80::1%en0"):
+        runtime_service = SimpleNamespace(transport="sse", host=host, port=8123)
+
+        output = _render_logo(monkeypatch, config, runtime_service)
+
+        assert f"http://[{host}]:8123/sse" in output
+        assert f"http://{host}:8123/sse" not in output
+        assert "http://:8123/sse" not in output
 
 
 def test_application_passes_instantiated_service_to_logo(monkeypatch, tmp_path) -> None:

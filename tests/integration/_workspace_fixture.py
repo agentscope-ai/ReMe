@@ -401,13 +401,13 @@ class WorkspaceEnv:
 
     async def make_reme(self, **overrides) -> Any:
         """Same as ``make_app`` but returns a ``ReMe`` instance (alias of ``Application``)."""
-        from reme import ReMe
+        from reme import Application
         from reme.config import resolve_app_config
 
         kwargs: dict[str, Any] = {"workspace_dir": str(self.workspace_dir)}
         kwargs.update(overrides)
         cfg = resolve_app_config(**kwargs)
-        app = ReMe(**cfg)
+        app = Application(**cfg)
         await app.start()
         self._apps.append(app)
         return app
@@ -615,7 +615,7 @@ def workspace_env(
     any apps it started.
     """
     if load_env_file:
-        from reme.utils import load_env
+        from reme.utils.env_utils import load_env
 
         load_env()
 

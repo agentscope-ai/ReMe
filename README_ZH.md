@@ -32,6 +32,8 @@
 🧠 ReMe 将对话和资料持续沉淀为可读、可编辑、可检索、相互链接的 Markdown 记忆。QwenPaw、DeepSeek Harness 等 Agent
 可以共享同一个 workspace，共同检索、维护和演化知识，而持久文件始终由用户掌控。
 
+**主动智能运行时（Proactive Runtime）** 把这些长期记忆用于持续任务。它支持事件触发和时间触发，交给 Codex 等 Agent Runtime 执行，并在工作区记录结果和提醒。
+
 - **Memory as File, File as Memory**：ReMe 使用带 frontmatter 和 wikilink 的普通 Markdown 保存持久记忆。用户和 Agent
   都可以使用熟悉的工具查看、编辑、移动、同步和备份；索引及生成的元数据均可重建。
 - **自进化知识库**：ReMe 将对话和资料逐步加工为 daily note 与长期知识，在保留来源的同时，持续提炼事实、偏好、
@@ -49,28 +51,27 @@
 
 <!-- 最新动态最多展开 5 条；新增条目时，将超出的旧条目移入下方“更多更新”折叠区。 -->
 
+- [ROADMAP] - **[ReMe5 前瞻 · Proactive Runtime](docs/zh/reme5_preview.md)**。ReMe 将以文件化记忆为核心，
+  支持事件触发和时间触发的后台任务。你可以把需要持续跟进的事交给 ReMe，有新进展时它会记下来，并在需要时提醒你。
+  我们计划在 **2026 年底前**发布 ReMe5，欢迎先看我们的设计方案、开发计划和里程碑。
+- [2026.11] - **`NEW`** **[HoMe](https://reme.agentscope.io/zh/blog_20261124) 代码现已发布**：[HoMe 论文](https://arxiv.org/abs/2611.34624)
+  的实现以 ReMe 插件形式提供，根据评测反馈自动诊断失败、优化记忆系统。LongMemEval 测试集与 BEAM 1M 得分分别提升
+  2.8pp 和 5.4pp，平均 query token 分别减少 59.2% 和 40.7%。
+- [2026.11] - **`NEW`** 我们发布了论文 **[HoMe: Toward Practical Harness Optimization of Memory Systems for AI Assistants](https://arxiv.org/abs/2611.34624)**。
 - [2026.10] - **[基于决策模型的上下文压缩](docs/zh/context_compaction.md)**：根据下一步任务判断旧工具证据的保留价值，
   保护关键历史，并返回可回溯的压缩建议；提供 SVG 流程图、两个真实模型集成场景和 14-query 固定摘要实验，包含强制 Hermes 摘要基线。
 - [2026.10] - **[ReMe 多模态记忆更新](https://reme.agentscope.io/zh/blog_20261009)**：Auto Memory 将会话图片和上下文一起
   写入记忆并保留图片来源；Auto Resource 将图片资料整理为可检索、可回溯原图的 daily 卡片。Qwen3.8-Max 下，
   ReMe Image 的 LLM-Judge 得分为 [MemLens-256K 72.49%](benchmark/memlens/docs/zh/evaluation.md)、
   [MobileMem 60.69%](benchmark/mobilemem/docs/zh/evaluation.md)；详情还包含 Kimi、DeepSeek 的结果。
-- [2026.10] - **[ReMe Studio Playground](https://reme.agentscope.io/studio/?lang=zh) 上线**：无需安装或启动后端，
-  即可在浏览器中浏览示例记忆文件、编辑 Markdown、探索记忆关联图谱。欢迎大家[来体验](https://reme.agentscope.io/studio/?lang=zh)！
-
-  <p align="center">
-    <a href="https://reme.agentscope.io/studio/?lang=zh">
-      <img src="https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/studio-overview.png" alt="ReMe Studio 工作区预览，点击体验 Playground" width="480" style="margin: 0 auto;">
-    </a>
-  </p>
-
 - [2026.09] - **[给记忆加上“标签”](https://reme.agentscope.io/zh/blog_20260920)发布**：介绍基于 Markdown 的实体标签、
   可重建 Tag Index 与标签过滤检索。
-- [2026.09] - **[Hermes Agent 记忆 Provider](https://reme.agentscope.io/zh/integrations/hermes) 已可使用**：支持 HTTP 和 Embedded
-  两种模式，在模型调用前自动召回、每轮对话结束后异步执行 `auto_memory`。集成支持 Hermes Agent 0.21 及以上版本，后台任务也会继承当前 profile 上下文。
 
 <details>
 <summary>更多更新</summary>
+
+- [2026.09] - **[Hermes Agent 记忆 Provider](https://reme.agentscope.io/zh/integrations/hermes) 已可使用**：支持 HTTP 和 Embedded
+  两种模式，在模型调用前自动召回、每轮对话结束后异步执行 `auto_memory`。集成支持 Hermes Agent 0.21 及以上版本，后台任务也会继承当前 profile 上下文。
 
 - [2026.09] - **[OpenClaw 插件](https://reme.agentscope.io/zh/integrations/openclaw) 发布**：可通过
   [ClawHub](https://clawhub.ai/agentscope-ai/plugins/reme-openclaw-plugin) 或
@@ -111,7 +112,7 @@ pip install "reme-ai[core]"
 ```bash
 git clone https://github.com/agentscope-ai/ReMe.git
 cd ReMe
-pip install -e reme_studio -e ".[core]"
+pip install -e reme_studio/web/python -e ".[core]"
 cd reme_studio
 npm ci
 npm run build:static
@@ -220,9 +221,9 @@ ReMe 会把 Agent 记忆保存为可读的 Markdown。
 
 ### ReMe Studio（可选）
 
-上面的 `core` 安装已包含 Studio。启动 ReMe 后，打开 <http://127.0.0.1:2333/> 即可浏览、编辑和搜索 workspace。
+上面的 `core` 安装已包含 Studio。运行 `reme start config=proactive` 后，打开 <http://127.0.0.1:2333/> 使用 Remy、主动智能、随记和知识库。
 如需为基础安装单独添加 Studio，可使用 `pip install "reme-ai[web]"`。源码构建、配置和开发说明见
-[ReMe Studio 指南](https://reme.agentscope.io/zh/workspace/studio)。
+[ReMe Studio 指南](https://github.com/agentscope-ai/ReMe/blob/main/reme_studio/README_ZH.md)。
 
 ## 🤝 将 ReMe 接入你的 Agent
 
@@ -236,6 +237,7 @@ runtime 的能力，将记忆指引、召回和捕获接入 Agent 生命周期�
 | **QwenPaw**                | 通过 Python API 在进程内嵌入 ReMe。                                                                                                       | 复用宿主生命周期和模型配置，同时保持记忆本地、文件化。                |
 | **Claude Code** | 启动 ReMe 服务后，安装 [Claude Code 插件](integrations/claude_code/README_ZH.md)。 | 自动召回、完成轮次分批记录，以及 MCP 查询工具。 |
 | **Qoder** | 启动 ReMe 服务后，安装 [Qoder 插件](integrations/qoder/README_ZH.md)。 | 自动召回、可重试的完成轮次记录、MCP 工具和内置 Skill。 |
+| **ZCode** | 启动 ReMe 服务后，安装 [ZCode 插件](integrations/zcode/README_ZH.md)。 | 自动召回、后台可重试记录、MCP 工具和内置 Skill。 |
 | **Hermes**                 | 安装 [ReMe provider](https://reme.agentscope.io/zh/integrations/hermes)，并选择 HTTP 或 Embedded 模式。                                  | 模型调用前召回，每轮对话完成后异步执行 `auto_memory`。                |
 | **Codex** | 启动 ReMe 服务后，安装 [Codex 插件](integrations/codex/README_ZH.md)。 | 原生 Hook 自动召回、分批记录，以及 MCP 查询工具。 |
 | **其他 CLI Agent** | 安装或复制 [ReMe Memory skill](skills/reme_memory/SKILL.md)。 | 通过 CLI 搜索、读取和写入记忆。 |
@@ -353,13 +355,24 @@ ReMe 遵循 capture → index → consolidate → recall 的循环。workspace �
 
 ReMe 通过 Agent 多轮搜索与读取的方式，评测多会话和超长上下文中的文本与多模态记忆能力。下表为仓库中已公开的参考实验结果；模型、prompt、数据集和评判细节见各评测文档。
 
+### 长程记忆
+
+| 基准                                                                        | 设置        |            样本量 | Agentic 得分；平均 query token | 主要检验内容                   |
+| --------------------------------------------------------------------------- | ----------- | ----------------: | -----------: | ------------------------------ |
+| **[LongMemEval cleaned-s](https://reme.agentscope.io/zh/benchmarks/longmemeval)** | **整体**    |        **500 题** |    **89.4% / 44.3K** | 跨会话检索、知识更新与时间推理 |
+| [BEAM](https://reme.agentscope.io/zh/benchmarks/beam)                             | 100K 上下文 | 20 cases / 400 题 |        66.1% / 65.0K | 十类长上下文记忆任务           |
+| [BEAM](https://reme.agentscope.io/zh/benchmarks/beam)                             | 1M 上下文   | 35 cases / 700 题 |        65.0% / 101.8K | 超长对话设置                   |
+| [LongMemEval cleaned-s](https://reme.agentscope.io/zh/benchmarks/longmemeval) | Optimized by HoMe | 测试集 250 题 | 91.6% / 17.9K | HoMe 优化记忆系统 |
+| [BEAM](https://reme.agentscope.io/zh/benchmarks/beam) | 1M 上下文，optimized by HoMe on Beam100K | 35 cases / 700 题 | 70.4% / 60.4K | HoMe 优化记忆系统 |
+
+### 多模态记忆
+
 | 基准                                                                        | 设置        |            样本量 | Agentic 得分 | 主要检验内容                   |
 | --------------------------------------------------------------------------- | ----------- | ----------------: | -----------: | ------------------------------ |
-| **[LongMemEval cleaned-s](https://reme.agentscope.io/zh/benchmarks/longmemeval)** | **整体**    |        **500 题** |    **89.4%** | 跨会话检索、知识更新与时间推理 |
-| [BEAM](https://reme.agentscope.io/zh/benchmarks/beam)                             | 100K 上下文 | 20 cases / 400 题 |        66.1% | 十类长上下文记忆任务           |
-| [BEAM](https://reme.agentscope.io/zh/benchmarks/beam)                             | 1M 上下文   | 35 cases / 700 题 |        65.0% | 超长对话设置                   |
 | [MemLens-256K](benchmark/memlens/docs/zh/evaluation.md) | ReMe Image · Qwen3.8-Max | 189 / 195 题 | 72.49% | 多模态长历史问答 |
 | [MobileMem-Omni](benchmark/mobilemem/docs/zh/evaluation.md) | ReMe Image · Qwen3.8-Max | 20 位用户 / 1,333 题 | 60.69% | 个人视觉记忆与推理 |
+
+### 主动记忆
 
 在仓库的 [π-Bench 评测](https://reme.agentscope.io/zh/benchmarks/pibench)中，ReMe Agent 在 5 种用户角色上的平均 **PROC 得分为 0.580**
 ，比相同测试模型配置的 NanoBot 高 2.4%。PROC 用于评估隐藏意图完成、针对性澄清、跨会话偏好和规范复用、跨任务依赖推断以及欠规格请求推进等主动性能力。
@@ -391,11 +404,12 @@ ReMe 通过 Agent 多轮搜索与读取的方式，评测多会话和超长上�
 | [Auto Resource](https://reme.agentscope.io/zh/auto_resource)                                | 导入支持的文本与图像资料，转换为可追溯来源的 daily 卡片。              |
 | [Auto Dream](https://reme.agentscope.io/zh/auto_dream) 与 [Auto Link](https://reme.agentscope.io/zh/auto_link) | 将 daily 记忆整理为持续演化的 digest 节点和可读 wikilink 关系。        |
 | [记忆检索](https://reme.agentscope.io/zh/memory_search)                                     | 使用 BM25、可选向量、RRF 融合、行号范围召回和渐进式链接扩展。          |
-| [Proactive](https://reme.agentscope.io/zh/proactive)                                        | 安全读取兴趣主题，并将其接入宿主 Agent 的决策流程。                    |
+| [Proactive 主题读取](https://reme.agentscope.io/zh/proactive)                               | 安全读取兴趣主题，并将其接入宿主 Agent 的决策流程。                    |
+| [主动智能运行时](https://reme.agentscope.io/zh/proactive_runtime)                          | 了解如何利用长期记忆持续跟进任务，并通过 Remy 查看进展与提醒。 |
 | [应用场景](https://reme.agentscope.io/zh/reme_scene)                                        | 查看金融研究、研发记忆和个人知识库的完整使用示例。                     |
 | [框架说明](https://reme.agentscope.io/zh/framework)                                         | 理解 Application、Job、Step、Component、service、配置和生命周期边界。  |
-| [Agent 集成](https://reme.agentscope.io/zh/integrations)                                    | 选择接口，并将 DSH、Claude Code、Codex、Qoder、OpenClaw、Hermes 或其他 Agent 接入 ReMe。 |
-| [DSH 插件](https://reme.agentscope.io/zh/integrations/dsh)、[Claude Code 插件](https://reme.agentscope.io/zh/integrations/claude-code) 与 [Qoder 插件](https://reme.agentscope.io/zh/integrations/qoder) | 配置宿主原生召回、自动捕获、记忆整理与诊断。 |
+| [Agent 集成](https://reme.agentscope.io/zh/integrations)                                    | 选择接口，并将 DSH、Claude Code、Codex、Qoder、ZCode、OpenClaw、Hermes 或其他 Agent 接入 ReMe。 |
+| [DSH 插件](https://reme.agentscope.io/zh/integrations/dsh)、[Claude Code 插件](https://reme.agentscope.io/zh/integrations/claude-code)、[Qoder 插件](https://reme.agentscope.io/zh/integrations/qoder) 与 [ZCode 插件](https://reme.agentscope.io/zh/integrations/zcode) | 配置宿主原生召回、自动捕获、记忆整理与诊断。 |
 | [CLI 与 Job API](https://reme.agentscope.io/zh/reference/cli)                               | 查询命令语法，以及由默认配置自动生成的 Job 参数参考。                  |
 | [运维与恢复](https://reme.agentscope.io/zh/operations)                                      | 诊断服务、维护索引，并备份、迁移和恢复 workspace。                     |
 | [ReMe 博客](https://reme.agentscope.io/zh/reme-blog)                     | 了解完整产品故事、设计动机、使用示例和评测摘要。                       |

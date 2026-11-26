@@ -3,7 +3,7 @@
 from typing import Callable
 
 from .base_tokenizer import BaseTokenizer
-from ..component_registry import R
+from ...core.registry import R
 
 
 @R.register("jieba")

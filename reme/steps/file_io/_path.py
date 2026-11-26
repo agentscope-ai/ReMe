@@ -3,7 +3,8 @@
 import re
 from pathlib import Path
 
-from ...utils import get_logger
+from ...constants import WINDOWS_RESERVED_DEVICE_NAMES
+from ...utils.logger_utils import get_logger
 
 logger = get_logger(log_to_file=False)
 
@@ -32,14 +33,6 @@ IMAGE_SUFFIXES = frozenset(IMAGE_MIME_BY_EXT)
 
 
 _INVALID_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
-_RESERVED_NAMES = {
-    "CON",
-    "PRN",
-    "AUX",
-    "NUL",
-    *(f"COM{i}" for i in range(1, 10)),
-    *(f"LPT{i}" for i in range(1, 10)),
-}
 
 
 # pylint: disable=too-many-return-statements
@@ -55,18 +48,9 @@ def validate_filename_component(name: str, *, kind: str = "filename") -> str | N
         return f'{kind} contains invalid characters (one of < > : " / \\ | ? * or a control char): {name!r}'
     if name.endswith("."):
         return f"{kind} cannot end with '.': {name!r}"
-    if name.split(".", 1)[0].upper() in _RESERVED_NAMES:
+    if name.split(".", 1)[0].upper() in WINDOWS_RESERVED_DEVICE_NAMES:
         return f"{kind} is a Windows-reserved device name: {name!r}"
     return None
-
-
-def is_relative_to(path: Path, parent: Path) -> bool:
-    """Return True when ``path`` is equal to or nested under ``parent``."""
-    try:
-        path.relative_to(parent)
-        return True
-    except ValueError:
-        return False
 
 
 def display_path(workspace_path: Path, target: Path) -> str:
@@ -105,8 +89,7 @@ def resolve_path(
     p = Path(s)
     workspace = workspace_path.resolve()
     if p.is_absolute():
-        if Path(s).is_absolute():
-            logger.info("absolute path detected, recommending relative paths")
+        logger.info("absolute path detected, recommending relative paths")
         target = p.resolve()
     else:
         for part in p.parts:
@@ -114,12 +97,12 @@ def resolve_path(
             if err:
                 return None, err
         target = (workspace / p).resolve()
-    if not is_relative_to(target, workspace):
+    if not target.is_relative_to(workspace):
         return None, "`path` must stay inside the workspace"
     return target, None
 
 
-def _check_path_permission(workspace_path: Path, target: Path, allowed_paths) -> bool:
+def check_path_permission(workspace_path: Path, target: Path, allowed_paths) -> bool:
     """Return whether ``target`` is covered by the optional allowed-path scope.
 
     ``None`` leaves access unrestricted. Existing files allow that exact path;
@@ -150,14 +133,12 @@ def _check_path_permission(workspace_path: Path, target: Path, allowed_paths) ->
             return False
         if resolved.is_file():
             allowed_files.append(resolved)
-        elif resolved.is_dir():
-            allowed_dirs.append(resolved)
         else:
             allowed_dirs.append(resolved)
 
     resolved_target = target.resolve()
     return resolved_target in allowed_files or any(
-        is_relative_to(resolved_target, directory) for directory in allowed_dirs
+        resolved_target.is_relative_to(directory) for directory in allowed_dirs
     )
 
 

@@ -114,7 +114,7 @@ refreshes derived indexes. No JSONL, intermediate Markdown, or structured Agent 
 | `request_interval` |                   `10` | Minimum delay in seconds after every CLS request attempt; may be zero    |
 | `max_retries`      |                    `3` | Maximum attempts for each CLS page request; must be at least one         |
 
-The plugin cron Job starts with the application and runs daily at 09:00 in the application timezone, which defaults to `Asia/Shanghai`. The rolling window uses timestamps and may cross calendar days. Report completion depends on news volume and model latency.
+The plugin cron Job starts with the application and runs daily at 09:00 in the application timezone. The rolling window uses timestamps and may cross calendar days. Report completion depends on news volume and model latency.
 
 ## Output
 

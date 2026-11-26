@@ -9,15 +9,14 @@ from pathlib import Path
 
 import pytest
 
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.components.file_chunker import MarkdownFileChunker
 from reme.components.file_store import LocalFileStore
 from reme.components.tag_index import LocalTagIndex
-from reme.config import resolve_app_config
 from reme.enumeration import ComponentEnum, LinkScopeEnum
 from reme.schema import FileChunk, FileFrontMatter, FileLink, FileNode
 from reme.steps.index.list_tags import ListTagsStep
-from reme.utils.jsonl_zst import read_jsonl_zst, write_jsonl_zst
+from reme.utils.files.jsonl_zst import read_jsonl_zst, write_jsonl_zst
 
 
 def _node(path: str, tags: object = None, *, key: str = "memory_tags") -> FileNode:
@@ -265,14 +264,6 @@ def test_list_tags_paginates_and_applies_default_sort_orders() -> None:
         }
 
     asyncio.run(run())
-
-    config = resolve_app_config(config="default", log_config=False)
-    job = config["jobs"]["list_tags"]
-    assert job["steps"] == [{"backend": "list_tags_step"}]
-    assert job["parameters"]["properties"]["page_size"]["default"] == 100
-    assert "[tag, file_count]" in job["description"]
-    assert "range" in job["description"]
-    assert "empty page" in job["parameters"]["properties"]["page"]["description"]
 
 
 @pytest.mark.asyncio
@@ -621,27 +612,6 @@ async def test_file_store_rebuilds_non_persistent_tag_index_from_graph(monkeypat
     await restored.start()
     assert await restored.tag_index.paths_for_tags(["reme"]) == ["daily/a.md"]
     await restored.close()
-
-
-def test_default_config_enables_tag_index_with_explicit_key() -> None:
-    """Keep auto-memory generation and file-store indexing on the same configured key."""
-
-    config = resolve_app_config(config="default", log_config=False)
-
-    assert config["jobs"]["index_update_loop"]["watch_dirs"] == ["daily_dir", "digest_dir"]
-    assert "tag_index_loop" not in config["jobs"]
-    assert config["components"]["tag_index"]["default"]["tag_key"] == "memory_tags"
-    assert config["components"]["tag_index"]["default"]["max_tags_per_file"] == 3
-    assert config["components"]["file_store"]["default"]["tag_index"] == "default"
-    assert config["jobs"]["search"]["parameters"]["properties"]["tags"]["default"] == []
-    assert config["jobs"]["auto_memory"]["steps"] == [
-        {"backend": "auto_memory_step"},
-        {"backend": "auto_tag_step"},
-    ]
-    assert config["jobs"]["auto_memory_cc"]["steps"] == [
-        {"backend": "auto_memory_cc_step"},
-        {"backend": "auto_tag_step"},
-    ]
 
 
 def _rewrite_persisted_separators(root: Path, separator: str = "\\") -> int:

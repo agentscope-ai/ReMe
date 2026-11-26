@@ -1,20 +1,113 @@
-"""Application path configuration contracts."""
+"""Application configuration contracts."""
 
 # pylint: disable=protected-access
 
 from types import SimpleNamespace
+from unittest.mock import Mock
+from zoneinfo import ZoneInfoNotFoundError
 
 import pytest
 from agentscope.message import Msg
 from pydantic import ValidationError
 
-from reme.application import Application
-from reme.components import ApplicationContext
+from reme import Application
+from reme.core.context import ApplicationContext
 from reme.schema import ApplicationConfig, FileChunk
 from reme.steps.evolve.auto_memory import AutoMemoryStep
 from reme.steps.file_io.daily_write import DailyWriteStep
 from reme.steps.index._source_format import is_session_path, render_chunk_body
-from reme.utils.file_watch import build_watch_rules
+from reme.utils.files.file_watch import build_watch_rules
+from reme.utils import timezone_utils
+
+
+@pytest.mark.parametrize(
+    "system_timezone,expected",
+    [
+        ("America/New_York", "America/New_York"),
+        (None, "Asia/Shanghai"),
+        ("local", "Asia/Shanghai"),
+        ("invalid/zone", "Asia/Shanghai"),
+    ],
+)
+def test_application_timezone_defaults_to_system_timezone(monkeypatch, system_timezone, expected):
+    """Use the detected IANA zone or fall back to Shanghai."""
+    monkeypatch.delenv("TZ", raising=False)
+    monkeypatch.setattr(timezone_utils, "get_localzone_name", Mock(return_value=system_timezone))
+
+    assert ApplicationConfig().timezone == expected
+
+
+def test_application_timezone_falls_back_when_system_detection_fails(monkeypatch):
+    """Unavailable system timezone settings still yield a usable default."""
+    monkeypatch.delenv("TZ", raising=False)
+    monkeypatch.setattr(timezone_utils, "get_localzone_name", Mock(side_effect=ZoneInfoNotFoundError))
+
+    assert ApplicationConfig().timezone == "Asia/Shanghai"
+
+
+def test_application_default_ignores_library_utc_fallback(monkeypatch):
+    """A library-supplied UTC fallback is distinct from a detected host name."""
+    from zoneinfo import ZoneInfo
+
+    monkeypatch.delenv("TZ", raising=False)
+    monkeypatch.setattr(timezone_utils, "get_localzone_name", Mock(return_value=None))
+    fallback = Mock(return_value=ZoneInfo("Etc/UTC"))
+    monkeypatch.setattr(timezone_utils, "get_localzone", fallback)
+
+    assert ApplicationConfig().timezone == "Asia/Shanghai"
+    fallback.assert_not_called()
+
+
+def test_application_timezone_reads_current_tz_environment(monkeypatch):
+    """Valid names bypass library detection, even when TZ changes within the process."""
+    detect = Mock(return_value="Asia/Shanghai")
+    monkeypatch.setattr(timezone_utils, "get_localzone_name", detect)
+
+    monkeypatch.setenv("TZ", "GMT")
+    assert ApplicationConfig().timezone == "GMT"
+    monkeypatch.setenv("TZ", "Europe/London")
+    assert ApplicationConfig().timezone == "Europe/London"
+    monkeypatch.delenv("TZ")
+    assert ApplicationConfig().timezone == "Asia/Shanghai"
+    detect.assert_called_once_with()
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "",
+        "invalid/zone",
+        ":Europe/London",
+        "/usr/share/zoneinfo/America/New_York",
+        "EST5EDT,M3.2.0,M11.1.0",
+    ],
+)
+def test_application_timezone_rejects_unsupported_tz_without_caching(monkeypatch, name):
+    """Invalid overrides fail explicitly and cannot affect the next application."""
+    detect = Mock(return_value="Asia/Shanghai")
+    monkeypatch.setattr(timezone_utils, "get_localzone_name", detect)
+    monkeypatch.setenv("TZ", name)
+    with pytest.raises(ValueError, match="TZ must be an IANA timezone name"):
+        ApplicationConfig()
+    with pytest.raises(ValueError, match="TZ must be an IANA timezone name"):
+        ApplicationConfig(timezone=None)
+    assert ApplicationConfig(timezone="Asia/Shanghai").timezone == "Asia/Shanghai"
+    detect.assert_not_called()
+    monkeypatch.delenv("TZ")
+    assert ApplicationConfig().timezone == "Asia/Shanghai"
+    detect.assert_called_once_with()
+
+
+def test_explicit_application_timezone_takes_precedence(monkeypatch):
+    """An explicit name or null bypasses automatic detection."""
+    detect = Mock(return_value="America/New_York")
+    monkeypatch.setattr(timezone_utils, "get_localzone_name", detect)
+
+    assert ApplicationConfig(timezone="Europe/London").timezone == "Europe/London"
+    context = ApplicationContext(timezone=None)
+    assert context.app_config.timezone is None
+    assert DailyWriteStep(app_context=context).config_value("daily_dir") == "daily"
+    detect.assert_not_called()
 
 
 def test_workspace_dir_expands_user_home(monkeypatch, tmp_path):
@@ -73,6 +166,16 @@ def test_application_rejects_absolute_session_dir_before_workspace_setup(tmp_pat
         Application(workspace_dir=str(workspace), session_dir=session_dir)
 
     assert not workspace.exists()
+
+
+@pytest.mark.parametrize(
+    "notebook_dir",
+    ["", ".", "../outside", "notes/../outside", "~/notebook", "/tmp/notes", "C:\\notes"],
+)
+def test_notebook_dir_requires_a_workspace_subdirectory(notebook_dir):
+    """Notebook configuration rejects paths that bypass the workspace subdirectory contract."""
+    with pytest.raises(ValidationError, match="notebook_dir"):
+        ApplicationConfig(notebook_dir=notebook_dir)
 
 
 def test_dialog_watch_rule_follows_custom_session_dir(tmp_path):

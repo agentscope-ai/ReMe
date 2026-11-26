@@ -111,7 +111,6 @@ function nav(language: "zh" | "en"): DefaultTheme.NavItem[] {
   return [
     { text: zh ? "首页" : "Home", link: `/${language}/` },
     { text: zh ? "文档" : "Docs", link: `/${language}/quick_start` },
-    { text: zh ? "体验Studio" : "Try Studio", link: `/studio/?lang=${language}`, target: "_self" },
     { text: zh ? "集成" : "Integrations", link: `/${language}/integrations` },
     { text: zh ? "插件" : "Plugins", link: `/${language}/plugin_management` },
     { text: zh ? "评测" : "Benchmarks", link: `/${language}/benchmarks/longmemeval` },
@@ -132,7 +131,6 @@ function docsSidebar(language: "zh" | "en"): DefaultTheme.SidebarItem[] {
         { text: zh ? "基础配置" : "Configuration", link: `/${language}/configuration` },
         { text: zh ? "服务与部署" : "Services and Deployment", link: `/${language}/services` },
         { text: zh ? "Docker 部署" : "Docker Deployment", link: `/${language}/docker` },
-        { text: "ReMe Studio", link: `/${language}/workspace/studio` },
       ],
     },
     {
@@ -142,6 +140,7 @@ function docsSidebar(language: "zh" | "en"): DefaultTheme.SidebarItem[] {
         { text: zh ? "文件即记忆" : "Memory as File", link: `/${language}/memory_as_file` },
         { text: zh ? "记忆检索" : "Memory Search", link: `/${language}/memory_search` },
         { text: zh ? "自动关联" : "Auto Link", link: `/${language}/auto_link` },
+        { text: zh ? "主动智能运行时" : "Proactive Runtime", link: `/${language}/proactive_runtime` },
         { text: zh ? "应用场景" : "Application Scenarios", link: `/${language}/reme_scene` },
       ],
     },
@@ -152,7 +151,7 @@ function docsSidebar(language: "zh" | "en"): DefaultTheme.SidebarItem[] {
         { text: "Auto Memory", link: `/${language}/auto_memory` },
         { text: "Auto Resource", link: `/${language}/auto_resource` },
         { text: "Auto Dream", link: `/${language}/auto_dream` },
-        { text: "Proactive", link: `/${language}/proactive` },
+        { text: zh ? "Proactive 主题读取" : "Proactive", link: `/${language}/proactive` },
         { text: zh ? "决策模型上下文压缩" : "Context Compaction", link: `/${language}/context_compaction` },
       ],
     },
@@ -187,6 +186,7 @@ function integrationsSidebar(language: "zh" | "en"): DefaultTheme.SidebarItem[] 
       { text: "Claude Code", link: `/${language}/integrations/claude-code` },
       { text: "Codex", link: `/${language}/integrations/codex` },
       { text: "Qoder", link: `/${language}/integrations/qoder` },
+      { text: "ZCode", link: `/${language}/integrations/zcode` },
       { text: "Hermes Agent", link: `/${language}/integrations/hermes` },
       { text: "DeepSeek Harness", link: `/${language}/integrations/dsh` },
       { text: "OpenClaw", link: `/${language}/integrations/openclaw` },
@@ -237,6 +237,7 @@ function singlePageSidebar(language: "zh" | "en", page: "blog" | "faq"): Default
         { text: zh ? "ReMe介绍" : "About ReMe", link: `/${language}/reme-blog` },
         { text: zh ? "记忆标签" : "Memory Tags", link: `/${language}/blog_20260920` },
         { text: zh ? "图片记忆" : "Image Memory", link: `/${language}/blog_20261009` },
+        { text: "HoMe", link: `/${language}/blog_20261124` },
       ],
     }];
   }

@@ -22,10 +22,12 @@ classifiers = [
 
 dependencies = [
     "aiofiles>=24.1.0",
-    "croniter>=6.0.0",
+    "croniter>=7.0.0",
+    "cryptography>=44",
     "fastapi>=0.162.0",
     "fastmcp>=3.4.4,<5",
     "httpx[socks]>=0.28.1",
+    "keyring>=25",
     "loguru>=0.7.3",
     "mcp>=1.28.1,<3",
     "mistletoe>=1.6.0",
@@ -37,6 +39,8 @@ dependencies = [
     "python-frontmatter>=1.3.0",
     "pyyaml>=6.0.3",
     "rich>=14.3.3",
+    "tzdata>=2025.2",
+    "tzlocal>=5.4.5",
     "uvicorn>=0.54.0",
     "watchfiles>=1.3.0",
     "zstandard>=0.25.0",
@@ -55,15 +59,15 @@ decision = [
     "agentscope[classifier-jev]==2.0.11",
 ]
 web = [
-    "reme_studio",
+    "reme_studio==0.4.3",
 ]
 core = [
     "reme-ai[as]",
     "dashscope>=1.26.0",
     "pillow>=13.0.0",
-    "mss>=9.0.0",
-    "claude-agent-sdk>=0.2.174",
-    "openai-codex>=0.163.0",
+    "mss>=10.2.0",
+    "claude-agent-sdk>=0.2.182",
+    "openai-codex>=0.172.0",
     "pproxy>=2.7.9,<3",
     "faiss-cpu>=1.15.1",
     "zvec>=0.8.0",
@@ -74,7 +78,7 @@ core = [
     "networkx>=3.6; python_full_version == '3.14.1'",
     "networkx>=3.7; python_version >= '3.12' and python_full_version != '3.14.1'",
     "polars>=2.1.0",
-    "reme_studio",
+    "reme-ai[web]",
 ]
 qwen-tokenizer = [
     "tokenizers>=0.23.3,<1",
@@ -88,10 +92,6 @@ dev = [
     "pre-commit>=4.7.0",
     "pytest>=9.2.0",
     "pytest-asyncio>=1.4.1",
-]
-benchmark-docker = [
-    "reme-ai[as]",
-    "aiodocker>=0.27.0",
 ]
 full = [
     "reme-ai[core]",
@@ -110,16 +110,16 @@ Repository = "https://github.com/agentscope-ai/ReMe"
 reme = "reme.reme:main"
 
 [tool.setuptools]
-packages = { find = { where = ["."], include = ["reme", "reme.*", "deploy", "deploy.*"], exclude = ["reme_studio*"] } }
+packages = { find = { where = ["."], include = ["reme", "reme.*"], exclude = ["reme_studio*"] } }
 include-package-data = true
 
 [tool.setuptools.package-data]
 "*" = ["py.typed", "**/*.yaml", "**/*.json"]
+"reme" = ["skills/*/SKILL.md"]
 "reme.components.tokenizer" = ["stopwords"]
-"deploy.benchmark_docker" = ["Dockerfile.*", "README.md"]
 
 [tool.setuptools.dynamic]
-version = { attr = "reme.__version__" }
+version = { attr = "reme._version.__version__" }
 
 [build-system]
 requires = ["setuptools>=84.2.1", "wheel>=0.48.0"]

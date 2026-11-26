@@ -2,14 +2,15 @@
 
 import asyncio
 import contextlib
+import math
 import random
 import threading
 import time
 from contextvars import ContextVar
 
 from .base_job import BaseJob
-from ..component_registry import R
-from ..runtime_context import RuntimeContext
+from ...core.registry import R
+from ...core.context import RuntimeContext
 from ...schema import Response
 
 _supervised_job: ContextVar["BackgroundJob | None"] = ContextVar(
@@ -96,7 +97,10 @@ class BackgroundJob(BaseJob):
 
     def _backoff_delay(self, attempt: int) -> float:
         """Exponential backoff with ±50% jitter, capped at backoff_cap."""
-        capped = min(self.backoff_base * (2**attempt), self.backoff_cap)
+        try:
+            capped = min(math.ldexp(self.backoff_base, attempt), self.backoff_cap)
+        except OverflowError:
+            capped = self.backoff_cap
         return min(capped * (0.5 + random.random()), self.backoff_cap)
 
     async def _wait_or_stop(self, delay: float) -> None:

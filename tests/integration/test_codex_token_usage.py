@@ -21,10 +21,11 @@ import tomllib
 import httpx
 import pytest
 
-from reme.application import Application
+from reme import Application
 from reme.config import resolve_app_config
 from reme.enumeration import ChunkEnum
-from reme.utils import global_counter_get_all, parse_env_file
+from reme.utils.counter import global_counter_get_all
+from reme.utils.env_utils import parse_env_file
 
 pytestmark = pytest.mark.skipif(
     os.getenv("REME_CODEX_INTEGRATION") != "1",

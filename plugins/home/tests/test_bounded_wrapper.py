@@ -14,7 +14,7 @@ from reme_home.agent import BoundedAgentWrapper, BoundedReActAgent, RunTimeBudge
 from test_bounded_agent import RecordingModel
 
 from reme.components.agent_wrapper import AsAgentWrapper
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.components.job import BaseJob
 from reme.enumeration import ComponentEnum
 from reme.plugin import resolve_plugin_runtime
@@ -59,7 +59,7 @@ def bounded_wrapper(tmp_path):
 
 def test_plugin_registers_bounded_agent_only_when_enabled(monkeypatch):
     entry = EntryPoint(name="home", value="reme_home", group="reme.plugins")
-    monkeypatch.setattr("reme.plugin.find_entry_points", lambda group, name: [entry])
+    monkeypatch.setattr("reme.plugin.manager.find_entry_points", lambda group, name: [entry])
     enabled = resolve_plugin_runtime({"plugins": ["home"]})
     assert enabled.registry.get(ComponentEnum.AGENT_WRAPPER, "home_bounded") is BoundedAgentWrapper
     assert resolve_plugin_runtime({}).registry.get(ComponentEnum.AGENT_WRAPPER, "home_bounded") is None

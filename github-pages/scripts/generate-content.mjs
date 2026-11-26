@@ -16,13 +16,13 @@ const externalDocuments = [
   ["zh/integrations/codex.md", "integrations/codex/README_ZH.md"],
   ["en/integrations/qoder.md", "integrations/qoder/README.md"],
   ["zh/integrations/qoder.md", "integrations/qoder/README_ZH.md"],
+  ["en/integrations/zcode.md", "integrations/zcode/README.md"],
+  ["zh/integrations/zcode.md", "integrations/zcode/README_ZH.md"],
   ["en/integrations/hermes.md", "integrations/hermes_agent/README.md"],
   ["zh/integrations/dsh.md", "integrations/dsh/README_ZH.md"],
   ["en/integrations/dsh.md", "integrations/dsh/README.md"],
   ["zh/integrations/openclaw.md", "integrations/openclaw/README_ZH.md"],
   ["en/integrations/openclaw.md", "integrations/openclaw/README.md"],
-  ["zh/workspace/studio.md", "reme_studio/README_ZH.md"],
-  ["en/workspace/studio.md", "reme_studio/README.md"],
   ["zh/plugins/daily-paper.md", "plugins/daily_paper/README_ZH.md"],
   ["en/plugins/daily-paper.md", "plugins/daily_paper/README.md"],
   ["zh/plugins/auto-fin.md", "plugins/auto-fin/README_ZH.md"],
@@ -31,6 +31,8 @@ const externalDocuments = [
   ["en/plugins/lme.md", "plugins/lme/README.md"],
   ["zh/plugins/beam.md", "plugins/beam/README_ZH.md"],
   ["en/plugins/beam.md", "plugins/beam/README.md"],
+  ["zh/plugins/home.md", "plugins/home/README.md"],
+  ["en/plugins/home.md", "plugins/home/README.md"],
   ["zh/benchmarks/beam.md", "benchmark/beam/README_ZH.md"],
   ["en/benchmarks/beam.md", "benchmark/beam/README.md"],
   ["zh/benchmarks/longmemeval.md", "benchmark/longmemeval/README_ZH.md"],
@@ -46,6 +48,12 @@ const externalDocuments = [
 ];
 
 const externalDocumentRewrites = {
+  "plugins/home/README.md": [
+    ["(src/reme_home/evaluation/docker/README.md)", "(https://github.com/agentscope-ai/ReMe/blob/main/plugins/home/src/reme_home/evaluation/docker/README.md)"],
+    ["(examples/prepare.yaml)", "(https://github.com/agentscope-ai/ReMe/blob/main/plugins/home/examples/prepare.yaml)"],
+    ["(../../benchmark/beam/README.md#", "(../benchmarks/beam#"],
+    ["(../../benchmark/longmemeval/README.md#", "(../benchmarks/longmemeval#"],
+  ],
   "README.md": [
     ['href="./LICENSE"', 'href="https://github.com/agentscope-ai/ReMe/blob/main/LICENSE"'],
     ['href="./README.md"', 'href="/en/overview"'],
@@ -84,6 +92,12 @@ const externalDocumentRewrites = {
   "integrations/qoder/README_ZH.md": [
     ["(./README.md)", "(/en/integrations/qoder)"],
   ],
+  "integrations/zcode/README.md": [
+    ["(./README_ZH.md)", "(/zh/integrations/zcode)"],
+  ],
+  "integrations/zcode/README_ZH.md": [
+    ["(./README.md)", "(/en/integrations/zcode)"],
+  ],
   "integrations/dsh/README.md": [
     ["(./README_ZH.md)", "(/zh/integrations/dsh)"],
     ["(./figures/", "(/figures/dsh/"],
@@ -102,18 +116,6 @@ const externalDocumentRewrites = {
   "integrations/hermes_agent/README.md": [
     ["(README_ZH.md)", "(/zh/integrations/hermes)"],
     ["(figures/", "(/figures/hermes/"],
-  ],
-  "reme_studio/README.md": [
-    ["(./README_ZH.md)", "(/zh/workspace/studio)"],
-    ["(./figures/", "(/figures/studio/"],
-    ["(https://github.com/agentscope-ai/ReMe/blob/main/reme_studio/README_ZH.md)", "(/zh/workspace/studio)"],
-    ["(https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/", "(/figures/studio/"],
-  ],
-  "reme_studio/README_ZH.md": [
-    ["(./README.md)", "(/en/workspace/studio)"],
-    ["(./figures/", "(/figures/studio/"],
-    ["(https://github.com/agentscope-ai/ReMe/blob/main/reme_studio/README.md)", "(/en/workspace/studio)"],
-    ["(https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/", "(/figures/studio/"],
   ],
 };
 
@@ -307,9 +309,6 @@ await cp(path.join(repoDir, "integrations/openclaw/figures"), path.join(outputDi
   recursive: true,
 });
 await cp(path.join(repoDir, "integrations/hermes_agent/figures"), path.join(outputDir, "public/figures/hermes"), {
-  recursive: true,
-});
-await cp(path.join(repoDir, "reme_studio/figures"), path.join(outputDir, "public/figures/studio"), {
   recursive: true,
 });
 

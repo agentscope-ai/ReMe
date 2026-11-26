@@ -48,7 +48,7 @@ application_defaults:
 ## Implement a Step
 
 ```python
-from reme.components.component_registry import R
+from reme.core.registry import R
 from reme.steps.base_step import BaseStep
 
 
@@ -67,6 +67,8 @@ Step instances belong to one Job invocation. Put shared in-memory state under a 
 ```text
 plugin defaults < selected/default config < CLI overrides
 ```
+
+Only effective plugin defaults require their environment variables to be set or to have a fallback. Set `plugins` to a list of strings, such as `plugins: [my_plugin]`.
 
 Plugins must not rewrite user configuration. Their backends enter an Application-local registry only when the plugin appears in that Application's `plugins` list.
 
@@ -104,8 +106,9 @@ Validation imports plugin code, so run it only for trusted sources.
 
 The repository's Daily Paper, Auto Fin, LME, and BEAM plugins are complete examples.
 
-## Compatibility
+## Entry-point contract
 
-Legacy Python Plugin descriptors and the `reme.configs` entry point remain supported during migration, but new plugins should use `plugin.yaml`. Enablement always belongs to an Application rather than a process-global switch.
+Plugins must use a package-only `reme.plugins` entry point and declare contributions in `plugin.yaml`.
+The separate `reme.configs` entry point provides named configuration presets. Enablement belongs to an Application.
 
 See [Plugin Management](./plugin_management.md) for installation, upgrades, and removal.

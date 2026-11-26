@@ -322,7 +322,7 @@ class ReMeBridge:
 
         try:
             from reme.config import resolve_app_config
-            from reme.application import Application
+            from reme import Application
         except ImportError as exc:
             raise RuntimeError(
                 "Cannot import 'reme'. Run the bridge with the ReMe venv "

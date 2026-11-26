@@ -29,17 +29,15 @@ from openai_codex.generated.v2_all import (
 )
 from pydantic import BaseModel
 
-from reme.application import Application
-from reme.components.application_context import ApplicationContext
+from reme import Application
+from reme.core.context import ApplicationContext
 from reme.components.agent_wrapper.codex_agent_wrapper import CodexAgentWrapper
-from reme.components.codex_app_server import CodexAppServer
+from reme.components.codex_app_server import SdkCodexAppServer
 from reme.components.job import BackgroundJob, StreamJob
 from reme.components.service.scoped_mcp import ScopedMCP
-from reme.config import resolve_app_config
 from reme.enumeration import ChunkEnum, ComponentEnum
 from reme.schema import Response, TokenUsage
-from reme.steps.proactive.pa import PaChatStep, PaNewSessionStep
-from reme.utils import global_counter_get_all
+from reme.utils.counter import global_counter_get_all
 
 
 class _Job:
@@ -147,7 +145,7 @@ class _Thread:
         self.busy = True
         return _Turn(self, inputs)
 
-    async def read(self):
+    async def read(self, **_kwargs):
         return SimpleNamespace(
             thread=SimpleNamespace(
                 status=SimpleNamespace(root=SimpleNamespace(type="active" if self.busy else "idle")),
@@ -224,8 +222,8 @@ class _Codex:
         self.opened.append(("resume", thread_id, options))
         return self.threads[thread_id]
 
-    async def thread_read(self, thread_id):
-        return await self.threads[thread_id].read()
+    async def thread_read(self, thread_id, **kwargs):
+        return await self.threads[thread_id].read(**kwargs)
 
     async def thread_fork(self, thread_id, **options):
         forked = await self.thread_start(**options)
@@ -244,7 +242,7 @@ def _wrapper(tmp_path, **kwargs):
     context = ApplicationContext(workspace_dir=str(tmp_path))
     job = _Job()
     context.jobs[job.name] = job
-    server = CodexAppServer(
+    server = SdkCodexAppServer(
         name="default",
         app_context=context,
         auth_mode="oauth",
@@ -272,25 +270,13 @@ async def system(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_session_listener_observes_native_activity_and_disconnect_without_a_turn(system):
+async def test_native_disconnect_marks_the_shared_client_failed(system):
     first, _second, server, _job = system
-    session_id = await first.create_session(job_tools=[])
-    notifications = []
-    unsubscribe = server.watch_session(session_id, notifications.append)
-    native = _Codex.instances[0]
-    native.notify_status(session_id, "active")
-    native.notify_status(session_id, "notLoaded")
+    await first.create_session(job_tools=[])
+    _Codex.instances[0].notifications.put_nowait(ConnectionError("upstream disconnected"))
     async with asyncio.timeout(1):
-        while len(notifications) < 2:
+        while not server._failed:
             await asyncio.sleep(0)
-    assert [status.status for status in notifications] == ["active", "not_loaded"]
-    native.notifications.put_nowait(ConnectionError("upstream disconnected"))
-    async with asyncio.timeout(1):
-        while notifications[-1] is not None:
-            await asyncio.sleep(0)
-    assert server._failed
-    unsubscribe()
-    assert session_id not in server._session_listeners
 
 
 def _usage_event(last, total, *, turn_id="turn-2", estimate=None):
@@ -350,6 +336,27 @@ async def test_wrapper_locates_an_empty_session_before_its_rollout_exists(system
 
 
 @pytest.mark.asyncio
+async def test_tool_statistics_use_the_sdk_reported_rollout_path(system, monkeypatch):
+    first, _, server, _ = system
+    session_id = await first.create_session(job_tools=[])
+    path = server.session_path / "sessions" / "native-tool-history.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    records = [
+        {"type": "turn_context", "payload": {"turn_id": "current"}},
+        {
+            "type": "response_item",
+            "payload": {"type": "function_call", "call_id": "search", "name": "web_search"},
+        },
+    ]
+    path.write_text("".join(json.dumps(record) + "\n" for record in records))
+    read = AsyncMock(return_value=SimpleNamespace(thread=SimpleNamespace(path=str(path))))
+    monkeypatch.setattr(_Codex.instances[0]._client, "thread_read", read)
+    calls = await first.get_tool_calls(session_id, "current")
+    assert [call["id"] for call in calls] == ["search"]
+    read.assert_awaited_once_with(session_id, include_turns=False)
+
+
+@pytest.mark.asyncio
 async def test_releasing_a_superseded_empty_session_keeps_other_threads(system):
     first, _, server, _ = system
     previous = await first.create_session(job_tools=[])
@@ -363,44 +370,12 @@ async def test_releasing_a_superseded_empty_session_keeps_other_threads(system):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("language", ["en", "zh"])
-async def test_pa_memory_path_reaches_codex_without_snapshotting_contents(system, language):
-    agent, _, _, _ = system
-    context = agent.app_context
-    context.app_config.language = language
-    context.components["agent_wrapper"] = {"default": agent}
-    memory = agent.workspace_path / "digest/personal/REME_MEMORY.md"
-    memory.parent.mkdir(parents=True)
-    memory.write_text("# Preferences\n- Use Chinese.\n", encoding="utf-8")
-    session_id = (await PaNewSessionStep(app_context=context)()).answer
-    client = _Codex.instances[0]
-    prompt = client.opened[-1][2]["developer_instructions"]
-    assert str(memory) in prompt and str(agent.workspace_path) in prompt
-    assert "Use Chinese." not in prompt
-    assert ("先读取最新完整文件" if language == "zh" else "Read the complete current file") in prompt
-    assert ("立即删除对应记忆" if language == "zh" else "Immediately remove memories") in prompt
-    assert (
-        "不从旧会话或摘要中恢复" if language == "zh" else "restore them from old conversations or summaries"
-    ) in prompt
-    assert not client.threads[session_id].inputs
-    memory.write_text("# Preferences\n- Use English.\n", encoding="utf-8")
-    for _ in range(2):
-        response = await PaChatStep(app_context=context)(query="hello", stream_queue=asyncio.Queue())
-        assert response.success
-    assert all(options["developer_instructions"] == prompt for _, _, options in client.opened)
-    await PaNewSessionStep(app_context=context)()
-    assert client.opened[-1][2]["developer_instructions"] == prompt
-    assert memory.read_text(encoding="utf-8") == "# Preferences\n- Use English.\n"
-
-
-@pytest.mark.asyncio
 async def test_empty_session_preserves_thread_options_and_resumes_without_generation(system):
     first, _, _, job = system
     options = {"job_tools": [job.name], "system_prompt": "Session instructions."}
     session_id = await first.create_session(**options)
     client = _Codex.instances[0]
     assert client.opened[0][0] == "start"
-    assert client.opened[0][2]["developer_instructions"] == options["system_prompt"]
     assert first.app_server._threads[session_id].binding is not None
     assert client.unsubscribed == []
     assert not client.threads[session_id].inputs
@@ -676,7 +651,6 @@ async def test_resume_fork_and_sdk_options_remain_explicit(system, approval_mode
     original = await first.reply(
         "one",
         model="custom",
-        system_prompt="instructions",
         personality="friendly",
         approval_mode=approval_mode,
     )
@@ -688,8 +662,6 @@ async def test_resume_fork_and_sdk_options_remain_explicit(system, approval_mode
     client = _Codex.instances[0]
     options = client.opened[0][2]
     assert options["model"] == "custom"
-    assert options["developer_instructions"] == "instructions"
-    assert options["base_instructions"] is None
     assert options["approval_mode"] == (ApprovalMode.auto_review if approval_mode else ApprovalMode.deny_all)
     assert options["sandbox"] == Sandbox.full_access
     assert options["personality"] == Personality.friendly
@@ -960,6 +932,7 @@ async def test_unsupported_job_types_are_rejected(system, job_class):
     first.app_context.jobs["unsupported"] = job_class(name="unsupported")
     with pytest.raises(TypeError, match="non-stream"):
         await first.reply("invalid", job_tools=["unsupported"])
+    assert not _Codex.instances
 
 
 @pytest.mark.parametrize("name", sorted(CodexAgentWrapper._SERVER_OPTIONS))
@@ -970,7 +943,7 @@ def test_process_options_must_be_configured_on_server(name):
 
 def test_server_config_authentication_environment_and_home(tmp_path):
     context = ApplicationContext(workspace_dir=str(tmp_path), environment={"CUSTOM": "preserved"})
-    server = CodexAppServer(
+    server = SdkCodexAppServer(
         name="one",
         app_context=context,
         auth_mode="api_key",
@@ -985,16 +958,16 @@ def test_server_config_authentication_environment_and_home(tmp_path):
     assert 'model_providers.reme.base_url="https://proxy.test/v1"' in config.config_overrides
     assert "model_providers.reme.requires_openai_auth=true" in config.config_overrides
     assert "model_providers.reme.supports_websockets=false" in config.config_overrides
-    oauth = CodexAppServer(app_context=context, auth_mode="oauth", api_key="ignored", base_url="ignored")
-    assert CodexAppServer(codex_home="~/.codex").session_path == Path.home() / ".codex"
-    assert CodexAppServer(app_context=context, codex_home="other-home").session_path == tmp_path / "other-home"
+    oauth = SdkCodexAppServer(app_context=context, auth_mode="oauth", api_key="ignored", base_url="ignored")
+    assert SdkCodexAppServer(codex_home="~/.codex").session_path == Path.home() / ".codex"
+    assert SdkCodexAppServer(app_context=context, codex_home="other-home").session_path == tmp_path / "other-home"
     assert oauth._client_config().config_overrides == ('forced_login_method="chatgpt"',)
     with pytest.raises(ValueError, match="requires a non-empty"):
-        CodexAppServer(app_context=context, auth_mode="api_key")._client_config()
+        SdkCodexAppServer(app_context=context, auth_mode="api_key")._client_config()
 
 
 def test_custom_provider_websocket_support_and_explicit_overrides_are_preserved(tmp_path):
-    server = CodexAppServer(
+    server = SdkCodexAppServer(
         app_context=ApplicationContext(workspace_dir=str(tmp_path)),
         auth_mode="api_key",
         api_key="key",
@@ -1010,14 +983,14 @@ def test_custom_provider_websocket_support_and_explicit_overrides_are_preserved(
 def test_server_materializes_model_catalog_inside_its_private_home(tmp_path):
     context = ApplicationContext(workspace_dir=str(tmp_path))
     catalog = {"models": [{"slug": "main", "auto_review_model_override": "reviewer"}, {"slug": "reviewer"}]}
-    server = CodexAppServer(name="catalog", app_context=context, model_catalog=catalog)
+    server = SdkCodexAppServer(name="catalog", app_context=context, model_catalog=catalog)
     config = server._client_config()
     path = server.session_path / "reme-model-catalog.json"
     assert json.loads(path.read_text(encoding="utf-8")) == catalog
     assert f"model_catalog_json={json.dumps(str(path))}" in config.config_overrides
     assert path.is_relative_to(tmp_path)
     with pytest.raises(ValueError, match="not both"):
-        CodexAppServer(
+        SdkCodexAppServer(
             app_context=context,
             model_catalog=catalog,
             config_overrides=['model_catalog_json="external.json"'],
@@ -1033,44 +1006,6 @@ async def test_client_initialization_failure_is_closed_and_retryable(system, mon
     assert _Codex.instances[0].closed == 1
     assert server._codex is None
     assert server._active == 0
-
-
-def test_default_and_demo_configuration_use_named_shared_servers(monkeypatch):
-    monkeypatch.delenv("CODEX_HOME", raising=False)
-    monkeypatch.delenv("CODEX_MODEL_NAME", raising=False)
-    monkeypatch.setenv("LLM_API_KEY", "demo-api-key")
-    monkeypatch.setenv("LLM_BASE_URL", "https://demo.invalid/v1")
-    for name in ("default", "demo"):
-        config = resolve_app_config(config=name, log_config=False)
-        wrappers = config["components"]["agent_wrapper"]
-        assert wrappers["codex"]["app_server"] == "default"
-        assert "auth_mode" not in wrappers["codex"]
-        servers = config["components"]["codex_app_server"]
-        assert servers["default"]["auth_mode"] == "api_key"
-        assert servers["default"]["codex_home"] == ".codex"
-        assert servers["default"]["supports_websockets"] is False
-        assert wrappers["codex"]["model"] == "qwen3.8-max"
-        assert wrappers["codex"]["approval_mode"] == "deny_all"
-        assert wrappers["codex"]["effort"] == "xhigh"
-        models = servers["default"]["model_catalog"]["models"]
-        assert {model["slug"] for model in models} == {"qwen3.8-max", "qwen3.8-flash"}
-        assert all(model["auto_review_model_override"] == "qwen3.8-flash" for model in models)
-        assert all(model["default_reasoning_level"] == "xhigh" for model in models)
-        assert all(model["multi_agent_reasoning_effort"] == "xhigh" for model in models)
-        assert all([level["effort"] for level in model["supported_reasoning_levels"]] == ["xhigh"] for model in models)
-        assert set(servers["default"]["config_overrides"]) == {
-            'model_reasoning_effort="xhigh"',
-            'review_model="qwen3.8-max"',
-            'agents.default_subagent_model="qwen3.8-max"',
-            'agents.default_subagent_reasoning_effort="xhigh"',
-            'memories.extract_model="qwen3.8-flash"',
-            'memories.consolidation_model="qwen3.8-max"',
-        }
-        if name == "demo":
-            assert servers["default"]["api_key"] == "demo-api-key"
-            assert servers["default"]["base_url"] == "https://demo.invalid/v1"
-        else:
-            assert servers["oauth"]["codex_home"] == "~/.codex"
 
 
 @pytest.mark.asyncio
@@ -1270,7 +1205,7 @@ async def test_replaced_runtime_uses_loopback_when_its_gateway_is_not_mounted(tm
         components={"codex_app_server": {"default": {"backend": "sdk"}}},
     )
     app.context.service.build_service(app)
-    replacement = CodexAppServer(app_context=app.context)
+    replacement = SdkCodexAppServer(app_context=app.context)
     app.context.service.service.mount("/assets", app=ScopedMCP())
     listen = AsyncMock(return_value="http://127.0.0.1:1234/local")
     monkeypatch.setattr(replacement.jobs_mcp, "listen", listen)
@@ -1291,6 +1226,40 @@ async def test_failed_cleanup_preserves_the_original_request_error(system, monke
     monkeypatch.setattr(server, "wait_idle", AsyncMock(side_effect=RuntimeError("cleanup failure")))
     with pytest.raises(ValueError, match="original failure"):
         await first.reply("failed")
+
+
+@pytest.mark.asyncio
+async def test_repeated_cancellation_finishes_native_thread_cleanup(system, monkeypatch):
+    """The lease stays held until native idle and unsubscribe have both settled."""
+    first, _, server, _ = system
+    await first.reply("initial")
+    client = _Codex.instances[0]
+    entered, release = asyncio.Event(), asyncio.Event()
+    identities = []
+
+    async def wait_idle(_thread):
+        entered.set()
+        await release.wait()
+
+    async def use_thread():
+        async with server.thread() as thread:
+            identities.append(thread.id)
+
+    monkeypatch.setattr(server, "wait_idle", wait_idle)
+    task = asyncio.create_task(use_thread())
+    await asyncio.wait_for(entered.wait(), 2)
+    try:
+        for _ in range(2):
+            task.cancel()
+            await asyncio.sleep(0)
+            assert not task.done()
+            assert server._threads[identities[0]].lock.locked()
+    finally:
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    assert identities[0] in client.unsubscribed
+    assert server._threads[identities[0]].users == 0
 
 
 @pytest.mark.asyncio
@@ -1530,6 +1499,19 @@ def test_codex_skills_add_all_without_deleting_existing_content(tmp_path):
         assert target.resolve() == (tmp_path / "skills" / name).resolve()
 
 
+def test_codex_builtin_skill_works_without_a_source_checkout(tmp_path):
+    workspace = tmp_path / "workspace"
+    wrapper, _job = _wrapper(workspace, project_path="..", cwd=".")
+    name = "manage-todos-ideas"
+
+    wrapper._ensure_skills([name])  # pylint: disable=protected-access
+
+    manifest = workspace / ".agents" / "skills" / name / "SKILL.md"
+    assert f"name: {name}" in manifest.read_text(encoding="utf-8")
+    assert not manifest.parent.is_symlink()
+    assert not (tmp_path / ".agents").exists()
+
+
 def test_codex_skills_support_single_name_and_are_idempotent(tmp_path):
     wrapper, _job = _wrapper(tmp_path)
     source = tmp_path / "skills" / "one"
@@ -1625,3 +1607,383 @@ def test_event_to_chunks_maps_approval_started_and_completed(review_status):
     assert completed_chunk.metadata["status"] == "completed"
     assert completed_chunk.metadata["review"]["status"] == review_status
     assert completed_chunk.metadata["decision_source"] == {"type": "guardian"}
+
+
+@pytest.mark.asyncio
+async def test_fork_model_override_preserves_source_and_wrapper_defaults(system):
+    first, second, server, _ = system
+    source = await first.reply("Chat work.", model="chat-model")
+    second.kwargs["model"] = "wrapper-default"
+
+    forked = await second.reply(
+        "Prepare a background task.",
+        resume=source["session_id"],
+        fork_session=True,
+        model="task-model",
+    )
+
+    native = _Codex.instances[0]
+    assert native.opened[-1][2]["model"] == "task-model"
+    assert native.threads[forked["session_id"]].options[-1]["model"] == "task-model"
+    assert server._threads[source["session_id"]].turn_options["model"] == "chat-model"
+    assert second.kwargs["model"] == "wrapper-default"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["binding", "resume", "cancelled"])
+async def test_rejected_resume_preserves_settings_for_retry_and_fork(system, monkeypatch, failure):
+    first, second, server, _ = system
+    source_id = (
+        await first.reply("source", model="source-model", system_prompt="Source instructions.", effort="high")
+    )["session_id"]
+    native = _Codex.instances[0]
+    original_settings = dict(server._threads[source_id].turn_options)
+    changes = {"model": "rejected-model", "system_prompt": "Rejected instructions.", "effort": "low"}
+    if failure == "binding":
+        changes["job_tools"] = ["search"]
+        expected = ValueError
+    else:
+        expected = asyncio.CancelledError if failure == "cancelled" else ValueError
+    with monkeypatch.context() as patch:
+        if failure != "binding":
+            patch.setattr(native, "thread_resume", AsyncMock(side_effect=expected("resume rejected")))
+        with pytest.raises(expected):
+            await first.reply("must not execute", resume=source_id, **changes)
+    assert native.threads[source_id].inputs == ["source"]
+    assert server._threads[source_id].turn_options == original_settings
+
+    fork = await second.reply(
+        "fork",
+        resume=source_id,
+        fork_session=True,
+        model="source-model",
+        system_prompt="Source instructions.",
+        effort="high",
+    )
+    assert native.opened[-1][2]["model"] == "source-model"
+    assert native.threads[fork["session_id"]].options[-1]["effort"].value == "high"
+    await first.reply("retry", resume=source_id)
+    assert native.threads[source_id].options[-1]["model"] == "source-model"
+    assert native.threads[source_id].options[-1]["effort"].value == "high"
+
+
+@pytest.mark.asyncio
+async def test_live_thread_settings_are_detached_from_mutable_call_options(system):
+    first, second, _server, _ = system
+    config = {"shell_environment_policy": {"set": {"ORIGINAL": "before"}}}
+    source_id = (await first.reply("source", config=config))["session_id"]
+    native = _Codex.instances[0]
+    source_config = native.opened[0][2]["config"]
+    config["shell_environment_policy"]["set"]["ORIGINAL"] = "after"
+
+    assert source_config["shell_environment_policy"]["set"] == {"ORIGINAL": "before"}
+    await second.reply(
+        "fork",
+        resume=source_id,
+        fork_session=True,
+        config={"shell_environment_policy": source_config["shell_environment_policy"]},
+    )
+    assert native.opened[-1][2]["config"]["shell_environment_policy"]["set"] == {"ORIGINAL": "before"}
+    assert source_config["shell_environment_policy"]["set"] == {"ORIGINAL": "before"}
+
+
+@pytest.mark.asyncio
+async def test_fork_captures_active_source_without_waiting_or_changing_its_tools(system):
+    first, second, server, _ = system
+    source_id = (await first.reply("initial", job_tools=["search"]))["session_id"]
+    token = server._threads[source_id].token
+    entered, release = asyncio.Event(), asyncio.Event()
+    native = _Codex.instances[0]
+
+    async def hold(thread, _inputs):
+        if thread.id == source_id:
+            entered.set()
+            await release.wait()
+
+    native.run_hook = hold
+    running = asyncio.create_task(first.reply("running", resume=source_id, job_tools=["search"]))
+    await asyncio.wait_for(entered.wait(), 2)
+    try:
+        result = await asyncio.wait_for(second.reply("query", resume=source_id, fork_session=True), 2)
+        assert result["status"] == "completed" and result["session_id"] != source_id
+        assert not running.done() and native.threads[source_id].busy
+        assert native.threads[source_id].interrupts == 0
+        assert token in server.jobs_mcp.scopes
+        assert server._threads[source_id].token == token
+        assert any(operation == "fork" for operation, _, _ in native.opened)
+    finally:
+        release.set()
+        await running
+
+
+@pytest.mark.asyncio
+async def test_cancelled_active_source_fork_keeps_original_turn_and_tools(system, monkeypatch):
+    first, second, server, _ = system
+    source_id = (await first.reply("initial", job_tools=["search"]))["session_id"]
+    token = server._threads[source_id].token
+    native = _Codex.instances[0]
+    running_entered, fork_entered, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+    async def hold(_thread, _inputs):
+        running_entered.set()
+        await release.wait()
+
+    async def pause_fork(_thread_id, **_options):
+        fork_entered.set()
+        await asyncio.Event().wait()
+
+    native.run_hook = hold
+    monkeypatch.setattr(native, "thread_fork", pause_fork)
+    running = asyncio.create_task(first.reply("running", resume=source_id, job_tools=["search"]))
+    await asyncio.wait_for(running_entered.wait(), 1)
+    forked = asyncio.create_task(second.reply("query", resume=source_id, fork_session=True))
+    try:
+        await asyncio.wait_for(fork_entered.wait(), 1)
+        forked.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await forked
+        assert token in server.jobs_mcp.scopes and len(server.jobs_mcp.scopes) == 1
+        assert server._threads[source_id].users == 1
+        assert not running.done() and native.threads[source_id].interrupts == 0
+    finally:
+        forked.cancel()
+        release.set()
+        await asyncio.gather(running, forked, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error", ["fork failed", "no rollout found for thread id"])
+async def test_failed_fork_revokes_only_its_new_tool_scope(system, monkeypatch, error):
+    first, _, server, _ = system
+    source_id = (await first.reply("source", job_tools=["search"]))["session_id"]
+    token = server._threads[source_id].token
+    monkeypatch.setattr(_Codex.instances[0], "thread_fork", AsyncMock(side_effect=RuntimeError(error)))
+    with pytest.raises(RuntimeError, match=error):
+        await first.reply("handoff", resume=source_id, fork_session=True)
+    assert set(server.jobs_mcp.scopes) == {token}
+
+
+@pytest.mark.asyncio
+async def test_application_bound_tool_approval_preserves_native_read_only_and_external_policy(system):
+    from openai_codex import Sandbox
+
+    first, _, _, _ = system
+    external = {"url": "http://external.test/mcp", "tools": {"write": {"approval_mode": "prompt"}}}
+    await first.reply(
+        "one",
+        job_tools=["search"],
+        sandbox="read-only",
+        config={"mcp_servers": {"external": external}},
+    )
+    options = _Codex.instances[0].opened[0][2]
+    assert options["sandbox"] == Sandbox.read_only
+    servers = options["config"]["mcp_servers"]
+    assert servers["reme_jobs"]["enabled_tools"] == ["search"]
+    assert servers["reme_jobs"]["tools"] == {"search": {"approval_mode": "approve"}}
+    assert servers["external"] == external
+
+
+@pytest.mark.asyncio
+async def test_native_session_liveness_handles_empty_and_missing_history(system, monkeypatch, tmp_path):
+    first, _, server, _ = system
+    identifier = await first.create_session()
+    assert await first.session_exists(identifier)
+    server._threads.clear()  # A cold process has no live empty-thread handle.
+    monkeypatch.setattr(server, "get_session_path", AsyncMock(return_value=None))
+    assert not await first.session_exists(identifier)
+    path = tmp_path / "native.jsonl"
+    path.write_text("{}\n")
+    server.get_session_path.return_value = path
+    assert await first.session_exists(identifier)
+    path.unlink()
+    assert not await first.session_exists(identifier)
+    server.get_session_path.side_effect = RuntimeError("no rollout found for thread id")
+    assert not await first.session_exists(identifier)
+    server.get_session_path.side_effect = ConnectionError("offline")
+    with pytest.raises(ConnectionError, match="offline"):
+        await first.session_exists(identifier)
+
+
+@pytest.mark.asyncio
+async def test_fork_normalizes_an_explicit_output_schema_without_mutating_defaults(system):
+    class Output(BaseModel):
+        answer: str
+
+    first, second, _server, _job = system
+    source = await first.reply("source")
+    second.kwargs["model"] = "unrelated-default"
+    result = await second.reply(
+        '{"answer": "done"}',
+        resume=source["session_id"],
+        fork_session=True,
+        output_schema=Output,
+    )
+    native = _Codex.instances[0].threads[result["session_id"]]
+    assert native.options[-1]["output_schema"] == Output.model_json_schema()
+    assert result["structured_output"] == {"answer": "done"}
+    assert second.kwargs == {"model": "unrelated-default"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["read_session", "get_session_status"])
+@pytest.mark.parametrize("at_start", [False, True])
+@pytest.mark.parametrize("error_kind", ["transport", "busy", "invalid", "cancelled"])
+async def test_session_requests_normalize_only_recoverable_sdk_errors(
+    system,
+    monkeypatch,
+    operation,
+    at_start,
+    error_kind,
+):
+    from openai_codex.errors import ServerBusyError, TransportClosedError
+
+    errors = {
+        "transport": TransportClosedError("disconnected"),
+        "busy": ServerBusyError(-32001, "busy"),
+        "invalid": ValueError("invalid session"),
+        "cancelled": asyncio.CancelledError(),
+    }
+    first, _second, server, _job = system
+    error = errors[error_kind]
+    target, name = (first, "start") if at_start else (server, operation)
+    monkeypatch.setattr(target, name, AsyncMock(side_effect=error))
+    expected = ConnectionError if error_kind in {"transport", "busy"} else type(error)
+    with pytest.raises(expected) as caught:
+        await getattr(first, operation)("session-1")
+    if expected is ConnectionError:
+        assert caught.value.__cause__ is error
+    else:
+        assert caught.value is error
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("continuation", ["resume", "fork", "restart"])
+@pytest.mark.parametrize("streaming", [False, True])
+async def test_output_schema_applies_only_to_its_invocation(system, continuation, streaming):
+    from openai_codex.types import ReasoningEffort
+
+    first, _, server, _ = system
+    source = await first.reply('{"ok": true}', output_schema=_StructuredModel, effort="high")
+    source_id = source["session_id"]
+    assert source["structured_output"] == {"ok": True}
+    native = _Codex.instances[0]
+    if continuation == "restart":
+        server._threads.clear()
+        server.jobs_mcp.scopes.clear()
+        native.loaded.clear()
+    options = {"session_id": source_id, "fork_session": continuation == "fork", "effort": "high"}
+    if streaming:
+        chunks = [chunk async for chunk in first.reply_stream("plain handoff", **options)]
+        result = chunks[-1].chunk
+    else:
+        result = await first.reply("plain handoff", **options)
+    assert result["status"] == "completed" and result["structured_output"] is None
+    assert result["result"] == "plain handoff"
+    actual = native.threads[result["session_id"]].options[-1]
+    assert actual["output_schema"] is None
+    assert actual["effort"] == ReasoningEffort.high
+    assert "output_schema" not in server._threads[result["session_id"]].turn_options
+
+
+@pytest.mark.asyncio
+async def test_explicit_schema_none_overrides_the_component_default_for_one_invocation(system):
+    first, _, server, _ = system
+    first.set_output_schema(_StructuredModel)
+    initial = await first.reply('{"ok": true}')
+    source_id = initial["session_id"]
+    cleared = await first.reply("plain handoff", session_id=source_id, output_schema=None)
+    native = _Codex.instances[0].threads[source_id]
+    assert native.options[-1]["output_schema"] is None
+    assert cleared["structured_output"] is None and cleared["result"] == "plain handoff"
+    restored = await first.reply('{"ok": false}', session_id=source_id)
+    assert native.options[-1]["output_schema"] == _StructuredModel.model_json_schema()
+    assert restored["structured_output"] == {"ok": False}
+    assert "output_schema" not in server._threads[source_id].turn_options
+
+
+@pytest.mark.asyncio
+async def test_empty_session_retains_turn_settings_before_its_first_reply(system):
+    from openai_codex.types import ReasoningEffort, ReasoningSummary
+
+    first, _, server, _ = system
+    source_id = await first.create_session(effort="high", summary="auto")
+    state = server._threads[source_id]
+    assert not _Codex.instances[0].threads[source_id].inputs
+    assert state.turn_options["effort"] == ReasoningEffort.high
+    assert not (server.workspace_path / "session" / "proactive").exists()
+    await first.reply("first query", session_id=source_id)
+    actual = _Codex.instances[0].threads[source_id].options[-1]
+    assert actual["effort"] == ReasoningEffort.high and actual["summary"] == ReasoningSummary("auto")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("restart", [False, True])
+@pytest.mark.parametrize("fork", [False, True])
+async def test_sessions_use_current_configuration_without_sidecar_files(system, restart, fork):
+    first, second, server, job = system
+    source_id = (
+        await first.reply(
+            "source",
+            model="old-model",
+            effort="low",
+            job_tools=[job.name],
+            injected_job_kwargs={"_agent_name": "Remy"},
+        )
+    )["session_id"]
+    sidecars = server.workspace_path / "session" / "proactive"
+    assert not sidecars.exists()
+    native = _Codex.instances[0]
+    if restart:
+        server._threads.clear()
+        server.jobs_mcp.scopes.clear()
+        native.loaded.clear()
+    second.kwargs.update(
+        model="current-model",
+        system_prompt="Current instructions.",
+        effort="high",
+        job_tools=[job.name],
+        injected_job_kwargs={"_agent_name": "Remy"},
+    )
+    result = await second.reply("continue", resume=source_id, fork_session=fork)
+    assert result["status"] == "completed"
+    assert native.opened[-1][2]["model"] == "current-model"
+    assert native.threads[result["session_id"]].options[-1]["effort"].value == "high"
+    token = server._threads[result["session_id"]].token
+    await server.jobs_mcp.scopes[token][0].fn(query="memory")
+    assert job.calls[-1]["_agent_name"] == "Remy"
+    assert not sidecars.exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("restore", ["live", "persisted", "restart"])
+@pytest.mark.parametrize("ephemeral", [False, True])
+async def test_empty_source_fork_uses_current_configuration(system, restore, ephemeral):
+    first, second, server, job = system
+    source_id = await first.create_session(model="old-model", effort="low")
+    native = _Codex.instances[0]
+    source = native.threads[source_id]
+    source.path = str(server.session_path / "sessions" / "source.jsonl")
+    if restore != "live":
+        Path(source.path).parent.mkdir(parents=True, exist_ok=True)
+        Path(source.path).write_text("", encoding="utf-8")
+    if restore == "restart":
+        server._threads.clear()
+        server.jobs_mcp.scopes.clear()
+        native.loaded.clear()
+    second.kwargs.update(model="current-model", effort="high", job_tools=[job.name])
+    result = await second.reply("fork", resume=source_id, fork_session=True, ephemeral=ephemeral)
+    assert result["status"] == "completed" and result["session_id"] != source_id
+    assert source.inputs == []
+    operation, _, options = native.opened[-1]
+    assert operation == ("start" if restore == "live" else "fork")
+    assert options["model"] == "current-model"
+    assert options["ephemeral"] is ephemeral
+    if ephemeral and operation == "fork":
+        assert options["include_turns"] is False
+    else:
+        assert "include_turns" not in options
+    assert native.threads[result["session_id"]].options[-1]["effort"].value == "high"
+    token = server._threads[result["session_id"]].token
+    await server.jobs_mcp.scopes[token][0].fn(query="memory")
+    assert job.calls[-1]["query"] == "memory"
+    assert not (server.workspace_path / "session" / "proactive").exists()

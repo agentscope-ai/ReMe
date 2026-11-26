@@ -9,7 +9,6 @@ from pathlib import Path
 import re
 from urllib.parse import urlsplit
 from uuid import uuid4
-import zoneinfo
 
 import aiofiles
 import frontmatter
@@ -18,13 +17,15 @@ from agentscope.message import DataBlock, Msg, TextBlock, UserMsg
 
 from ._evolve import agent_reply_result_text, format_history, now
 from ..base_step import BaseStep
-from ..file_io import extract_daily_date, get_path_lock, parse_daily_date, refresh_day_index, write_file_safe
+from ..file_io import extract_daily_date, parse_daily_date, refresh_day_index, write_file_safe
+from ...utils.files.path_lock import get_path_lock
 from ..file_io import validate_filename_component, validate_session_id
-from ..file_io._path import IMAGE_MIME_BY_EXT, _check_path_permission, resolve_path
-from ..index import normalize_posix_path
-from ...components import R
+from ..file_io import IMAGE_MIME_BY_EXT, check_path_permission, resolve_path
+from ...utils.files.paths import normalize_posix_path
+from ...core.registry import R
 from ...schema import Response
-from ...utils.wikilink_handler import WikilinkHandler
+from ...utils.documents.wikilink_handler import WikilinkHandler
+from ...utils.timezone_utils import resolve_timezone
 
 _SESSION_ID_KEY = "session_id"
 _SOURCE_CONVERSATION_KEY = "source_conversation"
@@ -36,7 +37,7 @@ def _checked_write_path(workspace: Path, relative: str, allowed_paths) -> Path:
     target, error = resolve_path(workspace, relative)
     if error or target is None:
         raise ValueError(error or "Invalid write path")
-    if not _check_path_permission(workspace, target, allowed_paths):
+    if not check_path_permission(workspace, target, allowed_paths):
         raise PermissionError(f"No permission to write {relative}")
     return target
 
@@ -426,10 +427,7 @@ class AutoMemoryStep(BaseStep):
             return fallback
         if timestamp.tzinfo is None:
             return fallback
-        if timezone:
-            timestamp = timestamp.astimezone(zoneinfo.ZoneInfo(timezone))
-        else:
-            timestamp = timestamp.astimezone()
+        timestamp = timestamp.astimezone(resolve_timezone(timezone))
         return timestamp.date().isoformat()
 
     def _build_messages(self, raw_messages: list) -> list[Msg]:

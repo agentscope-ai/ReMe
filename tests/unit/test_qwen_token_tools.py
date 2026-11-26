@@ -10,7 +10,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from reme.utils import QwenTokenTools, estimate_token_count
+from reme.utils.qwen_token_tools import QwenTokenTools, estimate_token_count
 from reme.utils import qwen_token_tools
 
 

@@ -4,8 +4,8 @@
 
 import pytest
 
-from reme.components.base_component import BaseComponent
-from reme.components.component_registry import ComponentRegistry, R, create_application_registry
+from reme.components.base import BaseComponent
+from reme.core.registry import ComponentRegistry, R, create_application_registry
 from reme.enumeration import ComponentEnum
 
 
@@ -54,6 +54,13 @@ def test_register_rejects_missing_component_type():
     reg = ComponentRegistry()
     with pytest.raises(TypeError, match="component_type"):
         reg.register(_NoComponentType, "bad")
+
+
+def test_register_rejects_base_component_type():
+    reg = ComponentRegistry()
+    with pytest.raises(TypeError, match="non-BASE"):
+        reg.register(_BaseComponentType, "bad")
+    assert not reg.get_all(ComponentEnum.BASE)
 
 
 def test_register_plugin_defined_component_type():

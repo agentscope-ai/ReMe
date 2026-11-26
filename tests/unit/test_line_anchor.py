@@ -2,7 +2,7 @@
 
 import pytest
 
-from reme.utils import format_line_anchor, parse_line_anchor
+from reme.utils.documents.line_anchor import format_line_anchor, parse_line_anchor
 
 
 def test_parse_supported_line_anchors():

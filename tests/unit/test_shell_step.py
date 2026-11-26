@@ -1,13 +1,18 @@
 """Tests for asynchronous shell command execution."""
 
+import os
+import shlex
+import sys
 import time
+from unittest.mock import AsyncMock
 
 import pytest
 
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.enumeration import ComponentEnum
 from reme.steps.common.shell import DEFAULT_TIMEOUT, ShellStep
-from reme.components import R
+from reme.core.registry import R
+from reme.utils.local_backend import OUTPUT_LIMIT_BYTES
 
 
 def test_shell_step_is_registered():
@@ -58,6 +63,29 @@ async def test_shell_step_times_out():
     assert response.answer == "Shell command timed out after 0.01s"
     assert response.metadata["shell_timeout"] == 0.01
     assert time.monotonic() - started < 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="POSIX command quoting")
+async def test_shell_output_uses_the_shared_byte_limit():
+    """Shell jobs enforce the same output budget as other local commands."""
+    script = f"import sys; sys.stdout.write('x' * {OUTPUT_LIMIT_BYTES + 1})"
+    response = await ShellStep()(cmd=f"{shlex.quote(sys.executable)} -c {shlex.quote(script)}")
+    assert not response.success
+    assert "Output limit exceeded" in response.metadata["stderr"]
+    assert len(response.answer.encode()) <= OUTPUT_LIMIT_BYTES
+
+
+@pytest.mark.parametrize("value", [True, False, 0, -1, float("nan"), float("inf"), "invalid"])
+@pytest.mark.asyncio
+async def test_shell_timeout_requires_a_finite_positive_number(value, monkeypatch):
+    """Invalid deadlines must be rejected before spawning a command."""
+    execute = AsyncMock()
+    monkeypatch.setattr("reme.steps.common.shell.LocalProcessBackend.exec_shell", execute)
+    response = await ShellStep()(cmd="printf unreachable", shell_timeout=value)
+    assert not response.success
+    assert response.answer == "shell_timeout must be a positive number"
+    execute.assert_not_awaited()
 
 
 @pytest.mark.asyncio

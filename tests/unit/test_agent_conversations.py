@@ -1,0 +1,284 @@
+"""Formal conversation steps preserve stream outcomes and shared request state."""
+
+# pylint: disable=missing-function-docstring
+
+import asyncio
+from contextlib import aclosing
+from unittest.mock import AsyncMock
+
+import pytest
+
+from reme.core.context import RuntimeContext
+from reme.enumeration import ChunkEnum
+from reme.schema import AgentActivity, SessionMessage, SessionSnapshot, SessionStatus, StreamChunk
+from reme.components.proactive_manager._internal.views import AgentViews
+from reme.steps.proactive.agent import AskAgentStep
+from .test_proactive_runtime import create_agent, running_manager
+
+
+@pytest.mark.parametrize("agent_name", ["Remy", "monitor"])
+@pytest.mark.parametrize(
+    "status,stream_error",
+    [("completed", False), ("failed", False), ("interrupted", False), ("waiting", False), ("completed", True)],
+)
+@pytest.mark.asyncio
+async def test_conversation_streams_preserve_outcomes_metadata_and_caller_inputs(
+    tmp_path,
+    monkeypatch,
+    agent_name,
+    status,
+    stream_error,
+):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
+        await create_agent(runtime)
+        if agent_name != "Remy":
+            await runtime.sessions.ensure(agent_name, wrapper, {}, runtime.now())
+        chunks = []
+
+        async def reply_stream(_query, **options):
+            if stream_error:
+                chunks.append(StreamChunk(chunk_type=ChunkEnum.ERROR, chunk="transport error"))
+            chunks.extend(
+                [
+                    StreamChunk(chunk_type=ChunkEnum.CONTENT, chunk="partial", turn_id="turn"),
+                    StreamChunk(
+                        chunk_type=ChunkEnum.REPLY_END,
+                        status=status,
+                        chunk={
+                            "session_id": options["resume"],
+                            "result": "final answer",
+                            "structured_output": None,
+                            "usage": {"input_tokens": 3, "output_tokens": 2},
+                            "status": status,
+                            "error": "provider failed" if status == "failed" else None,
+                            "raw": {"native": "retained"},
+                        },
+                    ),
+                ],
+            )
+            for chunk in chunks:
+                yield chunk
+
+        monkeypatch.setattr(wrapper, "reply_stream", reply_stream)
+        request = RuntimeContext(stream_queue=asyncio.Queue())
+        request.response.metadata["previous_step"] = "retained"
+        response = await AskAgentStep(app_context=context)(request, query="Hello", agent_name=agent_name)
+
+        assert response is request.response
+        assert response.success is (status == "completed" and not stream_error)
+        assert response.answer == "final answer"
+        assert response.metadata["agent_name"] == agent_name
+        assert response.metadata["status"] == status
+        assert response.metadata["raw"] == {"native": "retained"}
+        assert response.metadata["usage"] == {"input_tokens": 3, "output_tokens": 2}
+        assert response.metadata["previous_step"] == "retained"
+        assert response.metadata["events"] == [chunk.model_dump(mode="json") for chunk in chunks]
+        emitted = []
+        while not request.stream_queue.empty():
+            emitted.append(request.stream_queue.get_nowait())
+        assert all(chunk.chunk_type == ChunkEnum.DATA for chunk in emitted)
+        assert emitted[-1].chunk["outcome"] == status
+        assert emitted[-1].chunk["content"] == "final answer"
+        assert "native" not in str(emitted[-1].chunk)
+
+        assert request.get("agent_name") == agent_name
+        assert not runtime.chat_lock.locked() and not runtime.runtimes["monitor"].tasks
+        assert (await runtime.status("monitor"))["pending_events"] == 1
+        if agent_name == "Remy":
+            activity = runtime.activities[agent_name]
+            assert activity.turn_id == "turn" and activity.phase == status
+        else:
+            assert agent_name not in runtime.activities and agent_name not in runtime.live_turns.turns
+            assert wrapper.created[-1]["fork_session"]
+            assert (await runtime.sessions.current(agent_name)).session_id == "session-1"
+
+
+@pytest.mark.asyncio
+async def test_subscription_reports_portable_tool_activity_and_cancellation(tmp_path, monkeypatch):
+    async with running_manager(tmp_path) as (runtime, context, wrapper):
+        entered = asyncio.Event()
+
+        async def stream(_query, **_options):
+            yield StreamChunk(
+                chunk_type=ChunkEnum.TOOL_CALL,
+                chunk="read memory",
+                tool_call_id="call",
+                tool_call_name="read_file",
+                turn_id="turn",
+            )
+            entered.set()
+            await asyncio.Event().wait()
+
+        monkeypatch.setattr(wrapper, "reply_stream", stream)
+        monkeypatch.setattr(
+            wrapper,
+            "read_session",
+            AsyncMock(
+                side_effect=lambda sid: SessionSnapshot(
+                    session_id=sid,
+                    state=SessionStatus(session_id=sid, status="idle"),
+                ),
+            ),
+        )
+        task = asyncio.create_task(
+            AskAgentStep(app_context=context)(RuntimeContext(stream_queue=asyncio.Queue()), query="Hello"),
+        )
+        try:
+            await entered.wait()
+            events = AgentViews(runtime).events("Remy", interval=0)
+            try:
+                value = await anext(events)
+                activity = value["activities"]["Remy"]
+                assert activity["source"] == "chat"
+                assert activity["phase"] == "working" and activity["tool"] == "read_file"
+                assert activity["turn_id"] == "turn" and value["agent"]["status"] == "active"
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+                value = await anext(events)
+                assert value["activities"]["Remy"]["phase"] == "interrupted"
+                assert value["agent"]["status"] == "idle"
+            finally:
+                await events.aclose()
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.parametrize("agent_name", ["Remy", "monitor", "timer"])
+@pytest.mark.parametrize("completed", [True, False])
+@pytest.mark.asyncio
+async def test_task_views_keep_only_latest_turn_without_mutating_native_history(tmp_path, agent_name, completed):
+    async with running_manager(tmp_path) as (runtime, _, wrapper):
+        await create_agent(runtime)
+        await runtime.create(
+            {"agent_name": "timer", "task_description": "Daily report", "cron": "0 8 * * *"},
+        )
+        sid = await runtime.sessions.ensure(agent_name, wrapper, {}, runtime.now())
+        snapshot = SessionSnapshot(
+            session_id=sid,
+            last_turn_id="latest",
+            state=SessionStatus(session_id=sid, status="idle" if completed else "active"),
+            messages=[
+                SessionMessage(id="old-user", role="user", content="Old input", turn_id="old"),
+                SessionMessage(id="old-answer", role="assistant", content="Old result", turn_id="old"),
+                SessionMessage(id="latest-user", role="user", content="Latest input", turn_id="latest"),
+                SessionMessage(id="latest-progress", role="assistant", content="Checking sources", turn_id="latest"),
+                SessionMessage(
+                    id="latest-answer",
+                    role="assistant",
+                    content="Latest result",
+                    turn_id="latest",
+                    completed=completed,
+                    chunks=[StreamChunk(chunk_type=ChunkEnum.CONTENT, block_id="answer", chunk="Latest result")],
+                ),
+            ],
+        )
+        original = snapshot.model_dump()
+        wrapper.read_session = AsyncMock(return_value=snapshot)
+        value = await runtime.read_agent(agent_name)
+        expected_ids = (
+            ["old-user", "old:assistant", "latest-user", "latest:assistant"]
+            if agent_name == "Remy"
+            else ["latest-user", "latest:assistant"]
+        )
+        assert [message["id"] for message in value["messages"]] == expected_ids
+        assert value["messages"][-1]["completed"] is completed
+        assert value["messages"][-1]["items"][0]["id"] == "answer"
+        assert snapshot.model_dump() == original
+        wrapper.read_session.assert_awaited_once_with(sid)
+        assert (await runtime.sessions.current(agent_name)).session_id == sid
+
+
+@pytest.mark.parametrize("agent_type", ["event", "time"])
+@pytest.mark.asyncio
+async def test_task_subscription_atomically_replaces_turns_and_reconnects_without_old_messages(tmp_path, agent_type):
+    async with running_manager(tmp_path) as (runtime, _, wrapper):
+        await runtime.create(
+            {
+                "agent_name": "monitor",
+                "task_description": "Report",
+                **({"cron": "0 8 * * *"} if agent_type == "time" else {}),
+            },
+        )
+        sid = await runtime.sessions.ensure("monitor", wrapper, {}, runtime.now())
+        snapshot = SessionSnapshot(
+            session_id=sid,
+            state=SessionStatus(session_id=sid, status="idle"),
+            last_turn_id="old",
+            messages=[SessionMessage(id="old", role="assistant", content="Old result", turn_id="old")],
+        )
+        wrapper.read_session = AsyncMock(return_value=snapshot)
+        views = AgentViews(runtime)
+        events = views.events("monitor", interval=0, heartbeat=0)
+        try:
+            old = await anext(events)
+            assert old["messages"][0]["id"] == "old:assistant"
+            run = AgentActivity(
+                session_id="",
+                turn_id="batch",
+                source="task",
+                task_id="monitor",
+                started_at=runtime.now(),
+                phase="working",
+            )
+            runtime.activities["monitor"] = run
+            working = await anext(events)
+            assert working["activities"]["monitor"]["source"] == "task"
+            assert working["activities"]["monitor"]["session_id"] == ""
+            assert working["messages"] == []
+            snapshot.last_turn_id = "new"
+            empty = await anext(events)
+            assert empty["type"] == "snapshot" and empty["messages"] == []
+            snapshot.messages.extend(
+                [
+                    SessionMessage(id="new-user", role="user", content="New input", turn_id="new"),
+                    SessionMessage(
+                        id="new-answer",
+                        role="assistant",
+                        content="Working",
+                        turn_id="new",
+                        completed=False,
+                    ),
+                ],
+            )
+            latest = await anext(events)
+            assert latest["type"] == "update"
+            assert [message["id"] for message in latest["messages"]] == ["new-user", "new:assistant"]
+            runtime.activities["monitor"] = run.model_copy(update={"session_id": sid, "phase": "completed"})
+            committed = await anext(events)
+            assert committed["activities"]["monitor"]["turn_id"] == "batch"
+            assert committed["activities"]["monitor"]["phase"] == "completed"
+            assert committed["messages"] == []
+            assert (await anext(events))["type"] == "heartbeat"
+            reconnected = views.events("monitor", interval=0)
+            try:
+                assert (await anext(reconnected)) == {
+                    **committed,
+                    "type": "snapshot",
+                    "messages": latest["messages"],
+                }
+            finally:
+                await reconnected.aclose()
+            next_sid = await runtime.sessions.ensure("monitor", wrapper, {}, runtime.now(), new=True)
+            snapshot.session_id = next_sid
+            snapshot.state.session_id = next_sid
+            changed = await anext(events)
+            assert changed["type"] == "snapshot" and changed["agent"]["session_id"] == next_sid
+            assert changed["activities"] == {}
+        finally:
+            await events.aclose()
+
+
+@pytest.mark.asyncio
+async def test_remy_subscription_survives_invalid_task_session_history(tmp_path):
+    async with running_manager(tmp_path) as (runtime, _, _):
+        await create_agent(runtime)
+        history = runtime.registry.path("monitor") / "sessions.jsonl"
+        history.write_text("invalid record\n")
+        async with aclosing(runtime.watch_agent("Remy")) as updates:
+            snapshot = await asyncio.wait_for(anext(updates), 2)
+
+        remy, monitor = snapshot["agents"]
+        assert remy["agent_name"] == "Remy" and remy["status"] == "idle"
+        assert monitor["status"] == "error" and monitor["session_id"] is None
+        assert history.read_text() == "invalid record\n"

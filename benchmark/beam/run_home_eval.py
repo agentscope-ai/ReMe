@@ -25,7 +25,7 @@ from reme_home.preparation.data.models import fingerprint  # noqa: E402
 from reme_home.preparation.evaluation_source import EvaluationSource  # noqa: E402
 from reme_home.preparation.spec import BenchmarkSpec, DebugSpec, SpecModel  # noqa: E402
 
-from reme.application import Application  # noqa: E402
+from reme import Application  # noqa: E402
 from reme.utils.env_utils import load_env  # noqa: E402
 
 # pylint: enable=wrong-import-position

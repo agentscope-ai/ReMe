@@ -2,10 +2,10 @@
 
 from abc import abstractmethod
 
-from ..base_component import BaseComponent
+from ..base import BaseComponent
 from ...enumeration import ComponentEnum, LinkScopeEnum
 from ...schema import FileLink, FileNode
-from ...utils import canonical_index_path
+from ...utils.files.paths import canonical_index_path
 
 
 class BaseFileGraph(BaseComponent):

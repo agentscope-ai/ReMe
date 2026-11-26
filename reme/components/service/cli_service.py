@@ -6,16 +6,17 @@ import sys
 from typing import TYPE_CHECKING, Any
 
 from .base_service import BaseService
-from ..component_registry import R
+from ...core.registry import R
 from ..job import BaseJob
 from ...config import resolve_app_config
 from ...schema import ApplicationConfig
-from ...utils import get_logger
+from ...utils.logger_utils import get_logger
 
 if TYPE_CHECKING:
-    from ...application import Application
+    from ...core.application import Application
 
 _APP_CONFIG_KEYS = set(ApplicationConfig.model_fields)
+SERVICE_CONFIG_SECTIONS = frozenset({"service", "plugins"})
 
 
 def prepare_start_config(kwargs: dict) -> dict:
@@ -23,6 +24,21 @@ def prepare_start_config(kwargs: dict) -> dict:
     if "job" not in kwargs:
         return resolve_app_config(**kwargs)
     return _prepare_job_start_config(dict(kwargs))
+
+
+def prepare_start_service(arguments: dict, *, get_config_dir=None) -> dict:
+    """Resolve the listener without loading business settings or provider credentials."""
+    if "job" in arguments:
+        return {"backend": "cli"}
+    from ...plugin import resolve_plugin_runtime
+
+    config = resolve_app_config(
+        log_config=False,
+        _get_config_dir=get_config_dir,
+        _sections=SERVICE_CONFIG_SECTIONS,
+        **arguments,
+    )
+    return resolve_plugin_runtime(config).config.get("service") or {}
 
 
 def should_precheck_start(config: dict) -> bool:

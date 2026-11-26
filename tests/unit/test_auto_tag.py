@@ -11,7 +11,7 @@ import pytest
 
 from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.file_store import LocalFileStore
-from reme.components.runtime_context import RuntimeContext
+from reme.core.context import RuntimeContext
 from reme.components.tag_index import LocalTagIndex
 from reme.schema import Response
 from reme.steps.evolve.auto_tag import AutoTagStep

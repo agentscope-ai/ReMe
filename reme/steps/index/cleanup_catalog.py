@@ -1,7 +1,7 @@
 """Explicit retention cleanup for dated resource directories."""
 
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 
 
 @R.register("cleanup_catalog_step")

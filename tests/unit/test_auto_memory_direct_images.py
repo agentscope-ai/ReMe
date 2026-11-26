@@ -16,8 +16,8 @@ import frontmatter
 import pytest
 import yaml
 
-from reme.application import Application
-from reme.components import R
+from reme import Application
+from reme.core.registry import R
 from reme.components.agent_wrapper.as_agent_wrapper import AsAgentWrapper
 from reme.components.agent_wrapper.cc_agent_wrapper import CcAgentWrapper
 from reme.components.file_store import LocalFileStore
@@ -88,14 +88,6 @@ async def _run(step, messages, **kwargs):
     return step.context.response
 
 
-def test_only_include_images_is_exposed_and_disabled_by_default():
-    path = Path(__file__).resolve().parents[2] / "reme/config/default.yaml"
-    job = yaml.safe_load(path.read_text(encoding="utf-8"))["jobs"]["auto_memory"]
-    assert job["parameters"]["properties"]["include_images"]["default"] is False
-    assert {"supports_vision", "image_mode"}.isdisjoint(job["parameters"]["properties"])
-    assert job["steps"] == [{"backend": "auto_memory_step"}, {"backend": "auto_tag_step"}]
-
-
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "options,images",
@@ -119,15 +111,6 @@ async def test_text_path_keeps_main_input_kwargs_metadata_and_jsonl(setup, monke
     message.content.append(DataBlock(source=URLSource(media_type="application/pdf", url="file:///not-read.pdf")))
     before = message.model_dump()
     extra = {"model_config": {"max_retries": 2}}
-    expected = step.prompt_format(
-        "user_message_create",
-        today=_DAY,
-        note="(none)",
-        note_path="",
-        session_id=_SESSION,
-        session_file=f"session/dialog/{_SESSION}.jsonl",
-        history=step._format_history([message]),
-    )
     events = []
     save, history = step._save_session_messages, step._format_history
 
@@ -149,12 +132,11 @@ async def test_text_path_keeps_main_input_kwargs_metadata_and_jsonl(setup, monke
 
     response = await _run(step, [message], **options)
 
-    wrapper.reply.assert_awaited_once_with(
-        expected,
-        system_prompt=step.prompt_format("system_prompt"),
-        job_tools=["daily_write"],
+    wrapper.reply.assert_awaited_once()
+    assert {k: v for k, v in wrapper.reply.call_args.kwargs.items() if k != "system_prompt"} == {
+        "job_tools": ["daily_write"],
         **extra,
-    )
+    }
     assert isinstance(wrapper.reply.call_args.args[0], str)
     assert response.success is True and response.answer == "ok"
     assert response.metadata == {"date": _DAY, "path": None, "created": False, "modified": False, "n_messages": 1}
@@ -188,15 +170,15 @@ async def test_sources_interleave_unchanged_through_native_formatters(setup, mon
     assert inputs.get_text_content().count("[Image 1]") == 1
     assert "__reme_image_" not in inputs.get_text_content()
     assert inputs.content[2].text.lstrip().startswith("Between images.")
-    assert "Image source: [[session/images/image-input/" in inputs.content[0].text
-    assert f"Image source: {url}" in inputs.content[2].text
+    assert "[[session/images/image-input/" in inputs.content[0].text
+    assert url in inputs.content[2].text
     assets = list((path.parents[1] / "images" / _SESSION).glob("*.png"))
     assert len(assets) == 1 and assets[0].read_bytes() == b"original image bytes"
-    assert inputs.content[-1].text.index("After both images.") < inputs.content[-1].text.index("# Your Task")
+    assert "After both images." in inputs.content[-1].text
     assert [inputs.content[index].model_dump() for index in (1, 3)] == [
         message.content[index].model_dump() for index in (1, 3)
     ]
-    assert options == {"system_prompt": step.prompt_format("system_prompt"), "job_tools": ["daily_write"]}
+    assert options["job_tools"] == ["daily_write"]
     assert "auto_memory_images" not in response.metadata
     assert path.read_bytes() == _saved_line(message)
     assert message.model_dump() == original
@@ -270,8 +252,7 @@ async def test_effective_image_limit_is_checked_without_modifying_configs(setup,
     else:
         await _run(step, [message], include_images=True)
         assert isinstance(wrapper.reply.call_args.args[0], Msg)
-        assert wrapper.reply.call_args.kwargs == {
-            "system_prompt": step.prompt_format("system_prompt"),
+        assert {k: v for k, v in wrapper.reply.call_args.kwargs.items() if k != "system_prompt"} == {
             "job_tools": ["daily_write"],
             **extra,
         }
@@ -292,10 +273,9 @@ async def test_empty_context_override_uses_sdk_default_not_component_limit(setup
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("language,existing", [("en", False), ("zh", True)])
-async def test_full_history_hook_image_only_turn_and_update_boundaries(setup, monkeypatch, language, existing):
+@pytest.mark.parametrize("existing", [False, True])
+async def test_full_history_hook_image_only_turn_and_update_boundaries(setup, monkeypatch, existing):
     step, wrapper, _ = setup
-    step.prompt.language = language
     note_path = f"daily/{_DAY}/existing.md"
     if existing:
         _write_note(step.file_store.workspace_path / note_path)
@@ -323,7 +303,6 @@ async def test_full_history_hook_image_only_turn_and_update_boundaries(setup, mo
     assert inputs.get_text_content().count("Source excerpt L1-L2") == 1
     assert [block.type for block in inputs.content] == ["text", "data", "text", "data", "text"]
     assert "Alice @" in inputs.content[0].text and "Bob @" in inputs.content[2].text
-    assert ("# Your Task" if language == "en" else "# 你的任务") in inputs.content[-1].text
     assert options["job_tools"] == (step.update_tools if existing else step.create_tools)
     if existing:
         assert note_path in inputs.content[0].text

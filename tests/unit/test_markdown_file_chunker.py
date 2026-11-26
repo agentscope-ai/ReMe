@@ -17,7 +17,7 @@ from unittest.mock import patch
 import pytest
 
 from reme.components.file_chunker import DefaultFileChunker, MarkdownFileChunker
-from reme.utils.file_utils import FileChangedDuringChunkingError
+from reme.utils.files.file_version import FileChangedError
 
 
 def _write_md(tmpdir: str, name: str, body: str) -> str:
@@ -46,7 +46,7 @@ async def test_chunk_keeps_pre_read_mtime_when_source_changes(tmp_path, monkeypa
         return ""
 
     monkeypatch.setattr(chunker, "_read_text_for_indexing", read_then_finish_write)
-    with pytest.raises(FileChangedDuringChunkingError):
+    with pytest.raises(FileChangedError):
         await chunker.chunk("changing.md")
 
     monkeypatch.setattr(chunker, "_read_text_for_indexing", original_read)

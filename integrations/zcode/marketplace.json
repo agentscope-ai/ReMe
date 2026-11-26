@@ -1,0 +1,19 @@
+{
+  "name": "reme-marketplace",
+  "plugins": [
+    {
+      "name": "reme",
+      "source": "./reme",
+      "version": "0.1.1",
+      "description": "Automatic recall, completed-turn recording, MCP memory tools, and the reme-memory skill for ZCode.",
+      "displayName": "ReMe Memory",
+      "displayName_i18n": {
+        "zh-CN": "ReMe 记忆"
+      },
+      "description_i18n": {
+        "zh-CN": "为 ZCode 提供自动召回、完成轮次记录、MCP 记忆工具和 reme-memory Skill。"
+      },
+      "category": "productivity"
+    }
+  ]
+}

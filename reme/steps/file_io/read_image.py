@@ -7,7 +7,7 @@ import aiofiles.os
 
 from ._base import _FileIOStep
 from ._path import NON_IMAGE_WARNING, gate_image, resolve_path
-from ...components import R
+from ...core.registry import R
 from ...constants import DEFAULT_MAX_IMAGE_BYTES
 
 

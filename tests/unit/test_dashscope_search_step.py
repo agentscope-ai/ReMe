@@ -7,7 +7,7 @@ import pytest
 from dashscope import AioMultiModalConversation
 from dashscope.api_entities.dashscope_response import DashScopeAPIResponse, MultiModalConversationResponse
 
-from reme.application import Application
+from reme import Application
 from reme.components.job import BaseJob
 from reme.config.config_parser import _load_config
 from reme.steps.common.dashscope_search import DashScopeSearchStep

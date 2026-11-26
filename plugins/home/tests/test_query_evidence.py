@@ -35,7 +35,7 @@ def query_evidence(evidence):  # noqa: F811
             {
                 "query_id": "q1",
                 "question": "What is the fact?",
-                "golden_answer": "old fact",
+                "groundtruth": {"golden_answer": "old fact", "rubric": []},
                 "metadata": {"evidence_session_ids": ["session1", "session1"], "evidence_is_certain": False},
             },
         ],
@@ -240,7 +240,7 @@ def test_rubric_judgments_and_independent_source_pointers(query_evidence, count)
     home, run, _repo, _first, _second, source, case = query_evidence
     case["queries"].insert(0, {"query_id": "other"})
     case["sessions"].insert(0, {"session_id": "other-session"})
-    case["queries"][1]["metadata"]["rubric"] = ["required" + str(i) for i in range(25 if count == 25 else 2)]
+    case["queries"][1]["groundtruth"]["rubric"] = ["required" + str(i) for i in range(25 if count == 25 else 2)]
     write_json(source, case)
     result_path = run / "cases/case1/queries/result.json"
     judged = [{"score": 0.5, "reason": "r" * 1000} for _ in range(count)]
@@ -261,7 +261,7 @@ def test_rubric_judgments_and_independent_source_pointers(query_evidence, count)
     assert result["locations"] == {
         "source_query": "/queries/1",
         "saved_query": "/queries/0",
-        "rubric": "/queries/1/metadata/rubric",
+        "rubric": "/queries/1/groundtruth/rubric",
     }
     assert result["sessions"][0]["source_pointer"] == "/sessions/1"
     if count == 1:
@@ -278,14 +278,12 @@ def test_rubric_judgments_and_independent_source_pointers(query_evidence, count)
             assert result["omitted_criterion_count"] == 5
 
 
-def test_beam_rubric_fallback_uses_explicit_dataset_contract(query_evidence):
+def test_rubric_without_reference_answer_is_shown_as_expected_evidence(query_evidence):
     home, run, _repo, _first, _second, source, case = query_evidence
-    case["queries"][0]["golden_answer"] = ["required fact"]
+    case["queries"][0]["groundtruth"] = {"golden_answer": None, "rubric": ["required fact"]}
     write_json(source, case)
-    manifest = json.loads((run / "manifest.json").read_text())
-    manifest["dataset"] = "beam"
-    write_json(run / "manifest.json", manifest)
     result = trace(home, run)
     assert result["query"]["expected_kind"] == "rubric"
-    assert result["locations"]["rubric"] == "/queries/0/golden_answer"
+    assert result["query"]["expected"] == ["required fact"]
+    assert result["locations"]["rubric"] == "/queries/0/groundtruth/rubric"
     assert "criteria" not in result  # A rubric is not a saved judgment.

@@ -14,6 +14,10 @@ class ComponentEnum(str, Enum):
 
     AS_EMBEDDING = "as_embedding"
 
+    ASR = "asr"
+
+    TTS = "tts"
+
     EMBEDDING_STORE = "embedding_store"
 
     FILE_CHUNKER = "file_chunker"
@@ -23,6 +27,10 @@ class ComponentEnum(str, Enum):
     FILE_GRAPH = "file_graph"
 
     FILE_CATALOG = "file_catalog"
+
+    AGENT_INBOX = "agent_inbox"
+
+    PROACTIVE_MANAGER = "proactive_manager"
 
     KEYWORD_INDEX = "keyword_index"
 
@@ -41,6 +49,7 @@ class ComponentEnum(str, Enum):
     AGENT_WRAPPER = "agent_wrapper"
 
     CODEX_APP_SERVER = "codex_app_server"
+    ANTHROPIC_RELAY = "anthropic_relay"
 
     MAIL = "mail"
 

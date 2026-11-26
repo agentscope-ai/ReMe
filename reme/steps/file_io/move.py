@@ -27,15 +27,26 @@ component (same rule as ``file_upload``). For cross-realm transfer
 Opt out via ``retarget=False`` for the rare case where you intentionally
 want to leave references stale (e.g. moving aside before delete) — the
 original is still removed in that case (move semantics, not copy).
+
+Permission: honors the request-scoped ``_allowed_paths`` constraint
+injected by the server into the RuntimeContext; both the source (which is
+unlinked) and the destination (which is written) must be inside the scope.
+Automatic inbound-link retargeting counts as a write too: with a scope
+injected, a dry run rejects the move up front when retargeting would
+rewrite a referencing file outside it, and the same constraint is passed
+into the real rewrite pass so every file retargeting is about to modify is
+re-checked at write time — a referencing file that gains a matching link
+between the two passes (concurrent save, lagging graph backend) cannot
+bypass the scope.
 """
 
 import shutil
 from pathlib import Path
 
-from ._path import resolve_path
+from ._path import check_path_permission, resolve_path
 from ..base_step import BaseStep
-from ...components import R
-from ...utils.wikilink_handler import WikilinkHandler
+from ...core.registry import R
+from ...utils.documents.wikilink_handler import WikilinkHandler
 
 
 @R.register("move_step")
@@ -78,6 +89,24 @@ class MoveStep(BaseStep):
         if precheck_error:
             return precheck_error
         assert src_abs is not None and dst_abs is not None  # narrowed by precheck
+        allowed_paths = self.context.get("_allowed_paths")
+        if not check_path_permission(workspace_dir, src_abs, allowed_paths):
+            return {"src_path": src_path, "dst_path": dst_path, "error": "no permission to move this file"}
+        if not check_path_permission(workspace_dir, dst_abs, allowed_paths):
+            return {"src_path": src_path, "dst_path": dst_path, "error": "no permission to move this file"}
+        retarget_guard = None
+        if retarget and allowed_paths is not None:
+            retarget_guard = _retarget_write_guard(workspace_dir, allowed_paths)
+            retarget_precheck_error = await _precheck_retarget_permission(
+                self.file_store,
+                src_path=src_path,
+                dst_path=dst_path,
+                write_guard=retarget_guard,
+            )
+            if retarget_precheck_error:
+                retarget_precheck_error.setdefault("src_path", src_path)
+                retarget_precheck_error.setdefault("dst_path", dst_path)
+                return retarget_precheck_error
         dst_abs.parent.mkdir(parents=True, exist_ok=True)
 
         # Step 1 — copy. Wikilinks use workspace-relative paths, so outgoing
@@ -91,7 +120,12 @@ class MoveStep(BaseStep):
         # unlinking so the caller can retry; workspace_dir is still consistent.
         if retarget:
             try:
-                report = await WikilinkHandler.retarget_links(self.file_store, src=src_path, dst=dst_path)
+                report = await WikilinkHandler.retarget_links(
+                    self.file_store,
+                    src=src_path,
+                    dst=dst_path,
+                    write_guard=retarget_guard,
+                )
             except Exception as exc:
                 error = f"retarget raised: {exc!r}"
                 payload["error"] = error
@@ -145,4 +179,74 @@ def _precheck_move(
         return {"src_path": src_path, "dst_path": dst_path, "error": "src_path and dst_path are the same"}
     if dst_abs.exists() and not overwrite:
         return {"dst_path": dst_path, "error": "destination exists; pass overwrite=True"}
+    return None
+
+
+def _retarget_write_guard(workspace_dir: Path, allowed_paths):
+    """Build the per-target permission gate for automatic link retargeting.
+
+    The gate maps a workspace-relative referencing file to ``None`` (allowed)
+    or a denial reason, using the same ``resolve_path`` +
+    ``check_path_permission`` helpers as the endpoint checks
+    (component-bounded containment, fail-closed on invalid scopes). It is
+    passed to ``retarget_links`` for both the dry-run precheck and the real
+    rewrite pass, so the constraint is re-evaluated on the files the rewrite
+    actually touches — not just on the snapshot the precheck saw.
+
+    The gate authorizes the same literal file identity the writer uses:
+    ``retarget_links`` reads and writes ``workspace_dir / rel`` verbatim,
+    while ``resolve_path`` strips surrounding whitespace before resolving.
+    Authorizing the trimmed form would vet a different file than the one
+    modified — a graph-registered ``" allowed/ref.md"`` (sibling directory
+    named with a leading space, distinct from ``allowed/``) would pass as
+    the trimmed, in-scope ``allowed/ref.md``. Paths whose identity would
+    change under trimming are therefore denied outright (fail closed), so
+    the vetted path and the written path always coincide.
+    """
+
+    def guard(rel: str) -> str | None:
+        if rel != rel.strip():
+            return f"no permission to retarget links in {rel!r}: path identity would change under trimming"
+        resolved, err = resolve_path(workspace_dir, rel)
+        if err or resolved is None or not check_path_permission(workspace_dir, resolved, allowed_paths):
+            return f"no permission to retarget links in {rel}"
+        return None
+
+    return guard
+
+
+async def _precheck_retarget_permission(
+    file_store,
+    src_path: str,
+    dst_path: str,
+    write_guard,
+) -> dict | None:
+    """Reject the move when automatic retargeting would rewrite a file outside the scope.
+
+    ``retarget_links`` rewrites inbound ``[[src_path]]`` references wherever the
+    file_graph finds them — including files outside ``_allowed_paths`` — so the
+    endpoints alone don't cover every write this step performs. A dry run with
+    the write guard attached enumerates exactly the files retargeting would
+    modify (candidates the graph reports AND that still contain a matching
+    link) and vets each one; any violation fails the move before the copy, the
+    rewrites, or the unlink happen. Only runs when a scope is injected; without
+    ``_allowed_paths`` retargeting stays unrestricted. The same guard then runs
+    again in the real rewrite pass, because files are re-read at rewrite time
+    and may have changed since the dry run.
+    """
+    try:
+        report = await WikilinkHandler.retarget_links(
+            file_store,
+            src=src_path,
+            dst=dst_path,
+            dry_run=True,
+            write_guard=write_guard,
+        )
+    except Exception as exc:
+        return {"error": f"retarget precheck raised: {exc!r}"}
+    if "error" in report:
+        return {
+            "error": f"retarget precheck failed: {report['error']}",
+            "retarget_blocked_path": report.get("retarget_blocked_path"),
+        }
     return None

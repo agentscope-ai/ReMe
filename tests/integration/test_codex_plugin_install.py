@@ -7,6 +7,7 @@ The selected runtime must support the hooks/list app-server API.
 # pylint: disable=missing-function-docstring
 
 import json
+import importlib.util
 import os
 import queue
 import subprocess
@@ -19,19 +20,37 @@ MARKETPLACE = Path(__file__).resolve().parents[2] / "integrations/codex"
 EVENTS = {"sessionStart", "sessionEnd", "userPromptSubmit", "stop", "subagentStop"}
 
 
-def test_installed_plugin_exposes_all_hooks_before_trust(tmp_path):
+@pytest.mark.parametrize("transport", ["http", "stdio"])
+def test_installed_plugin_exposes_all_hooks_before_trust(tmp_path, monkeypatch, transport):
     binary = os.environ.get("REME_CODEX_BIN")
     if not binary:
         pytest.skip("Set REME_CODEX_BIN to run the native Codex installation check")
     home = tmp_path / "codex-home"
     home.mkdir()
+    monkeypatch.setenv("CODEX_HOME", str(home))
+    spec = importlib.util.spec_from_file_location("reme_configure_mcp", MARKETPLACE.parent / "configure_mcp.py")
+    setup = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(setup)
+    marketplace = setup.configure("codex", "stdio" if transport == "http" else "http")
     env = {**os.environ, "CODEX_HOME": str(home)}
     for args in (
-        ["plugin", "marketplace", "add", str(MARKETPLACE)],
+        ["plugin", "marketplace", "add", str(marketplace)],
         ["plugin", "add", "reme@reme-codex"],
     ):
         result = subprocess.run([binary, *args], env=env, capture_output=True, text=True, check=False, timeout=60)
         assert result.returncode == 0, result.stderr
+
+    # Reusing the same marketplace/version must replace the cached connection on reinstall.
+    setup.configure("codex", transport)
+    for args in (["plugin", "remove", "reme@reme-codex"], ["plugin", "add", "reme@reme-codex"]):
+        result = subprocess.run([binary, *args], env=env, capture_output=True, text=True, check=False, timeout=60)
+        assert result.returncode == 0, result.stderr
+    cached = list((home / "plugins/cache").rglob(".mcp.json"))
+    assert cached
+    for path in cached:
+        connection = json.loads(path.read_text())["mcpServers"]["reme"]
+        assert ("url" in connection) is (transport == "http")
+        assert ("command" in connection) is (transport == "stdio")
 
     with (
         (tmp_path / "app-server.log").open("w", encoding="utf-8") as stderr,
@@ -77,7 +96,7 @@ def test_installed_plugin_exposes_all_hooks_before_trust(tmp_path):
             details = request(
                 1,
                 "plugin/read",
-                {"marketplacePath": str(MARKETPLACE / ".agents/plugins/marketplace.json"), "pluginName": "reme"},
+                {"marketplacePath": str(marketplace / ".agents/plugins/marketplace.json"), "pluginName": "reme"},
             )["plugin"]
             assert details["summary"]["installed"] and details["summary"]["enabled"]
             assert details["mcpServers"] == ["reme"]

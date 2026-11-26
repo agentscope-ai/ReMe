@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 
-from reme.components.runtime_context import RuntimeContext
+from reme.core.context import RuntimeContext
 from reme.enumeration import ChunkEnum
 
 # -- dict-like access ---------------------------------------------------------

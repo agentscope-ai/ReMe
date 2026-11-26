@@ -13,16 +13,17 @@ from contextlib import suppress
 import numpy as np
 
 from .base_file_store import BaseFileStore
-from ..component_registry import R
+from ...core.registry import R
 from ..embedding_store import BaseEmbeddingStore
 from ..file_graph import BaseFileGraph
 from ..keyword_index import BaseKeywordIndex
 from ..tag_index import BaseTagIndex
 from ...enumeration import LinkScopeEnum
 from ...schema import FileChunk, FileLink, FileNode
-from ...utils import batch_cosine_similarity, canonical_index_path
+from ...utils.similarity_utils import batch_cosine_similarity
+from ...utils.files.paths import canonical_index_path
 from ...utils.async_utils import complete_in_thread
-from ...utils.jsonl_zst import read_jsonl_zst, write_jsonl_zst
+from ...utils.files.jsonl_zst import read_jsonl_zst, write_jsonl_zst
 
 CachedEmbedding = tuple[str, np.ndarray]
 _EMBEDDING_F16_B64_FIELD = "_embedding_f16_b64"
@@ -793,9 +794,28 @@ class LocalFileStore(BaseFileStore):
             tag_index.set_healthy(False)
 
     async def _reindex_tag(self) -> dict:
-        """Synchronously rebuild the optional tag index from the authoritative file graph."""
-        if not await self._rebuild_tag_index("explicit reindex"):
-            raise RuntimeError("tag index reindex failed")
+        """Rebuild the optional tag index without aborting the other indexes.
+
+        Incremental updates already degrade gracefully: ``_upsert_tag_nodes`` and
+        ``_delete_tag_paths`` swallow the failure, log it, and leave the tag index
+        marked unhealthy.  An explicit rebuild has to behave the same way, because
+        failing here fails the whole ``reindex(scope="all")`` call and discards the
+        keyword and embedding rebuilds that already completed.
+
+        The rebuild is wrapped rather than only inspected by return value: an
+        unavailable tag-index dependency raises from ``require_tag_index()``
+        before ``_rebuild_tag_index`` reaches its own ``try``, so a bare return
+        check would still let that exception escape.
+        """
+        try:
+            rebuilt = await self._rebuild_tag_index("explicit reindex")
+        except Exception:
+            self.logger.exception(
+                f"{self.name}: tag index rebuild raised during explicit reindex; keeping file store available",
+            )
+            rebuilt = False
+        if not rebuilt:
+            return {"indexed": 0, "scope": "tag", "failed": True}
         return {"indexed": self._tag_indexed_file_count, "scope": "tag"}
 
     async def _upsert_tag_nodes(self, nodes: list[FileNode]) -> None:

@@ -39,7 +39,7 @@ The project requires Python 3.11 or later. A virtual environment is recommended:
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -e reme_studio -e ".[dev,full]"
+pip install -e reme_studio/web/python -e ".[dev,full]"
 cd reme_studio
 npm ci
 npm run build:static
@@ -91,7 +91,7 @@ Choose the appropriate entry point for the type of change:
 
 | Change type                       | Primary location                                      | Guidance                                                                                                                                |
 |-----------------------------------|-------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------|
-| Configuration or startup behavior | `reme/config/`, `reme/application.py`, `reme/reme.py` | Keep the default configuration runnable and avoid breaking existing CLI, HTTP, and MCP entry points.                                    |
+| Configuration or startup behavior | `reme/config/`, `reme/core/application.py`, `reme/reme.py` | Keep the default configuration runnable and avoid breaking existing CLI, HTTP, and MCP entry points.                                    |
 | Component capability              | `reme/components/`                                    | Reuse `BaseComponent`, the registry, and context objects.                                                                               |
 | Job or Step                       | `reme/components/job/`, `reme/steps/`                 | Follow the Job -> Step model in [ReMe Framework](./framework.md), keep request and response schemas clear, and add corresponding tests. |
 | Data structure                    | `reme/schema/`, `reme/enumeration/`                   | Preserve serialization compatibility and existing frontmatter and wikilink semantics.                                                   |

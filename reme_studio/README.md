@@ -1,460 +1,71 @@
 # ReMe Studio
 
-English | [简体中文](https://github.com/agentscope-ai/ReMe/blob/main/reme_studio/README_ZH.md)
+[中文](README_ZH.md)
 
-ReMe Studio is the local web workspace for [ReMe](https://github.com/agentscope-ai/ReMe). It provides one place to
-browse and edit user-owned memory files, inspect the relationships between them, talk to the ReMe Agent, and understand
-the health of the local service.
+ReMe Studio shares one workbench across the web, desktop, Android and iOS, with Remy, Proactive AI, Notebook, and Knowledge.
+Use Proactive AI to manage background tasks and Notebook to capture todos and ideas.
+Desktop adds the Remy companion, tray, and native notifications. ReMe owns the sessions, task state, and workspace files.
 
-Studio follows ReMe's local-first model: Markdown and other workspace files remain the durable source of truth. Search
-indexes, catalogs, graphs, caches, and runtime metadata stay derived and rebuildable.
+## Run
 
-![ReMe Studio overview](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/studio-overview.png)
-
-> All screenshots in this README were captured from a real local ReMe service with the Studio UI set to English. The
-> isolated `Project Aurora` workspace is fictional and contains no user data, credentials, or private endpoints.
-
-## Try in your browser
-
-Open [Try Studio](https://reme.agentscope.io/studio/?lang=en) without installing or starting a backend. It reuses the
-local Studio UI with 21 connected, fictional Aurora documents: resources, daily notes, durable knowledge, personal
-preferences, and procedures.
-
-Edit, save, and download files, explore wikilink graphs, and filter across directories with keywords and `memory_tags`.
-Tag file counts and graphs are derived from current example files and update after saves. Multiple selected tags match
-any selected tag. Changes and drafts stay in this browser, separately for each language. Reset demo restores the
-starting content; clearing site data also removes changes, so download anything you want to keep.
-
-Agent conversations are labeled scripts. Tool blocks read the current example files; answers do not regenerate after
-edits. The demo runs no model, vector retrieval, automatic memory extraction, or background tasks and does not connect
-to a local ReMe service. Follow the installation instructions below to use your real workspace.
-
-## What Studio provides
-
-| Area            | Capabilities                                                                                                                      |
-| --------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| Workspace       | Browse the complete workspace, focused daily notes, or durable knowledge; refresh automatically as files change                   |
-| Markdown        | Preview front matter and GitHub Flavored Markdown, edit with Monaco, save safely, download, and keep multiple tabs open           |
-| Memory graph    | Explore indexed wikilinks by knowledge category, follow link direction, zoom, fit, and open source notes                          |
-| Agent chat      | Stream answers, reasoning, tool activity, approvals, data blocks, and usage; reference workspace files by dragging them into chat |
-| Service center  | Inspect process and component health, rebuild derived indexes, review the redacted effective configuration, and verify versions   |
-| Personalization | Switch between English and Chinese and select light, dark, or system appearance                                                   |
-
-## How it fits together
-
-```text
-Your local workspace files
-          │
-          ▼
-   ReMe HTTP service
-    ├── file operations
-    ├── derived indexes
-    ├── wikilink graph
-    └── read-only Agent chat
-          │
-          ▼
-      ReMe Studio
-```
-
-Studio is a client of the ReMe HTTP service. It does not replace the workspace with a separate document database and it
-does not make browser-local state the durable source of truth. Tabs and interface preferences are conveniences; the
-files in the configured ReMe workspace remain authoritative.
-
-## Requirements
-
-- Python 3.11 or newer with ReMe installed.
-- A running ReMe HTTP service.
-- A working Agent and model configuration only if Agent chat is used.
-- Node.js 22.13 or newer only when developing or building Studio from source.
-
-See the [ReMe repository README](https://github.com/agentscope-ai/ReMe#readme) for backend installation, workspace, and
-model configuration.
-
-## Install
-
-Install Studio together with ReMe's optional integrations:
-
-```bash
-pip install "reme-ai[core]"
-```
-
-Install only the web extra when the other optional integrations are unnecessary:
-
-```bash
-pip install "reme-ai[web]"
-```
-
-The base `reme-ai` package is headless and does not include the frontend assets.
-
-Node.js applications can install the same prebuilt static workspace:
-
-```bash
-npm install @agentscope-ai/reme_studio
-```
-
-The static entry point is installed at `@agentscope-ai/reme_studio/dist-static/index.html`.
-
-## Start Studio
-
-Start the ReMe HTTP service:
-
-```bash
-reme start
-```
-
-Then open <http://127.0.0.1:2333>. The default HTTP service serves both the API and the packaged Studio frontend.
-
-To use a different workspace or port, pass normal ReMe configuration overrides:
-
-```bash
-reme start workspace_dir=/absolute/path/to/workspace service.port=8000
-```
-
-Studio displays the connected endpoint at the bottom of the navigator. A green indicator means the browser can reach
-the service. If Studio is hosted separately, configure its API URL as described in
-[Frontend configuration](#frontend-configuration).
-
-## Interface tour
-
-### 1. Workspace navigator
-
-The left navigator exposes four primary entry points:
-
-- **Files** shows supported files across the entire ReMe workspace.
-- **Daily** focuses on files under the configured daily-memory directory.
-- **Knowledge** focuses on the `wiki`, `personal`, and `procedure` directories under durable digest memory.
-- **Chat** opens a fresh Agent conversation without closing files or graphs that are already open.
-
-Directories can be expanded independently. The navigator hides dotfiles and dot-directories, orders the newest files
-first, applies a bounded result limit, and refreshes when files change on disk. The divider can be dragged to resize the
-navigator, and the menu control in the top bar can collapse it.
-
-![Workspace navigator and Markdown preview](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/files-workspace.png)
-
-The tab strip keeps files, graphs, and conversations together. Closing a tab does not delete its file. When an edited
-file has unsaved changes, Studio protects it from an accidental close and also supports closing the current tab or the
-other tabs from the tab context menu.
-
-### 2. Daily notes
-
-The Daily view gathers both day-index pages and dated note directories without changing their on-disk paths. It is a
-focused view of the same local workspace, so a note opened here can also appear in Files and remains available to ReMe's
-indexing and Agent workflows.
-
-![Daily notes](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/daily-notes.png)
-
-Use Daily to review chronological memory, open generated resource notes, and move between recent work without browsing
-the rest of the workspace tree.
-
-### 3. Markdown preview
-
-Preview mode renders:
-
-- YAML front matter in a dedicated summary block.
-- Headings, lists, links, code, tables, task lists, and other GitHub Flavored Markdown.
-- The original workspace-relative path above the document.
-
-The download control saves a local copy through the browser. Preview mode never modifies the source file.
-
-![Markdown preview](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/files-workspace.png)
-
-### 4. Markdown editing and safe saves
-
-Edit mode uses Monaco with Markdown syntax highlighting, line numbers, keyboard navigation, and a full-height editing
-surface. Switch between **Preview** and **Edit** at any time.
-
-![Markdown editor](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/markdown-editor.png)
-
-Studio records the file modification time when it loads a document and sends that value back on save. If another
-process changed the file in the meantime, the ReMe service rejects the stale write instead of silently overwriting the
-newer content. After a successful save, Studio refreshes the file state and clears the unsaved marker.
-
-### 5. Knowledge and memory graphs
-
-Knowledge groups durable memory into three conventional roots:
-
-- `wiki` for entities, projects, topics, and stable knowledge.
-- `personal` for user-specific preferences and long-lived context.
-- `procedure` for repeatable workflows and operating knowledge.
-
-Each category has a **Graph** action. The graph is generated from ReMe's indexed wikilinks and preserves their original
-source-to-target direction.
-
-![Memory graph](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/memory-graph.png)
-
-The graph view provides:
-
-- Indexed-file nodes, category roots, and directed wikilink edges.
-- Node and link counts for the selected category.
-- Zoom in, zoom out, and fit-to-view controls.
-- A legend for file nodes and link direction.
-- Direct opening of the corresponding Markdown source when a file node is selected.
-
-The graph is derived state. If it is empty, first allow ReMe to ingest the relevant files; rebuilding search indexes in
-Settings does not rescan files or reconstruct the wikilink graph.
-
-### 6. Agent chat
-
-Chat opens in the same tab workspace, so files and graphs can remain available while a conversation is in progress.
-
-![Agent chat](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/agent-chat.png)
-
-The conversation surface supports:
-
-- Token-by-token streaming from the ReMe Agent.
-- Separate rendering for answer text, reasoning, tool calls, structured data, approvals, and usage information.
-- Collapsible completed reasoning and tool blocks to keep long conversations readable.
-- Independent Chat tabs and one application-owned Proactive Chat view, sharing the same conversation component.
-- Starter prompts for common memory questions.
-- Dragging a workspace file into the composer to insert a path reference.
-- `Enter` to send and `Shift+Enter` for a new line.
-
-The two entries follow the service's exposed Jobs. The default configuration enables **Chat**, which sends `query` and
-an optional `session_id` to `chat`. Each tab owns its session; **New chat** opens an independent conversation without
-calling the PA APIs. Start `reme start config=proactive` to enable **Proactive Chat** instead. Unavailable entries show
-configuration guidance. Custom configurations can expose both modes.
-
-Proactive Chat has one current conversation shared by clients of the same Application. Its requests use `pa_chat(query)`;
-`pa_session()` returns a dictionary containing `session_id` and `status`, and `pa_new_session()` creates and selects an
-empty session and returns its ID without generating a reply. **New chat** changes the conversation while preserving
-workspace memory. Chat and session creation reject concurrent operations; status remains readable during generation.
-The current selection is held in ApplicationContext and resets when the service restarts. Browser history is a display
-cache and never selects the backend session. Proactive Chat currently requires `CodexAgentWrapper`; other wrappers
-raise `NotImplementedError`. The proactive configuration exposes only the `pa_*` conversation Jobs.
-
-New PA sessions load workspace `personal/REME_MEMORY.md`. Missing or empty files prompt the agent to learn about the
-user in its first reply and create concise personal memory; the agent is instructed to maintain it as information
-changes, remove explicitly forgotten or confirmed obsolete information, and avoid restoring deleted content from old
-context. PA prompts use `PromptHandler` and the bilingual `reme/steps/proactive/pa.yaml` templates; the proactive
-configuration defaults to `language=zh`, with `language=en` selecting English. Each session reuses its initial prompt,
-and new sessions reload the file. Session creation does not generate a reply or write memory.
-
-The built-in chat job is read-only with respect to the workspace. It can search and read context but should not be used
-as a substitute for explicitly saving durable knowledge. Chat requires a valid Agent/model configuration; file browsing,
-editing, graphs, and service inspection do not.
-
-With `config=proactive`, Studio uses a Codex agent with full tool access and supports proactive messages. It synchronizes history when opening a
-conversation, after streaming, on focus, and every five seconds while the conversation is visible. Hidden pages and
-locally streaming conversations stop history polling. Proactive messages have a distinct background and a “Proactive reminder” label.
-
-Start the service in one terminal:
+Install `reme-ai[core]`, configure the model in the backend environment, and start ReMe in one terminal:
 
 ```bash
 reme start config=proactive
 ```
 
-From another terminal, inspect or rotate the current session, then use its ID for history and proactive messages:
+Open <http://127.0.0.1:2333/> for Studio. Desktop, Android, and iOS use that address by default.
+To use a different service, open **Settings → General**, enter the complete HTTP or HTTPS URL, and select **Connect**.
+The app remembers the address on restart.
+
+## Develop
+
+From the repository root with Node.js 22.13+:
 
 ```bash
-reme pa_session
-reme pa_new_session
-reme session_append session_id=SESSION_ID message_id=reminder-1 content="This information may be useful to you." wait_timeout=30
-reme session_read session_id=SESSION_ID
+npm ci --prefix reme_studio
+npm run dev --prefix reme_studio
+npm run dev:desktop --prefix reme_studio
 ```
 
-`session_append` waits for the current turn's lease and appends an assistant message without starting model generation.
-Retry with the same `message_id` and content; reusing an ID with different content fails. Provenance records live under
-`{session_dir}/proactive/` in the workspace, filling the injected-message gap in Codex's native display-history APIs.
-Writes and ordinary chat must use the same ReMe app-server; session locks are not shared across processes.
-Only persistent Codex sessions are supported; other wrappers explicitly raise `NotImplementedError` for these three APIs.
-Busy waits time out. Once injection starts, cancellation finishes publication before releasing the session lock.
-Recovering interrupted publication reads reserved message IDs from the Codex rollout without rewriting native files.
+The Web dev server proxies requests to ReMe at port 2333. Build with `npm run build:static --prefix reme_studio`
+to serve directly from ReMe. Run `npm test --prefix reme_studio` to run the shared and app-specific tests.
 
-### 7. Service status
+- `client/` owns the HTTP/SSE contract, session state, and request handling.
+- `workbench/` owns the shared React views and interactions.
+- `desktop/` owns the Electron app, IPC, desktop integration and Remy animation for Windows, macOS and Linux.
+- `web/` owns the browser entry point and static packaging.
+- `mobile/` owns the shared mobile entry point and native bridge. Build and run the native hosts using their
+  [Android](mobile/android/README.md) and [iOS](mobile/ios/README.md) guides.
 
-Open **Settings** from the top bar to inspect the backend that Studio is actually using.
+Run `npm run build:mobile --prefix reme_studio` for the Android web assets and add `-- --mode ios` for iOS.
 
-![Service status](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/settings-status.png)
+## Release
 
-Status reports:
+Run `python scripts/bump_version.py X.Y.Z` to update the shared version. Publishing a GitHub Release distributes
+the PyPI packages, the npm package, the desktop installers, and the Docker image from the same tag.
 
-- Whether the ReMe service is reachable and the endpoint in use.
-- The current ReMe backend version.
-- Process resident memory and total memory estimated for stateful components.
-- The number of healthy components.
-- Runtime facts for the file graph, file store, keyword index, and embedding store when configured, including nodes,
-  edges, chunks, documents, vocabulary, dimensions, cache size, and component memory where available.
+To publish selected outputs, run **Release / ReMe** from the release tag, for example
+`gh workflow run release-python.yml --ref vX.Y.Z`. Select PyPI, npm, desktop, or Docker. All four are selected by
+default. Desktop uploads Windows, macOS, and Linux installers to the matching release and creates one if needed.
+Mark that release as **Latest** in GitHub when it is
+ready for Desktop's update channel. Manual Docker runs publish the versioned tag. Android and iOS releases are disabled.
 
-Use **Refresh** to request a new snapshot after files are indexed or service configuration changes.
+PyPI and npm Trusted Publishing use `release-python.yml`. The GitHub `pypi` and `npm` environments must allow release
+tags such as `v*`.
 
-### 8. Index management
+Desktop preview releases are distributed through GitHub Releases without Apple or Windows release certificates.
+macOS builds use an ad-hoc signature without Apple notarization; Windows installers are unsigned. On first launch,
+the operating system may ask you to approve running the downloaded app.
 
-The Index page provides an explicit maintenance action for derived search state.
+In Desktop, **Check for updates** sits above Settings. Windows and Linux AppImage release builds check GitHub Releases,
+download the update on request, and replace the installed app when the user chooses **Restart to install**. Downloads
+are checked against the release metadata's SHA-512 checksum. macOS and local preview builds open the GitHub downloads
+page because the native macOS updater requires a release signing identity.
 
-![Index management](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/settings-index.png)
+On macOS, quit Desktop and replace `/Applications/ReMe Studio.app` with the new app from the DMG. On Windows,
+you can also run the new installer with the existing installation directory and user scope. These upgrades preserve
+Desktop settings and the ReMe workspace. Upgrade the ReMe service separately if needed.
 
-**Rebuild index** reconstructs the BM25, embedding, and tag indexes from chunks that ReMe has already ingested. Before
-running, Studio asks for confirmation. This action does not scan the workspace, rechunk files, edit source memory, or
-rebuild the wikilink graph. Those boundaries preserve ReMe's file-native source of truth.
-
-### 9. Effective configuration
-
-Configuration shows the fully resolved application configuration returned by the connected backend.
-
-![Effective configuration](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/settings-configuration.png)
-
-This is useful for confirming the active workspace, directory layout, service options, jobs, and component backends
-after file configuration and command-line overrides have been merged. Sensitive fields are redacted by ReMe before the
-configuration reaches the browser.
-
-### 10. Version and endpoint
-
-Version presents the ReMe backend version and service endpoint separately from the Studio version shown in the top-left
-brand lockup.
-
-![Version and endpoint](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/settings-version.png)
-
-This distinction helps when diagnosing a frontend/backend mismatch: the top bar identifies the installed Studio build,
-while Settings identifies the connected ReMe service.
-
-### 11. Language and appearance
-
-The top bar switches the entire interface between English and Chinese. Appearance supports **Light**, **Dark**, and
-**System**; System follows the operating-system color preference.
-
-![ReMe Studio dark appearance](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/appearance-dark.png)
-
-The selected language and appearance are remembered in the browser. Both themes use the same ReMe documentation-site
-brand palette and retain health, selection, focus, and graph contrast.
-
-## Frontend configuration
-
-Copy `.env.example` to `.env.local` when persistent local overrides are useful. The vinext/Sites build reads
-`NEXT_PUBLIC_*`; the FastAPI/static build reads the matching `VITE_*` names.
-
-| Setting                                 | Build        | Purpose                                                        |
-| --------------------------------------- | ------------ | -------------------------------------------------------------- |
-| `NEXT_PUBLIC_REME_API_URL`              | vinext/Sites | ReMe HTTP service URL; defaults to `http://127.0.0.1:2333`     |
-| `NEXT_PUBLIC_REME_WORKSPACE_EXTENSIONS` | vinext/Sites | Comma-separated file extensions shown in the workspace         |
-| `VITE_REME_API_URL`                     | static       | ReMe HTTP service URL; use `/` for same-origin FastAPI hosting |
-| `VITE_REME_WORKSPACE_EXTENSIONS`        | static       | Static-build counterpart of the workspace extension list       |
-
-Markdown and text files are visible by default. To include additional text formats:
-
-```bash
-NEXT_PUBLIC_REME_WORKSPACE_EXTENSIONS=md,txt,mdx
-VITE_REME_WORKSPACE_EXTENSIONS=md,txt,mdx
-```
-
-Only enable formats the browser can safely treat as text. ReMe still enforces workspace containment, allowed paths,
-encoding checks, size limits, and optimistic modification-time checks on its API boundary.
-
-## Develop from source
-
-Start ReMe from the repository root, then run the frontend in another terminal:
-
-```bash
-# Terminal 1, from the repository root
-reme start
-
-# Terminal 2
-cd reme_studio
-npm install
-npm run dev
-```
-
-Open <http://localhost:3000>. The development frontend connects to `http://127.0.0.1:2333` by default. Override it when
-needed:
-
-```bash
-NEXT_PUBLIC_REME_API_URL=http://127.0.0.1:8000 npm run dev
-```
-
-For development from another machine on a controlled network, bind both services explicitly and configure the browser
-to use the ReMe host's reachable address (replace `192.168.1.10` as appropriate):
-
-```bash
-# ReMe repository root, on the host running ReMe
-reme start service.host=0.0.0.0
-
-# reme_studio/, on the same host
-NEXT_PUBLIC_REME_API_URL=http://192.168.1.10:2333 npm run dev:remote
-```
-
-The ReMe service has no general-purpose authentication. Do not use the remote development command on an untrusted
-network or expose either endpoint directly to the public internet.
-
-## Build the ReMe-hosted static frontend
-
-ReMe can serve Studio from the same FastAPI process as its HTTP API. Build the static variant and restart ReMe:
-
-```bash
-cd reme_studio
-npm ci
-npm run build:static
-cd ..
-reme start
-```
-
-Open <http://127.0.0.1:2333>. The static build uses same-origin requests by default. For standalone static development:
-
-```bash
-VITE_REME_API_URL=http://127.0.0.1:2333 npm run dev:static
-```
-
-Use `dev:static:remote` with a reachable `VITE_REME_API_URL` for explicit remote static development.
-
-`npm run build` remains the vinext/Sites deployment build. `npm run build:static` creates `dist-static/` exclusively for
-FastAPI and Python/npm package distribution. Change frontend source rather than committing generated distribution files.
-
-## Troubleshooting
-
-### Studio says the service is unavailable
-
-- Confirm `reme start` is still running.
-- Check the endpoint displayed at the bottom of the navigator.
-- For a separately hosted frontend, set the correct `NEXT_PUBLIC_REME_API_URL` or `VITE_REME_API_URL` before starting or
-  building it.
-- Open Settings → Status and use Refresh after correcting the endpoint.
-
-### Files are missing from the navigator
-
-- Confirm ReMe was started with the intended `workspace_dir`.
-- Remember that dotfiles and dot-directories are intentionally hidden.
-- Check `*_REME_WORKSPACE_EXTENSIONS` when the file is not Markdown or plain text.
-- Use Files instead of the focused Daily or Knowledge view.
-
-### The graph is empty or incomplete
-
-- Confirm the notes are under `digest/wiki`, `digest/personal`, or `digest/procedure`.
-- Confirm the source files contain wikilinks and have been ingested by ReMe.
-- Do not expect Settings → Rebuild index to rescan files or rebuild the graph; it only rebuilds search indexes from
-  existing chunks.
-
-### A Markdown save is rejected
-
-The file changed after Studio loaded it. Preserve the newer on-disk version, reopen or refresh the file, reapply the
-intended edit, and save again. This conflict is deliberate protection against silent data loss.
-
-### Chat does not start
-
-File features can work while chat is unavailable. Verify the configured Agent wrapper, model, API key, and provider
-endpoint in the ReMe backend, then check Settings → Status. Do not place credentials in frontend environment variables.
-
-## Develop the browser demo
-
-```bash
-npm run dev:demo
-npm run build:demo
-```
-
-The demo builds to `dist-demo/` for static hosting. The GitHub Pages build includes it at `/studio/`. Example sources
-live in `demo/content/{zh,en}/`; `demo/api.ts` derives files, tags, and graphs from those Markdown documents. Service
-builds continue to use the HTTP API.
-
-## Validation
-
-Run proportionate checks from `reme_studio/`:
-
-```bash
-npm run format:check
-npm run lint
-npm run test:unit
-# Build and verify the Sites, static, and demo distributions:
-npm run test:build
-# Run both suites:
-npm test
-```
-
-The screenshots above also serve as a visual tour of the supported interface, but automated checks remain the source of
-truth for frontend behavior.
+Local `pack` and `dist` builds reuse `desktop/dist.noindex/` to keep generated apps out of Spotlight. Use
+`npm run dev:desktop` for routine previews; custom preview output directories should also end in `.noindex`.

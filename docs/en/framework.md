@@ -28,7 +28,7 @@ already occurred and persists the information with long-term value.
 flowchart LR
     CLI["reme CLI<br/>reme/reme.py"] --> Client["Client<br/>http / mcp"]
     Client --> Service["Service<br/>HTTP / MCP"]
-    Service --> App["Application<br/>reme/application.py"]
+    Service --> App["Application<br/>reme/core/application.py"]
     App --> Jobs["Jobs<br/>base / stream / background / cron"]
     Jobs --> Steps["Steps<br/>reme/steps/**"]
     Steps --> Ctx["RuntimeContext<br/>data + Response + stream queue"]
@@ -42,7 +42,7 @@ Core layers:
 |-------------|----------------------------|---------------------------------------------------------------------------------------------------|
 | CLI         | `reme/reme.py`             | Parse commands; `start` launches the service; other actions call the service through a client.    |
 | Service     | `reme/components/service/` | Register Jobs as HTTP endpoints or MCP tools.                                                     |
-| Application | `reme/application.py`      | Assemble configured objects, start them in dependency order, close them, and invoke Jobs.         |
+| Application | `reme/core/application.py`      | Assemble configured objects, start them in dependency order, close them, and invoke Jobs.         |
 | Job         | `reme/components/job/`     | Orchestrate Steps and select normal, streaming, background, or scheduled execution.               |
 | Step        | `reme/steps/`              | Atomic business operations such as file I/O, retrieval, indexing, and self-evolution.             |
 | Component   | `reme/components/`         | Reusable infrastructure such as file_store, file_graph, keyword_index, and agent_wrapper.         |
@@ -54,16 +54,17 @@ Core layers:
 ```text
 reme/
   reme.py                    # CLI entry point
-  application.py             # Application assembly and lifecycle
-  plugin.py                  # installed plugin contract and entry-point loader
+  core/
+    application.py           # Application assembly and lifecycle
+    context.py               # application state and per-Job execution context
+    registry.py              # backend registry and application-local copies
+  plugin/                    # installed plugin contract and entry-point loader
   config/
     default.yaml             # default service / jobs / components
     cookbook.yaml            # Auto Fin + Daily Paper + DingTalk composition
     config_parser.py         # config=, dot notation, and env placeholder parsing
   components/
-    component_registry.py    # backend registry and application-local copies
-    base_component.py        # ComponentMixin / BaseComponent / bind dependency declarations
-    runtime_context.py       # context for one Job execution
+    base.py                  # ComponentMixin / BaseComponent / bind dependency declarations
     job/                     # BaseJob / StreamJob / BackgroundJob / CronJob
     service/                 # HTTP / MCP services
     client/                  # HTTP / MCP clients
@@ -75,7 +76,10 @@ reme/
     as_llm/, as_embedding/   # model wrappers
     as_decision_model/       # optional decision model adapters
     agent_wrapper/           # AgentScope / Claude Code / Codex wrappers
-    codex_app_server.py      # shared Codex process and conversation locks
+    codex_app_server/        # BaseCodexAppServer / SDK backend / shared session ownership
+    agent_inbox/             # BaseAgentInbox / local storage and Agent event inputs
+    proactive_manager/           # Workspace discovery, event routing and Remy
+    proactive_runtime/           # Per-runtime inbox, scheduling and execution
   steps/
     base_step.py             # BaseStep, Ref, dispatch_steps
     common/                  # version, help, health_check, status, chat
@@ -119,7 +123,7 @@ flowchart LR
     C -->|" start "| D["load_env()"]
     D --> E["resolve_app_config(**kwargs)"]
     E --> F["precheck_start(service)"]
-    F --> G["ReMe(**config).run_app()"]
+    F --> G["Application(**config).run_app()"]
     C -->|" find_reme "| H["cli_find_reme()"]
     C -->|" other actions "| I["call_server(action, **kwargs)"]
     I --> J["R.get(ComponentEnum.CLIENT, backend)"]
@@ -178,10 +182,10 @@ HTTP service behavior:
 | `StreamJob`                               | `POST /<job.name>` returning `text/event-stream`. |
 | `enable_serve: false`                     | No endpoint is registered.                        |
 
-After registering Job endpoints, the HTTP service can also mount the ReMe Studio single-page application. The default is
+After registering Job endpoints, the HTTP service can mount ReMe Studio. The `proactive` preset enables it with
 `service.web_enabled=true`. Builds are resolved from `service.web_static_dir`, `REME_WEB_STATIC_DIR`, the optional
 `reme_studio` package installed by the `web` and `core` extras, and source-tree locations such as
-`reme_studio/dist-static`. If no `index.html` is found, only the frontend is skipped and the Job API remains available. The
+`reme_studio/web/dist-static`. If no `index.html` is found, only the frontend is skipped and the Job API remains available. The
 Studio `GET` fallback does not replace existing `POST /<job.name>` routes.
 
 MCP service behavior:
@@ -203,7 +207,7 @@ ReMe uses the process-wide singleton `R = ComponentRegistry()`. Every component,
 `@R.register("name")`.
 
 ```python
-from ...components import R
+from ...core.registry import R
 
 
 @R.register("version_step")
@@ -246,8 +250,7 @@ Plugins are enabled explicitly through the application config's `plugins` list o
 Plugin registration therefore stays local to one application;
 duplicate `(component_type, backend)` providers fail during assembly instead of overwriting each other.
 
-The legacy Python `Plugin` descriptor and `reme.configs` entry points remain accepted during migration. Configuration
-files can use `extends` to inherit another built-in, legacy plugin, or file-based configuration. See the independently
+Configuration files can use `extends` to inherit a built-in, installed named, or file-based configuration. See the independently
 packaged [DingTalk](../../plugins/dingtalk/README.md), [Auto Fin](../../plugins/auto-fin/README.md), and
 [Daily Paper](../../plugins/daily_paper/README.md) plugins.
 
@@ -435,8 +438,9 @@ jobs:
       - backend: dream_finish_step
 ```
 
-The current implementation uses `croniter` to calculate the next trigger time. The timezone comes from
-`app_config.timezone`.
+The implementation uses `croniter` to calculate the next trigger time in `app_config.timezone`. Optional
+[`init_steps`](./configuration.md#cron-initialization) run before entering the schedule; only `steps` run at each
+trigger. Initialization failures reach the background supervisor, and initialization must be idempotent for retries.
 
 ### 6.5 Default Job Types
 
@@ -451,6 +455,9 @@ flowchart LR
 ## 7. Step Model
 
 A Step is a concrete business action. Every Step extends `BaseStep` and implements `execute()`.
+
+`shell_step` uses the shared local process runner: stdout and stderr each have a 1 MiB limit. Timeout, cancellation
+and completion clean up child processes. `shell_timeout` must be a finite positive number of seconds.
 
 ```mermaid
 flowchart LR
@@ -577,17 +584,78 @@ payloads, order, native metadata, or terminal state. Collection fails if the ter
 replay; native session history supplies item snapshots rather than the original stream's deltas.
 Studio reconciles block snapshots, displays structured output and terminal states, and retains live events through
 history refreshes. Raw HTTP `stream_chunks()` includes errors and DONE; CLI/text helpers handle errors separately.
-Migration: replace `last_message`/`turn` with `result`/`raw`, and consume the terminal outcome instead of concatenating
-all stream payloads. Existing text-only producers use the default `delta` operation.
+Text-only producers use the default `delta` operation.
+
+AgentScope wrappers implement the session operations without changing the agent's generation flow. `resume` restores
+model context; an explicit `session_id` starts fresh context under that ID while retaining its display history.
+Each `{mem_session_dir}/agentscope/<UUID>.jsonl` atomically stores the current SDK state and a committed byte offset into
+`agentscope/history/<UUID>.jsonl`. The paired append-only display log records only new or changed message tails;
+completed block snapshots replace their live deltas. Serialization and parsing run off the event loop. Back up both
+files together. Readers ignore uncommitted history tails, and the next writer removes only that uncommitted suffix.
+Compaction preserves displayed messages. Replies, compaction and idle appends share a session lock; reads and forks do
+not wait behind generation. Immediate appends queue until a safe model-input or reply boundary and return after
+persistence. Appends retain their delivery policy and are idempotent by `message_id` across restarts.
+Pending approval or external execution is reported as active. Ownership and live status
+are scoped to the Application; independent processes must not write the same session concurrently.
 
 Codex wrappers reference `app_server: default` or `app_server: oauth`. Multiple wrappers can share one server while
 keeping their own models, instructions and conversations. Omit `session_id` to start a new thread; pass a returned
 `session_id` to continue it. Different threads can execute concurrently; operations on one thread are serialized.
 
+Pass `fork_session=True` with `resume` or `session_id` to inherit native conversation context.
+Models, instructions, turn settings and job tools come from the current wrapper configuration and call arguments.
+After restart, the application configuration and Steps reconstruct these settings.
+An empty source without a native rollout starts an independent
+thread with the current configuration. Rejected or cancelled preparation retains the previous live settings and tools.
+
+`create_session()` retains in-process turn settings such as `effort` before the first query.
+`output_schema` applies only to the current invocation; omission uses the calling wrapper's default, and explicit
+`None` disables that default for this invocation.
+
+A disposable read-only fork receives the selected Chat inbox entries in its prompt. It reads relevant source records and submits its decision through `submit_chat_reminder`.
+Only explicitly submitted text is appended to the foreground conversation; fork reasoning and ordinary replies stay
+outside it. Codex stores injected content in its native rollout without a second application-authored message copy.
+`reme_agents/` contains task configuration, event inboxes, personal memory and session references.
+Remy's inbox derives its state from reminders and acknowledgement fields in the daily records. Native
+conversation histories retain the conversation content.
+
+Each Proactive Runtime owns its execution state. The Proactive Manager projects activity and live output for Remy and the named runtimes. Desktop clients observe `watch_agent_session`; native Codex status notifications remain internal to operation completion and disconnect handling.
+All three wrappers support `append_session(..., role="user" | "assistant")` without generating a reply; the default role
+is `assistant`. Retries with the same `message_id` must retain both content and role. Injected messages keep
+`source="proactive"` independently of their role, including after reload or fork.
+`SessionSnapshot.revision` is an opaque content fingerprint, stable across reloads and independent of activity status.
+Pass it as `expected_revision` to reject an append if the content changed, including a user injection without a new
+model turn. `expected_turn_id` checks only the model-turn anchor. Both guards are checked inside the session writer
+lease; an already committed matching `message_id` remains retryable with an old guard. Reminder forks carry the
+source revision when submitting text, so stale decisions leave inbox items pending for reassessment.
+`append_session(..., delivery="idle" | "immediate")` records the delivery mode and source session in the message.
+`idle` waits for generation to finish. `immediate` can submit during a native turn. Recoverable SDK errors from session
+reading and status in Codex are exposed as `ConnectionError`; validation errors and cancellation propagate.
+
+Claude Code uses native streaming input and a zero-inference flush receipt to persist appended messages.
+`{mem_session_dir}/claude_sessions/<UUID>.json` retains native locations, provenance and retry IDs across restarts;
+an explicitly configured external `mem_session_dir` remains supported. History and status reads do not wait behind
+generation; append and compaction share its session lease. Empty sessions contain a hidden native seed input.
+`continue_conversation=True` resolves the latest main session in the current project before taking its lease,
+including when using an external `session_store`; with no stored conversation it starts a new session.
+Resume and fork restore the saved native `cwd`; an explicit conflicting directory is rejected. Rejected query setup
+retains the previous turn anchor and approval state until native history confirms input acceptance.
+
+The `session_read` and `session_status` jobs use the wrapper selected by their Step configuration.
+Start the service with `reme start config=default`, then use another terminal:
+
+```bash
+reme session_read session_id=YOUR_SESSION_ID
+reme session_status session_id=YOUR_SESSION_ID
+```
+
 `await wrapper.get_session_path(session_id)` returns the native session file as a `Path`, or `None` when Codex
 reports no path. The file may not exist before the first turn. Lookup errors propagate, and returned paths must stay
-inside the configured `codex_home`. The lookup does not resume the thread or load its turn history. Other backends
-currently raise `NotImplementedError`.
+inside the configured `codex_home`. AgentScope and Claude Code also expose their native session files; Claude returns
+`None` when an external `session_store` is configured. Path lookup does not resume or generate a turn.
+
+`await wrapper.session_exists(session_id)` checks resumability, including a live empty Codex thread whose rollout
+has not been created yet. Unsupported backends raise `NotImplementedError`.
 
 The default is `approval_mode: deny_all` with `sandbox: full-access`: the SDK maps this mode to
 `approval_policy: never`, so available tools run without human or model approval. Requests that need additional
@@ -609,12 +677,11 @@ not change that reviewer. Native conversation compaction uses the thread's model
 models and the separate `CODEX_OAUTH_MODEL_NAME` override. See [demo configuration](../../reme/config/demo.yaml) for
 the complete API-key setup using `LLM_API_KEY` and `LLM_BASE_URL`.
 
-Migration: move `auth_mode`, `api_key`, `base_url`, `codex_home`, `codex_bin`, `config_overrides` and `experimental_api`
-from wrappers to `components.codex_app_server.<name>` (`backend: sdk`). The default Codex home is
-`{workspace_dir}/.codex`; set `codex_home` to the previous directory to retain its login and saved threads.
+Configure `auth_mode`, `api_key`, `base_url`, `codex_home`, `codex_bin`, `config_overrides` and `experimental_api`
+under `components.codex_app_server.<name>` (`backend: sdk`). The default Codex home is `{workspace_dir}/.codex`.
 Configure separate `codex_home` values when servers need independent account or session storage.
-Remove `mcp_config` and `release_threads`. Job tools run against the current Application through a
-session-scoped MCP endpoint, reusing its plain HTTP listener when available. TLS, CLI and embedded applications use
+Job tools run against the current Application through a session-scoped MCP endpoint, reusing its plain HTTP
+listener when available. TLS, CLI and embedded applications use
 a lifecycle-managed loopback listener. Tool selection and injected arguments remain bound to each loaded thread; an unloaded
 thread can be resumed with a new binding. Internal jobs are available only through the explicitly selected tools,
 without changing their public service exposure. Closing a wrapper leaves the shared server running; application
@@ -633,7 +700,7 @@ Create a file such as `reme/steps/common/uppercase.py`:
 
 ```python
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 
 
 @R.register("uppercase_step")
@@ -708,7 +775,7 @@ A Step can be instantiated directly and passed a `RuntimeContext`:
 ```python
 import pytest
 
-from reme.components.runtime_context import RuntimeContext
+from reme.core.context import RuntimeContext
 from reme.steps.common.uppercase import UppercaseStep
 
 
@@ -831,7 +898,7 @@ Example streaming Step:
 
 ```python
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 from ...enumeration import ChunkEnum
 
 
@@ -908,7 +975,7 @@ Minimal shape of a new Job backend:
 
 ```python
 from .base_job import BaseJob
-from ..component_registry import R
+from ...core.registry import R
 
 
 @R.register("my_job_backend")

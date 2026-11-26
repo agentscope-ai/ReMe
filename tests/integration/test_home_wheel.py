@@ -54,7 +54,7 @@ from pathlib import Path
 from packaging.requirements import Requirement
 import reme
 import reme_home
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme_home.auto_bash import AutoBashStep
 
 assert version('reme-ai') == '0.4.2.2'

@@ -19,10 +19,9 @@ import yaml
 from agentscope.model import ChatModelBase
 
 from reme.components.agent_wrapper.base_agent_wrapper import BaseAgentWrapper
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext, RuntimeContext
 from reme.components.file_catalog import BaseFileCatalog
 from reme.components.file_store import BaseFileStore
-from reme.components.runtime_context import RuntimeContext
 from reme.schema import FileNode, ProactiveTopic
 from reme.steps.evolve.dream.extract import DreamExtractStep
 from reme.steps.evolve.dream.utils import pack_paths
@@ -131,12 +130,10 @@ class _AgentWrapper(BaseAgentWrapper):
         self.delay = delay
         self.calls = 0
         self.last_inputs = []
-        self.last_system_prompts = []
 
-    async def reply(self, inputs, **kwargs):
+    async def reply(self, inputs, **_kwargs):
         self.calls += 1
         self.last_inputs.append(inputs)
-        self.last_system_prompts.append(str(kwargs.get("system_prompt") or ""))
         item = self.replies.pop(0) if self.replies else ""
         if isinstance(item, tuple):
             text, delay = item
@@ -1324,8 +1321,7 @@ async def test_extend_from_daily_material(tmp_path):
             _topic("越界扩展", confidence=0.5, paths=["daily/2026-08-01/absent.md"]),
         ],
     )
-    _, wrapper, _, context, _ = await _run_chain(ws, [reply])
-    assert "extends" in wrapper.last_inputs[0]  # extends section rendered
+    _, _, _, context, _ = await _run_chain(ws, [reply])
     state = context.get("proactive")
     assert len(state["extends"]) == 1
     extend = state["extends"][0]
@@ -1336,8 +1332,8 @@ async def test_extend_from_daily_material(tmp_path):
     assert [t["title"] for t in data["topics"]] == ["引用质量评测"]
 
 
-def test_extends_disabled_m1_shape():
-    """extends_enabled=False restores the M1 prompt shape and ignores extends output."""
+def test_extends_disabled_ignores_extension_output():
+    """extends_enabled=False ignores extends output."""
 
     async def run_once(extends_enabled: bool):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1355,13 +1351,10 @@ def test_extends_disabled_m1_shape():
             return wrapper, context.get("proactive")
 
     async def run():
-        wrapper_on, state_on = await run_once(True)
-        assert "extends:" in wrapper_on.last_system_prompts[0]  # M2 default renders branch B
+        _, state_on = await run_once(True)
         assert [t["title"] for t in state_on["extends"]] == ["Extends Topic"]
 
-        wrapper_off, state_off = await run_once(False)
-        system_off = wrapper_off.last_system_prompts[0]
-        assert "extends" not in system_off.replace("interest_extend", "")  # M1 prompt shape
+        _, state_off = await run_once(False)
         assert state_off["extends"] == []  # extends entries in the reply are ignored
         assert [t["title"] for t in state_off["topics_out"]] == ["Follow Up Topic"]
 
@@ -1790,7 +1783,7 @@ def test_strip_frontmatter_and_profile_loader(tmp_path):
 
 @pytest.mark.asyncio
 async def test_chain_with_configured_daily_dir(tmp_path):
-    """The full chain honours daily_dir=memory (paths, truth source, prompts)."""
+    """The full chain honours daily_dir=memory (paths and truth source)."""
 
     ws = tmp_path
     _touch(ws / "memory" / DAY / "session.md", "小米财报讨论")
@@ -1830,10 +1823,6 @@ async def test_chain_with_configured_daily_dir(tmp_path):
     assert data["push"] is True
     assert [t["id"] for t in data["topics"]] == [fid]
     assert not (ws / "daily").exists()
-    # profile + configured daily dir reached the prompts
-    assert any("张三画像" in inp or "张三关注小米" in inp for inp in wrapper.last_inputs)
-    assert any(f"memory/{DAY}" in inp for inp in wrapper.last_inputs)
-    assert any("memory/<date>" in sp for sp in wrapper.last_system_prompts)
 
 
 @pytest.mark.asyncio

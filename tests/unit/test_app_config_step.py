@@ -2,7 +2,7 @@
 
 import asyncio
 
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.steps.common.app_config import AppConfigStep
 
 

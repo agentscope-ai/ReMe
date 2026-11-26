@@ -10,9 +10,9 @@ import frontmatter
 
 from ._evolve import agent_reply_result_text
 from ..base_step import BaseStep
-from ..file_io._path import display_path, resolve_path
-from ..index import normalize_posix_path
-from ...components import R
+from ..file_io import display_path, resolve_path
+from ...utils.files.paths import normalize_posix_path
+from ...core.registry import R
 from ...constants import DEFAULT_MAX_MEMORY_TAG_LENGTH, DEFAULT_MAX_MEMORY_TAGS
 
 _SUPPORTED_CHANGES = {"added", "modified"}

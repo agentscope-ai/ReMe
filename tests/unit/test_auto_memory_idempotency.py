@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 from agentscope.message import Msg
 
-from reme.components.runtime_context import RuntimeContext
+from reme.core.context import RuntimeContext
 from reme.steps.evolve.auto_memory import AutoMemoryStep
 
 

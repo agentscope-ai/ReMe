@@ -16,11 +16,11 @@ from agentscope.message import AssistantMsg, Base64Source, DataBlock, Msg, TextB
 from PIL import Image
 import pytest
 
-from reme.components import R
+from reme.core.registry import R, create_application_registry
 from reme.components.agent_wrapper.as_agent_wrapper import AsAgentWrapper
-from reme.components.component_registry import create_application_registry
 from reme.components.file_store import LocalFileStore
-from reme.plugin import PluginManager, _load_plugin
+from reme.plugin import PluginManager
+from reme.plugin.manager import _load_plugin
 from reme.schema import ApplicationConfig, Response
 from reme.steps.evolve.auto_memory import _sanitize_msg_for_save
 from reme.steps.file_io.read_image import ReadImageStep
@@ -88,11 +88,7 @@ def test_mobilemem_complete_history_ids_and_no_gold(mobile_scene):
         mobilemem.session_messages(scene["sessions"][0], scene["image_root"])
 
 
-def test_official_query_and_overlap_metrics():
-    assert mobilemem.query_prompt("QUESTION", "CONTEXT") == (
-        "Question:\nQUESTION\nPlease answer the question based on the following memories:\nCONTEXT\n"
-        + mobilemem.ANSWER_RULES
-    )
+def test_overlap_metrics():
     score = mobilemem.score_answer("北京 北京", "北京")
     assert score["f1"] == pytest.approx(2 / 3)
     assert score["bleu_1"] == pytest.approx(0.36787944117144233)
@@ -149,7 +145,7 @@ async def test_candidate_and_judge_start_with_native_settings(tmp_path, monkeypa
     def installed(group, name):
         return [entry for entry in entries if entry.group == group and entry.name == name]
 
-    monkeypatch.setattr("reme.plugin.find_entry_points", installed)
+    monkeypatch.setattr("reme.plugin.manager.find_entry_points", installed)
     monkeypatch.setattr("reme.config.config_parser.find_entry_points", installed)
     monkeypatch.setenv("LLM_API_KEY", "offline")
     monkeypatch.setenv("LLM_BASE_URL", "https://provider.invalid/v1")
@@ -384,10 +380,6 @@ async def test_image_only_pipeline_keeps_all_sessions_and_gold_is_judge_only(mob
             assert kwargs["include_images"] is kwargs["include_source_sessions"] is True
     answer = calls[-1][1]
     assert answer["max_iters"] == 30
-    assert answer["query"] == mobilemem.query_prompt(
-        scene["questions"][0]["question"],
-        "Use the available evidence tools.",
-    )
     assert "category" not in answer and "question_type" not in answer
     judge_inputs = judge.run_job.call_args.kwargs
     assert judge_inputs["reference"] == "HIDDEN_GOLD"

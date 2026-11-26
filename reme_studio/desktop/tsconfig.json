@@ -1,0 +1,4 @@
+{
+  "extends": "../tsconfig.json",
+  "include": ["src", "electron.vite.config.ts", "../client/tests/fixtures.ts"]
+}

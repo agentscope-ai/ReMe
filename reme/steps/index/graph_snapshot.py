@@ -1,7 +1,7 @@
 """Return the digest graph, rooted by its three memory categories."""
 
 from ..base_step import BaseStep
-from ...components import R
+from ...core.registry import R
 from ...enumeration import DreamBucketEnum
 from ...schema import GraphSnapshot, GraphSnapshotEdge, GraphSnapshotNode
 

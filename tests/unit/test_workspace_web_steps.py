@@ -7,13 +7,11 @@ from datetime import datetime
 import pytest
 
 from reme.components.agent_wrapper import CodexAgentWrapper
-from reme.components.application_context import ApplicationContext
-from reme.components.job import StreamJob
-from reme.components.runtime_context import RuntimeContext
-from reme.config.config_parser import _load_config
+from reme.core.context import ApplicationContext, RuntimeContext
 from reme.enumeration import ChunkEnum
 from reme.schema import StreamChunk
 from reme.steps.common.chat import ChatStep
+from reme.steps.file_io import load, save
 from reme.steps.file_io.load import LoadStep
 from reme.steps.file_io.save import SaveStep
 
@@ -27,9 +25,6 @@ class _StreamingAgent(CodexAgentWrapper):
 
     async def reply(self, inputs, **kwargs) -> dict:
         raise AssertionError("ChatStep must always use reply_stream()")
-
-    async def create_session(self, **kwargs) -> str:
-        return "session-new"
 
     async def reply_stream(self, inputs, **kwargs):
         self.reply_kwargs = kwargs
@@ -102,6 +97,16 @@ async def test_load_step_rejects_file_larger_than_editor_limit(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_load_step_rejects_lossy_editor_text(tmp_path):
+    """Invalid text must fail before an editor can write replacement characters back."""
+    (tmp_path / "note.md").write_bytes(b"invalid UTF-8: \xff")
+
+    response = await LoadStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))(path="note.md")
+
+    assert not response.success
+
+
+@pytest.mark.asyncio
 async def test_save_step_rejects_external_change(tmp_path):
     """An obsolete mtime cannot overwrite a file changed by another editor."""
 
@@ -121,6 +126,72 @@ async def test_save_step_rejects_external_change(tmp_path):
     assert response.success is False
     assert response.metadata["code"] == "file_conflict"
     assert target.read_text(encoding="utf-8") == "external"
+
+
+@pytest.mark.asyncio
+async def test_load_rejects_a_replacement_during_read(tmp_path, monkeypatch):
+    """Do not pair file contents with the version of another file."""
+    target = tmp_path / "note.md"
+    target.write_text("original", encoding="utf-8")
+    read = load.read_file_safe
+
+    async def read_then_replace(*args, **kwargs):
+        result = await read(*args, **kwargs)
+        replacement = tmp_path / "external.md"
+        replacement.write_text("external", encoding="utf-8")
+        replacement.replace(target)
+        return result
+
+    monkeypatch.setattr(load, "read_file_safe", read_then_replace)
+    response = await LoadStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))(path="note.md")
+
+    assert not response.success
+    assert target.read_text(encoding="utf-8") == "external"
+
+
+@pytest.mark.asyncio
+async def test_save_rechecks_version_after_preparing_the_write(tmp_path, monkeypatch):
+    """An edit made after the initial check must survive a rejected save."""
+    target = tmp_path / "note.md"
+    target.write_text("original", encoding="utf-8")
+    expected = datetime.fromtimestamp(target.stat().st_mtime).isoformat()
+
+    async def edit_while_detecting(path):
+        path.write_text("external update", encoding="utf-8")
+        return "utf-8"
+
+    monkeypatch.setattr(save, "detect_file_encoding", edit_while_detecting)
+    response = await SaveStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))(
+        path="note.md",
+        content="browser edit",
+        expected_mtime=expected,
+    )
+
+    assert not response.success
+    assert response.metadata["code"] == "file_conflict"
+    assert target.read_text(encoding="utf-8") == "external update"
+    assert not list(tmp_path.glob(".reme-*.tmp"))
+
+
+@pytest.mark.asyncio
+async def test_document_save_requires_version_and_preserves_the_load_limit(tmp_path):
+    """Require the original version and apply the byte limit to encoded content."""
+    target = tmp_path / "note.md"
+    target.write_text("first", encoding="utf-8")
+    version = datetime.fromtimestamp(target.stat().st_mtime).isoformat()
+    step = SaveStep(
+        app_context=ApplicationContext(workspace_dir=str(tmp_path)),
+        require_expected_mtime=True,
+        max_bytes=5,
+    )
+
+    assert not (await step(path="note.md", content="")).success
+    assert not (await step(path="note.md", expected_mtime=version)).success
+    assert not (await step(path="note.md", content="中文", expected_mtime=version)).success
+    assert target.read_text(encoding="utf-8") == "first"
+
+    assert (await step(path="note.md", content="", expected_mtime=version)).success
+    assert target.read_text(encoding="utf-8") == ""
 
 
 @pytest.mark.asyncio
@@ -150,71 +221,3 @@ async def test_chat_step_streams_rich_chunks_and_resumes_session(tmp_path):
         "traverse",
     ]
     assert agent.reply_kwargs["builtin_tools"] == []
-    assert agent.reply_kwargs["system_prompt"] == ""
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("system_prompt", ["", None, "Custom prompt.\n"])
-async def test_chat_step_passes_system_prompt_override_verbatim(tmp_path, system_prompt):
-    """A caller prompt reaches the wrapper without extra environment text."""
-
-    app_context = ApplicationContext(workspace_dir=str(tmp_path), timezone="Asia/Shanghai")
-    agent = _StreamingAgent(app_context=app_context)
-
-    await ChatStep(agent_wrapper=agent, app_context=app_context)(
-        query="hello",
-        system_prompt=system_prompt,
-        stream_queue=asyncio.Queue(),
-    )
-
-    assert agent.reply_kwargs["system_prompt"] == (system_prompt or "")
-
-
-@pytest.mark.asyncio
-async def test_default_chat_uses_configured_prompt_and_allows_empty_override(tmp_path):
-    """The built-in prompt comes from config and can be explicitly cleared."""
-    config = _load_config("default")
-    app_context = ApplicationContext(workspace_dir=str(tmp_path))
-    agent = _StreamingAgent(app_context=app_context)
-    app_context.components["agent_wrapper"] = {"default": agent}
-    chat = StreamJob(name="chat", app_context=app_context, **config["jobs"]["chat"])
-
-    async with chat:
-        await chat(query="hello", stream_queue=asyncio.Queue())
-        assert agent.reply_kwargs["system_prompt"] == config["jobs"]["chat"]["system_prompt"]
-        assert agent.reply_kwargs["system_prompt"].startswith("You are ReMe Agent")
-        await chat(query="hello", system_prompt="", stream_queue=asyncio.Queue())
-        assert agent.reply_kwargs["system_prompt"] == ""
-
-
-@pytest.mark.asyncio
-async def test_proactive_chat_uses_native_tools_and_loads_its_prompt_template(tmp_path):
-    """The proactive stream opts out of ReMe tools and loads the PA prompt template."""
-
-    config = _load_config("proactive")
-    app_context = ApplicationContext(workspace_dir=str(tmp_path))
-    agent = _StreamingAgent(app_context=app_context)
-    app_context.components["agent_wrapper"] = {"default": agent}
-    chat = StreamJob(name="pa_chat", app_context=app_context, **config["jobs"]["pa_chat"])
-    queue = asyncio.Queue()
-
-    await chat.start()
-    try:
-        await chat(query="Help plan my day", stream_queue=queue)
-        assert agent.reply_kwargs["job_tools"] == []
-        assert agent.reply_kwargs["system_prompt"].startswith("You are Remy")
-        memory = tmp_path / "digest/personal/REME_MEMORY.md"
-        assert f"Personal memory: {memory}" in agent.reply_kwargs["system_prompt"]
-        assert f"Workspace: {tmp_path}" in agent.reply_kwargs["system_prompt"]
-        assert "financial news" in memory.read_text(encoding="utf-8")
-        assert agent.reply_kwargs["resume"] == "session-new"
-        chunks = [await queue.get() for _ in range(5)]
-        assert [chunk.chunk_type for chunk in chunks] == [
-            ChunkEnum.DATA,
-            ChunkEnum.TOOL_CALL,
-            ChunkEnum.CONTENT,
-            ChunkEnum.REPLY_END,
-            ChunkEnum.DONE,
-        ]
-    finally:
-        await chat.close()

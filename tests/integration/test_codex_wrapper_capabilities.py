@@ -1,4 +1,4 @@
-"""Opt-in live checks for skills, additional instructions, and ReMe job tools."""
+"""Opt-in live checks for skills and ReMe job tools."""
 
 # pylint: disable=redefined-outer-name
 
@@ -9,7 +9,7 @@ import secrets
 import pytest
 import pytest_asyncio
 
-from reme.application import Application
+from reme import Application
 from reme.steps.base_step import BaseStep
 
 pytestmark = pytest.mark.skipif(
@@ -93,36 +93,6 @@ async def test_live_codex_add_skill_reads_instructions(wrapper, tmp_path):
     result = await wrapper.reply("$capability_probe")
     assert result["result"].strip() == marker
     assert (tmp_path / ".agents/skills/capability_probe").resolve() == source.resolve()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "resume",
-    [
-        False,
-        pytest.param(
-            True,
-            marks=pytest.mark.xfail(
-                reason="Codex ignores developer instruction overrides on an already loaded thread",
-                strict=True,
-                raises=AssertionError,
-            ),
-        ),
-    ],
-)
-async def test_live_codex_extend_system_prompt(wrapper, resume):
-    """Check additional instructions on new sessions and expose the loaded-session limitation."""
-    first_marker, added_marker = secrets.token_hex(16), secrets.token_hex(16)
-    wrapper.set_system_prompt(f"For input ORIGINAL_PROMPT_PROBE, reply exactly {first_marker}.")
-    original = await wrapper.reply("ORIGINAL_PROMPT_PROBE")
-    assert original["result"].strip() == first_marker
-    wrapper.set_system_prompt(
-        wrapper.kwargs["system_prompt"] + f"\nFor input ADDED_PROMPT_PROBE, reply exactly {added_marker}.",
-    )
-    options = {"session_id": original["session_id"]} if resume else {}
-    extended = await wrapper.reply("ADDED_PROMPT_PROBE", **options)
-    assert (extended["session_id"] == original["session_id"]) == resume
-    assert extended["result"].strip() == added_marker
 
 
 @pytest.mark.asyncio

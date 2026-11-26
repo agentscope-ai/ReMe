@@ -1,6 +1,5 @@
 """Encoding-aware file IO, output truncation, and per-path write locks."""
 
-import asyncio
 import os
 from pathlib import Path
 from secrets import token_hex
@@ -12,33 +11,11 @@ import aiofiles.os
 
 from ...constants import DEFAULT_MAX_BYTES, MAX_FILE_READ_BYTES, TRUNCATION_NOTICE_MARKER
 from ...schema import FileChunk
-from ...utils import get_logger
 from ...utils.async_utils import complete_in_thread
+from ...utils.files.file_version import FileChangedError, check_file_version
+from ...utils.logger_utils import get_logger
 
 logger = get_logger(log_to_file=False)
-
-# ---------------------------------------------------------------------------
-# In-process per-path write lock.
-# ---------------------------------------------------------------------------
-_PATH_LOCKS_MAX = 1024
-_PATH_LOCKS: dict[str, asyncio.Lock] = {}
-_PATH_LOCKS_REGISTRY = asyncio.Lock()
-
-
-async def get_path_lock(target: Path) -> asyncio.Lock:
-    """Return the asyncio.Lock for ``target``; created lazily on first request."""
-    key = str(target)
-    async with _PATH_LOCKS_REGISTRY:
-        lock = _PATH_LOCKS.get(key)
-        if lock is None:
-            if len(_PATH_LOCKS) >= _PATH_LOCKS_MAX:
-                to_remove = [k for k, v in _PATH_LOCKS.items() if not v.locked()]
-                for k in to_remove[: len(_PATH_LOCKS) // 2]:
-                    del _PATH_LOCKS[k]
-            lock = asyncio.Lock()
-            _PATH_LOCKS[key] = lock
-    return lock
-
 
 # ---------------------------------------------------------------------------
 # Encoding detection
@@ -74,7 +51,7 @@ def _try_decode(data: bytes, encodings: Iterable[str]) -> tuple[str, str] | None
     return None
 
 
-def _decode_known_file(data: bytes, file_extension: str) -> tuple[str, str]:
+def _decode_known_file(data: bytes, file_extension: str, *, errors: str = "replace") -> tuple[str, str]:
     """Decode file bytes using the extension as a hint. Returns ``(text, encoding)``."""
     if data.startswith(b"\xef\xbb\xbf"):
         return data.decode("utf-8-sig"), "utf-8-sig"
@@ -98,7 +75,7 @@ def _decode_known_file(data: bytes, file_extension: str) -> tuple[str, str]:
             text, enc = result
             return text, "utf-8" if enc == "utf-8-sig" else enc
 
-    return data.decode("utf-8", errors="replace"), "utf-8"
+    return data.decode("utf-8", errors=errors), "utf-8"
 
 
 # ---------------------------------------------------------------------------
@@ -114,11 +91,7 @@ async def read_file_safe(
 ) -> tuple[str, str]:
     """Read file in byte mode and decode using extension-aware strategy.
 
-    Returns ``(text, encoding)``. With ``require_complete``, reject files above
-    the byte limit or reads that leave unread bytes at the EOF check. This only
-    prevents returning a truncated bounded read for write-back; it does not
-    support oversized-file editing, provide a stable snapshot against concurrent
-    changes, or make subsequent writes atomic.
+    With ``require_complete``, reject oversized, truncated or undecodable input.
     """
     stat = await aiofiles.os.stat(str(file_path))
     if require_complete and stat.st_size > max_bytes:
@@ -128,7 +101,7 @@ async def read_file_safe(
         data = await f.read(read_size)
         if require_complete and await f.read(1):
             raise ValueError("file changed during read; refusing to return incomplete contents")
-    return _decode_known_file(data, Path(file_path).suffix)
+    return _decode_known_file(data, Path(file_path).suffix, errors="strict" if require_complete else "replace")
 
 
 async def read_file_lines_safe(
@@ -168,9 +141,15 @@ async def detect_file_encoding(file_path, sniff_bytes: int = 8192) -> str:
     return enc
 
 
-async def write_file_safe(file_path: Path, content: str | bytes, encoding: str = "utf-8") -> None:
-    """Publish complete bytes atomically while retaining normal file permissions."""
-    file_path.parent.mkdir(parents=True, exist_ok=True)
+async def write_file_safe(
+    file_path: Path,
+    content: str | bytes,
+    encoding: str = "utf-8",
+    *,
+    max_bytes: int | None = None,
+    expected_version: os.stat_result | None = None,
+) -> None:
+    """Publish complete bytes, optionally requiring the original file version."""
     if isinstance(content, str):
         try:
             payload = content.encode(encoding)
@@ -182,6 +161,9 @@ async def write_file_safe(file_path: Path, content: str | bytes, encoding: str =
             payload = content.encode("utf-8")
     else:
         payload = content
+    if max_bytes is not None and len(payload) > max_bytes:
+        raise ValueError(f"file size {len(payload)} exceeds the editor limit of {max_bytes} bytes")
+    file_path.parent.mkdir(parents=True, exist_ok=True)
 
     def publish():
         flags = os.O_WRONLY | getattr(os, "O_BINARY", 0)
@@ -203,6 +185,12 @@ async def write_file_safe(file_path: Path, content: str | bytes, encoding: str =
                 handle.write(payload)
             if mode is not None:
                 os.chmod(temporary, mode)
+            if expected_version is not None:
+                try:
+                    current = file_path.lstat()
+                except FileNotFoundError as exc:
+                    raise FileChangedError(f"File disappeared: {file_path}") from exc
+                check_file_version(file_path, expected_version, current)
             os.replace(temporary, file_path)
         finally:
             Path(temporary).unlink(missing_ok=True)

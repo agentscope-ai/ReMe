@@ -7,6 +7,8 @@ per-invocation RuntimeContext, where the file I/O steps read it.
 
 Covers:
 - ReadStep / EditStep / WriteStep / FrontmatterUpdateStep honoring the scope.
+- DeleteStep / MoveStep / FrontmatterDeleteStep honoring the scope.
+- MoveStep rejecting retarget rewrites that would land outside the scope.
 - Exact-file scope (least privilege) vs directory scope, custom daily dirs.
 - Fail-closed behavior for invalid injected constraints.
 - Wrapper-level injection: merge, conflict rejection, schema hiding
@@ -24,11 +26,17 @@ from pathlib import Path
 import pytest
 
 from reme.components.file_store import LocalFileStore
-from reme.steps.file_io._path import _check_path_permission
+from reme.steps.file_io import check_path_permission
+from reme.enumeration import LinkScopeEnum
+from reme.schema import FileNode
+from reme.steps.file_io.delete import DeleteStep
 from reme.steps.file_io.edit import EditStep
+from reme.steps.file_io.frontmatter_delete import FrontmatterDeleteStep
 from reme.steps.file_io.frontmatter_update import FrontmatterUpdateStep
+from reme.steps.file_io.move import MoveStep
 from reme.steps.file_io.read import ReadStep
 from reme.steps.file_io.write import WriteStep
+from reme.utils.documents.wikilink_handler import WikilinkHandler
 
 
 def _seed(workspace: Path, rel: str, body: str = "body\n") -> Path:
@@ -36,6 +44,24 @@ def _seed(workspace: Path, rel: str, body: str = "body\n") -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(body, encoding="utf-8")
     return target
+
+
+async def _register_in_graph(store: LocalFileStore, workspace: Path, rel: str, body: str) -> None:
+    """Register a workspace note in the file_graph with its wikilinks parsed.
+
+    Without the parsed links the reverse-index lookup yields nothing and
+    automatic retargeting (the write path under test) never sees the file.
+    """
+    abs_path = workspace / rel
+    await store.file_graph.upsert_nodes(
+        [
+            FileNode(
+                path=rel,
+                st_mtime=abs_path.stat().st_mtime,
+                links=WikilinkHandler.extract_links(body, rel),
+            ),
+        ],
+    )
 
 
 async def _make_store() -> LocalFileStore:
@@ -54,6 +80,35 @@ async def _run(step_cls, store: LocalFileStore, **kwargs):
 NOTE = "daily/2025-06-01/podcast-habits.md"
 SIBLING = "daily/2025-06-01/other-note.md"
 OUTSIDE = "topics/roadmap.md"
+
+
+class _LinkAppearingAfterPrecheckGraph:
+    """Graph wrapper simulating a concurrent editor on a deterministic schedule.
+
+    A scoped move consults the reverse index twice — once for the dry-run
+    permission precheck, once for the real rewrite pass. On the second lookup
+    this wrapper first saves a matching ``[[src]]`` link into the out-of-scope
+    note (a direct file edit the index has not caught up with), reproducing a
+    referencing file that changes between the two passes without threads or
+    timing windows.
+    """
+
+    def __init__(self, inner, workspace: Path, rel: str, body: str) -> None:
+        self._inner = inner
+        self._workspace = workspace
+        self._rel = rel
+        self._body = body
+        self._lookups = 0
+
+    async def get_inlinks(self, path: str, scope=LinkScopeEnum.REAL):
+        """Delegate the reverse-index lookup, saving the link first on the second call."""
+        self._lookups += 1
+        if self._lookups == 2:
+            (self._workspace / self._rel).write_text(self._body, encoding="utf-8")
+        return await self._inner.get_inlinks(path, scope=scope)
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
 
 
 @pytest.mark.asyncio
@@ -125,6 +180,252 @@ async def test_update_scope_rejects_paths_outside_daily_dir():
 
 
 @pytest.mark.asyncio
+async def test_delete_scope_allows_exact_note_and_rejects_outside():
+    """DeleteStep honors the scope: the exact note is removable, everything else is not."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        _seed(Path(tmp), NOTE, "target\n")
+        outside = _seed(Path(tmp), OUTSIDE, "roadmap\n")
+        store = await _make_store()
+        scope = {"_allowed_paths": [NOTE]}
+
+        resp = await _run(DeleteStep, store, path=OUTSIDE, **scope)
+        assert resp.success is False
+        assert "no permission" in str(resp.answer).lower()
+        assert outside.read_text(encoding="utf-8") == "roadmap\n"
+
+        resp = await _run(DeleteStep, store, path=NOTE, **scope)
+        assert resp.success is True
+        assert not (Path(tmp) / NOTE).exists()
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_delete_directory_scope_rejects_ancestor_and_sibling_folders():
+    """Directory scope deletes the scoped folder itself but not ancestors or siblings."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        workspace = Path(tmp)
+        _seed(workspace, "daily/2025-06-01/note.md", "n\n")
+        _seed(workspace, "topics/x.md", "x\n")
+        store = await _make_store()
+        scope = {"_allowed_paths": ["daily/2025-06-01"]}
+
+        resp = await _run(DeleteStep, store, path="daily", **scope)
+        assert resp.success is False
+        assert "no permission" in str(resp.answer).lower()
+        assert (workspace / "daily/2025-06-01/note.md").exists()
+
+        resp = await _run(DeleteStep, store, path="topics", **scope)
+        assert resp.success is False
+        assert (workspace / "topics/x.md").exists()
+
+        resp = await _run(DeleteStep, store, path="daily/2025-06-01", **scope)
+        assert resp.success is True
+        assert not (workspace / "daily/2025-06-01").exists()
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_move_scope_requires_both_endpoints_in_scope():
+    """MoveStep denies any move whose source or destination is outside the scope."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        workspace = Path(tmp)
+        _seed(workspace, NOTE, "target\n")
+        _seed(workspace, SIBLING, "sibling\n")
+        outside = _seed(workspace, OUTSIDE, "roadmap\n")
+        store = await _make_store()
+        scope = {"_allowed_paths": ["daily/2025-06-01"]}
+
+        resp = await _run(MoveStep, store, src_path=NOTE, dst_path=SIBLING, overwrite=True, **scope)
+        assert resp.success is True
+        assert not (workspace / NOTE).exists()
+        assert (workspace / SIBLING).exists()
+
+        resp = await _run(MoveStep, store, src_path=SIBLING, dst_path=OUTSIDE, overwrite=True, **scope)
+        assert resp.success is False
+        assert "no permission" in str(resp.answer).lower()
+        assert outside.read_text(encoding="utf-8") == "roadmap\n"
+        assert (workspace / SIBLING).exists()
+
+        resp = await _run(MoveStep, store, src_path=OUTSIDE, dst_path=SIBLING, overwrite=True, **scope)
+        assert resp.success is False
+        assert "no permission" in str(resp.answer).lower()
+        assert outside.exists()
+        assert (workspace / SIBLING).read_text(encoding="utf-8") == "target\n"
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_move_scope_rejects_rewriting_out_of_scope_inbound_links():
+    """Automatic retargeting may not rewrite notes outside the scope.
+
+    With ``retarget=True`` (the default) a scoped move rewrites every indexed
+    inbound ``[[src_path]]`` reference; an out-of-scope referencing note must
+    fail the move before anything is mutated.
+    """
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        workspace = Path(tmp)
+        note_body = "target\n"
+        outside_body = "See [[daily/2025-06-01/podcast-habits.md]]\n"
+        note_abs = _seed(workspace, NOTE, note_body)
+        outside_abs = _seed(workspace, OUTSIDE, outside_body)
+        store = await _make_store()
+        await _register_in_graph(store, workspace, NOTE, note_body)
+        await _register_in_graph(store, workspace, OUTSIDE, outside_body)
+        scope = {"_allowed_paths": ["daily/2025-06-01"]}
+
+        resp = await _run(MoveStep, store, src_path=NOTE, dst_path="daily/2025-06-01/renamed.md", **scope)
+        assert resp.success is False
+        assert "no permission" in str(resp.answer).lower()
+        # Rejected before any mutation: no copy left behind, the source is
+        # intact, and the out-of-scope referencing note keeps its link.
+        assert note_abs.read_text(encoding="utf-8") == note_body
+        assert not (workspace / "daily/2025-06-01/renamed.md").exists()
+        assert outside_abs.read_text(encoding="utf-8") == outside_body
+
+        # An explicit opt-out skips retargeting entirely, so the same move
+        # stays purely scoped and succeeds.
+        resp = await _run(
+            MoveStep,
+            store,
+            src_path=NOTE,
+            dst_path="daily/2025-06-01/renamed.md",
+            overwrite=True,
+            retarget=False,
+            **scope,
+        )
+        assert resp.success is True
+        assert not note_abs.exists()
+        assert (workspace / "daily/2025-06-01/renamed.md").exists()
+        assert outside_abs.read_text(encoding="utf-8") == outside_body
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_move_scope_still_retargets_in_scope_references():
+    """References inside the scope are rewritten and the move succeeds."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        workspace = Path(tmp)
+        note_body = "target\n"
+        sibling_body = "See [[daily/2025-06-01/podcast-habits.md]]\n"
+        _seed(workspace, NOTE, note_body)
+        sibling_abs = _seed(workspace, SIBLING, sibling_body)
+        outside_abs = _seed(workspace, OUTSIDE, "roadmap\n")
+        store = await _make_store()
+        await _register_in_graph(store, workspace, NOTE, note_body)
+        await _register_in_graph(store, workspace, SIBLING, sibling_body)
+        scope = {"_allowed_paths": ["daily/2025-06-01"]}
+
+        resp = await _run(MoveStep, store, src_path=NOTE, dst_path="daily/2025-06-01/renamed.md", **scope)
+        assert resp.success is True
+        assert "[[daily/2025-06-01/renamed.md]]" in sibling_abs.read_text(encoding="utf-8")
+        assert outside_abs.read_text(encoding="utf-8") == "roadmap\n"
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_move_scope_rechecks_permission_when_link_appears_after_precheck():
+    """A referencing file that changes between the precheck and the rewrite is still protected.
+
+    The dry-run precheck only vets files that contain a matching link at that
+    moment; an out-of-scope note whose link appears afterwards (concurrent
+    save, lagging graph backend) used to be rewritten unchallenged because the
+    real pass re-read content without any permission constraint. The write-time
+    guard must reject that rewrite: the move fails, the note keeps the
+    editor's content, and the source survives for retry.
+    """
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        workspace = Path(tmp)
+        note_body = "target\n"
+        stale_body = "No current reference.\n"
+        saved_body = f"See [[{NOTE}]]\n"
+        note_abs = _seed(workspace, NOTE, note_body)
+        outside_abs = _seed(workspace, OUTSIDE, stale_body)
+        store = await _make_store()
+        # The index still reports the pre-edit edge (an index lagging a direct
+        # file edit), so retargeting visits the out-of-scope note; its on-disk
+        # content has no matching link yet, which is what hides it from the
+        # dry-run precheck.
+        await _register_in_graph(store, workspace, NOTE, note_body)
+        await _register_in_graph(store, workspace, OUTSIDE, saved_body)
+        outside_abs.write_text(stale_body, encoding="utf-8")
+        store.file_graph = _LinkAppearingAfterPrecheckGraph(store.file_graph, workspace, OUTSIDE, saved_body)
+        scope = {"_allowed_paths": ["daily/2025-06-01"]}
+
+        resp = await _run(MoveStep, store, src_path=NOTE, dst_path="daily/2025-06-01/renamed.md", **scope)
+        assert resp.success is False
+        assert "no permission" in str(resp.answer).lower()
+        # The concurrent save survives untouched — the link still points at
+        # the original path and was never rewritten to the destination.
+        assert outside_abs.read_text(encoding="utf-8") == saved_body
+        assert "[[daily/2025-06-01/renamed.md]]" not in outside_abs.read_text(encoding="utf-8")
+        # Fail-closed move semantics on a mid-move retarget error: the source
+        # is kept (the destination copy from the interrupted attempt lingers
+        # too, so the caller can diagnose and retry).
+        assert note_abs.exists()
+        assert (workspace / "daily/2025-06-01/renamed.md").exists()
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_move_scope_rejects_retarget_paths_that_change_under_trimming():
+    """The guard vets the literal path retargeting writes, not a trimmed form.
+
+    ``resolve_path`` strips surrounding whitespace, while ``retarget_links``
+    reads and writes ``workspace_dir / rel`` verbatim. A graph-registered
+    ``" allowed/ref.md"`` — a sibling directory named with a leading space,
+    distinct from ``allowed/`` — used to be permission-checked as the trimmed,
+    in-scope ``allowed/ref.md`` while the writer modified the literal,
+    out-of-scope file. A graph path whose identity would change under
+    trimming now fails closed: the move is rejected and the out-of-scope
+    note is untouched.
+    """
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        workspace = Path(tmp)
+        note_body = "target\n"
+        padded_rel = " allowed/ref.md"
+        padded_body = "See [[allowed/note.md]]\n"
+        note_abs = _seed(workspace, "allowed/note.md", note_body)
+        padded_abs = _seed(workspace, padded_rel, padded_body)
+        store = await _make_store()
+        await _register_in_graph(store, workspace, "allowed/note.md", note_body)
+        await _register_in_graph(store, workspace, padded_rel, padded_body)
+        scope = {"_allowed_paths": ["allowed"]}
+
+        resp = await _run(MoveStep, store, src_path="allowed/note.md", dst_path="allowed/renamed.md", **scope)
+        assert resp.success is False
+        assert "no permission" in str(resp.answer).lower()
+        # The literal " allowed/ref.md" was never rewritten: its link still
+        # points at the original path.
+        assert padded_abs.read_text(encoding="utf-8") == padded_body
+        assert "[[allowed/renamed.md]]" not in padded_abs.read_text(encoding="utf-8")
+        # Rejected before any mutation: the dry-run precheck vets the same
+        # guard, so the source is intact and no destination copy exists.
+        assert note_abs.read_text(encoding="utf-8") == note_body
+        assert not (workspace / "allowed/renamed.md").exists()
+        assert resp.metadata.get("retarget_blocked_path") == padded_rel
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_frontmatter_delete_scope_rejects_outside_note():
+    """Exact-file scope denies removing frontmatter keys from another note."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        _seed(Path(tmp), NOTE)
+        sibling = _seed(Path(tmp), SIBLING, "---\nname: s\nstatus: draft\n---\nkeep\n")
+        store = await _make_store()
+        scope = {"_allowed_paths": [NOTE]}
+
+        resp = await _run(FrontmatterDeleteStep, store, path=SIBLING, keys=["status"], **scope)
+        assert resp.success is False
+        assert "no permission" in str(resp.answer).lower()
+        assert "status: draft" in sibling.read_text(encoding="utf-8")
+
+        resp = await _run(FrontmatterDeleteStep, store, path=NOTE, keys=["status"], **scope)
+        assert resp.success is True
+        await store.close()
+
+
+@pytest.mark.asyncio
 async def test_scope_follows_markdown_suffix_gating():
     """A model path without ``.md`` gates to the same file and stays in scope."""
     with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
@@ -183,9 +484,9 @@ async def test_nonexistent_allowed_paths_allow_component_bounded_descendants():
         store = await _make_store()
 
         scope = {"_allowed_paths": ["X/Y"]}
-        assert _check_path_permission(workspace, workspace / "X/Y", scope["_allowed_paths"])
-        assert _check_path_permission(workspace, workspace / "X/Y/Z", scope["_allowed_paths"])
-        assert not _check_path_permission(workspace, workspace / "X/YZ", scope["_allowed_paths"])
+        assert check_path_permission(workspace, workspace / "X/Y", scope["_allowed_paths"])
+        assert check_path_permission(workspace, workspace / "X/Y/Z", scope["_allowed_paths"])
+        assert not check_path_permission(workspace, workspace / "X/YZ", scope["_allowed_paths"])
 
         resp = await _run(WriteStep, store, path="X/Y/nested", content="nested", **scope)
         assert resp.success is True

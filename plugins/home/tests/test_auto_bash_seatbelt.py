@@ -8,7 +8,7 @@ import sys
 import pytest
 from reme_home.auto_bash import AutoBash, AutoBashStep
 
-from reme.components.application_context import ApplicationContext
+from reme.core.context import ApplicationContext
 from reme.steps.common.python_execute import PythonExecuteStep
 from reme.utils.file_sandbox.path_seatbelt_backend import PathSeatbeltBackend
 

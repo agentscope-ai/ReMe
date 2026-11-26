@@ -21,7 +21,7 @@ from typing import Iterable
 
 from ._base import _FileIOStep
 from ._path import resolve_path
-from ...components import R
+from ...core.registry import R
 
 # Default cap on returned items so huge workspaces don't blow up the response.
 DEFAULT_LIMIT = 100

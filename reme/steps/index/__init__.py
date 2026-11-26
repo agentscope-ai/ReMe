@@ -1,6 +1,6 @@
 """Index steps."""
 
-from ._source_format import normalize_posix_path
+from ...utils.files.paths import normalize_posix_path
 from .bm25_search import Bm25SearchStep
 from .clear_paths import ClearPathsStep
 from .clear_store import ClearStoreStep
@@ -9,6 +9,7 @@ from .draft import AddDraftStep, ReadAllDraftStep
 from .graph_snapshot import GraphSnapshotStep
 from .log_changes import LogChangesStep
 from .list_tags import ListTagsStep
+from .list_tag_files import ListTagFilesStep
 from .node_search import NodeSearchStep
 from .init_changes import InitChangesStep
 from .optimize_index import OptimizeIndexStep
@@ -39,6 +40,7 @@ __all__ = [
     "InitChangesStep",
     "LogChangesStep",
     "ListTagsStep",
+    "ListTagFilesStep",
     "NodeSearchStep",
     "normalize_posix_path",
     "ReadAllDraftStep",

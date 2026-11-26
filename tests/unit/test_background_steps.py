@@ -27,13 +27,13 @@ import numpy as np
 import pytest
 from watchfiles import Change
 
-from reme.components import R
+from reme.core.registry import R
 from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.file_chunker import DefaultFileChunker, JsonFileChunker
 from reme.components.file_catalog import LocalFileCatalog
 from reme.components.file_store import LocalFileStore
 from reme.components.job.background_job import BackgroundJob
-from reme.components.runtime_context import RuntimeContext
+from reme.core.context import RuntimeContext
 from reme.enumeration import ComponentEnum
 from reme.schema import FileChunk, FileNode
 from reme.steps.evolve.auto_memory import AutoMemoryStep
@@ -55,8 +55,8 @@ from reme.steps.index import (
     WatchChangesStep,
 )
 from reme.steps.index._change_batch import bucket_changes
-from reme.utils.file_utils import FileChangedDuringChunkingError
-from reme.utils.file_watch import WatchRule, build_watch_rules, collect_existing, match_file
+from reme.utils.files.file_version import FileChangedError
+from reme.utils.files.file_watch import WatchRule, build_watch_rules, collect_existing, match_file
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="jieba")
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="pkg_resources")
@@ -1008,10 +1008,10 @@ def test_update_index_initial_scan_fails_when_source_never_stabilizes():
                 step = UpdateIndexStep(file_store=store, persist=False, app_context=app_ctx)
 
                 async def source_keeps_changing(path: Path):
-                    raise FileChangedDuringChunkingError("source keeps changing")
+                    raise FileChangedError("source keeps changing")
 
                 with patch.object(step, "build_item", side_effect=source_keeps_changing) as build_item:
-                    with pytest.raises(FileChangedDuringChunkingError, match="after bounded retries"):
+                    with pytest.raises(FileChangedError, match="after bounded retries"):
                         await step(
                             RuntimeContext(
                                 changes=[{"change": "added", "path": str(source)}],
@@ -2229,7 +2229,7 @@ async def test_auto_memory_reports_unreadable_index_after_durable_note_write():
         )
         wrapper.on_reply = lambda *_: note.write_text(new_note_text, encoding="utf-8")
         step = AutoMemoryStep(app_context=app_ctx, agent_wrapper=wrapper)
-        step.file_store = SimpleNamespace(workspace_path=cwd)
+        app_ctx.components = {"file_store": {"default": SimpleNamespace(workspace_path=cwd)}}
         step._save_session_messages = save_session
         step._list_session_note = list_note
         step._ensure_session_frontmatter = ensure_frontmatter

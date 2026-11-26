@@ -5,8 +5,9 @@ from collections.abc import AsyncGenerator
 
 import httpx
 
+from ...constants import OPENAPI_SCHEMA_PATH, REME_SSE_DONE_MARKER, SSE_MEDIA_TYPE
 from .base_client import BaseClient
-from ..component_registry import R
+from ...core.registry import R
 from ...enumeration import ChunkEnum
 from ...schema import StreamChunk
 
@@ -48,12 +49,12 @@ class HttpClient(BaseClient):
             resp.raise_for_status()
             ctype = resp.headers.get("content-type", "")
 
-            if ctype.startswith("text/event-stream"):
+            if ctype.startswith(SSE_MEDIA_TYPE):
                 async for line in resp.aiter_lines():
                     if not line.startswith("data:"):
                         continue
                     data_str = line[len("data:") :]
-                    if data_str.strip() == "[DONE]":
+                    if data_str.strip() == REME_SSE_DONE_MARKER:
                         yield StreamChunk(chunk_type=ChunkEnum.DONE, chunk="", done=True)
                         return
                     data = json.loads(data_str)
@@ -74,7 +75,7 @@ class HttpClient(BaseClient):
         """Return raw OpenAPI operations; each dict gets an `action` key (path without leading '/')."""
         if self.client is None:
             raise RuntimeError("Client not initialized. Call _start() first.")
-        resp = await self.client.get("/openapi.json")
+        resp = await self.client.get(OPENAPI_SCHEMA_PATH)
         resp.raise_for_status()
         spec = resp.json()
         actions: list[dict] = []
@@ -87,7 +88,7 @@ class HttpClient(BaseClient):
         """Render a JSON response as human-friendly CLI text; pass through unrecognized payloads."""
         try:
             data = json.loads(text)
-        except (ValueError, json.JSONDecodeError):
+        except ValueError:
             return text
         if not (isinstance(data, dict) and isinstance(data.get("answer"), str)):
             return json.dumps(data, indent=2, ensure_ascii=False) if isinstance(data, (dict, list)) else text

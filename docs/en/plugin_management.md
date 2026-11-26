@@ -35,8 +35,8 @@ PLUGIN    DISTRIBUTION   VERSION  FORMAT
 auto-fin  reme-auto-fin  X.Y.Z    manifest
 ```
 
-`manifest` plugins use the current package-level `plugin.yaml` contract. `legacy` plugins use the compatible Python
-descriptor contract.
+`manifest` plugins use a package-only entry point and a package-level `plugin.yaml`.
+`unsupported` identifies entry points that do not meet this contract.
 
 A manifest separates backend registration from application configuration:
 

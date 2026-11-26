@@ -12,8 +12,15 @@ from ..code.snapshot import tree
 from ..preparation.code import git
 from ..preparation.data.models import fingerprint
 from .artifacts import contained, read_json
-from .inputs import load_inputs, replay_sampling_eligibility, reuse_inputs
-from .repetition import previous_candidate_result
+from .inputs import (
+    EvaluationSpec,
+    load_reuse_source,
+    reuse_inputs,
+    select_cases,
+    validate_replay_answers,
+    validate_reuse_fingerprints,
+    validate_snapshot,
+)
 
 AUTO_MEMORY_FILENAMES = {
     "auto_memory.py",
@@ -43,59 +50,269 @@ def construction_fingerprints(record, dataset, spec, environment):
     }
 
 
-def reuse_context(home, spec, environment):
-    """Find the nearest valid ancestor before review or sampling, under the workspace lock."""
-    repo, record, commit = validate_candidate(home)
-    identity = {"candidate_commit": commit, "branch_name": current_branch(repo)}
-    previous = previous_candidate_result(home, commit)
-    if previous is not None:
-        saved = read_json(contained(home, previous / "manifest.json")).get("automatic_construction_reuse")
-        # A managed branch may move to the same failed commit. Retain its
-        # commit-pinned review/draw while preserving the existing retry contract.
-        return {"recovery": {**saved, **identity}} if saved is not None else None
+def verify_candidate(home, commit, branch, *, checkout_branch=None):
+    """Check the prepared checkout while the caller holds the workspace lock."""
+    repo, record, current = validate_candidate(home)
+    if current == record["code"]["initial_commit"]:
+        actual_branch = "init" if checkout_branch is None else git(repo, "branch", "--show-current")
+    else:
+        actual_branch = current_branch(repo)
+    expected_branch = branch if checkout_branch is None else checkout_branch
+    if (current, actual_branch) != (commit, expected_branch):
+        raise ValueError("Candidate changed during equivalence review; retry evaluation on the reviewed commit")
+    return repo, record
+
+
+def reuse_context(home, spec, cases, fingerprints, commit, branch, *, replay_selection=False, targeted=False):
+    """Find compatible ancestors from saved metadata without opening any archives."""
+    repo, record = verify_candidate(home, commit, branch)
     if commit == record["code"]["initial_commit"]:
         return None
-    _, dataset, cases = load_inputs(home, spec)
-    fingerprints = construction_fingerprints(record, dataset, spec, environment)
+    parent = git(repo, "rev-parse", f"{commit}^1")
+    paired = replay_selection and parent != record["code"]["initial_commit"]
+    identity = {"candidate_commit": commit, "branch_name": branch, "parent_commit": parent}
     ancestors = set(git(repo, "rev-list", commit).splitlines()) - {commit}
+    distances = {}
     candidates = []
     for path in sorted((home / "evaluations").glob("*/*/*/manifest.json")):
         try:
             manifest = read_json(contained(home, path))
-            base = manifest.get("commit_sha")
-            if base not in ancestors:
+            if not isinstance(manifest, dict):
                 continue
-            summary = read_json(contained(home, path.parent / "summary.json"))
+            base = manifest.get("commit_sha")
             if (
-                manifest.get("mode") != "scored"
+                base not in ancestors
+                or manifest.get("mode") != "scored"
+                or manifest.get("dataset_kind") != "training-set"
+                or manifest.get("status") != "completed"
                 or manifest.get("success") is False
-                or summary.get("case_status_counts", {}).get("infra_error", 0)
-                or summary.get("query_status_counts", {}).get("infra_error", 0)
             ):
                 continue
-            distance = int(git(repo, "rev-list", "--count", f"{base}..{commit}"))
-            candidates.append((distance, str(path.parent), base))
+            source_fingerprints = manifest.get("fingerprints")
+            if not isinstance(source_fingerprints, dict) or any(
+                source_fingerprints.get(key) != fingerprints[key] for key in ("dataset", "construction_config")
+            ):
+                continue
+            summary = read_json(contained(home, path.parent / "summary.json"))
+            if not isinstance(summary, dict):
+                continue
+            counts = [summary.get(key, {}) for key in ("case_status_counts", "query_status_counts")]
+            if any(not isinstance(value, dict) or value.get("infra_error", 0) for value in counts):
+                continue
+            if base not in distances:
+                distances[base] = int(git(repo, "rev-list", "--count", f"{base}..{commit}"))
+            case_ids = _reusable_case_hints(summary.get("cases")) if targeted else ()
+            candidates.append((distances[base], str(path.parent), base, case_ids))
         except (OSError, ValueError, KeyError, TypeError):
             continue
-    # Validate expensive archive checksums only in ancestry order, stopping at
-    # the nearest usable source instead of re-reading every historical archive.
-    for _, source, base in sorted(candidates):
+    candidates.sort(key=lambda entry: entry[:3])
+    # A summary only nominates a source. Archive and answer checks happen after sampling.
+    candidate_sources = {}
+    for _, path, _, case_ids in candidates:
+        for case_id in case_ids:
+            candidate_sources.setdefault(case_id, path)
+    return {
+        "context": identity,
+        "spec": spec,
+        "cases": cases,
+        "fingerprints": fingerprints,
+        "sources": [(path, base) for _, path, base, _ in candidates],
+        "candidate_sources": candidate_sources if targeted else None,
+        "paired_replay": paired,
+    }
+
+
+def _reusable_case_hints(rows):
+    """Use the summary to nominate cases with a full build and successful answers."""
+    if not isinstance(rows, dict):
+        return []
+    return [
+        case_id
+        for case_id, row in rows.items()
+        if isinstance(row, dict)
+        and isinstance(build := row.get("construction"), dict)
+        and build.get("status") == "success"
+        and row.get("queries")
+        and not row.get("query_error_count")
+    ]
+
+
+def reuse_response(reuse):
+    """Expand derived tool response fields in their usual order."""
+    response = {}
+    for key, value in reuse.items():
+        if key == "probability_selected":
+            response["probability_scope"] = "all_cases"
+        response[key] = value
+        if key == "source_validation":
+            report = reuse.get("source_reviews", {}).get(value, {}).get("equivalence_report")
+            if report is not None:
+                response["equivalence_report"] = report
+            elif reuse["case_sources"]:
+                raise ValueError(f"Missing construction-equivalence report for replay: {value}")
+    response["reuse_reasons"] = {case_id: "60_percent_policy" for case_id in reuse["case_sources"]}
+    return response
+
+
+def _replay_selection(spec, cases, manifest):
+    """Keep one historical question set intact, within the current sampling limits."""
+    case_ids, query_ids = manifest["case_ids"], manifest["query_ids"]
+    if not case_ids or set(query_ids) != set(case_ids):
+        return None
+    policy = spec.sampling_policy
+    if len(case_ids) > policy.max_cases or (
+        policy.max_queries is not None and sum(len(ids) for ids in query_ids.values()) > policy.max_queries
+    ):
+        return None
+    selection = {"case_ids": case_ids, "query_ids": query_ids}
+    selection_spec = type(spec).model_validate(
+        {**spec.model_dump(), "sampling": False, "target_queries": None, **selection},
+    )
+    selected = select_cases({case.case_id: case for case in cases}, selection_spec.case_ids, selection_spec.query_ids)
+    return selected, selection
+
+
+def prepare_source(home, spec, cases, fingerprints, context, *, paired=False):
+    """Validate candidate snapshots, requiring every case for a paired replay."""
+    path = context["source_validation"]
+    source_spec = spec.model_copy(update={"reuse_construction_from": path})
+    try:
+        source, manifest = load_reuse_source(home, path, fingerprints)
+        if manifest["commit_sha"] != context["base_commit"]:
+            return None
+        if paired:
+            replay = _replay_selection(spec, cases, manifest)
+            if replay is None:
+                return None
+            cases, selection = replay
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    reusable, hashes = [], {}
+    for case in cases:
         try:
-            source_spec = spec.model_copy(update={"reuse_construction_from": source})
-            eligible = replay_sampling_eligibility(home, source_spec, cases)
-            reusable = [case for case in cases if case.case_id in eligible]
-            if not reusable or (not spec.sampling and len(reusable) != len(cases)):
-                continue
-            reuse_inputs(home, source_spec, reusable, fingerprints)
-            return {
-                "context": {**identity, "base_commit": base, "source_validation": source},
-                "spec": source_spec,
-                "cases": reusable,
-                "fingerprints": fingerprints,
-            }
+            _, sha = validate_snapshot(source, case.case_id, spec.max_artifact_bytes)
+            validate_replay_answers(source, case.case_id)
         except (OSError, ValueError, KeyError, TypeError, tarfile.TarError):
+            if paired:
+                return None
             continue
-    return {**identity, "selected": False, "reason": "no_reusable_ancestor", "policy": "automatic_60_percent"}
+        reusable.append(case)
+        hashes[case.case_id] = sha
+    if not reusable:
+        return None
+    prepared = {
+        "context": {**context, "workspace_sha256": hashes},
+        "spec": source_spec,
+        "cases": reusable,
+        "fingerprints": fingerprints,
+    }
+    if paired:
+        prepared["replay_selection"] = selection
+    return prepared
+
+
+def case_reuse_inputs(home, spec, cases, fingerprints, sources, *, previous=None):
+    """Resolve a frozen per-case source map without substituting another snapshot."""
+    by_id = {case.case_id: case for case in cases}
+    if set(sources) - by_id.keys():
+        raise ValueError("Construction sources contain unselected cases")
+    if previous is not None and sources:
+        validate_reuse_fingerprints(read_json(contained(previous, "manifest.json")), fingerprints)
+    resolved, archives, groups = {}, {}, {}
+    for case_id, source in sources.items():
+        if previous is not None and source.get("workspace_sha256"):
+            try:
+                archive, sha = validate_snapshot(previous, case_id, spec.max_artifact_bytes)
+                result = read_json(archive.parent / "result.json")
+                if (
+                    sha != source["workspace_sha256"]
+                    or result.get("source") != source
+                    or result.get("source_workspace_sha256") != sha
+                ):
+                    raise ValueError("Retained construction snapshot provenance mismatch")
+                resolved[case_id], archives[case_id] = source, (archive, sha)
+                continue
+            except (OSError, ValueError, KeyError, tarfile.TarError):
+                pass  # Fall back only to the same pinned original snapshot.
+        groups.setdefault(source["result_dir"], []).append(by_id[case_id])
+    for path, selected in groups.items():
+        source, snapshots = reuse_inputs(
+            home,
+            spec.model_copy(update={"reuse_construction_from": path}),
+            selected,
+            fingerprints,
+        )
+        for case in selected:
+            if source["commit_sha"] != sources[case.case_id]["commit_sha"]:
+                raise ValueError("Construction source commit changed")
+            expected_sha = sources[case.case_id].get("workspace_sha256")
+            if expected_sha is not None and snapshots[case.case_id][1] != expected_sha:
+                raise ValueError(f"Construction source changed after review: {case.case_id}")
+            resolved[case.case_id] = sources[case.case_id]
+        archives.update(snapshots)
+    return resolved, archives
+
+
+def verify_case_reuse(_home, run, manifest, commit):
+    """Accept mixed evidence only when every reused case has host-reviewed provenance."""
+    sources = manifest["construction_sources"]
+    selected = manifest.get("case_ids", [])
+    reuse = manifest.get("automatic_construction_reuse", {})
+    expected_mode = "query_only_replay" if set(sources) == set(selected) else "mixed_validation"
+    if not all(
+        (
+            bool(sources),
+            not set(sources) - set(selected),
+            manifest.get("execution_mode") == expected_mode,
+            reuse.get("selected") is True,
+            reuse.get("policy") == "automatic_60_percent",
+            reuse.get("candidate_commit") == commit,
+            reuse.get("branch_name") == manifest.get("branch_name"),
+            reuse.get("case_sources") == sources,
+        ),
+    ):
+        raise ValueError("Reused evidence requires host-selected per-case construction sources")
+    targets = set(manifest.get("target_selection", {}).get("retained_case_ids", []))
+    if targets != set(reuse.get("target_case_ids", [])) or reuse.get("probability_selected") is not True:
+        raise ValueError("Reused cases require matching targets and a successful host probability draw")
+    for case_id, source in sources.items():
+        group = reuse.get("source_reviews", {}).get(source["result_dir"], {})
+        report = group.get("equivalence_report", {})
+        if not all(
+            (
+                case_id in group.get("case_ids", []),
+                report.get("decision") == "construction_unchanged",
+                group.get("candidate_commit") == commit,
+                report.get("candidate_commit") == commit,
+                group.get("base_commit") == source["commit_sha"],
+                report.get("base_commit") == source["commit_sha"],
+                group.get("source_validation") == source["result_dir"],
+                report.get("source_validation") == source["result_dir"],
+                source.get("workspace_sha256") is not None,
+                report.get("workspace_sha256", {}).get(case_id) == source.get("workspace_sha256"),
+            ),
+        ):
+            raise ValueError(f"Case {case_id} lacks matching construction-equivalence evidence")
+    spec = EvaluationSpec.model_validate(manifest.get("options", {}))
+    for case_id in selected:
+        folder = contained(run, f"cases/{case_id}/memory_construction", directory=True)
+        result = read_json(folder / "result.json")
+        if case_id not in sources:
+            if result.get("status") == "reused":
+                raise ValueError(f"Case {case_id} has an undeclared reused snapshot")
+            continue
+        expected_sha = sources[case_id].get("workspace_sha256")
+        if (
+            result.get("success") is not True
+            or result.get("status") != "reused"
+            or result.get("source") != sources[case_id]
+            or result.get("workspace_sha256") != expected_sha
+            or result.get("source_workspace_sha256", expected_sha) != expected_sha
+        ):
+            raise ValueError(f"Case {case_id} has mismatched construction snapshot provenance")
+        _, actual_sha = validate_snapshot(run, case_id, spec.max_artifact_bytes)
+        if actual_sha != expected_sha:
+            raise ValueError(f"Case {case_id} has mismatched construction snapshot provenance")
 
 
 def changed_auto_memory_files(home, context):
@@ -134,17 +351,11 @@ def select_query_only():
     return {"probability": 0.6, "draw": draw, "selected": draw < 0.6}
 
 
-async def automatic_reuse(wrapper, home, prepared, *, memory_limit_mib=None):
-    """Automatic failures rebuild; only a sandboxed unchanged review permits a probability draw."""
+async def _review_source(wrapper, home, prepared, *, memory_limit_mib=None):
+    """Review one source without drawing a separate probability for each case."""
     from ..agent.construction_equivalence import review_construction
     from ..agent.workflow_common import save_record
 
-    if prepared is None:
-        return None
-    if "recovery" in prepared:
-        return prepared["recovery"]
-    if "context" not in prepared:
-        return prepared
     context = prepared["context"]
     changed = await blocking(changed_auto_memory_files, home, context)
     if changed:
@@ -164,14 +375,96 @@ async def automatic_reuse(wrapper, home, prepared, *, memory_limit_mib=None):
             prepared["fingerprints"],
             memory_limit_mib=memory_limit_mib,
         )
-    selection = {**context, "policy": "automatic_60_percent", "equivalence_report": report, "selected": False}
-    if report["decision"] == "construction_unchanged":
-        selection.update(select_query_only())
+    return report
+
+
+async def automatic_reuse(wrapper, home, prepared, *, memory_limit_mib=None, cases=None):
+    """Review the selected snapshots, then draw once for all authorized cases."""
+    if prepared is None:
+        return None
+    context = prepared["context"]
+    requested_cases = prepared["cases"] if cases is None else cases
+    candidate_sources = prepared["candidate_sources"]
+    selection = {
+        **context,
+        "policy": "automatic_60_percent",
+        "selected": False,
+        "source_reviews": {},
+        "case_sources": {},
+        "target_case_ids": [],
+        "probability_selected": None,
+    }
+    pending = {case.case_id: case for case in requested_cases}
+    approved = {}
+    for path, base in prepared["sources"]:
+        if not pending:
+            break
+        selected = list(pending.values())
+        if candidate_sources is not None:
+            selected = [case for case in selected if candidate_sources.get(case.case_id) == path]
+            # Budget one candidate snapshot per case. Failed reviews or stale
+            # hints fall back to construction without checking more archives.
+            for case in selected:
+                pending.pop(case.case_id)
+        if not selected:
+            continue
+        group = await blocking(
+            prepare_source,
+            home,
+            prepared["spec"],
+            selected,
+            prepared["fingerprints"],
+            {**context, "base_commit": base, "source_validation": path},
+            paired=prepared["paired_replay"],
+        )
+        if group is None:
+            continue
+        report = await _review_source(wrapper, home, group, memory_limit_mib=memory_limit_mib)
+        group_context = group["context"]
+        if "source_validation" not in selection:
+            selection.update(group_context)
+        selection["source_reviews"][path] = {
+            **group_context,
+            "case_ids": [case.case_id for case in group["cases"]],
+            "equivalence_report": report,
+        }
+        if report["decision"] == "construction_unchanged":
+            if not approved:
+                selection.update(group_context)
+            for case in group["cases"]:
+                approved[case.case_id] = {
+                    "result_dir": path,
+                    "commit_sha": group_context["base_commit"],
+                    "workspace_sha256": group_context["workspace_sha256"][case.case_id],
+                }
+                pending.pop(case.case_id, None)
+            if prepared["paired_replay"]:
+                selection["replay_selection"] = group["replay_selection"]
+                break
+    if approved:
+        draw = select_query_only()
+        selection.update({key: value for key, value in draw.items() if key != "selected"})
+        selection["probability_selected"] = draw["selected"]
+        if draw["selected"]:
+            selection["case_sources"].update(approved)
+        selection["selected"] = bool(selection["case_sources"])
         selection["reason"] = (
             "query_only_selected_by_60_percent_policy"
             if selection["selected"]
-            else ("full_validation_selected_by_60_percent_policy")
+            else "full_validation_selected_by_60_percent_policy"
         )
     else:
-        selection["reason"] = "construction_not_equivalent"
+        selection["reason"] = "construction_not_equivalent" if selection["source_reviews"] else "no_reusable_ancestor"
+    rebuild_reason = (
+        "no_reusable_ancestor" if selection["reason"] == "no_reusable_ancestor" else "no_compatible_reviewed_snapshot"
+    )
+    selection["rebuild_reasons"] = {
+        case.case_id: (
+            "full_validation_selected_by_60_percent_policy"
+            if case.case_id in approved and selection["probability_selected"] is False
+            else rebuild_reason
+        )
+        for case in requested_cases
+        if case.case_id not in selection["case_sources"]
+    }
     return selection

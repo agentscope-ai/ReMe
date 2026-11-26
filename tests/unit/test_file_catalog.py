@@ -9,7 +9,7 @@ import pytest
 
 from reme.components.file_catalog import LocalFileCatalog
 from reme.schema import FileNode
-from reme.utils.jsonl_zst import write_jsonl_zst
+from reme.utils.files.jsonl_zst import write_jsonl_zst
 
 
 def make_node(path: str, mtime: float = 1.0) -> FileNode:

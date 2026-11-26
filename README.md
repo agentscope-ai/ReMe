@@ -33,6 +33,8 @@
 such as QwenPaw and DeepSeek Harness can share the same workspace to retrieve, maintain, and evolve knowledge, while
 users retain control of the durable files.
 
+The **Proactive Runtime** uses that memory in ongoing tasks. It schedules work from new events or a cron expression, delegates execution to an agent runtime such as Codex, and records results and reminders in the workspace.
+
 - **Memory as File, File as Memory**: ReMe stores durable memory as ordinary Markdown with frontmatter and wikilinks.
   Users and agents can inspect, edit, move, sync, and back it up with familiar tools, while indexes and generated
   metadata remain rebuildable.
@@ -51,6 +53,15 @@ users retain control of the durable files.
 
 <!-- Keep at most 5 updates expanded; move older entries into the collapsed section below. -->
 
+- [ROADMAP] - **[ReMe5 Preview — Proactive Runtime](docs/en/reme5_preview.md)**. ReMe puts file-native memory at
+  the core of its event-triggered and time-triggered agents. Give ReMe a task to follow, and it will record new developments
+  and let you know when your attention is needed. We aim to release ReMe5 **by the end of 2026**. Read the preview
+  for the design, development plan, and milestones.
+- [2026.11] - **`NEW`** **[HoMe](https://reme.agentscope.io/en/blog_20261124) code released**: the implementation of our
+  [HoMe paper](https://arxiv.org/abs/2611.34624) is now available as a ReMe plugin. It uses evaluation feedback to
+  diagnose failures and automatically optimize memory systems. On the LongMemEval test set and BEAM 1M, scores improve
+  by 2.8pp and 5.4pp, while average query-time tokens drop by 59.2% and 40.7%, respectively.
+- [2026.11] - **`NEW`** We released our paper **[HoMe: Toward Practical Harness Optimization of Memory Systems for AI Assistants](https://arxiv.org/abs/2611.34624)**.
 - [2026.10] - **[Decision-model context compaction](docs/en/context_compaction.md)**: score old tool calls and results
   against the next action, preserve protected history, and return a recoverable compaction proposal. Includes an SVG
   walkthrough, two live-model integration scenarios, and a 14-query fixed-summary Top-N benchmark with a forced Hermes summary baseline.
@@ -60,24 +71,15 @@ users retain control of the durable files.
   [72.49% on MemLens-256K](benchmark/memlens/docs/en/evaluation.md) and
   [60.69% on MobileMem](benchmark/mobilemem/docs/en/evaluation.md) in LLM-Judge accuracy; the reports also cover Kimi
   and DeepSeek.
-- [2026.10] - **[ReMe Studio Playground](https://reme.agentscope.io/studio/?lang=en) is live**: explore example memory
-  files, edit Markdown, and browse linked memory graphs right in your browser—no installation or backend required.
-  Everyone is welcome to [try it out](https://reme.agentscope.io/studio/?lang=en)!
-
-  <p align="center">
-    <a href="https://reme.agentscope.io/studio/?lang=en">
-      <img src="https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/studio-overview.png" alt="ReMe Studio workspace preview — click to try the Playground" width="480" style="margin: 0 auto;">
-    </a>
-  </p>
-
 - [2026.09] - **[ReMe Memory Tags](https://reme.agentscope.io/en/blog_20260920) published**: an introduction
   to file-native entity tags, rebuildable tag indexes, and tag-filtered memory search.
-- [2026.09] - **[Hermes Agent memory provider](https://reme.agentscope.io/en/integrations/hermes) available**: choose HTTP or embedded
-  mode for automatic recall before model calls and asynchronous `auto_memory` after completed turns. The integration
-  supports Hermes Agent 0.21+ and includes profile-aware background work.
 
 <details>
 <summary>More updates</summary>
+
+- [2026.09] - **[Hermes Agent memory provider](https://reme.agentscope.io/en/integrations/hermes) available**: choose HTTP or embedded
+  mode for automatic recall before model calls and asynchronous `auto_memory` after completed turns. The integration
+  supports Hermes Agent 0.21+ and includes profile-aware background work.
 
 - [2026.09] - **[OpenClaw plugin](https://reme.agentscope.io/en/integrations/openclaw) released**: install it from
   [ClawHub](https://clawhub.ai/agentscope-ai/plugins/reme-openclaw-plugin) or
@@ -122,7 +124,7 @@ Install from source:
 ```bash
 git clone https://github.com/agentscope-ai/ReMe.git
 cd ReMe
-pip install -e reme_studio -e ".[core]"
+pip install -e reme_studio/web/python -e ".[core]"
 cd reme_studio
 npm ci
 npm run build:static
@@ -233,9 +235,9 @@ Related: [[digest/wiki/memory-as-file.md]]
 
 ### ReMe Studio (Optional)
 
-The `core` installation includes Studio. After starting ReMe, open <http://127.0.0.1:2333/> to browse, edit, and search
-the workspace. To add Studio to a base installation, use `pip install "reme-ai[web]"`. See the
-[ReMe Studio guide](https://reme.agentscope.io/en/workspace/studio) for source builds, configuration, and development.
+The `core` installation includes Studio. Run `reme start config=proactive`, then open <http://127.0.0.1:2333/> for
+Remy, Proactive AI, Notebook, and Knowledge. To add Studio to a base installation, use `pip install "reme-ai[web]"`. See the
+[ReMe Studio guide](https://github.com/agentscope-ai/ReMe/blob/main/reme_studio/README.md) for source builds and development.
 
 ## 🤝 Use ReMe with Your Agent
 
@@ -250,6 +252,7 @@ lifecycle according to the capabilities of each runtime.
 | **QwenPaw**                    | Embed ReMe in-process through its Python API.                                                                                            | Reuse the host lifecycle and model config while keeping memory local and file-based.                    |
 | **Claude Code** | Start ReMe, then install the [Claude Code plugin](integrations/claude_code/README.md). | Automatic recall, batched completed-turn recording, and MCP tools. |
 | **Qoder** | Start ReMe, then install the [Qoder plugin](integrations/qoder/README.md). | Automatic recall, retryable completed-turn recording, MCP tools, and the bundled skill. |
+| **ZCode** | Start ReMe, then install the [ZCode plugin](integrations/zcode/README.md). | Automatic recall, detached retryable recording, MCP tools, and the bundled skill. |
 | **Hermes**                     | Install [the ReMe provider](https://reme.agentscope.io/en/integrations/hermes) and choose HTTP or embedded mode.                         | Recall before model calls and asynchronous `auto_memory` after each completed turn.                     |
 | **Codex** | Start ReMe, then install the [Codex plugin](integrations/codex/README.md). | Native hooks for automatic recall and batched recording, plus MCP tools. |
 | **Other CLI agents** | Install or copy the [ReMe Memory skill](skills/reme_memory/SKILL.md). | Search, read, and write memory through the CLI. |
@@ -372,13 +375,24 @@ ReMe evaluates multi-session and long-context text and multimodal memory with ag
 published reference runs in this repository; model, prompt, dataset, and judging details are documented with each
 benchmark.
 
+### Long-Horizon Memory
+
+| Benchmark                                                                   | Setting      |              Sample size | Agentic score; avg. query tokens | Focus                                                              |
+| --------------------------------------------------------------------------- | ------------ | -----------------------: | ------------: | ------------------------------------------------------------------ |
+| **[LongMemEval cleaned-s](https://reme.agentscope.io/en/benchmarks/longmemeval)** | **Overall**  |        **500 questions** |     **89.4% / 44.3K** | Cross-session retrieval, knowledge updates, and temporal reasoning |
+| [BEAM](https://reme.agentscope.io/en/benchmarks/beam)                             | 100K context | 20 cases / 400 questions |         66.1% / 65.0K | Ten types of long-context memory tasks                             |
+| [BEAM](https://reme.agentscope.io/en/benchmarks/beam)                             | 1M context   | 35 cases / 700 questions |         65.0% / 101.8K | Ultra-long conversation settings                                   |
+| [LongMemEval cleaned-s](https://reme.agentscope.io/en/benchmarks/longmemeval) | Optimized by HoMe | 250 test questions | 91.6% / 17.9K | HoMe-optimized memory system |
+| [BEAM](https://reme.agentscope.io/en/benchmarks/beam) | 1M context, optimized by HoMe on Beam100K | 35 cases / 700 questions | 70.4% / 60.4K | HoMe-optimized memory system |
+
+### Multimodal Memory
+
 | Benchmark                                                                   | Setting      |              Sample size | Agentic score | Focus                                                              |
 | --------------------------------------------------------------------------- | ------------ | -----------------------: | ------------: | ------------------------------------------------------------------ |
-| **[LongMemEval cleaned-s](https://reme.agentscope.io/en/benchmarks/longmemeval)** | **Overall**  |        **500 questions** |     **89.4%** | Cross-session retrieval, knowledge updates, and temporal reasoning |
-| [BEAM](https://reme.agentscope.io/en/benchmarks/beam)                             | 100K context | 20 cases / 400 questions |         66.1% | Ten types of long-context memory tasks                             |
-| [BEAM](https://reme.agentscope.io/en/benchmarks/beam)                             | 1M context   | 35 cases / 700 questions |         65.0% | Ultra-long conversation settings                                   |
 | [MemLens-256K](benchmark/memlens/docs/en/evaluation.md) | ReMe Image · Qwen3.8-Max | 189 / 195 questions | 72.49% | Multimodal long-history question answering |
 | [MobileMem-Omni](benchmark/mobilemem/docs/en/evaluation.md) | ReMe Image · Qwen3.8-Max | 20 users / 1,333 questions | 60.69% | Personal visual memory and reasoning |
+
+### Proactive Memory
 
 ReMe also achieved a **0.580 PROC score across five user personas** in the repository's
 [π-Bench evaluation](https://reme.agentscope.io/en/benchmarks/pibench), 2.4% above NanoBot under the same test-model configuration. PROC
@@ -414,10 +428,11 @@ These guides cover the main user workflows and the runtime contracts implemented
 | [Auto Dream](https://reme.agentscope.io/en/auto_dream) and [Auto Link](https://reme.agentscope.io/en/auto_link) | Consolidate daily notes into evolving digest nodes and readable wikilink relationships.             |
 | [Memory Search](https://reme.agentscope.io/en/memory_search)                                 | Use BM25, optional vectors, RRF fusion, line-range recall, and progressive link expansion.          |
 | [Proactive](https://reme.agentscope.io/en/proactive)                                         | Read interest topics safely and integrate them into a host agent's decision flow.                   |
+| [Proactive Runtime](https://reme.agentscope.io/en/proactive_runtime) | Use long-term memory to follow tasks, act on events and schedules, and deliver reminders. |
 | [Application Scenarios](https://reme.agentscope.io/en/reme_scene)                            | Follow concrete financial research, coding-memory, and personal knowledge-base examples.           |
 | [Framework](https://reme.agentscope.io/en/framework)                                         | Understand Application, Job, Step, Component, service, configuration, and lifecycle boundaries.     |
-| [Agent Integrations](https://reme.agentscope.io/en/integrations)                             | Choose an interface and connect DSH, Claude Code, Codex, Qoder, OpenClaw, Hermes, or another agent. |
-| [DSH plugin](https://reme.agentscope.io/en/integrations/dsh), [Claude Code plugin](https://reme.agentscope.io/en/integrations/claude-code), and [Qoder plugin](https://reme.agentscope.io/en/integrations/qoder) | Configure host-native recall, automatic capture, consolidation, and diagnostics. |
+| [Agent Integrations](https://reme.agentscope.io/en/integrations)                             | Choose an interface and connect DSH, Claude Code, Codex, Qoder, ZCode, OpenClaw, Hermes, or another agent. |
+| [DSH plugin](https://reme.agentscope.io/en/integrations/dsh), [Claude Code plugin](https://reme.agentscope.io/en/integrations/claude-code), [Qoder plugin](https://reme.agentscope.io/en/integrations/qoder), and [ZCode plugin](https://reme.agentscope.io/en/integrations/zcode) | Configure host-native recall, automatic capture, consolidation, and diagnostics. |
 | [CLI and Job API](https://reme.agentscope.io/en/reference/cli)                               | Learn command syntax and use the generated default Job parameter reference.                         |
 | [Operations and Recovery](https://reme.agentscope.io/en/operations)                          | Diagnose services, maintain indexes, and back up, migrate, or recover a workspace.                   |
 | [ReMe Blog](https://reme.agentscope.io/en/reme-blog)                      | Read the product story, design rationale, examples, and benchmark summary.                           |

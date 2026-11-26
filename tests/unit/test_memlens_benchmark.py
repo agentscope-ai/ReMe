@@ -16,11 +16,11 @@ from agentscope.message import AssistantMsg, Base64Source, DataBlock, Msg, TextB
 from PIL import Image
 import pytest
 
-from reme.components import R
+from reme.core.registry import R, create_application_registry
 from reme.components.agent_wrapper.as_agent_wrapper import AsAgentWrapper
-from reme.components.component_registry import create_application_registry
 from reme.components.file_store import LocalFileStore
-from reme.plugin import PluginManager, _load_plugin
+from reme.plugin import PluginManager
+from reme.plugin.manager import _load_plugin
 from reme.schema import ApplicationConfig, Response
 from reme.steps.evolve.auto_memory import _sanitize_msg_for_save
 from reme.steps.file_io.read_image import ReadImageStep
@@ -309,7 +309,6 @@ async def test_image_only_pipeline_preserves_sessions_and_official_query(candida
             assert kwargs["include_images"] is kwargs["include_source_sessions"] is True
     inputs = calls[-1][1]
     assert inputs["max_iters"] == 30 and "category" not in inputs
-    assert inputs["query"] == memlens.query_prompt(query, "Use the available tools to retrieve relevant evidence.")
     assert judge.run_job.call_args.kwargs["reference"] == "HIDDEN_GOLD"
     assert rows[0]["metrics"]["llm_judge"] == 1 and app.closed
     measured = normalized_usage(

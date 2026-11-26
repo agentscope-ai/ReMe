@@ -7,6 +7,14 @@ from pathlib import PurePosixPath, PureWindowsPath
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ..enumeration import component_type_name
+from .event import Event
+
+
+def _default_timezone() -> str:
+    """Use the system's IANA timezone when it can be resolved."""
+    from ..utils.timezone_utils import default_timezone_name
+
+    return default_timezone_name()
 
 
 class ComponentConfig(BaseModel):
@@ -23,6 +31,10 @@ class JobConfig(ComponentConfig):
     description: str = Field(default="", description="Human-readable description")
     parameters: dict = Field(default_factory=dict, description="Job-level parameters")
     steps: list[ComponentConfig] = Field(default_factory=list, description="Ordered step configs")
+    init_steps: list[ComponentConfig] = Field(
+        default_factory=list,
+        description="Cron-only steps run before entering the schedule; must be idempotent for supervisor retries",
+    )
     enable_serve: bool = Field(default=True, description="Whether to expose this job through the service layer")
     enabled: bool = Field(default=True, description="Whether to start, serve, and allow execution of this job")
     track_execution: bool | None = Field(
@@ -49,10 +61,16 @@ class ApplicationConfig(BaseModel):
     # dialog_dir was removed; standard transcripts are always derived as ``{session_dir}/dialog``.
     mem_session_dir: str = Field(default="mem_session", description="Subdirectory for persisted agent sessions")
     resource_dir: str = Field(default="resource", description="Subdirectory for external assets")
+    reme_agent_dir: str = Field(default="reme_agents", description="Subdirectory for application-owned agents")
     daily_dir: str = Field(default="daily", description="Subdirectory for daily memory")
     digest_dir: str = Field(default="digest", description="Subdirectory for digest memory")
+    notebook_dir: str = Field(default="notebook", description="Workspace-relative subdirectory for Todo and Idea files")
     enable_logo: bool = Field(default=True, description="Show ASCII logo on startup")
-    timezone: str | None = Field(default="Asia/Shanghai", description="IANA timezone; None uses local time")
+    timezone: str | None = Field(
+        default_factory=_default_timezone,
+        description="IANA timezone. Defaults to the system timezone, with Asia/Shanghai as a fallback. "
+        "An explicit None uses process or host rules shared by dates and cron jobs.",
+    )
     language: str = Field(default="", description="Default language for LLM interactions")
     log_to_console: bool = Field(default=True, description="Log to console")
     log_to_file: bool = Field(default=True, description="Log to file")
@@ -66,6 +84,16 @@ class ApplicationConfig(BaseModel):
         default_factory=dict,
         description="Component registry keyed by type then name",
     )
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_local_timezone(cls, value: str | None) -> str | None:
+        """Validate an explicit process timezone before local-time jobs start."""
+        if value is None and "TZ" in os.environ:
+            from ..utils.timezone_utils import system_timezone
+
+            system_timezone()
+        return value
 
     @field_validator("components", mode="before")
     @classmethod
@@ -91,3 +119,9 @@ class ApplicationConfig(BaseModel):
         if PurePosixPath(path.replace("\\", "/")).is_absolute() or PureWindowsPath(path).anchor:
             raise ValueError("session_dir must be a workspace-relative path")
         return value
+
+    @field_validator("reme_agent_dir", "notebook_dir")
+    @classmethod
+    def validate_workspace_subdirectory(cls, value: str) -> str:
+        """Require a normalized workspace-relative subdirectory."""
+        return Event.validate_paths([value])[0]
