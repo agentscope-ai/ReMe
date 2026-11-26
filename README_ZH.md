@@ -54,10 +54,9 @@
 - [ROADMAP] - **[ReMe5 前瞻 · Proactive Runtime](docs/zh/reme5_preview.md)**。ReMe 将以文件化记忆为核心，
   支持事件驱动和定时 Agent。你可以把需要持续跟进的事交给 ReMe，有新进展时它会记下来，并在需要时提醒你。
   我们计划在 **2026 年底前**发布 ReMe5，欢迎先看我们的设计方案、开发计划和里程碑。
-- [2026.11] - **`NEW`** **[HoMe](https://reme.agentscope.io/zh/blog_20261124) 上线**：基于我们的 [HoMe 论文](https://arxiv.org/abs/2611.34624)，
-  通过 ReMe 插件，根据评测反馈自动分析失败原因并迭代改进记忆系统，实现自我优化。
-  相比基础插件，优化后的 LongMemEval 测试集 Score 从 0.888 提升至 0.916，平均 query token 降低 59.2%；
-  BEAM 1M Score 从 0.650 提升至 0.704，平均 query token 降低 40.7%。
+- [2026.11] - **`NEW`** **[HoMe](https://reme.agentscope.io/zh/blog_20261124) 代码现已发布**：[HoMe 论文](https://arxiv.org/abs/2611.34624)
+  的实现以 ReMe 插件形式提供，根据评测反馈自动诊断失败、优化记忆系统。LongMemEval 测试集与 BEAM 1M 得分分别提升
+  2.8pp 和 5.4pp，平均 query token 分别减少 59.2% 和 40.7%。
 - [2026.11] - **`NEW`** 我们发布了论文 **[HoMe: Toward Practical Harness Optimization of Memory Systems for AI Assistants](https://arxiv.org/abs/2611.34624)**。
 - [2026.10] - **[基于决策模型的上下文压缩](docs/zh/context_compaction.md)**：根据下一步任务判断旧工具证据的保留价值，
   保护关键历史，并返回可回溯的压缩建议；提供 SVG 流程图、两个真实模型集成场景和 14-query 固定摘要实验，包含强制 Hermes 摘要基线。
