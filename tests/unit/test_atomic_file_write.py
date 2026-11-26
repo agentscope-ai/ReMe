@@ -1,6 +1,7 @@
 """Memory writers publish complete files to concurrent index readers."""
 
 import asyncio
+import errno
 import os
 from pathlib import Path
 import stat
@@ -63,6 +64,38 @@ async def test_exclusive_write_preserves_existing_target(tmp_path):
         await write_file_safe(target, "second writer", exclusive=True)
 
     assert target.read_text(encoding="utf-8") == "first writer"
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["memory.md"]
+
+
+@pytest.mark.asyncio
+async def test_exclusive_write_falls_back_when_hard_links_are_unsupported(tmp_path, monkeypatch):
+    """Exclusive creation remains available on filesystems without hard links."""
+    target = tmp_path / "memory.md"
+
+    def unsupported_link(_source, _destination):
+        raise OSError(errno.EOPNOTSUPP, "hard links are unsupported")
+
+    monkeypatch.setattr(os, "link", unsupported_link)
+    await write_file_safe(target, "first writer", exclusive=True)
+
+    assert target.read_text(encoding="utf-8") == "first writer"
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["memory.md"]
+
+
+@pytest.mark.asyncio
+async def test_exclusive_write_fallback_preserves_a_concurrent_claim(tmp_path, monkeypatch):
+    """The fallback fails rather than replacing a path claimed after link failed."""
+    target = tmp_path / "memory.md"
+
+    def unsupported_link(_source, destination):
+        Path(destination).write_text("concurrent writer", encoding="utf-8")
+        raise OSError(errno.EOPNOTSUPP, "hard links are unsupported")
+
+    monkeypatch.setattr(os, "link", unsupported_link)
+    with pytest.raises(FileExistsError):
+        await write_file_safe(target, "second writer", exclusive=True)
+
+    assert target.read_text(encoding="utf-8") == "concurrent writer"
     assert sorted(path.name for path in tmp_path.iterdir()) == ["memory.md"]
 
 

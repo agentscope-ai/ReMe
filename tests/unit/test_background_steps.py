@@ -2278,7 +2278,7 @@ async def test_auto_memory_uses_message_day_for_historical_create():
             def write_historical_note(inputs, _kwargs):
                 assert f"Today: {historical_day}" in inputs
                 assert f"date={historical_day}" in inputs
-                assert "injected_job_kwargs" not in _kwargs
+                assert _kwargs["injected_job_kwargs"] == {"_trusted_session_id": "s1"}
                 write_file(
                     cwd / "daily" / historical_day / "memory.md",
                     "---\nname: memory\nsession_id: s1\n"

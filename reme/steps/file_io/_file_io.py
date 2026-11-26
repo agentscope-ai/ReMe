@@ -196,7 +196,33 @@ async def write_file_safe(
             if exclusive:
                 # Atomically publish without replacing a destination another
                 # writer may have created after our initial scan.
-                os.link(temporary, file_path)
+                try:
+                    os.link(temporary, file_path)
+                except FileExistsError:
+                    raise
+                except OSError:
+                    # Some filesystems do not support hard links. Claim the
+                    # name exclusively, then replace our placeholder with the
+                    # complete temporary file.
+                    claim_fd = os.open(file_path, flags | os.O_CREAT | os.O_EXCL, 0o666)
+                    try:
+                        claimed_stat = os.fstat(claim_fd)
+                    finally:
+                        os.close(claim_fd)
+                    try:
+                        os.replace(temporary, file_path)
+                    except BaseException:
+                        try:
+                            current_stat = os.stat(file_path, follow_symlinks=False)
+                        except FileNotFoundError:
+                            pass
+                        else:
+                            if (current_stat.st_dev, current_stat.st_ino) == (
+                                claimed_stat.st_dev,
+                                claimed_stat.st_ino,
+                            ):
+                                os.unlink(file_path)
+                        raise
             else:
                 os.replace(temporary, file_path)
         finally:

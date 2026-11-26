@@ -16,7 +16,12 @@ _RESERVED_METADATA_KEYS = {"name", "description", "session_id", "source_conversa
 
 @R.register("daily_write_step")
 class DailyWriteStep(_FileIOStep):
-    """Write a session-linked note, suffixing colliding names without overwriting another session."""
+    """Write a session-linked note, suffixing colliding names without overwriting another session.
+
+    The server injects a trusted session ID for ``auto_memory`` calls. Direct
+    tool or MCP callers without that server-owned value are responsible for
+    supplying a session ID they are authorized to update.
+    """
 
     def _session_dir(self) -> str:
         return normalize_posix_path(str(self.config_value("session_dir")))
