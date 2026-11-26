@@ -57,6 +57,7 @@
 - [2026.11] - **`NEW`** **[HoMe](https://reme.agentscope.io/zh/blog_20261124) 上线**：评测驱动的记忆系统自动优化框架，自动改进 ReMe 插件的代码、prompt 与配置，
   相比 ReMe 基础插件，在 LongMemEval 测试集（250 题）上，Score 提升 2.8 个百分点，平均 query token 降低 59.2%；
   在 BEAM 1M 上，Score 提升 5.4 个百分点，平均 query token 降低 40.7%。
+- [2026.11] - **`NEW`** 我们发布了论文 **[HoMe: Toward Practical Harness Optimization of Memory Systems for AI Assistants](https://arxiv.org/abs/2611.34624)**。
 - [2026.10] - **[基于决策模型的上下文压缩](docs/zh/context_compaction.md)**：根据下一步任务判断旧工具证据的保留价值，
   保护关键历史，并返回可回溯的压缩建议；提供 SVG 流程图、两个真实模型集成场景和 14-query 固定摘要实验，包含强制 Hermes 摘要基线。
 - [2026.10] - **[ReMe 多模态记忆更新](https://reme.agentscope.io/zh/blog_20261009)**：Auto Memory 将会话图片和上下文一起

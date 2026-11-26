@@ -58,6 +58,7 @@ The **Proactive Runtime** uses that memory in ongoing tasks. It schedules work f
   and let you know when your attention is needed. We aim to release ReMe5 **by the end of 2026**. Read the preview
   for the design, development plan, and milestones.
 - [2026.11] - **`NEW`** **[HoMe](https://reme.agentscope.io/en/blog_20261124) released**: an evaluation-driven framework that automatically optimizes the code, prompts, and configuration of ReMe plugins. Compared with the base ReMe plugins, HoMe raises the score on the LongMemEval test set by 2.8 percentage points and reduces average query-time tokens by 59.2%. On BEAM 1M, the score rises by 5.4 percentage points and average query-time tokens drop by 40.7%.
+- [2026.11] - **`NEW`** We released our paper **[HoMe: Toward Practical Harness Optimization of Memory Systems for AI Assistants](https://arxiv.org/abs/2611.34624)**.
 - [2026.10] - **[Decision-model context compaction](docs/en/context_compaction.md)**: score old tool calls and results
   against the next action, preserve protected history, and return a recoverable compaction proposal. Includes an SVG
   walkthrough, two live-model integration scenarios, and a 14-query fixed-summary Top-N benchmark with a forced Hermes summary baseline.
