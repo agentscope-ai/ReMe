@@ -23,7 +23,7 @@ declare global {
             method: string;
             body: string;
             accept: string;
-            authorization: string;
+            adminToken: string;
           }): Promise<{ status: number; contentType: string }>;
           postMessage(message: {
             action: "request.read";
@@ -110,7 +110,7 @@ export const iosFetch: typeof fetch | undefined =
         method: init?.method ?? "GET",
         body: init?.body ?? "",
         accept: incoming.get("accept") ?? "",
-        authorization: incoming.get("authorization") ?? "",
+        adminToken: incoming.get("x-reme-admin-token") ?? "",
       });
       signal?.throwIfAborted();
       const headers = contentType ? { "Content-Type": contentType } : undefined;

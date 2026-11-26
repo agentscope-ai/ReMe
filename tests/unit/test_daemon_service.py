@@ -18,6 +18,7 @@ import pytest
 import yaml
 from cryptography.fernet import Fernet
 from fastmcp import Client
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from reme.daemon.config import Profile, Settings, resolve_worker_config
 from reme.daemon.storage import SettingsStore
@@ -153,7 +154,7 @@ async def test_remote_administration_requires_explicit_token_and_tls(tmp_path):
     """Verify the public authorization boundary and the authenticated Compose route."""
     supervisor = Supervisor(tmp_path, {}, {})
     fixture_token = "fixture-admin"
-    headers = {"Authorization": f"Bearer {fixture_token}"}
+    headers = {"X-ReMe-Admin-Token": fixture_token}
     app = build_gateway(supervisor, None, local_listener=False)
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app, client=("192.0.2.1", 1)),
@@ -184,6 +185,85 @@ async def test_remote_administration_requires_explicit_token_and_tls(tmp_path):
         assert (await client.get("http://reme.example/admin/config", headers=headers)).status_code == 403
         assert (await client.get("http://127.0.0.1/admin/config")).status_code == 401
         assert (await client.get("http://127.0.0.1/admin/config", headers=headers)).is_success
+
+
+@pytest.mark.parametrize(
+    ("token", "status"),
+    [("fixture-admin", 200), ("wrong-admin", 401), ("Bearer fixture-admin", 401), ("", 401), (None, 401)],
+)
+@pytest.mark.asyncio
+async def test_only_admin_header_authenticates_management_requests(tmp_path, token, status):
+    """Platform Authorization headers never substitute for the dedicated management credential."""
+    app = build_gateway(
+        Supervisor(tmp_path, {}, {}),
+        None,
+        local_listener=False,
+        admin_token="fixture-admin",
+        remote_management=True,
+    )
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://reme.example") as client:
+        for authorization in ("Bearer platform-token", "Bearer fixture-admin"):
+            headers = {"Authorization": authorization}
+            if token is not None:
+                headers["X-ReMe-Admin-Token"] = token
+            reply = await client.get("/admin/config", headers=headers)
+            assert reply.status_code == status
+            assert "www-authenticate" not in reply.headers
+
+
+@pytest.mark.parametrize(
+    ("peer", "scheme", "origin", "status"),
+    [
+        ("192.0.2.10", "https", "https://reme.example", 200),
+        ("192.0.2.11", "https", "https://reme.example", 403),
+        ("192.0.2.10", "http", "http://reme.example", 403),
+        ("192.0.2.10", "https", "https://unrelated.example", 403),
+    ],
+)
+@pytest.mark.asyncio
+async def test_management_behind_proxy_checks_peer_https_and_origin(tmp_path, peer, scheme, origin, status):
+    """An HTTP listener accepts external HTTPS only through the configured trusted proxy."""
+    app = build_gateway(
+        Supervisor(tmp_path, {}, {}),
+        None,
+        local_listener=False,
+        admin_token="fixture-admin",
+        remote_management=True,
+    )
+    proxy = ProxyHeadersMiddleware(app, trusted_hosts="192.0.2.10")
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=proxy, client=(peer, 12345)),
+        base_url="http://reme.example",
+    ) as client:
+        reply = await client.get(
+            "/admin/config",
+            headers={
+                "X-ReMe-Admin-Token": "fixture-admin",
+                "X-Forwarded-Proto": scheme,
+                "Origin": origin,
+            },
+        )
+        assert reply.status_code == status
+
+
+def test_supervised_listener_receives_proxy_configuration(monkeypatch, tmp_path):
+    """Keep proxy trust options on the public listener that checks management requests."""
+    monkeypatch.setenv("REME_DAEMON_DIR", str(tmp_path))
+    monkeypatch.setattr("reme.daemon.service.Supervisor", Mock())
+    monkeypatch.setattr("reme.daemon.service.build_gateway", Mock())
+    run = Mock()
+    monkeypatch.setattr("reme.daemon.service.uvicorn.run", run)
+
+    run_supervised(
+        {},
+        {"host": "0.0.0.0", "port": 7860, "proxy_headers": True, "forwarded_allow_ips": "192.0.2.10"},
+        {},
+    )
+
+    assert run.call_args.kwargs["proxy_headers"] is True
+    assert run.call_args.kwargs["forwarded_allow_ips"] == "192.0.2.10"
+    assert run.call_args.kwargs["host"] == "0.0.0.0"
+    assert run.call_args.kwargs["port"] == 7860
 
 
 @pytest.mark.asyncio

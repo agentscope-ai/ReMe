@@ -8,7 +8,7 @@ final class StudioRequests {
             newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void
         ) {
             let management = task.originalRequest?.url?.pathComponents.contains("admin") == true
-            let authenticated = task.originalRequest?.value(forHTTPHeaderField: "Authorization") != nil
+            let authenticated = task.originalRequest?.value(forHTTPHeaderField: "X-ReMe-Admin-Token") != nil
             completionHandler(management || authenticated ? nil : request)
         }
     }
@@ -31,7 +31,7 @@ final class StudioRequests {
 
     deinit { session.invalidateAndCancel() }
 
-    func open(id: Int, url: URL, method: String, body: String, accept: String, authorization: String,
+    func open(id: Int, url: URL, method: String, body: String, accept: String, adminToken: String,
               reply: @escaping (Any?, String?) -> Void) {
         cancel(id: id)
         var request = URLRequest(url: url)
@@ -41,7 +41,7 @@ final class StudioRequests {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
         if !accept.isEmpty { request.setValue(accept, forHTTPHeaderField: "Accept") }
-        if !authorization.isEmpty { request.setValue(authorization, forHTTPHeaderField: "Authorization") }
+        if !adminToken.isEmpty { request.setValue(adminToken, forHTTPHeaderField: "X-ReMe-Admin-Token") }
 
         let entry = Request()
         active[id] = entry
