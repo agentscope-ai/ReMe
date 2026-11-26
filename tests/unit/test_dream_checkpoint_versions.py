@@ -164,7 +164,9 @@ async def test_invalid_integration_preserves_retry_after_restart(tmp_path, older
                 return {"status": "completed", "result": json.dumps({"units": [unit]})}
             calls["integrate"] += 1
             if calls["integrate"] == write_attempt:
-                written = await app.run_job("write", path=TARGET, content=OLD)
+                # Pass the step's injected kwargs as agent wrappers do, so the write is evidence.
+                injected = kwargs.get("injected_job_kwargs") or {}
+                written = await app.run_job("write", path=TARGET, content=OLD, **injected)
                 assert written.success, written.answer
             return {"status": "completed", "result": "{}"}
 

@@ -5,6 +5,7 @@ import frontmatter
 from ._base import _FileIOStep
 from ._file_io import detect_file_encoding, write_file_safe
 from ...utils.files.path_lock import get_path_lock
+from ...utils.files.write_ledger import WRITE_LEDGER_KWARG, record_write
 from ._path import check_path_permission, NON_MD_WARNING, gate_md, resolve_path
 from ...core.registry import R
 
@@ -88,6 +89,7 @@ class WriteStep(_FileIOStep):
             except Exception as e:  # pylint: disable=broad-except
                 self._fail(f"write failed: {e}", path=str(target))
                 return None
+            record_write(self.context.get(WRITE_LEDGER_KWARG), target)
 
         try:
             nbytes = len(body.encode(encoding))
