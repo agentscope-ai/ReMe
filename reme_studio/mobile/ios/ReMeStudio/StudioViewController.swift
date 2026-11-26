@@ -199,11 +199,11 @@ final class StudioViewController: UIViewController, WKNavigationDelegate, WKUIDe
                   let url = URL(string: urlString), Self.validWebURL(url),
                   let method = payload["method"] as? String, ["GET", "POST"].contains(method),
                   let body = payload["body"] as? String, let accept = payload["accept"] as? String,
-                  let authorization = payload["authorization"] as? String else {
+                  let adminToken = payload["adminToken"] as? String else {
                 reply(nil, "Invalid ReMe request")
                 return
             }
-            requests.open(id: id, url: url, method: method, body: body, accept: accept, authorization: authorization,
+            requests.open(id: id, url: url, method: method, body: body, accept: accept, adminToken: adminToken,
                           reply: reply)
         case "request.read":
             guard let id else {

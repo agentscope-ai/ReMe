@@ -18,7 +18,7 @@
     "build:desktop": "npm run build -w desktop",
     "build:mobile": "npm run build -w mobile --",
     "typecheck": "npm run typecheck -w desktop -w web -w mobile",
-    "test": "npm run test -w client -w workbench -w desktop",
+    "test": "npm run test -w client -w workbench -w desktop -w mobile",
     "format": "prettier --write \"**/*.{cjs,css,cts,html,js,json,jsx,mjs,mts,ts,tsx}\"",
     "format:check": "prettier --check \"**/*.{cjs,css,cts,html,js,json,jsx,mjs,mts,ts,tsx}\""
   },

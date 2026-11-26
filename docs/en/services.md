@@ -308,7 +308,7 @@ User settings are imported once from startup configuration, system environment v
 
 The supervisor stores settings, credentials, and restart status under `~/.config/reme/instances/`. The startup directory, configuration, listen address, and port identify the default instance. Set `REME_DAEMON_DIR` to choose a private directory outside the workspace. Docker Compose keeps `/state` separate from `/data`. Management is available on a local loopback listener. To enable remote management, configure a random `REME_ADMIN_TOKEN` and connect over HTTPS. Enter the token in Studio when prompted. A separately hosted Web frontend must proxy `/admin/` through its own origin. Management has its own endpoints and is independent of Jobs and MCP.
 
-Studio and management clients send the administrator token only in `X-ReMe-Admin-Token`.
+Studio and all management clients use `X-ReMe-Admin-Token: <token>`. `Authorization: Bearer ...` is no longer accepted; upgrade clients together with the backend.
 
 When a proxy terminates HTTPS, preserve the public `Host` and set `X-Forwarded-Proto: https`. Enable `service.proxy_headers=true` and restrict `service.forwarded_allow_ips` to trusted proxy IPs or CIDRs. Use `*` only when the listener is reachable exclusively through trusted proxies.
 

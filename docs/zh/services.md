@@ -285,7 +285,7 @@ HTTP 模式下，`reme start` 管理 Python 服务进程。重启期间，Studio
 
 守护进程在 `~/.config/reme/instances/` 下保存各实例的配置、凭据和重启状态。默认实例由启动目录、配置、监听地址和端口确定。通过 `REME_DAEMON_DIR` 可指定工作区之外的私有目录。Docker Compose 分别挂载 `/state` 和 `/data`。本机回环监听可直接管理。启用远程管理时，设置随机的 `REME_ADMIN_TOKEN` 并通过 HTTPS 连接，在 Studio 提示时输入令牌。单独部署 Web 静态页面时，通过同源反向代理访问 `/admin/`。管理接口独立于 Job 和 MCP。
 
-Studio 和管理客户端仅通过 `X-ReMe-Admin-Token` 传递管理令牌。
+Studio 和所有管理客户端统一使用 `X-ReMe-Admin-Token: <token>`；不再接受 `Authorization: Bearer ...`，客户端须与后端一起升级。
 
 由代理终止 HTTPS 时，保留公网 `Host` 并设置 `X-Forwarded-Proto: https`。启用 `service.proxy_headers=true`，将 `service.forwarded_allow_ips` 限定为可信代理的 IP 或 CIDR；仅在监听端口只能由可信代理访问时使用 `*`。
 
