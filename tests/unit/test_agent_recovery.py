@@ -1,381 +1,160 @@
-"""File ownership, uncertain commits and reminder recovery across real failure boundaries."""
+"""Durable handoffs recover local and native side effects without rerunning models."""
 
-# pylint: disable=protected-access,missing-function-docstring
+# pylint: disable=missing-function-docstring,protected-access,redefined-outer-name
 
-import asyncio
-from datetime import datetime, timedelta
-from unittest.mock import AsyncMock, Mock
-from zoneinfo import ZoneInfo
+from unittest.mock import AsyncMock
 
 import pytest
-import frontmatter
 
-from reme.schema import Event, Response, SessionMessage
-from reme.steps.proactive.agent import ProcessChatRemindersStep, ProactiveAgentStep
-from reme.steps.file_io import SaveStep, get_path_lock
-from reme.steps.proactive.tools.chat_reminders import SubmitChatReminderStep
-from .test_proactive_runtime import completed_result, create_agent, running_manager
-from .test_inbox_fork import prepare
-from .test_proactive_run import REMIND, SKIP, install_round
+from reme.steps.proactive.chat import ProcessChatNotificationsStep
+from reme.steps.proactive.tools import SubmitChatReplyStep
+from .proactive_helpers import running_system, emit_notification
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("filename", ["inbox_read.jsonl", "inbox_unread.jsonl"])
-async def test_real_receipt_write_failure_preserves_markdown_and_recovers_delivery(tmp_path, monkeypatch, filename):
-    async with running_manager(tmp_path) as (runtime, context, wrapper):
-        await create_agent(runtime)
-        now = runtime.now()
-        monkeypatch.setattr(runtime, "now", lambda: now)
-        step = ProactiveAgentStep(app_context=context)
-        paths = step._paths(await runtime.definition("monitor"), now)
-        install_round(runtime, wrapper, monkeypatch, paths)
-        replace = runtime.inbox._replace
-
-        def fail(path, raw):
-            if path.parent.parent.name == "monitor" and path.name == filename:
-                raise OSError("receipt disk failure")
-            return replace(path, raw)
-
-        with monkeypatch.context() as patch:
-            patch.setattr(runtime.inbox, "_replace", fail)
-            with pytest.raises(OSError, match="receipt disk failure"):
-                await step(agent_name="monitor")
-        committed = filename == "inbox_unread.jsonl"
-        assert runtime.inbox._failed and "monitor" not in runtime.workers
-        assert paths["record_path"].read_text() == REMIND.format(priority="P1", body="\nNew progress\n")
-    async with running_manager(tmp_path) as (runtime, _, _):
-        snapshot = await runtime.inbox.snapshot("monitor")
-        assert snapshot["pending_count"] == (0 if committed else 1)
-        assert (snapshot["receipt"] is not None) is committed
-        assert bool(runtime.notifications.pending) is committed
+async def test_committed_input_recovers_missing_sender_outbox_after_restart(tmp_path, monkeypatch):
+    async with running_system(tmp_path, runtimes=[{"agent_name": "monitor"}]) as (manager, context, _):
+        runtime = await manager.resolve("monitor")
+        monkeypatch.setattr(runtime.outbox, "prepare_reference", AsyncMock(side_effect=OSError("disk unavailable")))
+        ref = await emit_notification(manager, context)
+        assert not await runtime.inbox.pending_ids() and runtime.delivery_error
+        assert not await context.components["agent_runtime"]["Remy"].inbox.pending_ids()
+    async with running_system(tmp_path) as (manager, context, wrapper):
+        runtime = await manager.resolve("monitor")
+        await runtime.recover_handoffs()
+        assert await context.components["agent_runtime"]["Remy"].inbox.pending_ids() == {ref.id}
+        assert not runtime.delivery_error and not wrapper.turns
+        await runtime.recover_handoffs()
+        assert len(await runtime.outbox.entries()) == 1
 
 
+@pytest.mark.parametrize("stage", ["native_response", "sender_status", "receiver_ack"])
 @pytest.mark.asyncio
-async def test_repeat_local_time_reserves_path_of_unregistered_receipt(tmp_path, monkeypatch):
-    first_time = datetime(2026, 11, 1, 1, 30, tzinfo=ZoneInfo("America/New_York"))
-    async with running_manager(tmp_path) as (runtime, context, wrapper):
-        monkeypatch.setattr(runtime, "now", lambda: first_time)
-        await create_agent(runtime)
-        agent = await runtime.definition("monitor")
-        first_step = ProactiveAgentStep(app_context=context)
-        first_paths = first_step._paths(agent, first_time)
-        install_round(runtime, wrapper, monkeypatch, first_paths)
-        with monkeypatch.context() as patch:
-            patch.setattr(runtime.outbox.storage, "write", Mock(side_effect=OSError("outbox write failed")))
-            first = await first_step(agent_name="monitor")
-        first_path = first_paths["record_path"]
-        first_ref = first.answer["notifications"][0]["id"]
-        snapshot = await runtime.inbox.snapshot("monitor")
-        assert snapshot["receipt"].metadata["reminder_path"] == first_ref
-        assert not runtime.outbox.has_registration("monitor", first_path)
-        moved = first_path.rename(tmp_path / first_path.name)
+async def test_native_side_effect_recovers_before_another_model_decision(tmp_path, monkeypatch, stage):
+    async with running_system(tmp_path) as (manager, context, wrapper):
+        ref = await emit_notification(manager, context)
+        chat = context.components["agent_runtime"]["Remy"]
+        if stage == "native_response":
+            append = wrapper.append_session
 
-        second_time = first_time.replace(fold=1)
-        monkeypatch.setattr(runtime, "now", lambda: second_time)
-        await runtime.append_events(
-            "monitor",
-            [Event(id="event-2", event_ts=second_time, source="experiment", description="Second result")],
-        )
-        second_path = first_path.with_stem(f"{first_path.stem}_1")
-        second_ref = second_path.relative_to(tmp_path).as_posix()
-        second_text = REMIND.format(priority="P1", body="\n").replace("Verified result", "Second result")
-        install_round(runtime, wrapper, monkeypatch, {"record_path": second_path}, text=second_text)
-        reply_stream = wrapper.reply_stream
+            async def lost(*args, **kwargs):
+                await append(*args, **kwargs)
+                raise OSError("lost native response")
 
-        async def recover_during_round(query, **options):
-            assert second_ref in query
-            async for chunk in reply_stream(query, **options):
-                await runtime.outbox.sync()
-                assert not runtime.notifications.pending
-                yield chunk
+            monkeypatch.setattr(wrapper, "append_session", lost)
+        elif stage == "sender_status":
+            save = chat.outbox.save
 
-        monkeypatch.setattr(wrapper, "reply_stream", recover_during_round)
-        second = await ProactiveAgentStep(app_context=context)(agent_name="monitor")
-        assert second.answer["notifications"][0]["id"] == second_ref
-        assert (await runtime.inbox.snapshot("monitor"))["pending_count"] == 0
-        assert not first_path.exists()
+            async def lost(row):
+                if row.status == "sent":
+                    raise OSError("status disk write failed")
+                return await save(row)
 
-        moved.rename(first_path)
-        await runtime.outbox.sync()
-        mailbox = await runtime.outbox.list(state="pending")
-        assert {item["id"]: item["message"] for item in mailbox["items"]} == {
-            first_ref: "Verified result",
-            second_ref: "Second result",
-        }
-
-
-@pytest.mark.asyncio
-async def test_full_cron_queue_starts_its_existing_consumer(tmp_path, monkeypatch):
-    async with running_manager(tmp_path) as (runtime, _, _):
-        runtime.inbox.max_pending_items = 1
-        await runtime.create(
-            {"agent_name": "timer", "task_description": "Report", "cron": "* * * * *"},
-        )
-        agent = await runtime.definition("timer")
-        start = runtime.now().replace(second=0, microsecond=0)
-        monkeypatch.setattr(runtime, "now", lambda: start)
-        await runtime.runtimes[agent.agent_name]._schedule_cron(agent)
-        first = runtime.runtimes["timer"].schedule[1]
-        monkeypatch.setattr(runtime, "now", lambda: first)
-        await runtime.runtimes[agent.agent_name]._schedule_cron(agent)
-        monkeypatch.setattr(runtime, "now", lambda: first + timedelta(minutes=1))
-
-        async def job(_name, agent_name):
-            answer = await runtime.run_round(
-                agent_name,
-                AsyncMock(return_value=(None, "session")),
-            )
-            return Response(answer=answer)
-
-        async with asyncio.timeout(2):
-            await runtime._tick_runtimes(job)
-            await asyncio.gather(*runtime.workers.values())
-        assert (await runtime.inbox.snapshot("timer"))["pending_count"] == 0
-        assert runtime.runtimes["timer"].schedule[1] == first + timedelta(minutes=1)
-
-
-@pytest.mark.asyncio
-async def test_retry_after_capacity_frees_preserves_the_original_event(tmp_path):
-    async with running_manager(tmp_path) as (runtime, _, _):
-        await create_agent(runtime)
-        runtime.inbox.max_pending_items = 1
-        event = Event(id="next", event_ts=runtime.now(), source="test", description="Next")
-        async with asyncio.timeout(2):
-            with pytest.raises(TimeoutError, match="pending capacity is full"):
-                await runtime.append_events("monitor", [event])
-            await runtime.run_round("monitor", AsyncMock(return_value=(None, "session")))
-            await runtime.append_events("monitor", [event])
-        assert await runtime.inbox.pending_ids("monitor") == {event.id}
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("partial", [False, True])
-async def test_recovered_native_reminder_finishes_ack_without_regenerating(tmp_path, monkeypatch, partial):
-    async with running_manager(tmp_path) as (runtime, context, wrapper):
-        args = await prepare(runtime, context)
-        if partial:
-            await runtime.create(
-                {
-                    "agent_name": "other",
-                    "task_description": "Observe",
-                },
-            )
-            await runtime.append_events(
-                "other",
-                [Event(event_ts=runtime.now(), source="test", description="Finished")],
-            )
-            result, session = completed_result(runtime, "other", priority="P1")
-            await runtime.run_round("other", AsyncMock(return_value=(result, session)))
-            await runtime.outbox.sync()
-            args["msg_ids"] = list(runtime.notifications.pending)
-        source = (await runtime.sessions.current("Remy")).session_id
-        snapshot = await wrapper.read_session(source)
-        wrapper.read_session = AsyncMock(return_value=snapshot)
-
-        async def append(_session, content, *, message_id, **_kwargs):
-            message = SessionMessage(id=f"reme-proactive-{message_id}", role="assistant", content=content)
-            snapshot.messages.append(message)
-            return message
-
-        wrapper.append_session = AsyncMock(side_effect=append)
-        async with runtime.notifications.turn(source, "P1", args["msg_ids"]) as turn:
-            await runtime.notifications.read_turn(turn)
-
-            write = runtime.outbox.storage.write
-            acknowledged = 0
-
-            def fail_ack(agent_name, path, item):
-                nonlocal acknowledged
-                if item.read_at is not None:
-                    if not partial or acknowledged:
-                        raise OSError("ack failed")
-                    acknowledged += 1
-                return write(agent_name, path, item)
-
-            with monkeypatch.context() as patch:
-                patch.setattr(runtime.outbox.storage, "write", fail_ack)
-                with pytest.raises(OSError, match="ack failed"):
-                    await runtime.notifications.send(turn, "The experiment has finished.")
-        await runtime.outbox.refresh()
-        wrapper.reply = AsyncMock(side_effect=AssertionError("Accepted decisions must not be regenerated"))
-        response = await ProcessChatRemindersStep(app_context=context)(**args)
-        assert response.answer == {"sent": True}
-        assert not runtime.notifications.pending
-        wrapper.reply.assert_not_awaited()
-        wrapper.append_session.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_delete_waits_for_a_durable_append(tmp_path, monkeypatch):
-    async with running_manager(tmp_path) as (runtime, _, _):
-        await create_agent(runtime)
-        started, release = asyncio.Event(), asyncio.Event()
-        original = runtime.inbox.append
-
-        async def append_event(*args, **kwargs):
-            started.set()
-            await release.wait()
-            return await original(*args, **kwargs)
-
-        monkeypatch.setattr(runtime.inbox, "append", append_event)
-        event = Event(id="next", event_ts=runtime.now(), source="test", description="Next")
-        append = asyncio.create_task(runtime.append_events("monitor", [event]))
-        delete = asyncio.create_task(runtime.delete("monitor"))
-        try:
-            async with asyncio.timeout(2):
-                await started.wait()
-                assert not delete.done()
-                release.set()
-                assert (await append)["event_ids"] == [event.id]
-                assert (await delete)["deleted"]
-            assert await runtime.inbox.pending_ids("monitor") == {"event-1", event.id}
-        finally:
-            release.set()
-            await asyncio.gather(append, delete, return_exceptions=True)
-
-
-@pytest.mark.asyncio
-async def test_silence_rechecks_native_revision_after_outbox_refresh(tmp_path, monkeypatch):
-    async with running_manager(tmp_path) as (runtime, context, wrapper):
-        args = await prepare(runtime, context)
-        source = (await runtime.sessions.current("Remy")).session_id
-        snapshot = await wrapper.read_session(source)
-        wrapper.read_session = AsyncMock(return_value=snapshot)
-        refresh = runtime.outbox.refresh
-
-        async def changed():
-            snapshot.messages.append(SessionMessage(id="new-user-input", role="user", content="Tell me immediately"))
-            return await refresh()
-
-        async with runtime.notifications.turn(source, "P1", args["msg_ids"]) as turn:
-            await runtime.notifications.read_turn(turn)
-            monkeypatch.setattr(runtime.outbox, "refresh", changed)
-            with pytest.raises(RuntimeError, match="Session changed"):
-                await runtime.notifications.send(turn, "")
-        assert list(runtime.notifications.pending) == args["msg_ids"]
-
-
-@pytest.mark.asyncio
-async def test_full_receiver_consumes_both_reminders_without_waiting_for_more_capacity(tmp_path):
-    async with running_manager(tmp_path) as (runtime, context, wrapper):
-        for name in ("first", "second"):
-            await runtime.create({"agent_name": name, "task_description": "Report"})
-            await runtime.append_events(name, [Event(event_ts=runtime.now(), source="test", description="Finished")])
-            await runtime.run_round(name, AsyncMock(return_value=completed_result(runtime, name)))
-        runtime.inbox.max_pending_items = 1
-        runtime.notifications.config.p0_delay_seconds = 0
-
-        async def decide(_hint, **options):
-            bound = options["injected_job_kwargs"]
-            await SubmitChatReminderStep(app_context=context)(content="", **bound)
-            return {"status": "completed"}
-
-        async def run_job(name, **kwargs):
-            assert name == "process_chat_reminders"
-            return await ProcessChatRemindersStep(app_context=context)(**kwargs)
-
-        wrapper.reply = AsyncMock(side_effect=decide)
-        jobs = AsyncMock(side_effect=run_job)
-        async with asyncio.timeout(2):
-            for _ in range(2):
-                await runtime.tick(jobs)
-                if worker := runtime.notifications.worker:
-                    await worker
-        assert jobs.await_count == 2
-        assert not runtime.notifications.active_turn
-        assert len(runtime.outbox.entries) == 2
-        assert all(entry.reminder.read_at is not None for entry in runtime.outbox.entries.values())
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("draft", [REMIND.format(priority="P1", body="\nNew progress\n"), SKIP, None])
-async def test_round_rejects_a_record_changed_after_validation(tmp_path, monkeypatch, draft):
-    async with running_manager(tmp_path) as (runtime, context, wrapper):
-        await create_agent(runtime)
-        now = runtime.now()
-        monkeypatch.setattr(runtime, "now", lambda: now)
-        step = ProactiveAgentStep(app_context=context)
-        paths = step._paths(await runtime.definition("monitor"), now)
-        path = paths["record_path"]
-        install_round(runtime, wrapper, monkeypatch, paths, text=draft, reply_text="NO_KEY_INFORMATION")
-
-        async def edit_after_validation(*_args):
-            response = await SaveStep(app_context=context)(
-                path=path.relative_to(tmp_path).as_posix(),
-                content=(draft or SKIP) + "User edited record\n",
-            )
-            assert response.success
-
-        monkeypatch.setattr(wrapper, "get_tool_calls", edit_after_validation)
-        with pytest.raises(RuntimeError, match="changed outside this round"):
-            await step(agent_name="monitor")
-        assert path.read_text() == (draft or SKIP) + "User edited record\n"
-    async with running_manager(tmp_path) as (runtime, _, _):
-        assert (await runtime.inbox.snapshot("monitor"))["pending_count"] == 1
-
-
-@pytest.mark.asyncio
-async def test_round_keeps_the_record_locked_until_delivery(tmp_path, monkeypatch):
-    async with running_manager(tmp_path) as (runtime, context, wrapper):
-        await create_agent(runtime)
-        now = runtime.now()
-        monkeypatch.setattr(runtime, "now", lambda: now)
-        step = ProactiveAgentStep(app_context=context)
-        paths = step._paths(await runtime.definition("monitor"), now)
-        install_round(runtime, wrapper, monkeypatch, paths)
-        path = paths["record_path"]
-        lock = await get_path_lock(path)
-        ack = runtime.inbox.ack
-        edit = None
-
-        async def edit_record():
-            async with lock:
-                document = frontmatter.loads(path.read_text())
-                assert runtime.outbox.entries[path.relative_to(tmp_path).as_posix()].reminder.delivered_at
-                document["reminder_priority"] = "P0"
-                document.content = "User edited record"
-                runtime.files.write(path, frontmatter.dumps(document))
-
-        async def acknowledge(*args, **kwargs):
-            nonlocal edit
-            assert lock.locked()
-            edit = asyncio.create_task(edit_record())
-            await asyncio.sleep(0)
-            assert not edit.done()
-            return await ack(*args, **kwargs)
-
-        monkeypatch.setattr(runtime.inbox, "ack", acknowledge)
-        try:
-            response = await step(agent_name="monitor")
-            assert response.answer["notifications"][0]["priority"] == "P1"
-        finally:
-            if edit is not None:
-                await edit
-        assert frontmatter.loads(path.read_text()).content == "User edited record"
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("operation", ["handoff", "update"])
-async def test_outbox_operations_share_the_file_jobs_path_lock(tmp_path, operation):
-    async with running_manager(tmp_path) as (runtime, _, _):
-        await create_agent(runtime)
-        result, session = completed_result(runtime)
-        path = runtime.files.path(result.id)
-        if operation == "update":
-            await runtime.run_round("monitor", AsyncMock(return_value=(result, session)))
-            await runtime.outbox.sync()
-            ref = next(iter(runtime.outbox.entries))
-            action = runtime.outbox.update(ref, read_at=runtime.now())
+            monkeypatch.setattr(chat.outbox, "save", lost)
         else:
-            action = runtime.run_round("monitor", AsyncMock(return_value=(result, session)))
-        task = None
-        try:
-            async with await get_path_lock(path):
-                task = asyncio.create_task(action)
-                await asyncio.sleep(0.02)
-                assert not task.done()
-            await asyncio.wait_for(task, 2)
-        finally:
-            if task is not None:
-                task.cancel()
-                await asyncio.gather(task, return_exceptions=True)
+            monkeypatch.setattr(chat.inbox, "ack", AsyncMock(side_effect=OSError("receiver ack failed")))
+
+        async def reply(_query, **options):
+            return await SubmitChatReplyStep(app_context=context, agent_runtime="Remy")(
+                action="send",
+                content="Result",
+                **options["injected_job_kwargs"],
+            )
+
+        monkeypatch.setattr(wrapper, "reply", reply)
+        with pytest.raises(OSError):
+            await ProcessChatNotificationsStep(app_context=context, agent_runtime="Remy")(
+                priority="P1",
+                msg_ids=[ref.id],
+            )
+        assert ref.id in await chat.inbox.pending_ids()
+        messages = {name: list(rows) for name, rows in wrapper.messages.items()}
+    async with running_system(tmp_path) as (_, context, wrapper):
+        wrapper.messages = messages
+        chat = context.components["agent_runtime"]["Remy"]
+        await chat.recover_deliveries()
+        assert not await chat.inbox.pending_ids()
+        assert (await chat.inbox.processed(ref.id)).metadata["decision"] == "send"
+        assert (await chat.outbox.entries())[0].status == "acknowledged"
+        assert sum(len(rows) for rows in wrapper.messages.values()) == 1 and not wrapper.turns
+
+
+@pytest.mark.asyncio
+async def test_full_receiver_does_not_lose_committed_results_or_block_existing_consumer(tmp_path, monkeypatch):
+    async with running_system(tmp_path) as (manager, context, wrapper):
+        chat = context.components["agent_runtime"]["Remy"]
+        chat.inbox.max_pending_items = 1
+        first = await emit_notification(manager, context)
+        second = await emit_notification(manager, context, suffix=1)
+        runtime = await manager.resolve("monitor")
+        assert runtime.delivery_error and not await runtime.inbox.pending_ids()
+
+        async def skip(_query, **options):
+            return await SubmitChatReplyStep(app_context=context, agent_runtime="Remy")(
+                action="skip",
+                **options["injected_job_kwargs"],
+            )
+
+        monkeypatch.setattr(wrapper, "reply", skip)
+        await ProcessChatNotificationsStep(app_context=context, agent_runtime="Remy")(priority="P1", msg_ids=[first.id])
+        await runtime.recover_handoffs()
+        assert await chat.inbox.pending_ids() == {second.id} and not runtime.delivery_error
+        await ProcessChatNotificationsStep(app_context=context, agent_runtime="Remy")(
+            priority="P1",
+            msg_ids=[second.id],
+        )
+        assert not await chat.inbox.pending_ids()
+
+
+@pytest.mark.parametrize("uncertain", ["read_error", "missing_message"])
+@pytest.mark.asyncio
+async def test_unresolved_native_delivery_reserves_its_notifications_before_partial_rebatch(
+    tmp_path,
+    monkeypatch,
+    uncertain,
+):
+    async with running_system(tmp_path) as (manager, context, wrapper):
+        first = await emit_notification(manager, context)
+        second = await emit_notification(manager, context, suffix=1)
+        chat = context.components["agent_runtime"]["Remy"]
+        ack = chat.inbox.ack
+        monkeypatch.setattr(chat.inbox, "ack", AsyncMock(side_effect=OSError("ack unavailable")))
+
+        async def send(_query, **options):
+            return await SubmitChatReplyStep(app_context=context, agent_runtime="Remy")(
+                action="send",
+                content="Combined result",
+                **options["injected_job_kwargs"],
+            )
+
+        monkeypatch.setattr(wrapper, "reply", send)
+        process = ProcessChatNotificationsStep(app_context=context, agent_runtime="Remy")
+        with pytest.raises(OSError, match="ack unavailable"):
+            await process(priority="P1", msg_ids=[first.id, second.id])
+        monkeypatch.setattr(chat.inbox, "ack", ack)
+        session = (await chat.current_session()).session_id
+        native = list(wrapper.messages[session])
+        read = wrapper.read_session
+        probes = 0
+
+        async def uncertain_snapshot(identifier):
+            nonlocal probes
+            probes += 1
+            if probes == 1:
+                if uncertain == "read_error":
+                    raise OSError("native history temporarily unavailable")
+                return (await read(identifier)).model_copy(update={"messages": []})
+            return await read(identifier)
+
+        monkeypatch.setattr(wrapper, "read_session", uncertain_snapshot)
+        inference = AsyncMock(side_effect=send)
+        monkeypatch.setattr(wrapper, "reply", inference)
+        with pytest.raises(RuntimeError, match="recovery"):
+            await process(priority="P1", msg_ids=[first.id])
+        inference.assert_not_awaited()
+        assert wrapper.messages[session] == native
+        assert await chat.inbox.pending_ids() == {first.id, second.id}
+        monkeypatch.setattr(wrapper, "read_session", read)
+        await chat.recover_deliveries()
+        assert not await chat.inbox.pending_ids()
+        assert (await chat.outbox.entries())[0].status == "acknowledged"

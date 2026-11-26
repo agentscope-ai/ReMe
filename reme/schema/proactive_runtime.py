@@ -10,6 +10,7 @@ from pydantic import (
     ConfigDict,
     Field,
     field_validator,
+    model_validator,
 )
 
 from ..constants import WINDOWS_RESERVED_DEVICE_NAMES
@@ -100,7 +101,7 @@ class AgentReminder(BaseModel):
         return value
 
 
-class ProcessChatRemindersRequest(BaseModel):
+class ProcessChatNotificationsRequest(BaseModel):
     """A framework-selected batch eligible for automatic processing."""
 
     model_config = ConfigDict(extra="forbid")
@@ -111,13 +112,27 @@ class ProcessChatRemindersRequest(BaseModel):
     @field_validator("msg_ids")
     @classmethod
     def relative_paths(cls, value: list[str]) -> list[str]:
-        """Chat batches reference workspace-relative daily records."""
-        return Event.validate_paths(value)
+        """Batch identifiers are internal references, not user-selected source paths."""
+        if len(set(value)) != len(value) or any(not item or len(item) > 128 for item in value):
+            raise ValueError("msg_ids must contain distinct valid notification ids")
+        return value
 
 
-class SubmitChatReminderRequest(BaseModel):
-    """Submit user-facing text, or an empty decision to stay quiet."""
+class SubmitChatReplyRequest(BaseModel):
+    """Explicitly send text or commit a silent decision for the active fork."""
 
     model_config = ConfigDict(extra="forbid")
 
-    content: str = Field(max_length=100000)
+    action: Literal["send", "skip"]
+    content: str | None = Field(default=None, max_length=100000)
+
+    @model_validator(mode="after")
+    def validate_action(self):
+        """Reject fields that do not belong to the selected operation."""
+        if self.action == "send":
+            if self.content is None or not self.content.strip():
+                raise ValueError("send requires nonblank content")
+            self.content = self.content.strip()
+        elif "content" in self.model_fields_set:
+            raise ValueError("skip does not accept content")
+        return self

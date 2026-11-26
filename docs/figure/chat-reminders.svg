@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1780" height="1120" viewBox="0 0 1780 1120" role="img" aria-labelledby="title desc">
   <title id="title">Proactive Runtime</title>
-  <desc id="desc">Remy manages named tasks through manage_proactive_agent. Each task owns its description, settings and session references. Remy's Inbox uses task outbox registrations and reads reminder text from daily records. A read-only fork reads the selected batch and its evidence, then submits a decision. A text decision appends an assistant message to Chat. An empty decision acknowledges the batch silently. The workspace cards show personal memory, session references, the derived Chat Inbox, task files and daily records.</desc>
-  <metadata>Source: reme/schema/proactive_agent.py; reme/config/proactive.yaml; reme/components/agent_inbox/; reme/components/proactive_manager/_internal/registry.py; reme/components/proactive_manager/_internal/sessions.py; reme/components/proactive_manager/_internal/outbox.py; reme/components/proactive_manager/_internal/notifications.py; reme/steps/proactive/agent/proactive.py; reme/steps/proactive/agent/inbox.py; reme/steps/proactive/agent/inbox.yaml; reme/steps/proactive/tools/manage_proactive_agent.py; reme/steps/proactive/tools/inbox.py. Drawn from the current working tree. Paths are relative to the configured workspace root; {date} is an application-local calendar date. Permanent task paths shown.</metadata>
+  <desc id="desc">Remy manages named tasks through manage_proactive_runtime. Each task owns its description, settings and session references. Remy's Inbox persists delivered references and processing receipts, and reads reminder text from daily records. A read-only fork reads the selected batch and its evidence, then submits a decision. A text decision appends an assistant message to Chat. An explicit skip decision acknowledges the batch silently. The workspace cards show personal memory, session references, the durable Chat Inbox, task files and daily records.</desc>
+  <metadata>Source: reme/config/proactive.yaml; reme/components/proactive/; reme/steps/proactive/; reme/schema/agent_inbox.py; reme/schema/agent_outbox.py. Workspace files remain authoritative; receiving Inbox receipts own processing state.</metadata>
   <defs>
     <style>
       text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; fill: #22383F; }
@@ -62,11 +62,11 @@
     <text x="429" y="287" font-size="13" text-anchor="middle" class="teal">fork</text>
     <path d="M506 340H352" class="line" stroke="#BE9859" stroke-width="1.5" marker-end="url(#gold)" />
     <text x="429" y="362" font-size="13" text-anchor="middle" style="fill:#A07A3D">Append message</text>
-    <text x="402" y="388" font-size="12" style="fill:#A07A3D" text-anchor="middle">submit_chat_reminder</text>
+    <text x="402" y="388" font-size="12" style="fill:#A07A3D" text-anchor="middle">submit_chat_reply</text>
     <text x="594" y="388" font-size="12" class="purple" text-anchor="middle">Read evidence in paths</text>
     <path d="M88 404H680" class="line" stroke="#DFE8E8" />
     <g data-role="chat-task-management">
-      <text x="92" y="435" font-size="20" font-weight="600">Skill · manage-proactive-agent</text>
+      <text x="92" y="435" font-size="20" font-weight="600">Skill · manage-proactive-runtime</text>
       <g data-role="skill-list" data-box="92,450,268,46">
         <rect x="92" y="450" width="48" height="24" rx="6" fill="#E8F2F1" />
         <text x="104" y="462" font-size="15" font-weight="650" style="fill:#147D80" dominant-baseline="middle">List</text>
@@ -140,7 +140,7 @@
       <text x="858" y="485" font-size="12" class="purple" font-weight="600" text-anchor="middle">P2</text>
       <text x="898" y="485" font-size="15">A relevant paper is available.</text>
     </g>
-    <text x="832" y="523" class="small muted">An empty decision consumes the batch silently.</text>
+    <text x="832" y="523" class="small muted">An explicit skip decision consumes the batch silently.</text>
   </g>
   <g data-role="background-tasks" data-box="1304,196,412,356">
     <rect x="1304" y="196" width="412" height="356" rx="16" fill="#FFFFFF" stroke="#DDE7E7" />
@@ -192,10 +192,10 @@
       <text x="502" y="904" class="file"><tspan x="502">reme_agents/Remy/</tspan><tspan x="502" dy="22">sessions.jsonl</tspan></text>
       <text x="502" y="966" class="file"><tspan x="502">reme_agents/{agent_name}/</tspan><tspan x="502" dy="22">sessions.jsonl</tspan></text>
     </g>
-    <g data-role="inbox-files" data-box="900,816,398,208" data-path="daily/">
+    <g data-role="inbox-files" data-box="900,816,398,208" data-path="reme_agents/Remy/inbox/">
       <rect x="900" y="816" width="398" height="208" rx="14" fill="#FFFFFF" stroke="#E2DBEC" />
       <text x="920" y="860" font-size="22" font-weight="650">Chat Inbox</text>
-      <text x="920" y="904" class="file"><tspan x="920">Task outbox registrations</tspan><tspan x="920" dy="22">Derived receiver view</tspan><tspan x="920" dy="22">One in-memory batch</tspan></text>
+      <text x="920" y="904" class="file"><tspan x="920">Delivered source references</tspan><tspan x="920" dy="22">Durable processing receipts</tspan><tspan x="920" dy="22">One in-memory batch</tspan></text>
       <text x="920" y="988" font-size="13" class="muted">Reminder content stays in the daily record</text>
     </g>
     <g data-role="task-files" data-box="1318,816,398,208" data-path="reme_agents/{agent_name}/TASK.md" data-daily-path="daily/{date}/{agent_name}_HHMMSS.md">

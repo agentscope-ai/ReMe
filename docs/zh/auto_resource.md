@@ -96,8 +96,9 @@ manifest 使用 `ResourceMetadata`：带时区的创建/更新时间、source、
 推理、工具调用和结果、子 Agent 会话以及 ReMe 自己的会话均不采集。
 
 每批对话保存在 `resource/codex_dialogue/YYYY-MM-DD/HHMMSS_<suffix>/`。事件提供 `dialogue.md` 和图片附件路径。
-Markdown 按项目、会话和轮次列出用户消息、进度文字和最终回答，并保留各条消息的 ID。同一轮插入的用户消息各占一节，
-图片链接跟在对应的消息后面。随记和其他 Proactive Runtime 一样，按事件中的路径展开阅读对话和图片，再用 `todo` 和 `idea` 核对项目和条目 ID。
+Markdown 按“工作目录 → 会话 → 轮次 → 消息”组织，路径放在“工作目录”标题下面，会话和轮次 ID 放在对应标题下面。
+消息标题标明用户、Codex 进度或 Codex 最终回答，下面分别标注时间和消息 ID，再列出原文和图片链接。同一轮插入的用户消息各占一节。
+随记和其他 Proactive Runtime 一样，按事件中的路径展开阅读对话和图片，再用 `todo` 和 `idea` 核对项目和条目 ID。
 `resource/codex_dialogue/progress.jsonl` 保存已提交的读取位置和消息 ID；`pending.json` 固定未完成的批次，
 先重试投递，再读取后续变化。这些采集状态文件不放入事件路径。重启后沿用已保存的进度，不重复投递已完成对话。
 空闲扫描不追加进度记录；只有工具记录变化时仍推进偏移，但不产生对话事件。
@@ -120,7 +121,7 @@ Markdown 按项目、会话和轮次列出用户消息、进度文字和最终�
 新增电报或行情有变化时，在 `resource/<source>/YYYY-MM-DD/hhmmss_<suffix>/` 发布资源包。行情保留报价时间和采集时间。
 电报回看最多 24 小时，按新闻 ID 去重。已发布但投递未完成的事件会重试。
 
-在一个终端运行 `reme start config=proactive`，在另一个终端运行 `reme manage_proactive_agent action=status agent_name=finance`
+在一个终端运行 `reme start config=proactive`，在另一个终端运行 `reme manage_proactive_runtime action=status agent_name=finance`
 查看任务的 `TASK.md`。启动时用 `jobs.<任务名>.enabled=false` 关闭对应采集任务。
 
 ## 图像资源

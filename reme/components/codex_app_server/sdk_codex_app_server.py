@@ -134,6 +134,17 @@ class SdkCodexAppServer(BaseCodexAppServer):
             finally:
                 state.users -= 1
 
+    async def refresh_skills(self, cwd: Path) -> None:
+        """Make newly published skills visible before starting or resuming a thread."""
+        from openai_codex.generated.v2_all import SkillsListResponse
+
+        async with self._session_client() as codex:
+            await codex._client.request(  # pylint: disable=protected-access
+                "skills/list",
+                {"cwds": [str(cwd)], "forceReload": True},
+                response_model=SkillsListResponse,
+            )
+
     async def inject_items(self, session_id: str, items: list[dict[str, Any]]) -> None:
         """Use the native queue for active turns; this call starts no model turn."""
         from ._session_history import validate_identifier

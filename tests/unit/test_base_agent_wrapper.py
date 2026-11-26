@@ -19,10 +19,12 @@ from reme.components.agent_wrapper import (
 from reme.components.agent_wrapper.as_agent_wrapper import WorkspaceBackend
 from reme.components.agent_wrapper import as_agent_wrapper
 from reme.components.agent_wrapper import base_agent_wrapper
+from reme.components.agent_wrapper.skills import SkillScope
 from reme.core.context import ApplicationContext
 from reme.components.outbound_proxy import FixedHttpOutboundProxy
 from reme.components import base as base_component
 from reme.enumeration import ComponentEnum
+from .skill_helpers import install_builtin
 
 
 class _VersionedAgentWrapper(BaseAgentWrapper):
@@ -122,7 +124,8 @@ def test_project_path_is_independent_from_runtime_workspace(tmp_path):
 
 
 @pytest.mark.parametrize("wrapper_class", [AsAgentWrapper, CcAgentWrapper, CodexAgentWrapper])
-def test_agent_wrappers_share_project_skill_resolution(tmp_path, wrapper_class):
+@pytest.mark.asyncio
+async def test_agent_wrappers_share_project_skill_resolution(tmp_path, wrapper_class):
     """Every backend resolves selected skills through the base project root."""
     workspace = tmp_path / "project" / ".reme"
     skill = tmp_path / "project" / "skills" / "one"
@@ -136,45 +139,50 @@ def test_agent_wrappers_share_project_skill_resolution(tmp_path, wrapper_class):
         kwargs["as_llm"] = ""
     wrapper = wrapper_class(**kwargs)
 
-    assert wrapper._resolve_skill_sources(["one", "one"]) == {"one": skill}  # pylint: disable=protected-access
+    async with wrapper.skill_scope(skills=[{"name": "one"}]) as options:
+        assert options["_skills"].sources == {"one": skill}
 
 
-def test_explicit_builtins_are_available_without_changing_project_selection(tmp_path):
+@pytest.mark.asyncio
+async def test_explicit_builtins_are_available_without_changing_project_selection(tmp_path, monkeypatch):
     """Built-ins are opt-in by name and a same-named project skill retains precedence."""
     # pylint: disable=protected-access
     wrapper = _VersionedAgentWrapper(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
-    name = "manage-proactive-agent"
+    name = "unit-builtin"
+    builtin = install_builtin(monkeypatch, tmp_path, name)
     project = tmp_path / "skills"
     project.mkdir()
     custom = project / name
     custom.mkdir()
-    assert wrapper._resolve_skill_sources([name]) == {name: base_agent_wrapper.BUILTIN_SKILLS_ROOT / name}
-    assert not wrapper._resolve_skill_sources("all")
+    async with wrapper.skill_scope(skills=[{"name": name}]) as options:
+        assert options["_skills"].sources == {name: builtin}
+    async with wrapper.skill_scope(skills=[]) as options:
+        assert not options["_skills"].sources
     (custom / "SKILL.md").write_text("Custom skill", encoding="utf-8")
-    assert wrapper._resolve_skill_sources([name]) == {name: custom}
+    async with wrapper.skill_scope(skills=[{"name": name}]) as options:
+        assert options["_skills"].sources == {name: custom}
 
 
 def test_builtin_copy_updates_only_untouched_reme_copies(tmp_path):
     """An upgrade refreshes a generated copy and leaves user edits intact."""
     # pylint: disable=protected-access
-    wrapper = _VersionedAgentWrapper()
     source = tmp_path / "package" / "example"
     source.mkdir(parents=True)
     original = source / "SKILL.md"
     workspace = tmp_path / "workspace"
     original.write_text("Version one", encoding="utf-8")
-    wrapper._publish_builtin_skill(workspace, ".agents/skills", source)
+    SkillScope._publish_builtin(workspace / ".agents/skills", source)
     copy = workspace / ".agents" / "skills" / "example" / "SKILL.md"
     assert copy.read_text(encoding="utf-8") == "Version one"
     assert not copy.is_symlink()
 
     original.write_text("Version two", encoding="utf-8")
-    wrapper._publish_builtin_skill(workspace, ".agents/skills", source)
+    SkillScope._publish_builtin(workspace / ".agents/skills", source)
     assert copy.read_text(encoding="utf-8") == "Version two"
 
     copy.write_text("User version", encoding="utf-8")
     original.write_text("Version three", encoding="utf-8")
-    wrapper._publish_builtin_skill(workspace, ".agents/skills", source)
+    SkillScope._publish_builtin(workspace / ".agents/skills", source)
     assert copy.read_text(encoding="utf-8") == "User version"
 
 

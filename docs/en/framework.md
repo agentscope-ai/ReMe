@@ -77,9 +77,7 @@ reme/
     as_decision_model/       # optional decision model adapters
     agent_wrapper/           # AgentScope / Claude Code / Codex wrappers
     codex_app_server/        # BaseCodexAppServer / SDK backend / shared session ownership
-    agent_inbox/             # BaseAgentInbox / local storage and Agent event inputs
-    proactive_manager/           # Workspace discovery, event routing and Remy
-    proactive_runtime/           # Per-runtime inbox, scheduling and execution
+    proactive/              # Inbox, Outbox, Runtime and Manager components
   steps/
     base_step.py             # BaseStep, Ref, dispatch_steps
     common/                  # version, help, health_check, status, chat
@@ -612,7 +610,7 @@ thread with the current configuration. Rejected or cancelled preparation retains
 `output_schema` applies only to the current invocation; omission uses the calling wrapper's default, and explicit
 `None` disables that default for this invocation.
 
-A disposable read-only fork receives the selected Chat inbox entries in its prompt. It reads relevant source records and submits its decision through `submit_chat_reminder`.
+A disposable read-only fork receives the selected Chat inbox entries in its prompt. It reads relevant source records and submits its decision through `submit_chat_reply`.
 Only explicitly submitted text is appended to the foreground conversation; fork reasoning and ordinary replies stay
 outside it. Codex stores injected content in its native rollout without a second application-authored message copy.
 `reme_agents/` contains task configuration, event inboxes, personal memory and session references.

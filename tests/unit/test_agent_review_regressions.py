@@ -1,20 +1,17 @@
-"""Regression cases reported while reviewing reminder scheduling and file ownership."""
+"""Shared file locks serialize source edits against committed notification decisions."""
 
-# pylint: disable=protected-access,missing-function-docstring
+# pylint: disable=missing-function-docstring,protected-access,redefined-outer-name
 
 import asyncio
 import gc
 import weakref
-from datetime import datetime
-from unittest.mock import AsyncMock
 
-import frontmatter
 import pytest
 
-from reme.schema import Event, Response, SessionMessage
-from reme.steps.file_io import SaveStep, get_path_lock
-from .test_proactive_runtime import completed_result, running_manager
-from .test_inbox_fork import prepare
+from reme.steps.file_io import get_path_lock
+from reme.steps.proactive.chat import ProcessChatNotificationsStep
+from reme.steps.proactive.tools import SubmitChatReplyStep
+from .proactive_helpers import running_system, emit_notification
 
 
 @pytest.mark.asyncio
@@ -50,195 +47,73 @@ async def test_path_lock_survives_handoff_and_reclaims_unused_entries(tmp_path):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("action", ["disable", "delete", "window"])
-async def test_ineligible_reminders_release_capacity_and_resume_without_losing_unread_state(tmp_path, action):
-    async with running_manager(tmp_path) as (runtime, _, _):
-        for name, priority in (("first", "P2"), ("second", "P0")):
-            await runtime.create(
-                {
-                    "agent_name": name,
-                    "task_description": "Report",
-                },
-            )
-            await runtime.append_events(
-                name,
-                [Event(event_ts=runtime.now(), source="test", description="Finished")],
-            )
-            result, session = completed_result(runtime, name, priority=priority)
-            await runtime.run_round(name, AsyncMock(return_value=(result, session)))
-            if name == "first":
-                await runtime.outbox.sync()
-                if action == "delete":
-                    await runtime.delete(name)
-                elif action == "disable":
-                    await runtime.update(name, {"enabled": False})
-                else:
-                    hour = (runtime.now().hour + 1) % 24
-                    await runtime.update(
-                        name,
-                        {
-                            "notify_window": {
-                                "start": f"{hour:02}:00",
-                                "end": f"{hour:02}:01",
-                            },
-                        },
-                    )
-        runtime.inbox.max_pending_items = 1
-        runtime.notifications.config.p0_delay_seconds = 0
-        handled = []
+async def test_source_editor_cannot_write_between_native_delivery_and_receipt(tmp_path, monkeypatch):
+    async with running_system(tmp_path) as (manager, context, wrapper):
+        ref = await emit_notification(manager, context)
+        chat = context.components["agent_runtime"]["Remy"]
+        entered, release, edited = asyncio.Event(), asyncio.Event(), asyncio.Event()
+        append = wrapper.append_session
 
-        async def decide(_name, *, priority, msg_ids):
-            assert priority == "P0"
-            handled.extend(msg_ids)
-            await runtime.notifications.consume(msg_ids)
-            return Response(answer={"sent": False})
-
-        async with asyncio.timeout(3):
-            for _ in range(5):
-                await runtime.notifications.tick(decide)
-                if worker := runtime.notifications.worker:
-                    await worker
-        assert len(handled) == 1
-        first = next(ref for ref in runtime.outbox.entries if runtime.outbox.entries[ref].owner == "first")
-        assert runtime.outbox.entries[first].reminder.read_at is None
-        assert "read_at" not in frontmatter.loads(runtime.files.path(first).read_text())
-        assert not runtime.notifications.active_turn
-        if action == "delete":
-            await runtime.create(
-                {
-                    "agent_name": "first",
-                    "task_description": "Restore",
-                },
-            )
-        else:
-            await runtime.update("first", {"enabled": True, "notify_window": None})
-        await runtime.outbox.sync()
-        assert first in runtime.notifications.pending
-        assert runtime.outbox.entries[first].reminder.read_at is None
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("content", ["The experiment finished.", ""])
-@pytest.mark.parametrize("changed_field", ["reminder_message", "reminder_priority"])
-async def test_decision_revalidates_after_a_queued_editor_save(tmp_path, monkeypatch, content, changed_field):
-    async with running_manager(tmp_path) as (runtime, context, wrapper):
-        args = await prepare(runtime, context)
-        source = (await runtime.sessions.current("Remy")).session_id
-        ref = args["msg_ids"][0]
-        path = runtime.files.path(ref)
-        document = frontmatter.loads(path.read_text())
-        document[changed_field] = "P2" if changed_field == "reminder_priority" else "The experiment was cancelled."
-        wrapper.append_session = AsyncMock()
-        refreshed = asyncio.Event()
-        refresh = runtime.outbox.refresh
-
-        async def observe_refresh():
-            result = await refresh()
-            refreshed.set()
-            return result
-
-        async with runtime.notifications.turn(source, "P1", args["msg_ids"]) as turn:
-            await runtime.notifications.read_turn(turn)
-            monkeypatch.setattr(runtime.outbox, "refresh", observe_refresh)
-            async with await get_path_lock(path):
-                edit = asyncio.create_task(
-                    SaveStep(app_context=context)(
-                        path=ref,
-                        content=frontmatter.dumps(document),
-                        expected_mtime=datetime.fromtimestamp(path.stat().st_mtime).isoformat(),
-                    ),
-                )
-                await asyncio.sleep(0)
-                decision = asyncio.create_task(runtime.notifications.send(turn, content))
-                await asyncio.wait_for(refreshed.wait(), 2)
-                await asyncio.sleep(0)
-            assert (await asyncio.wait_for(edit, 2)).success
-            with pytest.raises(RuntimeError, match="reminders changed"):
-                await asyncio.wait_for(decision, 2)
-        wrapper.append_session.assert_not_awaited()
-        latest = frontmatter.loads(path.read_text())
-        assert latest[changed_field] == document[changed_field]
-        assert "read_at" not in latest
-
-
-@pytest.mark.asyncio
-async def test_editor_cannot_save_between_native_delivery_and_acknowledgement(tmp_path):
-    async with running_manager(tmp_path) as (runtime, context, wrapper):
-        args = await prepare(runtime, context)
-        source = (await runtime.sessions.current("Remy")).session_id
-        ref = args["msg_ids"][0]
-        path = runtime.files.path(ref)
-        entered, release = asyncio.Event(), asyncio.Event()
-
-        async def append(_session, content, *, message_id, **_kwargs):
+        async def slow(*args, **kwargs):
+            value = await append(*args, **kwargs)
             entered.set()
             await release.wait()
-            return SessionMessage(id=message_id, role="assistant", content=content)
+            return value
 
-        wrapper.append_session = AsyncMock(side_effect=append)
-        async with runtime.notifications.turn(source, "P1", args["msg_ids"]) as turn:
-            await runtime.notifications.read_turn(turn)
-            decision = asyncio.create_task(runtime.notifications.send(turn, "The experiment finished."))
-            edit = None
-            try:
-                await asyncio.wait_for(entered.wait(), 2)
-                document = frontmatter.loads(path.read_text())
-                document.content = "New user content"
-                edit = asyncio.create_task(
-                    SaveStep(app_context=context)(
-                        path=ref,
-                        content=frontmatter.dumps(document),
-                        expected_mtime=datetime.fromtimestamp(path.stat().st_mtime).isoformat(),
-                    ),
-                )
-                await asyncio.sleep(0.02)
-                assert not edit.done()
-            finally:
-                release.set()
-                await asyncio.wait_for(decision, 2)
-            response = await asyncio.wait_for(edit, 2)
-            assert response.success
-            assert frontmatter.loads(path.read_text()).content == "New user content"
-        assert not runtime.notifications.pending
-        assert (await runtime.outbox.read("monitor", ref))["read_at"] is not None
+        monkeypatch.setattr(wrapper, "append_session", slow)
 
+        async def reply(_query, **options):
+            return await SubmitChatReplyStep(app_context=context, agent_runtime="Remy")(
+                action="send",
+                content="Result",
+                **options["injected_job_kwargs"],
+            )
 
-@pytest.mark.asyncio
-async def test_reenabled_task_waits_for_capacity_without_blocking_an_urgent_reminder(tmp_path):
-    async with running_manager(tmp_path) as (runtime, _, _):
-        for name, priority in (("first", "P2"), ("second", "P0")):
-            await runtime.create({"agent_name": name, "task_description": "Report"})
-            await runtime.append_events(name, [Event(event_ts=runtime.now(), source="test", description="Finished")])
-            result, session = completed_result(runtime, name, priority=priority)
-            await runtime.run_round(name, AsyncMock(return_value=(result, session)))
-            if name == "first":
-                await runtime.outbox.sync()
-                await runtime.update(name, {"enabled": False})
-        runtime.inbox.max_pending_items = 1
-        await runtime.outbox.sync()
-        urgent = next(ref for ref in runtime.outbox.entries if runtime.outbox.entries[ref].owner == "second")
-        await runtime.update("first", {"enabled": True})
-        await runtime.outbox.sync()
-        assert urgent in runtime.notifications.pending
-        await runtime.notifications.consume([urgent])
-        first = next(ref for ref in runtime.outbox.entries if runtime.outbox.entries[ref].owner == "first")
-        assert first in runtime.notifications.pending
-        assert runtime.outbox.entries[first].reminder.read_at is None
+        monkeypatch.setattr(wrapper, "reply", reply)
+        decision = asyncio.create_task(
+            ProcessChatNotificationsStep(app_context=context, agent_runtime="Remy")(priority="P1", msg_ids=[ref.id]),
+        )
+        await asyncio.wait_for(entered.wait(), 1)
+
+        async def edit():
+            async with await get_path_lock(tmp_path / ref.record_path):
+                assert await chat.inbox.processed(ref.id)
+                edited.set()
+
+        writer = asyncio.create_task(edit())
+        await asyncio.sleep(0.01)
+        assert not edited.is_set()
+        release.set()
+        await decision
+        await writer
+        assert edited.is_set()
 
 
 @pytest.mark.asyncio
-async def test_native_decision_holds_file_lock_against_other_writers(tmp_path):
-    async with running_manager(tmp_path) as (runtime, context, _):
-        args = await prepare(runtime, context)
-        ref = args["msg_ids"][0]
-        items = [runtime.outbox.message(ref)]
+async def test_decision_revalidates_after_waiting_for_a_source_editor(tmp_path, monkeypatch):
+    async with running_system(tmp_path) as (manager, context, wrapper):
+        ref = await emit_notification(manager, context)
+        path = tmp_path / ref.record_path
+        lock = await get_path_lock(path)
+        ready = asyncio.Event()
 
-        async with runtime.outbox.decision(items) as update:
-            other = asyncio.create_task(runtime.outbox.update(ref, read_at=runtime.now()))
-            await asyncio.sleep(0)
-            assert not other.done()
-            await update(ref, chat_message_ids=["reme-proactive-example"])
+        async def reply(_query, **options):
+            ready.set()
+            return await SubmitChatReplyStep(app_context=context, agent_runtime="Remy")(
+                action="skip",
+                **options["injected_job_kwargs"],
+            )
 
-        await asyncio.wait_for(other, 2)
-        item = runtime.outbox.entries[ref].reminder
-        assert item.read_at and item.chat_message_ids == ["reme-proactive-example"]
+        monkeypatch.setattr(wrapper, "reply", reply)
+        async with lock:
+            task = asyncio.create_task(
+                ProcessChatNotificationsStep(app_context=context, agent_runtime="Remy")(
+                    priority="P1",
+                    msg_ids=[ref.id],
+                ),
+            )
+            await asyncio.wait_for(ready.wait(), 1)
+            path.write_text(path.read_text().replace("Verified result", "Changed"))
+        with pytest.raises(RuntimeError, match="source changed"):
+            await task
+        assert ref.id in await context.components["agent_runtime"]["Remy"].inbox.pending_ids()

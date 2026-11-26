@@ -32,27 +32,28 @@ def validate_task_names(names):
     return targets
 
 
-class AppendTaskEventsRequest(BaseModel):
-    """Append a nonempty batch of observations to existing background tasks."""
+class ManageConnectorRequest(BaseModel):
+    """Deliver explicit observations or control one configured collection Job."""
 
     model_config = ConfigDict(extra="forbid")
+    action: Literal["send", "enable", "pause"]
+    task_names: list[AgentName] | None = Field(default=None, min_length=1)
+    events: list[Event] | None = Field(default=None, min_length=1)
+    connector_job: AgentName | None = None
 
-    task_names: list[AgentName] = Field(min_length=1)
-    events: list[Event] = Field(min_length=1)
-
-    @field_validator("task_names")
-    @classmethod
-    def validate_targets(cls, names):
-        """Require one or more distinct recipients."""
-        return validate_task_names(names)
-
-    @field_validator("events")
-    @classmethod
-    def validate_sources(cls, events):
-        """Keep scheduled triggers private to the runtime."""
-        if any(event.source == CRON_EVENT_SOURCE for event in events):
-            raise ValueError("cron is a reserved framework source")
-        return events
+    @model_validator(mode="after")
+    def validate_action(self):
+        """Reject fields that do not belong to the selected operation."""
+        supplied = self.model_fields_set - {"action"}
+        if self.action == "send":
+            if supplied != {"task_names", "events"} or not self.events:
+                raise ValueError("send requires only task_names and events")
+            validate_task_names(self.task_names)
+            if any(event.source == CRON_EVENT_SOURCE for event in self.events):
+                raise ValueError("cron is a reserved framework source")
+        elif supplied != {"connector_job"} or not self.connector_job:
+            raise ValueError("enable/pause require only connector_job")
+        return self
 
 
 class NotificationWindow(BaseModel):
@@ -108,7 +109,9 @@ class ProactiveRuntimeConfig(ProactiveRuntimeSettings):
 
     agent_name: AgentName
     max_batch_events: int = Field(default=20, ge=1, strict=True)
-    step_backend: Literal["proactive_agent_step", "proactive_notebook_step"] = "proactive_agent_step"
+    run_job: Literal["run_memory_agent", "run_notebook_agent", "run_finance_agent", "run_news_agent"] = (
+        "run_memory_agent"
+    )
 
     @field_validator("agent_name")
     @classmethod
@@ -121,7 +124,7 @@ class ProactiveRuntimeConfig(ProactiveRuntimeSettings):
     @model_validator(mode="after")
     def validate_notebook_trigger(self):
         """Run the Notebook step only on observed events."""
-        if self.step_backend == "proactive_notebook_step" and self.cron is not None:
+        if self.run_job == "run_notebook_agent" and self.cron is not None:
             raise ValueError("Notebook runs only on events and cannot have a cron schedule")
         return self
 
@@ -129,13 +132,13 @@ class ProactiveRuntimeConfig(ProactiveRuntimeSettings):
 class CreateProactiveRuntimeConfig(ProactiveRuntimeConfig):
     """Accept initial task text only when creating an Agent."""
 
-    task_description: str = Field(min_length=1, max_length=100000)
+    task_description: str | None = Field(default=None, min_length=1, max_length=100000)
 
     @field_validator("task_description")
     @classmethod
     def nonblank_task_description(cls, value: str) -> str:
         """Reject blank task descriptions and preserve the original Markdown."""
-        if not value.strip():
+        if value is not None and not value.strip():
             raise ValueError("task_description must not be blank")
         return value
 
@@ -179,13 +182,14 @@ class ProactiveRecordDecision(BaseModel):
         return AgentReminder(priority=self.reminder_priority, message=self.reminder_message, id=path)
 
 
-class ManageProactiveAgentRequest(ProactiveRuntimeSettings):
+class ManageProactiveRuntimeRequest(ProactiveRuntimeSettings):
     """Named task operations expose only the fields relevant to each action."""
 
     model_config = ConfigDict(extra="forbid")
 
     action: Literal["list", "create", "status", "update", "delete", "query"]
     agent_name: AgentName | None = None
+    run_job: Literal["run_memory_agent", "run_notebook_agent", "run_finance_agent", "run_news_agent"] | None = None
     task_description: str | None = Field(default=None, min_length=1, max_length=100000)
     question: str | None = Field(default=None, min_length=1, max_length=100000)
 
@@ -204,8 +208,8 @@ class ManageProactiveAgentRequest(ProactiveRuntimeSettings):
         required, allowed = {
             "list": (set(), set()),
             "create": (
-                {"agent_name", "task_description"},
-                settings | {"agent_name", "task_description"},
+                {"agent_name"},
+                settings | {"agent_name", "task_description", "run_job"},
             ),
             "status": ({"agent_name"}, {"agent_name"}),
             "update": ({"agent_name"}, settings | {"agent_name"}),

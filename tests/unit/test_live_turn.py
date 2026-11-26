@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 
-from reme.components.proactive_manager._internal.live_turn import LiveTurn, LiveTurns
+from reme.components.proactive.runtime._live_turn import LiveTurn, LiveTurns
 from reme.schema import StreamChunk
 
 
@@ -95,17 +95,19 @@ def test_cancellation_preserves_received_content_and_settles_only_the_live_turn(
 async def test_live_subscription_recovers_partial_output_without_polling_each_token(
     tmp_path,
 ):
-    from .test_proactive_runtime import running_manager
-    from reme.components.proactive_manager._internal.views import AgentViews
+    from .proactive_helpers import running_system as running_manager
+    from reme.steps.proactive.api import AgentViews, AgentSessionStep
     from reme.schema import SessionSnapshot, SessionStatus
     from unittest.mock import AsyncMock
 
-    async with running_manager(tmp_path) as (runtime, _, wrapper):
-        sid = await runtime.sessions.ensure("Remy", wrapper, {}, runtime.now())
+    async with running_manager(tmp_path) as (_, context, wrapper):
+        runtime = context.components["agent_runtime"]["Remy"]
+        views = AgentViews(AgentSessionStep(app_context=context, agent_runtime="Remy"))
+        sid = await runtime.ensure_session({})
         wrapper.read_session = AsyncMock(
             return_value=SessionSnapshot(session_id=sid, state=SessionStatus(session_id=sid, status="active")),
         )
-        events = AgentViews(runtime).events("Remy", interval=60)
+        events = views.events("Remy", interval=60)
         try:
             assert (await anext(events))["type"] == "snapshot"
             with runtime.live_turns.observe("Remy", sid, "Hello") as publish:
@@ -119,7 +121,7 @@ async def test_live_subscription_recovers_partial_output_without_polling_each_to
                 assert update["messages"][-1]["content"] == "Partial output"
                 assert wrapper.read_session.await_count == 1
                 # Reading/reconnecting observes the same partial turn, without generating anything.
-                restored = await runtime.read_agent("Remy")
+                restored = await views.read("Remy")
                 assert restored["messages"][-1]["content"] == "Partial output"
                 assert not wrapper.turns
         finally:
@@ -130,17 +132,19 @@ async def test_live_subscription_recovers_partial_output_without_polling_each_to
 
 @pytest.mark.asyncio
 async def test_native_handoff_invalidates_every_subscribers_cached_snapshot(tmp_path):
-    from .test_proactive_runtime import running_manager
-    from reme.components.proactive_manager._internal.views import AgentViews
+    from .proactive_helpers import running_system as running_manager
+    from reme.steps.proactive.api import AgentViews, AgentSessionStep
     from reme.schema import SessionSnapshot, SessionStatus, SessionMessage
     from unittest.mock import AsyncMock
 
-    async with running_manager(tmp_path) as (runtime, _, wrapper):
-        sid = await runtime.sessions.ensure("Remy", wrapper, {}, runtime.now())
+    async with running_manager(tmp_path) as (_, context, wrapper):
+        runtime = context.components["agent_runtime"]["Remy"]
+        views = AgentViews(AgentSessionStep(app_context=context, agent_runtime="Remy"))
+        sid = await runtime.ensure_session({})
         snapshot = SessionSnapshot(session_id=sid, state=SessionStatus(session_id=sid, status="idle"))
         wrapper.read_session = AsyncMock(side_effect=lambda _: snapshot)
-        first = AgentViews(runtime).events("Remy", interval=60)
-        second = AgentViews(runtime).events("Remy", interval=60)
+        first = views.events("Remy", interval=60)
+        second = views.events("Remy", interval=60)
         try:
             await anext(first)
             await anext(second)
@@ -156,7 +160,7 @@ async def test_native_handoff_invalidates_every_subscribers_cached_snapshot(tmp_
                     chunks=[StreamChunk(block_id="text", chunk="Final", event="end")],
                 ),
             ]
-            await runtime.read_agent("Remy")
+            await views.read("Remy")
             assert not runtime.live_turns.turns
             for events in (first, second):
                 update = await asyncio.wait_for(anext(events), 1)

@@ -312,7 +312,7 @@ components:
 
 修改 embedding 模型或维度后，应重新构建 embedding 索引。
 
-配置 `components.proactive_manager.default` 可选择 Inbox、执行 Wrapper、Remy 初始记忆、后台任务和提醒延迟。参见[主动智能运行时](./services.md#proactive-runtime)。
+通过 `components.agent_runtime` 配置 Remy、后台任务、执行 Wrapper 和提醒延迟；`components.agent_manager.default` 选择管理的后台身份。Inbox 与 Outbox 由每个 Runtime 持有。参见[主动智能运行时](./services.md#proactive-runtime)。
 
 ## Service 和 Job
 

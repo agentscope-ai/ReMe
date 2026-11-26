@@ -1,4 +1,4 @@
-# Proactive Manager with Chat and named Proactive Runtimes.
+# Remy and four domain task Runtimes, managed by private workflow Jobs.
 # Start with LLM_API_KEY, LLM_BASE_URL and optionally REME_MODEL_NAME.
 # reme start config=proactive
 # Studio jobs and their runtime dependencies. Examples live in demo.yaml.
@@ -16,70 +16,6 @@ jobs:
     description: "Return a health snapshot of ReMe components."
     steps:
       - backend: health_check_step
-
-  todo:
-    backend: base
-    description: >-
-      Manage one-sentence tasks: create/list/get/update. Use list_projects to count Todo and Idea records per project.
-      IDs, creation times and progress timestamps are generated automatically.
-      Pass progress_text to append progress, or use progress_match to edit or remove an existing note.
-      Set status=closed to archive with an optional close_note.
-      Set status=pending or in_progress to reopen and clear the closure details.
-      source_idea links an existing idea; create inherits omitted project/text from that idea.
-      Follow the manage-todos-ideas skill for workflows and examples.
-    parameters:
-      type: object
-      additionalProperties: false
-      properties:
-        action: {type: string, enum: [create, list, list_projects, get, update]}
-        id: &record_id {type: string, minLength: 1, description: "Existing record ID; never supplied on create."}
-        project: &record_project {type: string, description: "Project name. Defaults to 随笔 (Notes in English); blank also means 随笔. Omit on create to inherit the source Idea's project. Omit on update to retain. Exact filter for list; use 随笔 for Notes."}
-        text: &record_text {type: string, minLength: 1, description: "One-sentence content; create/update only."}
-        status: {type: string, enum: [pending, in_progress, closed], description: "Task state. Defaults to pending on create; exact filter for list."}
-        due_date: {type: [string, "null"], format: date, description: "Optional deadline. Update with null to clear; omit to retain."}
-        source_idea: {type: [string, "null"], minLength: 1, description: "Idea ID to link or filter by; null removes the link on update."}
-        progress_text: {type: string, minLength: 1, description: "Append one progress note, or replace the note selected by progress_match."}
-        progress_time: {type: [string, "null"], format: date-time, description: "Optional explicit progress time with timezone; requires progress_text."}
-        progress_match:
-          type: object
-          additionalProperties: false
-          description: "On update, use the original time and text from get. Omit progress_text to remove this note."
-          properties:
-            time: {type: string, format: date-time}
-            text: {type: string, minLength: 1}
-          required: [time, text]
-        close_note: {type: [string, "null"], minLength: 1, description: "Confirmed outcome or reason for closure. Requires status=closed; null clears the note."}
-        scope: {type: string, enum: [active, archive, all], description: "Active lists by earliest target date with undated tasks last. Archive lists newest closures first. Defaults to active for list and all for list_projects."}
-        order: {type: string, enum: [due, created], description: "List only. Active lists default to earliest target date. Use created for newest creation time first, with unknown dates last. Archive lists always use closure time."}
-        query: &record_query {type: string, description: "List only; case-insensitive substring search."}
-        offset: &record_offset {type: integer, minimum: 0, description: "List only; defaults to 0."}
-        limit: &record_limit {type: integer, minimum: 1, maximum: 100, description: "List only; defaults to 20."}
-      required: [action]
-    steps:
-      - backend: todo_step
-
-  idea:
-    backend: base
-    description: >-
-      Capture and manage one-sentence ideas: create/list/get/update/archive/restore.
-      IDs and capture timestamps are generated automatically; archive retains the idea and its Todo links.
-      Creating or completing a linked Todo does not close the idea.
-      Follow the manage-todos-ideas skill for workflows and examples.
-    parameters:
-      type: object
-      additionalProperties: false
-      properties:
-        action: {type: string, enum: [create, list, get, update, archive, restore]}
-        id: *record_id
-        project: *record_project
-        text: *record_text
-        scope: {type: string, enum: [active, archive, all], description: "List only; defaults to active (newest captures first, undated ideas last). Archive lists newest archives first."}
-        query: *record_query
-        offset: *record_offset
-        limit: *record_limit
-      required: [action]
-    steps:
-      - backend: idea_step
 
   tts:
     backend: base
@@ -109,188 +45,129 @@ jobs:
       - backend: asr_step
         asr: default
 
-  process_chat_reminders:
-    backend: base
-    enable_serve: false
-    steps:
-      - backend: process_chat_reminders_step
-        job_tools: &chat_tools [manage_proactive_agent, todo, idea]
-        timeout_seconds: 120
-
   screen_capture_cron:
     backend: cron
     enabled: true
-    cron: "*/5 * * * *"
+    cron: '*/5 * * * *'
     steps:
-      - backend: screen_capture_step
-        similarity_threshold: 0.99
-        task_names: [proactive_memory]
+    - backend: screen_capture_step
+      similarity_threshold: 0.99
+      task_names:
+      - proactive_memory
+      agent_manager: default
+      connector_job: screen_capture_cron
 
   codex_dialogue_cron:
     backend: cron
-    cron: "*/5 * * * *"
-    # Establish the baseline on startup, without importing existing dialogue.
+    cron: '*/5 * * * *'
     init_steps:
-      - backend: codex_dialogue_init_step
-        codex_home: &codex_home ${CODEX_HOME:-~/.codex}
+    - backend: codex_dialogue_init_step
+      codex_home: ${CODEX_HOME:-~/.codex}
+      agent_manager: default
+      connector_job: codex_dialogue_cron
     steps:
-      - backend: codex_dialogue_step
-        task_names: [proactive_memory, proactive_note]
-        codex_home: *codex_home
+    - backend: codex_dialogue_step
+      task_names:
+      - proactive_memory
+      - proactive_note
+      codex_home: ${CODEX_HOME:-~/.codex}
+      agent_manager: default
+      connector_job: codex_dialogue_cron
+    enabled: true
 
   finance_news_cron:
     backend: cron
-    cron: "*/5 * * * *"
+    cron: '*/5 * * * *'
     steps:
-      - backend: finance_news_step
-        task_names: [proactive_fin]
+    - backend: finance_news_step
+      task_names:
+      - proactive_fin
+      agent_manager: default
+      connector_job: finance_news_cron
+    enabled: true
 
   gold_quotes_cron:
     backend: cron
-    cron: "*/5 * * * *"
+    cron: '*/5 * * * *'
     steps:
-      - backend: tencent_quotes_step
-        instrument: gold
-        task_names: [proactive_fin]
+    - backend: tencent_quotes_step
+      instrument: gold
+      task_names:
+      - proactive_fin
+      agent_manager: default
+      connector_job: gold_quotes_cron
+    enabled: true
 
   oil_quotes_cron:
     backend: cron
-    cron: "*/5 * * * *"
+    cron: '*/5 * * * *'
     steps:
-      - backend: tencent_quotes_step
-        instrument: oil
-        task_names: [proactive_fin]
+    - backend: tencent_quotes_step
+      instrument: oil
+      task_names:
+      - proactive_fin
+      agent_manager: default
+      connector_job: oil_quotes_cron
+    enabled: true
 
   nasdaq_quotes_cron:
     backend: cron
-    cron: "*/5 * * * *"
+    cron: '*/5 * * * *'
     steps:
-      - backend: tencent_quotes_step
-        instrument: nasdaq
-        task_names: [proactive_fin]
+    - backend: tencent_quotes_step
+      instrument: nasdaq
+      task_names:
+      - proactive_fin
+      agent_manager: default
+      connector_job: nasdaq_quotes_cron
+    enabled: true
 
   btc_quotes_cron:
     backend: cron
-    cron: "*/5 * * * *"
+    cron: '*/5 * * * *'
     steps:
-      - backend: btc_quotes_step
-        task_names: [proactive_fin]
-
-  manage_proactive_agent:
-    backend: base
-    description: >-
-      Manage background tasks: list/create/status/update/delete/query. All parameters are top-level.
-      Create requires agent_name and task_description. Supply cron for a time-triggered task or omit it for an event-triggered task.
-      The trigger type is fixed after creation, including when restoring a deleted task. Only event-triggered tasks receive observations.
-      Other actions except list require agent_name; query also requires question and an existing queryable task session.
-      Update changes execution settings; edit task requirements in TASK.md at the returned task_path.
-      Follow the manage-proactive-agent skill for workflows and examples.
-    parameters:
-      type: object
-      additionalProperties: false
-      properties:
-        action: {type: string, enum: [list, create, status, update, delete, query]}
-        agent_name: &agent_name
-          type: string
-          minLength: 1
-          maxLength: 80
-          pattern: '^[\w-]+$'
-          description: "Stable Agent name. New task names should use simple lowercase words joined by underscores."
-        task_description:
-          type: string
-          minLength: 1
-          maxLength: 100000
-          description: "Create only: task description written verbatim to TASK.md."
-        enabled: {type: boolean}
-        cron: {type: [string, "null"], description: "At creation, an expression selects time-triggered execution in the application timezone. Omission or null selects event-triggered execution. A time-triggered task can update its expression."}
-        min_trigger_interval_seconds: {type: number, minimum: 0, description: "Minimum interval before processing observations, in seconds."}
-        notify_window:
-          type: [object, "null"]
-          description: "Time window for automatic Chat processing and sending."
-          properties:
-            start: {type: string, pattern: '^(?:[01][0-9]|2[0-3]):[0-5][0-9]$'}
-            end: {type: string, pattern: '^(?:[01][0-9]|2[0-3]):[0-5][0-9]$'}
-          required: [start, end]
-          additionalProperties: false
-        question: {type: string, minLength: 1, maxLength: 100000, description: "Query only: question for the latest task session."}
-      required: [action]
-    steps:
-      - backend: manage_proactive_agent_step
-
-  append_task_events:
-    backend: base
-    description: "Append observations to existing event-triggered tasks. Each recipient is handled independently."
-    parameters:
-      type: object
-      additionalProperties: false
-      properties:
-        task_names:
-          type: array
-          minItems: 1
-          uniqueItems: true
-          items: &task_agent_name {<<: *agent_name, description: "Name of an existing background task."}
-        events:
-          type: array
-          minItems: 1
-          items:
-            type: object
-            properties:
-              id: {type: string}
-              event_ts: {type: string, format: date-time}
-              source: {type: string}
-              description: {type: string}
-              paths: {type: array, items: {type: string}}
-              metadata: {type: object}
-            required: [event_ts, source, description]
-            additionalProperties: false
-      required: [task_names, events]
-    steps:
-      - backend: append_task_events_step
-
-  submit_chat_reminder:
-    backend: base
-    enable_serve: false
-    description: Send a concise assistant reminder to the source Chat conversation. Empty content means stay quiet.
-    parameters:
-      type: object
-      additionalProperties: false
-      properties:
-        content: {type: string, maxLength: 100000}
-      required: [content]
-    steps:
-      - backend: submit_chat_reminder_step
-
-  run_proactive_agent:
-    backend: base
-    enable_serve: false
-    track_execution: true
-    steps:
-      - backend: run_proactive_agent_step
-        effort: low  # Time- and event-triggered runs.
-        timeout_seconds: 1200
-        max_local_search_calls: 10
-        recent_history_hours: 24
-        sandbox: null  # Use the selected wrapper's sandbox setting.
-
-  proactive_loop:
-    backend: background
-    steps:
-      - backend: proactive_loop_step
+    - backend: btc_quotes_step
+      task_names:
+      - proactive_fin
+      agent_manager: default
+      connector_job: btc_quotes_cron
+    enabled: true
 
   list_task_reminders:
     backend: base
-    description: "List reminders produced by an existing background task."
+    description: List reminders produced by an existing background task.
     parameters:
       type: object
       additionalProperties: false
       properties:
-        agent_name: *task_agent_name
-        offset: &page_offset {type: integer, minimum: 0, default: 0}
-        limit: &page_limit {type: integer, minimum: 1, maximum: 100, default: 20}
-        state: {type: string, enum: [all, pending, processed], default: all}
-      required: [agent_name]
+        agent_name:
+          type: string
+          minLength: 1
+          maxLength: 80
+          pattern: ^[\w-]+$
+          description: Name of an existing background task.
+        offset:
+          type: integer
+          minimum: 0
+          default: 0
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+        state:
+          type: string
+          enum:
+          - all
+          - pending
+          - processed
+          default: all
+      required:
+      - agent_name
     steps:
     - backend: list_task_reminders_step
+      agent_runtime: Remy
+      agent_manager: default
 
   read_agent_reminder:
     backend: base
@@ -298,28 +175,59 @@ jobs:
       type: object
       additionalProperties: false
       properties:
-        agent_name: &view_agent_name
-          <<: *agent_name
+        agent_name:
+          type: string
+          minLength: 1
+          maxLength: 80
+          pattern: ^[\w-]+$
+          description: Name of a visible Agent. Defaults to Remy.
           default: Remy
-          description: "Name of a visible Agent. Defaults to Remy."
-        message_id: {type: string, minLength: 1, description: "Workspace-relative reminder path or Chat message ID."}
-      required: [message_id]
+        message_id:
+          type: string
+          minLength: 1
+          description: Workspace-relative reminder path or Chat message ID.
+      required:
+      - message_id
     steps:
     - backend: agent_reminder_step
+      agent_runtime: Remy
+      agent_manager: default
 
   list_agent_inbox:
     backend: base
-    description: "List a task's input events or Remy's incoming reminder records, with their processing state."
+    description: List a task's input events or Remy's incoming reminder records, with their processing state.
     parameters:
       type: object
       additionalProperties: false
       properties:
-        agent_name: *view_agent_name
-        offset: *page_offset
-        limit: *page_limit
-        state: {type: string, enum: [all, pending, processing, processed], default: all}
+        agent_name:
+          type: string
+          minLength: 1
+          maxLength: 80
+          pattern: ^[\w-]+$
+          description: Name of a visible Agent. Defaults to Remy.
+          default: Remy
+        offset:
+          type: integer
+          minimum: 0
+          default: 0
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+        state:
+          type: string
+          enum:
+          - all
+          - pending
+          - processing
+          - processed
+          default: all
     steps:
     - backend: agent_inbox_step
+      agent_runtime: Remy
+      agent_manager: default
 
   list_agents:
     backend: base
@@ -329,37 +237,78 @@ jobs:
       properties: {}
     steps:
     - backend: agent_list_step
+      agent_runtime: Remy
+      agent_manager: default
 
   read_agent_session:
     backend: base
-    parameters: &agent_request
-      type: object
-      additionalProperties: false
-      properties:
-        agent_name: *view_agent_name
-    steps:
-    - backend: agent_session_step
-
-  task_document:
-    backend: base
-    description: "Read or save a named task's TASK.md. Pass the mtime from read as expected_mtime when saving."
     parameters:
       type: object
       additionalProperties: false
       properties:
-        action: {type: string, enum: [read, save]}
-        agent_name: *task_agent_name
-        content: {type: string, minLength: 1, maxLength: 100000}
-        expected_mtime: {type: string, minLength: 1, maxLength: 80}
-      required: [action, agent_name]
+        agent_name:
+          type: string
+          minLength: 1
+          maxLength: 80
+          pattern: ^[\w-]+$
+          description: Name of a visible Agent. Defaults to Remy.
+          default: Remy
+    steps:
+    - backend: agent_session_step
+      agent_runtime: Remy
+      agent_manager: default
+
+  task_document:
+    backend: base
+    description: Read or save a named task's TASK.md. Pass the mtime from read as expected_mtime when saving.
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        action:
+          type: string
+          enum:
+          - read
+          - save
+        agent_name:
+          type: string
+          minLength: 1
+          maxLength: 80
+          pattern: ^[\w-]+$
+          description: Name of an existing background task.
+        content:
+          type: string
+          minLength: 1
+          maxLength: 100000
+        expected_mtime:
+          type: string
+          minLength: 1
+          maxLength: 80
+      required:
+      - action
+      - agent_name
     steps:
     - backend: task_document_step
+      agent_runtime: Remy
+      agent_manager: default
 
   watch_agent_session:
     backend: stream
-    parameters: *agent_request
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        agent_name:
+          type: string
+          minLength: 1
+          maxLength: 80
+          pattern: ^[\w-]+$
+          description: Name of a visible Agent. Defaults to Remy.
+          default: Remy
     steps:
     - backend: watch_agent_session_step
+      agent_runtime: Remy
+      agent_manager: default
     stream_queue_size: 1
 
   ask_agent:
@@ -368,7 +317,13 @@ jobs:
       type: object
       additionalProperties: false
       properties:
-        agent_name: *view_agent_name
+        agent_name:
+          type: string
+          minLength: 1
+          maxLength: 80
+          pattern: ^[\w-]+$
+          description: Name of a visible Agent. Defaults to Remy.
+          default: Remy
         query:
           type: string
           minLength: 1
@@ -377,7 +332,8 @@ jobs:
       - query
     steps:
     - backend: ask_agent_step
-      job_tools: *chat_tools
+      agent_runtime: Remy
+      agent_manager: default
 
   create_chat_session:
     backend: base
@@ -387,7 +343,8 @@ jobs:
       properties: {}
     steps:
     - backend: agent_new_session_step
-      job_tools: *chat_tools
+      agent_runtime: Remy
+      agent_manager: default
 
   list_workspace:
     backend: base
@@ -605,6 +562,368 @@ jobs:
     steps:
       - backend: client_info_step
 
+  run_chat_agent:
+    backend: base
+    enable_serve: false
+    steps:
+      - backend: chat_agent_step
+        agent_runtime: Remy
+        job_tools: [manage_proactive_runtime, manage_connector, manage_notebook]
+        skills:
+          - manage-proactive-runtime
+          - manage-connector
+          - manage-notebook
+
+  process_chat_notifications:
+    backend: base
+    enable_serve: false
+    steps:
+      - backend: process_chat_notifications_step
+        agent_runtime: Remy
+        agent_manager: default
+        job_tools: [submit_chat_reply]
+        skills: []
+        timeout_seconds: 120
+
+  chat_notifications_loop:
+    backend: background
+    enable_serve: false
+    steps:
+      - backend: chat_notifications_loop_step
+        agent_runtime: Remy
+        agent_manager: default
+        process_job: process_chat_notifications
+
+  run_memory_agent:
+    backend: base
+    enable_serve: false
+    track_execution: true
+    steps:
+      - &task_execution
+        backend: memory_agent_step
+        agent_manager: default
+        effort: low
+        timeout_seconds: 1200
+        max_local_search_calls: 10
+        recent_history_hours: 24
+        sandbox: null
+        job_tools: []
+        skills: []
+
+  run_notebook_agent:
+    backend: base
+    enable_serve: false
+    track_execution: true
+    steps:
+      - <<: *task_execution
+        backend: notebook_agent_step
+        job_tools: [manage_notebook]
+        skills:
+          - manage-notebook
+
+  run_finance_agent:
+    backend: base
+    enable_serve: false
+    track_execution: true
+    steps:
+      - <<: *task_execution
+        backend: finance_agent_step
+
+  run_news_agent:
+    backend: base
+    enable_serve: false
+    track_execution: true
+    steps:
+      - <<: *task_execution
+        backend: news_agent_step
+
+  agent_manager_loop:
+    backend: background
+    enable_serve: false
+    steps:
+      - backend: agent_manager_loop_step
+        agent_manager: default
+
+  manage_proactive_runtime:
+    backend: base
+    description: 'Manage background Runtimes: list/create/status/update/delete/query. Select one of the four run_job
+      values on creation. Trigger type and run_job are immutable; task requirements live in TASK.md. Follow manage-proactive-runtime.'
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        action:
+          type: string
+          enum:
+          - list
+          - create
+          - status
+          - update
+          - delete
+          - query
+        agent_name:
+          type: string
+          minLength: 1
+          maxLength: 80
+          pattern: ^[\w-]+$
+          description: Stable Agent name. New task names should use simple lowercase words joined by underscores.
+        task_description:
+          type: string
+          minLength: 1
+          maxLength: 100000
+          description: 'Create only: explicit TASK.md text. Omit to render the selected domain default.'
+        enabled:
+          type: boolean
+        cron:
+          type:
+          - string
+          - 'null'
+          description: At creation, an expression selects time-triggered execution in the application timezone. Omission
+            or null selects event-triggered execution. A time-triggered task can update its expression.
+        min_trigger_interval_seconds:
+          type: number
+          minimum: 0
+          description: Minimum interval before processing observations, in seconds.
+        notify_window:
+          type:
+          - object
+          - 'null'
+          description: Time window for automatic Chat processing and sending.
+          properties:
+            start:
+              type: string
+              pattern: ^(?:[01][0-9]|2[0-3]):[0-5][0-9]$
+            end:
+              type: string
+              pattern: ^(?:[01][0-9]|2[0-3]):[0-5][0-9]$
+          required:
+          - start
+          - end
+          additionalProperties: false
+        question:
+          type: string
+          minLength: 1
+          maxLength: 100000
+          description: 'Query only: question for the latest task session.'
+        run_job:
+          type: string
+          enum:
+          - run_memory_agent
+          - run_notebook_agent
+          - run_finance_agent
+          - run_news_agent
+          description: Create only. Defaults to run_memory_agent for a new task; omitted when restoring.
+      required:
+      - action
+    steps:
+    - backend: manage_proactive_runtime_step
+      agent_manager: default
+  manage_connector:
+    backend: base
+    description: Send standard Events to event-triggered tasks, or enable/pause one configured connector Job. Each
+      recipient is handled independently. Follow manage-connector.
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        task_names:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 80
+            pattern: ^[\w-]+$
+            description: Name of an existing background task.
+        events:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              event_ts:
+                type: string
+                format: date-time
+              source:
+                type: string
+              description:
+                type: string
+              paths:
+                type: array
+                items:
+                  type: string
+              metadata:
+                type: object
+            required:
+            - event_ts
+            - source
+            - description
+            additionalProperties: false
+        action:
+          type: string
+          enum:
+          - send
+          - enable
+          - pause
+        connector_job:
+          type: string
+          description: 'Enable/pause only: configured connector Job name.'
+      required:
+      - action
+    steps:
+    - backend: manage_connector_step
+      agent_manager: default
+      connector_jobs:
+      - screen_capture_cron
+      - codex_dialogue_cron
+      - finance_news_cron
+      - gold_quotes_cron
+      - oil_quotes_cron
+      - nasdaq_quotes_cron
+      - btc_quotes_cron
+  submit_chat_reply:
+    backend: base
+    enable_serve: false
+    description: 提交当前提醒批次的 Chat 回复或静默决定。
+    steps:
+    - backend: submit_chat_reply_step
+      agent_runtime: Remy
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        action:
+          type: string
+          enum:
+          - send
+          - skip
+        content:
+          type: string
+          minLength: 1
+          maxLength: 100000
+          description: Required only for send; omitted for skip.
+      required:
+      - action
+  manage_notebook:
+    backend: base
+    description: Manage Todo and Idea records using kind and action. list_projects is a common action and accepts
+      only scope. IDs and times are generated by the server. Follow manage-notebook.
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        action:
+          type: string
+          enum:
+          - create
+          - list
+          - get
+          - update
+          - archive
+          - restore
+          - list_projects
+        id:
+          type: string
+          minLength: 1
+          description: Existing record ID; never supplied on create.
+        project:
+          type: string
+          description: Project name. Defaults to 随笔 (Notes in English); blank also means 随笔. Omit on create to inherit
+            the source Idea's project. Omit on update to retain. Exact filter for list; use 随笔 for Notes.
+        text:
+          type: string
+          minLength: 1
+          description: One-sentence content; create/update only.
+        status:
+          type: string
+          enum:
+          - pending
+          - in_progress
+          - closed
+          description: 'Todo only: pending, in_progress or closed.'
+        due_date:
+          type:
+          - string
+          - 'null'
+          format: date
+          description: Optional deadline. Update with null to clear; omit to retain.
+        source_idea:
+          type:
+          - string
+          - 'null'
+          minLength: 1
+          description: Idea ID to link or filter by; null removes the link on update.
+        progress_text:
+          type: string
+          minLength: 1
+          description: Append one progress note, or replace the note selected by progress_match.
+        progress_time:
+          type:
+          - string
+          - 'null'
+          format: date-time
+          description: Optional explicit progress time with timezone; requires progress_text.
+        progress_match:
+          type: object
+          additionalProperties: false
+          description: On update, use the original time and text from get. Omit progress_text to remove this note.
+          properties:
+            time:
+              type: string
+              format: date-time
+            text:
+              type: string
+              minLength: 1
+          required:
+          - time
+          - text
+        close_note:
+          type:
+          - string
+          - 'null'
+          minLength: 1
+          description: Confirmed outcome or reason for closure. Requires status=closed; null clears the note.
+        scope:
+          type: string
+          enum:
+          - active
+          - archive
+          - all
+          description: Active lists by earliest target date with undated tasks last. Archive lists newest closures
+            first. Defaults to active for list and all for list_projects.
+        order:
+          type: string
+          enum:
+          - due
+          - created
+          description: List only. Active lists default to earliest target date. Use created for newest creation time
+            first, with unknown dates last. Archive lists always use closure time.
+        query:
+          type: string
+          description: List only; case-insensitive substring search.
+        offset:
+          type: integer
+          minimum: 0
+          description: List only; defaults to 0.
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: List only; defaults to 20.
+        kind:
+          type: string
+          enum:
+          - todo
+          - idea
+          description: Required for record actions; omitted for list_projects.
+      required:
+      - action
+    steps:
+    - backend: manage_notebook_step
+
 components:
   asr:
     default:
@@ -623,44 +942,6 @@ components:
       audio_format: mp3
       sample_rate: 22050
       timeout: 60
-  agent_inbox:
-    default:
-      backend: event
-  proactive_manager:
-    default:
-      backend: local
-      agent_wrapper: default
-      inbox: default
-      chat:
-        initial_memory: |
-          主人关注 AI 相关的大新闻，以及当前项目的进度、进展、难点和待讨论问题。
-      # Initial descriptions are written verbatim to TASK.md when creating tasks.
-      runtimes:
-        - agent_name: proactive_fin
-          enabled: true
-          min_trigger_interval_seconds: 10
-          max_batch_events: 20
-          task_description: |
-            关注现货黄金（XAU/USD）、WTI 原油期货（CL）、BTC/USDT 和纳斯达克综合指数（IXIC）。用财联社电报补充与这四项行情直接相关的背景。
-            以最新有效报价为准，涨跌幅绝对值达到 3% 才提醒。黄金、原油和纳指以昨收为基准，BTC 使用滚动 24 小时涨跌幅。
-            提醒说明标的、价格或点位、涨跌幅、报价时间和来源。有依据时补充新闻背景。同一波变动只提醒一次，报价有延迟时注明。
-        - agent_name: proactive_memory
-          max_batch_events: 2
-          enabled: true
-          task_description: |
-            帮我梳理目前在做的项目，跟进各个项目的进展和难点，整理需要进一步讨论的问题。
-        - agent_name: proactive_note
-          step_backend: proactive_notebook_step
-          enabled: true
-          max_batch_events: 2
-          task_description: |
-            跟进 Todo 和 Idea，更新有依据的 Todo 状态和进展，把需要用户决定的事项交给 Remy。
-        - agent_name: proactive_news
-          enabled: true
-          cron: "0 8 * * *"
-          task_description: |
-            每天早上8点帮我整理一份科技早报，汇总过去24小时的重要科技新闻，简要说明要点和影响，并附上来源链接。整理好后提醒我查看。
-
   codex_app_server:
     default:
       backend: sdk
@@ -733,7 +1014,6 @@ components:
             supports_parallel_tool_calls: false
             support_verbosity: false
             shell_type: unified_exec
-            apply_patch_tool_type: freeform
             visibility: list
             supported_in_api: true
             priority: 0
@@ -751,7 +1031,7 @@ components:
       app_server: default
       project_path: ..  # Keep project skills separate from the default .reme workspace.
       cwd: .
-      skills: [manage-proactive-agent, manage-todos-ideas]
+      skills: []  # Role execution Jobs select their own skills.
       model: ${REME_MODEL_NAME:-qwen4-max}
       effort: xhigh
       approval_mode: deny_all  # SDK maps this to approval_policy=never; no approval requests.
@@ -790,3 +1070,60 @@ components:
   tokenizer:
     default:
       backend: regex
+
+  agent_runtime:
+    Remy:
+      backend: chat
+      agent_wrapper: default
+      run_job: run_chat_agent
+      enabled: true
+      initial_memory: |
+        主人关注 AI 相关的大新闻，以及当前项目的进度、进展、难点和待讨论问题。
+      notification_config:
+        p0_delay_seconds: 0
+        p1_idle_seconds: 10
+        p2_idle_seconds: 1800
+    proactive_memory:
+      backend: proactive
+      agent_wrapper: default
+      run_job: run_memory_agent
+      notification_target: Remy
+      enabled: true
+      max_batch_events: 2
+    proactive_note:
+      backend: proactive
+      agent_wrapper: default
+      run_job: run_notebook_agent
+      notification_target: Remy
+      enabled: true
+      max_batch_events: 2
+    proactive_fin:
+      backend: proactive
+      agent_wrapper: default
+      run_job: run_finance_agent
+      notification_target: Remy
+      enabled: true
+      min_trigger_interval_seconds: 10
+      max_batch_events: 20
+    proactive_news:
+      backend: proactive
+      agent_wrapper: default
+      run_job: run_news_agent
+      notification_target: Remy
+      enabled: true
+      cron: 0 8 * * *
+  agent_manager:
+    default:
+      backend: local
+      agent_wrapper: default
+      notification_target: Remy
+      runtimes:
+      - proactive_memory
+      - proactive_note
+      - proactive_fin
+      - proactive_news
+      allowed_run_jobs:
+      - run_memory_agent
+      - run_notebook_agent
+      - run_finance_agent
+      - run_news_agent

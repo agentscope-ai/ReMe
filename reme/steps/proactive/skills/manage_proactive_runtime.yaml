@@ -1,0 +1,150 @@
+name: manage-proactive-runtime
+description: Manage ReMe background tasks when the user requests ongoing follow-up, scheduled reports, condition-based reminders or progress checks.
+description_zh: 供个人助理通过 ReMe 管理后台任务。适用于用户要求持续跟进、按时汇报、在条件满足时提醒或查询任务进展。
+content: |
+  # Manage proactive tasks
+
+  When the user asks for ongoing follow-up or scheduled work, first find related tasks with
+  `manage_proactive_runtime(action="list")` and use `status` as needed to check their settings. Reuse a task that meets the
+  request. Each background task has a named Proactive Runtime. The same management interface creates, updates and deletes
+  its workspace definition. Pass tool parameters at the top level and identify the Runtime with `agent_name`.
+  Use short lowercase English words joined by underscores for new names. Names must be unique ignoring case.
+  Avoid `Remy`, which is reserved for the main conversation.
+
+  ## Choose a trigger
+
+  - **Event-triggered.** Process new material as it arrives; omit `cron` when creating the task. Once the source and collection
+    method are clear, have the collector save new material continuously and deliver events through
+    `manage_connector(action="send")`. The task consumes events in batches. For example, check for anomalies when experiment
+    logs change. The collector itself may run on a schedule.
+  - **Time-triggered.** Work at an agreed time; provide `cron` when creating the task. When it is due, the task fetches material,
+    carries out the request and reports as needed. For example, search for news and send an AI briefing at 08:00 daily.
+    `cron` uses the application timezone.
+  - **The trigger type is fixed after creation.** Create separate tasks when the same matter needs both triggers. For example,
+    one task checks incoming logs for anomalies, while another summarizes progress at 18:00 daily.
+
+  ## Write the requirements and create the task
+
+  Put the user's goal, necessary context, sources, decision criteria and reminder requirements in `task_description`.
+  At creation, this text is saved to the `TASK.md` identified by `task_path`, which the task reads on every run.
+  Observation events supply the current material; scheduled events supply the planned time. Put the schedule in `cron` and
+  specify the material's time range and whether to send every report in the task requirements.
+
+  **Prepare and send an AI briefing at 08:00 daily**
+
+  ```json
+  {
+    "action": "create",
+    "agent_name": "ai_briefing",
+    "cron": "0 8 * * *",
+    "task_description": "When scheduled, use this run's planned time as the cutoff and search the preceding 24 hours for important AI news with Web Search. Verify original sources, briefly explain the facts and their impact, and include source links. Send the completed briefing on every run."
+  }
+  ```
+
+  **Follow an experiment and report anomalies or completion**
+
+  ```json
+  {
+    "action": "create",
+    "agent_name": "experiment_watch",
+    "task_description": "When experiment logs arrive, read the files referenced by this run's events. Remind the user when the logs clearly show an error exit, NaN in a key metric or experiment completion. Explain the status and evidence, and link the original logs. Only record normal progress."
+  }
+  ```
+
+  If the user also wants an experiment progress report at 18:00 daily, create a separate time-triggered task with
+  `cron="0 18 * * *"` and reference the experiment records in its requirements.
+
+  After creation, check `task_path` and the saved requirements. For a time-triggered task, also check `next_trigger_at`.
+
+  Optional `run_job` choices at creation are `run_memory_agent` (projects and memory; default), `run_notebook_agent`
+  (event-based Todo / Idea follow-up), `run_finance_agent` (finance) and `run_news_agent` (morning briefings).
+  Omitting `task_description` creates the domain's default TASK.md. The execution Job and trigger type are fixed after
+  creation and retained on restoration; an arbitrary Job cannot replace them. Notebook accepts only event triggers.
+  Complete collection setup for event-triggered tasks.
+
+  ## Connect observations and verify results
+
+  Use the `manage-connector` skill to connect sources, deliver events and enable or pause collection.
+  The Runtime's `enabled` setting controls task execution; collection Jobs have separate controls.
+
+  ## Manage existing tasks
+
+  | User request | How to handle it |
+  | --- | --- |
+  | Find tasks or check status | Use `list` to find tasks and `status` to check execution. `running` means execution is in progress; runtime settings are under `config`. |
+  | Ask about progress | If a task session exists, use `query` with `question`. Otherwise, inspect its status and requirements. |
+  | Change requirements | Read the `TASK.md` at `task_path`, retain valid requirements, save and verify. When saving through `task_document`, pass the returned `mtime` as `expected_mtime`. |
+  | Change the schedule | For a time-triggered task, use `update` to change `cron`, then verify `next_trigger_at`. Create a new task to switch to event triggers. |
+  | Change observation processing frequency | For an event-triggered task, use `update` to change `min_trigger_interval_seconds`. The interval starts from the last successful run. Configure collection frequency on the collector. |
+  | Change reminder hours | Use `update` with `notify_window`, an HH:MM `{start,end}` object, to control when the main conversation automatically processes and sends reminders. Pass `null` to remove the limit. |
+  | Pause, resume or delete | Use `update` with `enabled=false` or `true`. Use `delete` to stop scheduling and execution while retaining history. When pausing or ending monitoring, stop collection Jobs dedicated to the task as needed. |
+
+  Restoring a deleted task under the same name retains its trigger type, `TASK.md` and history.
+  If the user provides new requirements, verify and update the file after restoration.
+
+content_zh: |
+  # 管理主动任务
+
+  用户要求持续跟进或定时完成一项工作时，先用 `manage_proactive_runtime(action="list")` 查找相关任务，按需用 `status`
+  核对现有设置。复用能满足要求的任务。每个后台任务对应一个具名 Proactive Runtime，创建、更新和删除均通过同一个管理接口写入工作区。工具参数放在顶层，用
+  `agent_name` 指定 Runtime。新名称用下划线连接简短的小写英文单词，忽略大小写必须唯一。避开框架为主对话保留的名称
+  `Remy`。
+
+  ## 选择触发方式
+
+  - **事件触发。** 有新资料时处理，创建时省略 `cron`。 来源和采集方式明确时，让采集器持续保存新资料，通过 `manage_connector(action="send")`
+    投递事件，任务分批消费。例如实验日志更新时检查异常。采集器本身可以定时运行。
+  - **时间触发。** 到了约定时间再做，创建时填写 `cron`。 到点后由任务按要求取资料、完成工作并按需汇报。例如每天 8 点检索新闻并发送
+    AI 日报。`cron`
+    使用应用时区。
+  - **任务创建后类型固定。** 同一件事需要两种触发时，分别创建任务。 例如一个任务收到日志就检查异常，另一个任务每天 18 点汇总进展。
+
+  ## 写任务要求并创建
+
+  把用户的目标、必要背景、资料来源、判断标准和提醒要求写成 `task_description`。创建时正文保存到 `task_path` 指向的 `TASK.md`
+  ，任务每轮都会读取。本轮资料随观察事件提供，定时事件提供计划时间。触发日程写在 `cron`，资料时间范围和是否每轮发送写在任务要求里。
+
+  **每天早上 8 点整理并发送 AI 日报**
+
+  ```json
+  {
+    "action": "create",
+    "agent_name": "ai_briefing",
+    "cron": "0 8 * * *",
+    "task_description": "时间触发时，以本轮计划时间为截止点，用 Web Search 检索此前 24 小时的重要 AI 新闻。核实原始来源，简洁说明事实和影响，附来源链接。每轮整理好后发送日报。"
+  }
+  ```
+
+  **跟进实验，异常或结束时提醒**
+
+  ```json
+  {
+    "action": "create",
+    "agent_name": "experiment_watch",
+    "task_description": "收到实验日志时，读取本轮事件引用的文件。日志明确显示进程因错误退出、关键指标出现 NaN 或实验完成时提醒，说明状态和判断依据，并附原日志链接。正常进展只记录。"
+  }
+  ```
+
+  如果还需要每天 18 点汇报实验进展，另建一个时间触发任务，设置 `cron="0 18 * * *"`，在任务要求中引用实验记录。
+
+  创建后核对 `task_path` 和实际任务要求。时间触发任务要核对 `next_trigger_at`。
+
+  创建时可选 `run_job`：`run_memory_agent`（项目与记忆，默认）、`run_notebook_agent`（Todo / Idea 事件跟进）、`run_finance_agent`（金融）、`run_news_agent`（早报）。省略 task_description 时生成领域默认 TASK.md；run_job 和触发类型创建后固定，恢复时沿用，不能用任意 Job 替换。Notebook 只接受事件触发。事件触发任务要完成采集接入。
+
+  ## 接入观察并核对结果
+
+  使用 `manage-connector` 技能接入资料、投递事件和开启或暂停采集。Runtime 的 enabled 控制任务执行，采集 Job 的开关单独管理。
+
+  ## 管理已有任务
+
+  | 用户想做什么       | 使用方式                                                                                                                                   |
+  |--------------------|--------------------------------------------------------------------------------------------------------------------------------------------|
+  | 查找任务或查看状态 | 用 `list` 查找，用 `status` 核对执行情况。返回的 `running` 表示执行中；运行设置在 `config` 中。                                                                     |
+  | 询问进展           | 有任务会话时用 `query`，传入 `question`。尚无会话时，查看状态和任务要求。                                                                  |
+  | 修改任务要求       | 读取 `task_path` 指向的 `TASK.md`，保留有效要求，保存后核对。通过 `task_document` 接口保存时，把读取返回的 `mtime` 传为 `expected_mtime`。 |
+  | 调整日程           | 时间触发任务可用 `update` 修改 `cron`。修改后核对 `next_trigger_at`。要改用事件触发时，创建新任务。                                        |
+  | 调整观察处理频率   | 对事件触发任务，用 `update` 修改 `min_trigger_interval_seconds`。间隔从上一轮成功完成时计。采集频率由采集器配置。                        |
+  | 调整提醒时段       | 用 `update` 设置 `notify_window`，传入 HH:MM 格式的 `{start,end}`，控制主对话自动处理和发送提醒的时段。传 `null` 取消限制。                |
+  | 暂停、恢复或删除   | 用 `update` 设置 `enabled=false` 或 `true`。用 `delete` 停止调度和执行并保留历史。暂停或结束监控时，按需停止该任务独占的采集作业。         |
+
+  同名恢复已删除的任务会沿用原触发类型、`TASK.md` 和历史。用户给了新要求时，恢复后核对并更新文件。

@@ -14,7 +14,8 @@ from typing import Any, Literal, TYPE_CHECKING
 from uuid import uuid4
 
 from ...constants import PROACTIVE_MESSAGE_ID_PREFIX, REME_IPV4_LOOPBACK_HOST
-from .base_agent_wrapper import BUILTIN_SKILLS_ROOT, BaseAgentWrapper
+from .base_agent_wrapper import BaseAgentWrapper
+from .skills import SkillScope, skill_specs
 from .cc_sessions import AppendRecord, CcSessions, SessionData, input_frame, native_id
 from . import cc_session_history
 from .session_append import check_guard, check_identity, validate_append
@@ -93,7 +94,7 @@ class CcAgentWrapper(BaseAgentWrapper):
                 {
                     **kwargs,
                     "job_tools": [],
-                    "skills": None,
+                    "skills": [],
                     "mcp_servers": {},
                     "tools": [],
                     "output_schema": None,
@@ -133,7 +134,7 @@ class CcAgentWrapper(BaseAgentWrapper):
         if message.num_turns != 0 or CcAgentWrapper._claude_usage(message.usage).total_tokens:
             raise RuntimeError("Claude session append unexpectedly invoked a model")
 
-    async def create_session(self, **kwargs) -> str:
+    async def _create_session(self, **kwargs) -> str:
         """Create or CLI-fork without inference, including a source's queued current input.
 
         The Python SDK's file-copy fork sees only committed transcript records;
@@ -156,6 +157,7 @@ class CcAgentWrapper(BaseAgentWrapper):
             raise ValueError("A fork must have a different session_id")
         async with self._sessions.lease(session_id):
             data = await self._fork_data(source, options) if source else self._sessions.location(options)
+            self._publish_skills(kwargs["_skills"], options, data)
             if source and "cwd" in kwargs and Path(options.cwd).resolve() != Path(data.cwd).resolve():
                 raise ValueError("resuming a Claude session requires its original cwd")
             if await self._sessions.exists(session_id, data, options.session_store):
@@ -411,49 +413,18 @@ class CcAgentWrapper(BaseAgentWrapper):
                 runtime.appends.resolve(message)
                 self.logger.info(f"Claude append session={session_id} message={message.id} result=persisted")
 
-    def _ensure_claude_skill_dir(
-        self,
-        config_dir: Path,
-        skills: list[str] | str,
-        *,
-        cwd: str | Path | None = None,
-        setting_sources: list[str] | None = None,
-    ) -> None:
-        """Publish built-ins to one enabled scope and preserve existing project skill links."""
-        sources = self._resolve_skill_sources(skills)
-        for name, source in list(sources.items()):
-            if source.parent != BUILTIN_SKILLS_ROOT:
-                continue
-            if setting_sources is None or "user" in setting_sources:
-                self._publish_builtin_skill(config_dir, "skills", source)
-            elif "project" in setting_sources:
-                self._publish_builtin_skill(Path(cwd or self.cwd), ".claude/skills", source)
-            del sources[name]
-        if not sources:
+    @staticmethod
+    def _publish_skills(skills: SkillScope, options, location: SessionData) -> None:
+        """Choose one enabled discovery scope using the session's actual location."""
+        if not skills.names:
             return
-
-        for target in (self.project_path / ".claude" / "skills", config_dir / "skills"):
-            try:
-                if target.is_symlink():
-                    self.logger.warning(f"Preserving existing Claude Code skills link: {target}")
-                    continue
-                if target.exists() and not target.is_dir():
-                    self.logger.warning(f"Preserving existing Claude Code skills path: {target}")
-                    continue
-
-                target.mkdir(parents=True, exist_ok=True)
-                for skill_name, source in sources.items():
-                    skill_target = target / skill_name
-                    if skill_target.is_symlink():
-                        if skill_target.resolve() != source.resolve():
-                            self.logger.warning(f"Preserving existing Claude Code skill link: {skill_target}")
-                        continue
-                    if skill_target.exists():
-                        self.logger.warning(f"Preserving existing Claude Code skill path: {skill_target}")
-                        continue
-                    skill_target.symlink_to(source, target_is_directory=True)
-            except OSError as exc:
-                self.logger.warning(f"Failed to link Claude Code skills into {target}: {exc}")
+        if options.setting_sources is None or "user" in options.setting_sources:
+            root = Path(location.config_dir) / "skills"
+        elif "project" in options.setting_sources:
+            root = Path(location.cwd) / ".claude" / "skills"
+        else:
+            raise ValueError("Configured skills require user or project setting_sources")
+        skills.publish(root)
 
     @classmethod
     def _make_tool(
@@ -523,11 +494,8 @@ class CcAgentWrapper(BaseAgentWrapper):
         if not isinstance(inputs, str):
             raise NotImplementedError("Only string input is supported for Claude Code.")
 
-        selected_skills = kwargs.get("skills")
-        if isinstance(selected_skills, str) and selected_skills != "all":
-            selected_skills = [selected_skills]
-
-        if "setting_sources" not in kwargs and kwargs.get("skills") is None:
+        selected_skills = [spec.name for spec in skill_specs(kwargs.get("skills", []))]
+        if "setting_sources" not in kwargs and not selected_skills:
             kwargs["setting_sources"] = []
         skip_keys = {"job_tools", "injected_job_kwargs", "output_schema", "api_key", "base_url", "credential"}
         option_fields = {field.name for field in fields(ClaudeAgentOptions)}
@@ -547,8 +515,7 @@ class CcAgentWrapper(BaseAgentWrapper):
             option_kwargs["tools"] = (
                 [name for name in requested if name in readers] if isinstance(requested, list) else readers
             )
-        if selected_skills is not None:
-            option_kwargs["skills"] = selected_skills
+        option_kwargs["skills"] = selected_skills
         if stream:
             option_kwargs["include_partial_messages"] = True
         opts = ClaudeAgentOptions(**option_kwargs)
@@ -581,15 +548,6 @@ class CcAgentWrapper(BaseAgentWrapper):
         opts.cwd = opts.cwd or self.cwd
         claude_config_dir = self.session_path / "claude_config"
         opts.env.setdefault("CLAUDE_CONFIG_DIR", str(claude_config_dir))
-        if selected_skills is not None and not opts.resume:
-            location = self._sessions.location(opts)
-            self._ensure_claude_skill_dir(
-                Path(location.config_dir),
-                selected_skills,
-                cwd=location.cwd,
-                setting_sources=opts.setting_sources,
-            )
-
         job_tools: list[str] = kwargs.get("job_tools", [])
         resolved_jobs = self._resolve_job_tools(job_tools)
         if resolved_jobs:
@@ -836,7 +794,7 @@ class CcAgentWrapper(BaseAgentWrapper):
         if result["status"] != "completed":
             raise RuntimeError(result["error"] or f"Claude Code session compaction {result['status']}")
 
-    async def reply_stream(self, inputs: Any, **kwargs) -> AsyncGenerator[StreamChunk, None]:
+    async def _reply_stream(self, inputs: Any, **kwargs) -> AsyncGenerator[StreamChunk, None]:
         """Keep one session lease through SDK shutdown and metadata publication."""
         options = self._build_options(inputs, stream=True, **self._merged_kwargs(kwargs))
         if options.resume:
@@ -882,13 +840,7 @@ class CcAgentWrapper(BaseAgentWrapper):
                         if "cwd" in kwargs and Path(options.cwd).resolve() != Path(data.cwd).resolve():
                             raise ValueError("resuming a Claude session requires its original cwd")
                         options.cwd = data.cwd
-                        if options.skills is not None:
-                            self._ensure_claude_skill_dir(
-                                Path(data.config_dir),
-                                options.skills,
-                                cwd=data.cwd,
-                                setting_sources=options.setting_sources,
-                            )
+                    self._publish_skills(kwargs["_skills"], options, data)
                     runtime.input = SessionMessage(id=turn_id, role="user", content=inputs, turn_id=turn_id)
                     await self._sessions.save(session_id, data)
                 async with aclosing(self._stream_reply(inputs, options, turn_id)) as stream:

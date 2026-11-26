@@ -89,7 +89,7 @@ async def test_live_codex_add_skill_reads_instructions(wrapper, tmp_path):
         f"When invoked, reply with exactly this token and no other text: {marker}\n",
         encoding="utf-8",
     )
-    wrapper.add_skills(["capability_probe"])
+    wrapper.set_skills([{"name": "capability_probe"}])
     result = await wrapper.reply("$capability_probe")
     assert result["result"].strip() == marker
     assert (tmp_path / ".agents/skills/capability_probe").resolve() == source.resolve()

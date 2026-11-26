@@ -54,7 +54,7 @@ export async function requestWorkspace(
     }
     case "todo":
     case "idea":
-      job = request.type;
+      job = "manage_notebook";
       try {
         body = notebookPayload(request);
       } catch {

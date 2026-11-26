@@ -1,0 +1,4 @@
+default_task: Prepare a concise briefing of important AI and technology news from the 24 hours preceding this scheduled occurrence.
+  Verify original sources, explain the facts and implications, include links, and remind me to read the briefing after each
+  occurrence.
+default_task_zh: 每天早上 8 点整理一份 AI 与科技早报，汇总本轮计划时间之前 24 小时的重要新闻，核对原始来源，简要说明事实和影响并附来源链接。每次整理好后提醒我查看。

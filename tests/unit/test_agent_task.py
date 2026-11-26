@@ -8,8 +8,8 @@ import pytest
 
 from reme.core.context import RuntimeContext
 from reme.schema.agent_view import TaskDocumentRequest
-from reme.steps.proactive.agent.api import TaskDocumentStep
-from .test_proactive_runtime import running_manager
+from reme.steps.proactive.api import TaskDocumentStep
+from .proactive_helpers import running_system as running_manager
 
 
 @pytest.mark.asyncio

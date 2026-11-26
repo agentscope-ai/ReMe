@@ -1,19 +1,5 @@
-"""Chat and proactive agents sharing application-owned runtime infrastructure."""
+"""Proactive workflows and service facade registration."""
 
-from . import agent, data_connectors, tools
-from .agent import (
-    BaseAgentStep,
-    ProcessChatRemindersStep,
-    ListChatSessionsStep,
-    ProactiveAgentStep,
-)
+from . import task, chat, tools, connector, api, loop
 
-__all__ = [
-    "BaseAgentStep",
-    "ProcessChatRemindersStep",
-    "ListChatSessionsStep",
-    "ProactiveAgentStep",
-    "agent",
-    "data_connectors",
-    "tools",
-]
+__all__ = ["task", "chat", "tools", "connector", "api", "loop"]

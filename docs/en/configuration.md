@@ -317,7 +317,7 @@ components:
 
 Rebuild the embedding index after changing the model or dimensions.
 
-Configure the Inbox, execution wrapper, Remy's initial memory, background tasks, and reminder delays through `components.proactive_manager.default`. See [Proactive Runtime](./services.md#proactive-runtime).
+Configure Remy and task Runtimes under `components.agent_runtime`; use `components.agent_manager.default` to select the managed background identities. Each Runtime owns its Inbox and Outbox. See [Proactive Runtime](./services.md#proactive-runtime).
 
 ## Service and Jobs
 

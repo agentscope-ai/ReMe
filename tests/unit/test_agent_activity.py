@@ -1,11 +1,13 @@
 """Execution phases are presentation facts, never transcript content."""
 
+# pylint: disable=missing-function-docstring,protected-access,redefined-outer-name
+
 from datetime import datetime
 
 import pytest
 
 from reme.schema import AgentActivity, StreamChunk
-from reme.steps.proactive.agent._activity import ActivityTracker
+from reme.steps.proactive.base import ActivityTracker
 
 
 def test_task_activity_requires_a_run_identity_and_keeps_it_through_phase_changes():

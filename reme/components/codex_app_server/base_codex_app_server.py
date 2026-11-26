@@ -45,6 +45,10 @@ class BaseCodexAppServer(BaseComponent):
             raise ValueError("Codex job_tools must be enabled")
 
     @abstractmethod
+    async def refresh_skills(self, cwd: Path) -> None:
+        """Refresh native discovery after publishing a run's skills."""
+
+    @abstractmethod
     async def release_session(self, session_id: str) -> None:
         """Release runtime ownership while retaining native history."""
 

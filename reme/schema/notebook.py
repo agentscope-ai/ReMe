@@ -3,7 +3,16 @@
 from datetime import date, datetime, timezone
 from typing import Annotated, ClassVar, Literal
 
-from pydantic import AfterValidator, AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import (
+    AfterValidator,
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    TypeAdapter,
+    model_validator,
+)
 
 DEFAULT_PROJECT = "随笔"
 NotebookProject = Annotated[
@@ -41,7 +50,7 @@ class _RecordRequest(BaseModel):
     @model_validator(mode="after")
     def validate_action(self):
         """Validate public arguments before any workspace files are accessed."""
-        supplied = self.model_fields_set - {"action"}
+        supplied = self.model_fields_set - {"action", "kind"}
         allowed = self.action_fields[self.action]
         if supplied - allowed:
             raise ValueError(f"unsupported fields for {self.action}: {', '.join(sorted(supplied - allowed))}")
@@ -72,12 +81,12 @@ class TodoRequest(_RecordRequest):
     action_fields = {
         "create": _write_fields,
         "list": {"project", "status", "source_idea", "scope", "query", "offset", "limit", "order"},
-        "list_projects": {"scope"},
         "get": {"id"},
         "update": _write_fields | {"id", "progress_match"},
     }
 
-    action: Literal["create", "list", "list_projects", "get", "update"]
+    kind: Literal["todo"]
+    action: Literal["create", "list", "get", "update"]
     order: Literal["due", "created"] = "due"
     status: TodoStatus = "pending"
     due_date: date | None = None
@@ -115,4 +124,17 @@ class IdeaRequest(_RecordRequest):
         "restore": {"id"},
     }
 
+    kind: Literal["idea"]
     action: Literal["create", "list", "get", "update", "archive", "restore"]
+
+
+class NotebookProjectsRequest(BaseModel):
+    """Discover projects across both record collections."""
+
+    model_config = ConfigDict(extra="forbid")
+    action: Literal["list_projects"]
+    scope: Literal["active", "archive", "all"] = "all"
+
+
+ManageNotebookRequest = TodoRequest | IdeaRequest | NotebookProjectsRequest
+NOTEBOOK_REQUEST = TypeAdapter(ManageNotebookRequest)

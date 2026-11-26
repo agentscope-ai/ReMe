@@ -1,0 +1,132 @@
+name: manage-connector
+description: Use ReMe's manage_connector to deliver standard events or enable and pause configured collection Jobs.
+description_zh: 用 ReMe 的 manage_connector 投递标准事件，或开启、暂停已配置的资料采集 Job。
+content: |
+  # Manage source connections
+
+  First inspect the target tasks with `manage_proactive_runtime`. Deliver events only to existing event-triggered tasks;
+  time-triggered tasks fetch their own material. Enable or pause collection Jobs that are already configured and started.
+  These actions neither create collectors nor change the target Runtime's `enabled` setting.
+
+  ```json
+  {"action":"pause","connector_job":"screen_capture_cron"}
+  {"action":"enable","connector_job":"screen_capture_cron"}
+  ```
+
+  Use only the service's configured `connector_jobs` list. Pausing retains downloaded material and pending batches;
+  resuming continues delivery. Keep collectors used by other tasks running. To change sources, frequency or target tasks,
+  update the relevant service configuration and restart.
+
+  ## Connect observations and verify results
+
+  1. Confirm the source and collection host, preferring an existing collector. Call the current service's
+     `POST /get_client_info` with body `{}` to check `workspace_dir` and `resource_dir`. Configure and start collection on
+     the actual host, and record how to run and stop it.
+  2. Save the complete original material in the workspace before posting a summary and file paths to `POST /manage_connector`.
+     Set `task_names` to the target task names and use normalized workspace-relative `paths`.
+     `source="cron"` is reserved for the framework.
+
+  ```json
+  {
+    "action": "send",
+    "task_names": [
+      "experiment_watch"
+    ],
+    "events": [
+      {
+        "id": "experiment-log-snapshot-001",
+        "event_ts": "2026-11-22T10:30:00+08:00",
+        "source": "experiment_log",
+        "description": "The experiment log snapshot has been updated.",
+        "paths": [
+          "resource/experiments/snapshot-001.log"
+        ]
+      }
+    ]
+  }
+  ```
+
+  Verify delivery with real material. Check each target's event IDs in `answer.deliveries` and record the reasons in
+  `answer.rejected`, such as a deleted target, a time-triggered target or conflicting event IDs.
+  Retry only targets in `answer.errors`, with bounded retries and the same event IDs and content.
+  Advance the collection cursor only after every target has accepted delivery or explicitly rejected it.
+  Have the collection host report persistent failures.
+
+  Check consumption using the event counts, `last_completed_at` and `error` from `status`; then use `query` or daily records
+  to check the analysis. Reminders selected by the task enter the main conversation's inbox. When the actual reminder
+  condition occurs, verify the sending result. Tell the user what has been configured or verified and what remains to check.
+
+  ## CLI
+
+  Run `reme start config=proactive` in one terminal, then use another terminal for:
+
+  ```bash
+  reme manage_connector action=pause connector_job=screen_capture_cron
+  reme manage_connector action=enable connector_job=screen_capture_cron
+  ```
+
+  Manual `send` does not create a resource. Save the original files first, then deliver immutable event IDs, timestamps,
+  sources, summaries and workspace-relative paths. Retries must reuse the same IDs and content.
+  Create a new ID for changed content; do not overwrite a delivered event.
+
+content_zh: |
+  # 管理资料接入
+
+  先用 manage_proactive_runtime 查看目标任务。事件只能投递给已有事件触发任务；时间触发任务自己取资料。
+  开启、暂停的是已配置且启动的采集 Job，不会创建采集器，也不会修改目标 Runtime 的 enabled。
+
+  ```json
+  {"action":"pause","connector_job":"screen_capture_cron"}
+  {"action":"enable","connector_job":"screen_capture_cron"}
+  ```
+
+  仅使用服务配置的 connector_jobs 名单。暂停会保留已下载资料和待投递批次，恢复后继续投递。
+  不要关闭仍被其他任务共享的采集器。需要修改来源、频率或目标列表时，更新明确的服务配置并重启。
+
+  ## 接入观察并核对结果
+
+  1. 确认资料来源和采集宿主，优先复用现有采集器。用当前服务的 `POST /get_client_info`（请求体 `{}`）确认 `workspace_dir` 和
+     `resource_dir`。在实际宿主配置并启动采集，留下运行入口和停止方式。
+  2. 先将原始资料完整保存到工作区，再向 `POST /manage_connector` 投递简述和文件路径。`task_names` 填目标任务名单，`paths`
+     使用规范的工作区相对路径。
+     `source="cron"` 由框架保留。
+
+  ```json
+  {
+    "action": "send",
+    "task_names": [
+      "experiment_watch"
+    ],
+    "events": [
+      {
+        "id": "experiment-log-snapshot-001",
+        "event_ts": "2026-11-22T10:30:00+08:00",
+        "source": "experiment_log",
+        "description": "实验日志快照已更新。",
+        "paths": [
+          "resource/experiments/snapshot-001.log"
+        ]
+      }
+    ]
+  }
+  ```
+
+  用真实资料验证投递。核对 `answer.deliveries` 中各目标的事件 ID，并记录 `answer.rejected` 中的拒绝原因，例如目标已删除、属于时间触发，或事件
+  ID 冲突。
+  仅对 `answer.errors` 中的目标有限重试，复用原事件 ID 和内容。每个目标都完成投递或收到明确拒绝后推进采集游标。持续失败时让采集宿主报告错误。
+
+  用 `status` 的事件计数、`last_completed_at` 和 `error` 核对消费情况，再用 `query`
+  或每日记录核对分析。任务决定发送的提醒进入主对话的收件箱。实际提醒条件出现时核对发送结果。向用户汇报已经配置或验证到哪一步，以及还有哪一步待确认。
+
+
+  ## CLI
+
+  先在一个终端运行 `reme start config=proactive`，再在另一个终端运行：
+
+  ```bash
+  reme manage_connector action=pause connector_job=screen_capture_cron
+  reme manage_connector action=enable connector_job=screen_capture_cron
+  ```
+
+  手动 send 不生成 resource；先保存原始文件，再投递不可变的事件 ID、时间、来源、简述和工作区相对路径。
+  重试必须复用相同 ID 与内容。修改内容要创建新 ID，不能覆盖已投递事件。

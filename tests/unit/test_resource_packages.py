@@ -14,10 +14,10 @@ import pytest
 from pydantic import ValidationError
 
 from reme.core.context import ApplicationContext, RuntimeContext
-from reme.components.proactive_manager import BaseProactiveManager
+from reme.components.proactive.manager import BaseAgentManager
 from reme.utils.files.workspace_files import WorkspaceFiles
 from reme.schema import ResourceMetadata
-from reme.steps.proactive.data_connectors import BaseConnectorStep, ScreenCaptureStep
+from reme.steps.proactive.connector import BaseConnectorStep, ScreenCaptureStep
 
 
 class PackageConnector(BaseConnectorStep):
@@ -49,7 +49,7 @@ async def test_screen_groups_skip_unchanged_pixels_and_preserve_a_return_to_an_o
     expected = [False, True, False, False]
     for pixels, skipped in zip((b"\x00\x00\x00", b"\x00\x00\x00", b"\xff\xff\xff", b"\x00\x00\x00"), expected):
         displays.grab.return_value = SimpleNamespace(rgb=pixels, size=(1, 1))
-        step = ScreenCaptureStep(app_context=context)
+        step = ScreenCaptureStep(connector_job="screen_capture_cron", app_context=context)
         response = await step()
         assert (response.answer == {"skipped": "no_new_data"}) is skipped
     assert len(list(tmp_path.glob("resource/screenshot/*/*/metadata.json"))) == 3
@@ -59,9 +59,9 @@ async def test_screen_groups_skip_unchanged_pixels_and_preserve_a_return_to_an_o
 @pytest.mark.asyncio
 async def test_screen_geometry_changes_are_new_even_when_pixels_match(tmp_path, displays):
     context = ApplicationContext(workspace_dir=str(tmp_path))
-    await ScreenCaptureStep(app_context=context)()
+    await ScreenCaptureStep(connector_job="screen_capture_cron", app_context=context)()
     displays.monitors[1]["left"] = 100
-    response = await ScreenCaptureStep(app_context=context)()
+    response = await ScreenCaptureStep(connector_job="screen_capture_cron", app_context=context)()
     assert "path" in response.answer
     assert len(list(tmp_path.glob("resource/screenshot/*/*/metadata.json"))) == 2
 
@@ -69,7 +69,9 @@ async def test_screen_geometry_changes_are_new_even_when_pixels_match(tmp_path, 
 @pytest.mark.asyncio
 async def test_concurrent_screen_capture_publishes_identical_pixels_once(tmp_path, displays):
     context = ApplicationContext(workspace_dir=str(tmp_path))
-    results = await asyncio.gather(*(ScreenCaptureStep(app_context=context)() for _ in range(2)))
+    results = await asyncio.gather(
+        *(ScreenCaptureStep(connector_job="screen_capture_cron", app_context=context)() for _ in range(2)),
+    )
     assert sum(response.answer == {"skipped": "no_new_data"} for response in results) == 1
     assert len(list(tmp_path.glob("resource/screenshot/*/*/metadata.json"))) == 1
     assert displays.grab.call_count == 2
@@ -78,7 +80,7 @@ async def test_concurrent_screen_capture_publishes_identical_pixels_once(tmp_pat
 @pytest.mark.parametrize("threshold", [True, "0.99", None, -0.01, 1.01, float("nan"), float("inf")])
 def test_screen_similarity_rejects_invalid_thresholds(threshold):
     with pytest.raises(ValueError, match="similarity_threshold"):
-        ScreenCaptureStep(similarity_threshold=threshold)
+        ScreenCaptureStep(connector_job="screen_capture_cron", similarity_threshold=threshold)
 
 
 @pytest.mark.asyncio
@@ -96,12 +98,16 @@ async def test_screen_similarity_uses_all_rgb_channels_and_a_strict_threshold(
     context = ApplicationContext(workspace_dir=str(tmp_path))
     displays.monitors[1].update(width=20, height=10)
     displays.grab.return_value = SimpleNamespace(rgb=b"\x00\x00\x00" * 200, size=(20, 10))
-    await ScreenCaptureStep(app_context=context, similarity_threshold=threshold)()
+    await ScreenCaptureStep(connector_job="screen_capture_cron", app_context=context, similarity_threshold=threshold)()
     displays.grab.return_value = SimpleNamespace(
         rgb=b"\x00\x00\x01" * changed_pixels + b"\x00\x00\x00" * (200 - changed_pixels),
         size=(20, 10),
     )
-    response = await ScreenCaptureStep(app_context=context, similarity_threshold=threshold)()
+    response = await ScreenCaptureStep(
+        connector_job="screen_capture_cron",
+        app_context=context,
+        similarity_threshold=threshold,
+    )()
     assert (response.answer == {"skipped": "no_new_data"}) is skipped
     assert len(list(tmp_path.glob("resource/screenshot/*/*"))) == (1 if skipped else 2)
 
@@ -115,7 +121,7 @@ async def test_screen_similarity_compares_with_the_last_saved_group(tmp_path, di
             rgb=b"\xff\xff\xff" * changed_pixels + b"\x00\x00\x00" * (200 - changed_pixels),
             size=(20, 10),
         )
-        response = await ScreenCaptureStep(app_context=context)()
+        response = await ScreenCaptureStep(connector_job="screen_capture_cron", app_context=context)()
         assert (response.answer == {"skipped": "no_new_data"}) is skipped
     assert len(list(tmp_path.glob("resource/screenshot/*/*"))) == 2
 
@@ -135,8 +141,8 @@ async def test_changed_small_display_is_not_diluted_by_a_large_unchanged_display
         large,
         SimpleNamespace(rgb=b"\xff\xff\xff", size=(1, 1)),
     ]
-    await ScreenCaptureStep(app_context=context)()
-    response = await ScreenCaptureStep(app_context=context)()
+    await ScreenCaptureStep(connector_job="screen_capture_cron", app_context=context)()
+    response = await ScreenCaptureStep(connector_job="screen_capture_cron", app_context=context)()
     assert [entry["path"] for entry in response.answer["files"]] == ["1.png", "2.png"]
     assert len(list(tmp_path.glob("resource/screenshot/*/*"))) == 2
 
@@ -145,23 +151,23 @@ async def test_changed_small_display_is_not_diluted_by_a_large_unchanged_display
 async def test_screen_similarity_preserves_image_size_changes(tmp_path, displays):
     context = ApplicationContext(workspace_dir=str(tmp_path))
     displays.grab.return_value = SimpleNamespace(rgb=b"\x00\x00\x00" * 200, size=(20, 10))
-    await ScreenCaptureStep(app_context=context)()
+    await ScreenCaptureStep(connector_job="screen_capture_cron", app_context=context)()
     displays.grab.return_value = SimpleNamespace(rgb=b"\x00\x00\x00" * 200, size=(10, 20))
-    response = await ScreenCaptureStep(app_context=context)()
+    response = await ScreenCaptureStep(connector_job="screen_capture_cron", app_context=context)()
     assert "path" in response.answer
 
 
 @pytest.mark.asyncio
 async def test_screen_similarity_rejects_symlinked_history_and_cleans_new_capture(tmp_path, displays):
     context = ApplicationContext(workspace_dir=str(tmp_path))
-    response = await ScreenCaptureStep(app_context=context)()
+    response = await ScreenCaptureStep(connector_job="screen_capture_cron", app_context=context)()
     previous = tmp_path / response.answer["path"]
     image = previous.parent / "1.png"
     target = tmp_path / "other.png"
     image.rename(target)
     image.symlink_to(target)
     with pytest.raises(ValueError, match="without symlinks"):
-        await ScreenCaptureStep(app_context=context)()
+        await ScreenCaptureStep(connector_job="screen_capture_cron", app_context=context)()
     assert previous.is_file() and target.is_file()
     assert len(list(tmp_path.glob("resource/screenshot/*/*"))) == 1
     assert displays.grab.call_count == 2
@@ -171,8 +177,13 @@ async def test_screen_similarity_rejects_symlinked_history_and_cleans_new_captur
 async def test_empty_collection_skips_publication_and_delivery(tmp_path):
     context = ApplicationContext(workspace_dir=str(tmp_path))
     invocation = RuntimeContext()
-    runtime = Mock(spec=BaseProactiveManager)
-    step = PackageConnector(app_context=context, proactive_manager=runtime, task_names=["work"])
+    runtime = Mock(spec=BaseAgentManager)
+    step = PackageConnector(
+        connector_job="screen_capture_cron",
+        app_context=context,
+        agent_manager=runtime,
+        task_names=["work"],
+    )
     step.collect = Mock(return_value=[])
     response = await step(invocation)
     assert invocation["resource"] is None
@@ -184,7 +195,10 @@ async def test_empty_collection_skips_publication_and_delivery(tmp_path):
 
 @pytest.mark.asyncio
 async def test_invalid_collection_result_is_not_treated_as_an_empty_batch(tmp_path):
-    step = PackageConnector(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
+    step = PackageConnector(
+        connector_job="screen_capture_cron",
+        app_context=ApplicationContext(workspace_dir=str(tmp_path)),
+    )
     step.collect = Mock(return_value=None)
     with pytest.raises(ValidationError):
         await step()
@@ -193,7 +207,10 @@ async def test_invalid_collection_result_is_not_treated_as_an_empty_batch(tmp_pa
 
 @pytest.mark.asyncio
 async def test_resources_are_written_in_place_before_the_manifest_is_atomically_published(tmp_path, monkeypatch):
-    step = PackageConnector(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
+    step = PackageConnector(
+        connector_job="screen_capture_cron",
+        app_context=ApplicationContext(workspace_dir=str(tmp_path)),
+    )
     collect, replace = step.collect, os.replace
     directories, manifests = [], []
 
@@ -220,7 +237,10 @@ async def test_resources_are_written_in_place_before_the_manifest_is_atomically_
 
 @pytest.mark.asyncio
 async def test_failed_manifest_publication_removes_the_incomplete_resource_package(tmp_path, monkeypatch):
-    step = PackageConnector(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
+    step = PackageConnector(
+        connector_job="screen_capture_cron",
+        app_context=ApplicationContext(workspace_dir=str(tmp_path)),
+    )
     monkeypatch.setattr(
         "reme.utils.files.workspace_files.os.replace",
         Mock(side_effect=OSError("manifest publication failed")),
@@ -238,11 +258,14 @@ async def test_packages_are_grouped_by_source_and_local_capture_time(tmp_path, m
     clock = Mock()
     clock.now.return_value = first
     monkeypatch.setattr(
-        "reme.steps.proactive.data_connectors.base_connector.uuid4",
+        "reme.steps.proactive.connector.base_connector.uuid4",
         Mock(side_effect=[SimpleNamespace(hex="a8f3c2" + "0" * 26), SimpleNamespace(hex="b9e4d3" + "0" * 26)]),
     )
-    monkeypatch.setattr("reme.steps.proactive.data_connectors.base_connector.datetime", clock)
-    step = PackageConnector(app_context=ApplicationContext(workspace_dir=str(tmp_path), timezone="Asia/Shanghai"))
+    monkeypatch.setattr("reme.steps.proactive.connector.base_connector.datetime", clock)
+    step = PackageConnector(
+        connector_job="screen_capture_cron",
+        app_context=ApplicationContext(workspace_dir=str(tmp_path), timezone="Asia/Shanghai"),
+    )
     responses = [await step(), await step()]
     assert [response.answer["path"] for response in responses] == [
         f"resource/screenshot/2026-11-15/123045_{suffix}/metadata.json" for suffix in ("a8f3c2", "b9e4d3")
@@ -259,7 +282,10 @@ async def test_packages_are_grouped_by_source_and_local_capture_time(tmp_path, m
 @pytest.mark.asyncio
 @pytest.mark.parametrize("source", ["", "../outside", "/outside", "a/b", "a\\b", ".."])
 async def test_invalid_source_fails_before_collection(tmp_path, source):
-    step = PackageConnector(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
+    step = PackageConnector(
+        connector_job="screen_capture_cron",
+        app_context=ApplicationContext(workspace_dir=str(tmp_path)),
+    )
     step.source = source
     step.collect = Mock(side_effect=AssertionError("must not collect"))
     with pytest.raises(ValueError, match="resource source"):
@@ -271,30 +297,7 @@ async def test_invalid_source_fails_before_collection(tmp_path, source):
 @pytest.mark.asyncio
 async def test_published_resource_recovers_delivery_before_collecting_again(tmp_path, monkeypatch):
     context = ApplicationContext(workspace_dir=str(tmp_path))
-    manager = Mock(spec=BaseProactiveManager)
-    manager.deliver_events = AsyncMock(
-        side_effect=[
-            ConnectionError("interrupted after publication"),
-            {"deliveries": {"observer": []}, "errors": {}, "rejected": {}},
-        ],
-    )
-    step = PackageConnector(app_context=context, proactive_manager=manager, task_names=["observer"])
-    with pytest.raises(ConnectionError, match="interrupted after publication"):
-        await step()
-    (manifest,) = tmp_path.glob("resource/screenshot/*/*/metadata.json")
-    files = WorkspaceFiles(tmp_path)
-    assert files.read_json(manifest.with_name(".delivery.json"), {})["pending"] == ["observer"]
-    monkeypatch.setattr(step, "collect", Mock(return_value=[]))
-    await step()
-    first, retry = manager.deliver_events.await_args_list
-    assert retry == first
-    assert retry.kwargs["events"][0].paths == [manifest.with_name("1.png").relative_to(tmp_path).as_posix()]
-    assert files.read_json(manifest.with_name(".delivery.json"), {})["pending"] == []
-
-
-@pytest.mark.asyncio
-async def test_damaged_delivery_does_not_block_a_new_package(tmp_path):
-    manager = Mock(spec=BaseProactiveManager)
+    manager = Mock(spec=BaseAgentManager)
     manager.deliver_events = AsyncMock(
         side_effect=[
             ConnectionError("interrupted after publication"),
@@ -302,8 +305,40 @@ async def test_damaged_delivery_does_not_block_a_new_package(tmp_path):
         ],
     )
     step = PackageConnector(
+        connector_job="screen_capture_cron",
+        app_context=context,
+        agent_manager=manager,
+        task_names=["observer"],
+    )
+    with pytest.raises(ConnectionError, match="interrupted after publication"):
+        await step()
+    (manifest,) = tmp_path.glob("resource/screenshot/*/*/metadata.json")
+    files = WorkspaceFiles(tmp_path)
+    assert files.read_json(manifest.with_name(".delivery.json"), {})["delivered_to"] == []
+    monkeypatch.setattr(step, "collect", Mock(return_value=[]))
+    await step()
+    first, retry = manager.deliver_events.await_args_list
+    assert retry == first
+    assert retry.kwargs["events"][0].paths == [
+        manifest.relative_to(tmp_path).as_posix(),
+        manifest.with_name("1.png").relative_to(tmp_path).as_posix(),
+    ]
+    assert files.read_json(manifest.with_name(".delivery.json"), {})["delivered_to"] == ["observer"]
+
+
+@pytest.mark.asyncio
+async def test_damaged_delivery_does_not_block_a_new_package(tmp_path):
+    manager = Mock(spec=BaseAgentManager)
+    manager.deliver_events = AsyncMock(
+        side_effect=[
+            ConnectionError("interrupted after publication"),
+            {"deliveries": {"observer": []}, "errors": {}, "rejected": {}},
+        ],
+    )
+    step = PackageConnector(
+        connector_job="screen_capture_cron",
         app_context=ApplicationContext(workspace_dir=str(tmp_path)),
-        proactive_manager=manager,
+        agent_manager=manager,
         task_names=["observer"],
     )
     with pytest.raises(ConnectionError):
@@ -325,11 +360,14 @@ async def test_identical_package_names_never_overwrite_a_published_package(tmp_p
     clock = Mock()
     clock.now.return_value = datetime(2026, 11, 15, 12, 30, 45, tzinfo=ZoneInfo("Asia/Shanghai"))
     monkeypatch.setattr(
-        "reme.steps.proactive.data_connectors.base_connector.uuid4",
+        "reme.steps.proactive.connector.base_connector.uuid4",
         Mock(return_value=SimpleNamespace(hex="a8f3c2" + "0" * 26)),
     )
-    monkeypatch.setattr("reme.steps.proactive.data_connectors.base_connector.datetime", clock)
-    step = PackageConnector(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
+    monkeypatch.setattr("reme.steps.proactive.connector.base_connector.datetime", clock)
+    step = PackageConnector(
+        connector_job="screen_capture_cron",
+        app_context=ApplicationContext(workspace_dir=str(tmp_path)),
+    )
     response = await step()
     manifest = tmp_path / response.answer["path"]
     original = manifest.read_bytes()
@@ -338,3 +376,26 @@ async def test_identical_package_names_never_overwrite_a_published_package(tmp_p
     assert manifest.read_bytes() == original
     assert (manifest.parent / "1.png").read_bytes() == b"image"
     assert not list(tmp_path.glob(".reme-resource-*"))
+
+
+@pytest.mark.asyncio
+async def test_retryable_saved_delivery_failure_stops_collection_before_new_source_reads(tmp_path, monkeypatch):
+    context = ApplicationContext(workspace_dir=str(tmp_path))
+    manager = Mock(spec=BaseAgentManager)
+    manager.deliver_events = AsyncMock(side_effect=ConnectionError("receiver unavailable"))
+    step = PackageConnector(
+        connector_job="screen_capture_cron",
+        app_context=context,
+        agent_manager=manager,
+        task_names=["observer"],
+    )
+    with pytest.raises(ConnectionError):
+        await step()
+    published = list(tmp_path.glob("resource/screenshot/*/*/metadata.json"))
+    assert len(published) == 1
+    collector = Mock(return_value=[])
+    monkeypatch.setattr(step, "collect", collector)
+    with pytest.raises(ConnectionError, match="receiver unavailable"):
+        await step()
+    collector.assert_not_called()
+    assert list(tmp_path.glob("resource/screenshot/*/*/metadata.json")) == published

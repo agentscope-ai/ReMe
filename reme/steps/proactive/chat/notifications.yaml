@@ -1,0 +1,45 @@
+inbox_item: |
+  ### {from_agent_name} · {delivered_at}
+
+  {message}
+
+  #### Source record
+  `{id}`
+
+inbox_item_zh: |
+  ### {from_agent_name} · {delivered_at}
+
+  {message}
+
+  #### 源记录
+  `{id}`
+
+hint: |
+  # This turn's task
+  Decide whether to tell your master about this batch of background information. This turn is only for reading, assessing and submitting a reminder.
+
+  # Inbox information
+  {inbox_items}
+
+  # How I handle this
+  1. Read the inbox summaries first. When more context is needed, read the file under "Source record" for that item. Its path is relative to the workspace. Expand only this one level; do not follow links or references inside the record. If it cannot be read, judge from the available information without guessing its contents.
+  2. Check the master's latest instructions about each matter. For reminders agreed for a time or condition, check whether it is due and follow that agreement. A new scheduled occurrence still needs its agreed reminder even when the result is unchanged.
+  3. For other items, use the current conversation to select relevant information worth sharing. Skip duplicates, known information with no change, matters your master has already handled or cancelled, and anything unhelpful.
+     - Skip interruptions, delays, disconnects and normal recovery caused by the computer going to sleep or the lid being closed. Remind only if the issue persists after the computer resumes and affects the task.
+  4. Combine the selected information into one concise reminder, merging updates about the same matter and adding only necessary context. When your master needs to decide or take over, state what needs their attention and retain the source record path and relevant entry IDs. Do not add work or overstate urgency.
+  5. Call `submit_chat_reply` once for the final decision: action=send with content when there is something to say, or action=skip without content otherwise. End this turn after submission.
+
+hint_zh: |
+  # 本轮任务
+  阅读这批后台信息，结合当前对话判断是否需要告诉主人。本轮只阅读、判断和提交提醒。
+
+  # 收件箱信息
+  {inbox_items}
+
+  # 我怎么处理
+  1. 先读收件箱摘要，需要补充上下文时，再读取条目中“源记录”下的文件。路径相对于工作区，最多展开这一层，不再追读记录中的链接或引用。读不到时，用已有信息判断，不猜测文件内容。
+  2. 核对主人对各事项的最新要求。约定了时间或条件的提醒，先判断是否到时或满足条件，再按约定处理；新一次定时提醒即使结果相同，也按约定提醒。
+  3. 其余条目结合当前对话，挑出主人可能关心、值得说的内容。重复的、已知且无变化的、主人已处理或取消的，以及没用的信息，都跳过。
+     - 电脑休眠或合盖造成的中断、延迟、断连，以及恢复正常，都不用提醒。恢复后问题仍然持续并影响任务时才提醒。
+  4. 将筛选后的信息合成一条简短提醒，合并同一事项，只补必要背景。需要主人决定或接手时，说清楚需要处理的事，保留源记录路径和相关条目 ID；不额外安排工作，也不夸大紧急程度。
+  5. 用 `submit_chat_reply` 提交一次最终决定：有要说的就传 action=send 和 content，否则传 action=skip，不传 content。提交后结束本轮。

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1360" height="1098" viewBox="0 0 1360 1098" role="img" aria-labelledby="title desc">
   <title id="title">ReMe5 Proactive Runtime plan</title>
-  <desc id="desc">The Chat Agent uses the manage-proactive-agent skill to create and manage tasks. Proactive Runtime returns progress and reminders to chat. The predefined tasks include five event-triggered presets, Work with Auto Memory, Finance, Research, Todo, and Daily Summary, and three independent time-triggered Auto Dream presets for personal memory, procedural memory, and wiki knowledge. Users can create custom agents with either trigger. The planned execution backends are AgentScope, Codex, and Claude Code. The plan includes a macOS and Windows desktop preview and host integrations with QwenPaw, Codex, Claude Code, Hermes Agent, and OpenClaw.</desc>
+  <desc id="desc">The Chat Agent uses the manage-proactive-runtime skill to create and manage tasks. Proactive Runtime returns progress and reminders to chat. The predefined tasks include five event-triggered presets, Work with Auto Memory, Finance, Research, Todo, and Daily Summary, and three independent time-triggered Auto Dream presets for personal memory, procedural memory, and wiki knowledge. Users can create custom agents with either trigger. The planned execution backends are AgentScope, Codex, and Claude Code. The plan includes a macOS and Windows desktop preview and host integrations with QwenPaw, Codex, Claude Code, Hermes Agent, and OpenClaw.</desc>
   <defs>
     <style>
       text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; fill: #22383F; }
@@ -36,7 +36,7 @@
   <text x="68" y="161" class="body light-muted">The conversation where you delegate work and ask about progress</text>
 
   <path d="M344 186v55" class="arrow" />
-  <text x="326" y="209" class="skill muted" text-anchor="end">manage-proactive-agent skill</text>
+  <text x="326" y="209" class="skill muted" text-anchor="end">manage-proactive-runtime skill</text>
   <text x="326" y="232" class="label teal" text-anchor="end">Create &amp; manage tasks</text>
   <path d="M944 248v-55" class="arrow" />
   <text x="962" y="224" class="label purple">Progress &amp; reminders</text>

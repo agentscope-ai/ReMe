@@ -1,11 +1,8 @@
-"""ReMe tools available to proactive agents."""
+"""The proactive subsystem's four model tools."""
 
-from .manage_proactive_agent import ManageProactiveAgentStep
-from .append_task_events import AppendTaskEventsStep
-from .chat_reminders import SubmitChatReminderStep
+from .manage_proactive_runtime import ManageProactiveRuntimeStep
+from .manage_connector import ManageConnectorStep
+from .submit_chat_reply import SubmitChatReplyStep
+from .manage_notebook import ManageNotebookStep
 
-__all__ = [
-    "ManageProactiveAgentStep",
-    "AppendTaskEventsStep",
-    "SubmitChatReminderStep",
-]
+__all__ = ["ManageProactiveRuntimeStep", "ManageConnectorStep", "SubmitChatReplyStep", "ManageNotebookStep"]

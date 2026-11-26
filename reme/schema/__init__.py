@@ -3,6 +3,7 @@
 from .application_config import ApplicationConfig, ComponentConfig, JobConfig
 from .agent_reply import AgentReply, collect_reply, replay_reply
 from .agent_session import SessionMessage, SessionSnapshot, SessionStatus
+from .agent_skill import SkillSpec
 from .proactive_runtime import (
     AgentName,
     AgentType,
@@ -10,7 +11,7 @@ from .proactive_runtime import (
     ChatAgentConfig,
     NotificationConfig,
     AgentReminder,
-    SubmitChatReminderRequest,
+    SubmitChatReplyRequest,
 )
 from .agent_activity import AgentActivity
 from .agent_message import AgentMessage, ArtifactItem, SummaryItem, TextItem, ToolAction, ToolItem
@@ -41,11 +42,12 @@ from .proactive import (
 )
 from .emb_node import EmbNode
 from .event import Event
-from .agent_inbox import InboxItem, InboxReceipt
+from .agent_inbox import InboxItem, InboxReceipt, NotificationRef
+from .agent_outbox import NotificationDelivery, ChatDelivery
 from .finance import CryptoQuote, FinanceNewsItem, MarketQuote
 from .proactive_agent import (
     CreateProactiveRuntimeConfig,
-    ManageProactiveAgentRequest,
+    ManageProactiveRuntimeRequest,
     NotificationWindow,
     ProactiveRuntimeDefinition,
     ProactiveRuntimeConfig,
@@ -56,7 +58,7 @@ from .file_front_matter import FileFrontMatter
 from .graph_snapshot import GraphSnapshot, GraphSnapshotEdge, GraphSnapshotNode
 from .idea import Idea
 from .job_execution import JobExecution, JobExecutionStatus
-from .notebook import IdeaRequest, TodoRequest
+from .notebook import IdeaRequest, TodoRequest, ManageNotebookRequest, NotebookProjectsRequest
 from .file_link import FileLink
 from .file_node import FileNode
 from .request import Request
@@ -69,6 +71,12 @@ from .todo import Todo, TodoProgress
 from .traverse_graph import TraverseGraph, TraverseGraphEdge, TraverseGraphNode
 
 __all__ = [
+    "NotificationRef",
+    "NotificationDelivery",
+    "ChatDelivery",
+    "ManageNotebookRequest",
+    "NotebookProjectsRequest",
+    "SkillSpec",
     "ASRResult",
     "AudioFormat",
     "TTSResult",
@@ -111,7 +119,7 @@ __all__ = [
     "AgentSessionView",
     "AgentSession",
     "ChatAgentConfig",
-    "ManageProactiveAgentRequest",
+    "ManageProactiveRuntimeRequest",
     "NotificationWindow",
     "ProactiveRuntimeDefinition",
     "ProactiveRuntimeConfig",
@@ -120,7 +128,7 @@ __all__ = [
     "AgentName",
     "AgentType",
     "NotificationConfig",
-    "SubmitChatReminderRequest",
+    "SubmitChatReplyRequest",
     "FileChunk",
     "FileFrontMatter",
     "FileLink",

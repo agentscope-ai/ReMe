@@ -50,7 +50,7 @@ test("task management forwards settings and document operations for a tmp task",
     await requestWorkspace(client, request, new AbortController().signal);
   assert.deepEqual(calls, [
     {
-      job: "manage_proactive_agent",
+      job: "manage_proactive_runtime",
       body: {
         action: "create",
         agent_name: "tmp",
@@ -59,7 +59,7 @@ test("task management forwards settings and document operations for a tmp task",
       },
     },
     {
-      job: "manage_proactive_agent",
+      job: "manage_proactive_runtime",
       body: {
         action: "update",
         agent_name: "tmp",

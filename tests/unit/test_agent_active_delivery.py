@@ -1,155 +1,165 @@
-"""All backends share active snapshots and P0 delivery; P1/P2 retain idle scheduling."""
+"""Foreground leases and urgent native delivery are independent."""
 
-# pylint: disable=missing-function-docstring,protected-access
+# pylint: disable=missing-function-docstring,protected-access,redefined-outer-name
 
 import asyncio
-from unittest.mock import AsyncMock
 
 import pytest
 
-from reme.schema import Event, SessionSnapshot, SessionStatus
+from reme.steps.proactive.api import AskAgentStep
+from reme.steps.proactive.chat import ProcessChatNotificationsStep
+from reme.steps.proactive.tools import SubmitChatReplyStep, ManageProactiveRuntimeStep
 from reme.core.context import RuntimeContext
-from reme.steps.proactive.agent import AskAgentStep, ProcessChatRemindersStep
-from reme.steps.proactive.tools.chat_reminders import SubmitChatReminderStep
-from reme.steps.proactive.tools.manage_proactive_agent import ManageProactiveAgentStep
-from .test_proactive_runtime import create_agent, running_manager
-from .test_inbox_fork import append_message, prepare
+from .proactive_helpers import running_system, emit_notification
 
 
+@pytest.mark.parametrize("priority", ["P0", "P1", "P2"])
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "step_class, arguments",
-    [
-        (AskAgentStep, {"query": "Current progress?"}),
-        (ManageProactiveAgentStep, {"action": "query", "question": "Current progress?"}),
-    ],
-)
-async def test_query_forks_latest_running_session_instead_of_previous_receipt(tmp_path, step_class, arguments):
-    async with running_manager(tmp_path) as (runtime, context, wrapper):
-        await create_agent(runtime)
-        previous = await runtime.sessions.ensure("monitor", wrapper, {}, runtime.now())
-        await runtime.run_round(
-            "monitor",
-            AsyncMock(return_value=(None, previous)),
-        )
-        await runtime.append_events("monitor", [Event(event_ts=runtime.now(), source="test", description="New")])
-        entered, release = asyncio.Event(), asyncio.Event()
-        source = None
+async def test_urgent_delivery_can_reach_an_active_foreground_turn(tmp_path, monkeypatch, priority):
+    async with running_system(tmp_path) as (manager, context, wrapper):
+        ref = await emit_notification(manager, context, priority=priority)
+        chat = context.components["agent_runtime"]["Remy"]
+        session = await chat.ensure_session({})
+        wrapper.states[session] = "active"
+        read = wrapper.read_session
 
-        async def execute(_agent, _events):
-            nonlocal source
-            source = await runtime.sessions.ensure("monitor", wrapper, {}, runtime.now(), new=True)
-            entered.set()
-            await release.wait()
-            return None, source
+        async def active(sid):
+            value = await read(sid)
+            return value.model_copy(update={"last_turn_id": "active-turn"})
 
-        running = asyncio.create_task(runtime.run_round("monitor", execute))
-        try:
-            await asyncio.wait_for(entered.wait(), 1)
-            response = await asyncio.wait_for(
-                step_class(app_context=context)(
-                    RuntimeContext(stream_queue=asyncio.Queue()),
-                    agent_name="monitor",
-                    **arguments,
-                ),
-                1,
-            )
-            assert response.success
-            assert wrapper.created[-1]["resume"] == source != previous
-            assert (await runtime.sessions.current("monitor")).session_id == source
-            assert not running.done()
-            assert (await runtime.inbox.snapshot("monitor"))["in_flight_count"] == 1
-            assert wrapper.turns[-1][0] == "Current progress?"
-            assert "monitor" not in runtime.live_turns.turns
-        finally:
-            release.set()
-            await running
+        monkeypatch.setattr(wrapper, "read_session", active)
+        # Keep the formal Chat signature stable while preparing this fork.
+        from reme.steps.proactive.chat.chat import ChatAgentStep
 
-
-@pytest.mark.asyncio
-async def test_p0_forks_and_appends_while_foreground_chat_keeps_running(tmp_path):
-    async with running_manager(tmp_path) as (runtime, context, wrapper):
-        arguments = await prepare(runtime, context, priority="P0")
-        source = (await runtime.sessions.current("Remy")).session_id
-        wrapper.get_session_status = AsyncMock(return_value=SessionStatus(session_id=source, status="active"))
-        wrapper.read_session = AsyncMock(
-            return_value=SessionSnapshot(
-                session_id=source,
-                state=SessionStatus(session_id=source, status="active"),
-                last_turn_id="active-turn",
-            ),
-        )
+        step = ChatAgentStep(app_context=context, agent_runtime="Remy")
+        step.context = RuntimeContext()
+        session = await chat.ensure_session(step.session_options())
+        wrapper.states[session] = "active"
         entered, release = asyncio.Event(), asyncio.Event()
 
         async def foreground():
-            async with runtime.chat_turn():
+            async with chat.chat_turn():
                 entered.set()
                 await release.wait()
 
         task = asyncio.create_task(foreground())
-        await asyncio.wait_for(entered.wait(), 1)
+        await entered.wait()
 
-        async def append(session_id, content, **kwargs):
-            assert runtime.chat_lock.locked() and not task.done()
-            assert kwargs["delivery"] == "immediate"
-            assert kwargs["expected_turn_id"] == "active-turn"
-            assert kwargs["expected_revision"] is None
-            return append_message(session_id, content, **kwargs)
+        async def reply(_query, **options):
+            return await SubmitChatReplyStep(app_context=context, agent_runtime="Remy")(
+                action="send",
+                content="Urgent",
+                **options["injected_job_kwargs"],
+            )
 
-        async def reply(_hint, **options):
-            assert options["resume"] == source and options["fork_session"]
-            bound = options["injected_job_kwargs"]
-            await SubmitChatReminderStep(app_context=context)(content="Urgent update", **bound)
-            return {"status": "completed", "result": ""}
-
-        wrapper.append_session = AsyncMock(side_effect=append)
-        wrapper.reply = AsyncMock(side_effect=reply)
+        monkeypatch.setattr(wrapper, "reply", reply)
         try:
-            response = await asyncio.wait_for(ProcessChatRemindersStep(app_context=context)(**arguments), 1)
-            assert response.answer == {"sent": True}
-            assert not task.done() and not runtime.notifications.pending
-            assert (await runtime.sessions.current("Remy")).session_id == source
+            response = await asyncio.wait_for(
+                ProcessChatNotificationsStep(app_context=context, agent_runtime="Remy")(
+                    priority=priority,
+                    msg_ids=[ref.id],
+                ),
+                1,
+            )
+            if priority == "P0":
+                assert response.answer["sent"] and len(wrapper.messages[session]) == 1
+            else:
+                assert response.answer == {"skipped": "busy"} and ref.id in await chat.inbox.pending_ids()
+            assert not task.done()
         finally:
             release.set()
             await task
 
 
-@pytest.mark.parametrize("priority", ["P1", "P2"])
+@pytest.mark.parametrize("kind", ["service", "tool"])
 @pytest.mark.asyncio
-async def test_nonurgent_forks_keep_waiting_for_chat_idle(tmp_path, priority):
-    async with running_manager(tmp_path) as (runtime, context, wrapper):
-        arguments = await prepare(runtime, context, priority=priority)
-        wrapper.reply = AsyncMock()
-        async with runtime.chat_lock:
-            response = await asyncio.wait_for(ProcessChatRemindersStep(app_context=context)(**arguments), 1)
-        assert response.answer == {"skipped": "busy"}
-        wrapper.reply.assert_not_awaited()
-        assert list(runtime.notifications.pending) == arguments["msg_ids"]
-
-
-@pytest.mark.asyncio
-async def test_p0_defers_when_a_new_user_turn_is_already_queued(tmp_path):
-    async with running_manager(tmp_path) as (runtime, context, wrapper):
-        arguments = await prepare(runtime, context, priority="P0")
-        source = (await runtime.sessions.current("Remy")).session_id
-        wrapper.get_session_status = AsyncMock(return_value=SessionStatus(session_id=source, status="active"))
-        wrapper.reply = AsyncMock()
+async def test_readonly_query_forks_latest_running_task_session_without_consuming_inputs(tmp_path, kind):
+    async with running_system(tmp_path, runtimes=[{"agent_name": "monitor"}]) as (manager, context, wrapper):
+        runtime = await manager.resolve("monitor")
+        previous = await runtime.ensure_session({})
         entered, release = asyncio.Event(), asyncio.Event()
 
-        async def foreground():
-            async with runtime.chat_turn():
+        async def work():
+            async with runtime.execution():
+                await runtime.ensure_session({}, new=True)
                 entered.set()
                 await release.wait()
 
-        first = asyncio.create_task(foreground())
-        await asyncio.wait_for(entered.wait(), 1)
-        second = asyncio.create_task(foreground())
+        task = asyncio.create_task(work())
+        await entered.wait()
+        source = (await runtime.current_session()).session_id
         try:
-            await asyncio.sleep(0)
-            assert len(runtime.chat_tasks) == 2
-            response = await asyncio.wait_for(ProcessChatRemindersStep(app_context=context)(**arguments), 1)
-            assert response.answer == {"skipped": "busy"}
-            wrapper.reply.assert_not_awaited()
+            step = (
+                AskAgentStep(app_context=context, agent_runtime="Remy")
+                if kind == "service"
+                else ManageProactiveRuntimeStep(app_context=context)
+            )
+            values = {"query": "Progress?"} if kind == "service" else {"action": "query", "question": "Progress?"}
+            response = await step(RuntimeContext(stream_queue=asyncio.Queue()), agent_name="monitor", **values)
+            assert response.success and wrapper.created[-1]["resume"] == source != previous
+            assert wrapper.created[-1]["sandbox"] == "read-only" and wrapper.created[-1]["skills"] == []
+            assert (await runtime.current_session()).session_id == source and not task.done()
+            assert wrapper.released[-1] != source
         finally:
             release.set()
-            await asyncio.gather(first, second)
+            await task
+
+
+@pytest.mark.parametrize("arrival", ["before_snapshot", "during_snapshot", "during_eligibility"])
+@pytest.mark.asyncio
+async def test_p0_does_not_overtake_a_queued_foreground_request(tmp_path, monkeypatch, arrival):
+    async with running_system(tmp_path) as (manager, context, wrapper):
+        ref = await emit_notification(manager, context, priority="P0")
+        chat = context.components["agent_runtime"]["Remy"]
+        session = await chat.ensure_session({})
+        wrapper.states[session] = "active"
+        entered, release = asyncio.Event(), asyncio.Event()
+
+        async def foreground():
+            async with chat.chat_turn():
+                entered.set()
+                await release.wait()
+
+        active = asyncio.create_task(foreground())
+        await entered.wait()
+        queued = None
+
+        async def queue_request():
+            nonlocal queued
+            queued = asyncio.create_task(foreground())
+            await asyncio.sleep(0)
+
+        read = wrapper.read_session
+
+        async def snapshot(identifier):
+            value = await read(identifier)
+            if arrival == "during_snapshot" and queued is None:
+                await queue_request()
+            return value.model_copy(update={"last_turn_id": "active-turn"})
+
+        async def eligible(_items):
+            if arrival == "during_eligibility" and queued is None:
+                await queue_request()
+            return True
+
+        monkeypatch.setattr(wrapper, "read_session", snapshot)
+        if arrival == "before_snapshot":
+            await queue_request()
+        notifications = ProcessChatNotificationsStep(app_context=context, agent_runtime="Remy")
+        try:
+            with pytest.raises(RuntimeError, match="foreground|conversation changed"):
+                async with chat.notification_turn(
+                    session,
+                    "P0",
+                    [ref.id],
+                    format_item=notifications.format_item,
+                    eligible=eligible,
+                ) as turn:
+                    await chat.submit_reply(turn.id, "send", "Old reminder")
+            assert ref.id in await chat.inbox.pending_ids()
+            assert not wrapper.messages[session]
+        finally:
+            release.set()
+            await active
+            if queued is not None:
+                await queued

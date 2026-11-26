@@ -137,6 +137,7 @@ export function notebookPayload(
             ]
           : ["id"];
   const body: Record<string, unknown> = { action: value.action };
+  if (value.action !== "list_projects") body.kind = value.type;
   for (const [key, field] of Object.entries(value)) {
     if (key === "type" || key === "action") continue;
     if (!fields.includes(key)) throw new Error("Invalid notebook field");
@@ -181,7 +182,7 @@ export function notebookPayload(
     throw new Error("Notebook id is required");
   if (value.action === "create" && !body.text && !body.source_idea)
     throw new Error("Notebook text is required");
-  if (value.action === "update" && Object.keys(body).length < 3)
+  if (value.action === "update" && Object.keys(body).length < 4)
     throw new Error("Notebook update is empty");
   if ("close_note" in body && body.status !== "closed")
     throw new Error("A close note requires a closed todo");

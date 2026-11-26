@@ -124,7 +124,7 @@ export function taskPayload(request: TaskRequest): {
     job:
       action === "read" || action === "save"
         ? "task_document"
-        : "manage_proactive_agent",
+        : "manage_proactive_runtime",
     body,
   };
 }

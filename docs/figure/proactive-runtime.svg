@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1780" height="1120" viewBox="0 0 1780 1120" role="img" aria-labelledby="title desc">
   <title id="title">A task in Proactive Runtime</title>
   <desc id="desc">Independent collectors publish Codex dialogue and screenshots to the work Agent. External sources can submit observations through the same Event Inbox. The Agent claims a batch and starts a fresh native session using TASK.md and the original inputs. An event task can skip writing if there is no key information. A daily record contains the new findings and the reminder decision. The Chat Inbox reads delivered reminders from the same records.</desc>
-  <metadata>Source: reme/config/proactive.yaml; reme/schema/application_config.py; reme/steps/proactive/data_connectors/base_connector.py; reme/steps/proactive/data_connectors/codex_dialogue.py; reme/steps/proactive/data_connectors/_codex_dialogue.py; reme/steps/proactive/agent/proactive.py; reme/steps/proactive/agent/proactive.yaml; reme/components/proactive_manager/_internal/outbox.py; reme/components/agent_inbox/agent_event_inbox.py. Drawn from the current working tree. Claude Code is an illustrative external source. Paths use the defaults workspace_dir=.reme, resource_dir=resource, daily_dir=daily and reme_agent_dir=reme_agents; directory settings may be overridden. {date} is an application-local calendar date; {batch} is HHMMSS_random6. Permanent work Agent shown. All events and decisions are illustrative.</metadata>
+  <metadata>Source: reme/config/proactive.yaml; reme/components/proactive/; reme/steps/proactive/; reme/schema/agent_inbox.py; reme/schema/agent_outbox.py. Workspace files remain authoritative; receiving Inbox receipts own processing state.</metadata>
   <defs>
     <style>
       text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; fill: #22383F; }
@@ -95,7 +95,7 @@
       <text x="164" y="585" class="small muted">Writing work report</text>
     </g>
   </g>
-  <text x="64" y="650" class="small muted">Observations and scheduled triggers share this inbox.</text>
+  <text x="64" y="650" class="small muted">Each task accepts observations or scheduled triggers.</text>
   <g data-role="inbox-to-run">
     <path d="M455 463H546" class="line" stroke="#45999A" stroke-width="1.8" stroke-dasharray="4 5" marker-end="url(#teal)" />
     <text x="501" y="438" font-size="13" class="teal" text-anchor="middle">Claim</text>

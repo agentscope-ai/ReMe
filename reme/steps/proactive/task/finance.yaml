@@ -1,0 +1,5 @@
+default_task: 'Track XAU/USD gold, WTI crude oil (CL), BTC/USDT and the Nasdaq Composite (IXIC). Use CLS news for directly
+  relevant context. Remind only when an absolute change reaches 3%: previous close for gold, oil and Nasdaq; rolling 24 hours
+  for BTC. State the price, change, quote time and source; identify delayed quotes and avoid repeating the same move.'
+default_task_zh: 关注现货黄金（XAU/USD）、WTI 原油期货（CL）、BTC/USDT 和纳斯达克综合指数（IXIC），用财联社电报补充直接相关的背景。以最新有效报价为准，涨跌幅绝对值达到 3% 才提醒：黄金、原油和纳指以昨收为基准，BTC
+  使用滚动 24 小时涨跌幅。说明标的、价格或点位、涨跌幅、报价时间和来源；有延迟时注明，同一波变动只提醒一次。
