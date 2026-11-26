@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="850" viewBox="0 0 1200 850" role="img" aria-labelledby="title desc">
+  <title id="title">How HoMe Improves Optimization and Evaluation Efficiency</title>
+  <desc id="desc">Candidates pass smoke tests and early mechanism admission checks. Adaptive sampling selects cases and queries using historical performance. Construction-equivalent memory is reused with a probability; otherwise memory is rebuilt. Parallel queries and scoring produce evidence for further diagnosis and final selection. Aggregate sampled scores cannot directly rank candidates.</desc>
+  <defs>
+    <linearGradient id="canvas" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#fbfcff"/><stop offset="1" stop-color="#f3f7f8"/>
+    </linearGradient>
+    <pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="0.8" fill="#c9d3df" opacity=".42"/>
+    </pattern>
+    <filter id="shadow" x="-10%" y="-15%" width="120%" height="135%">
+      <feDropShadow dx="0" dy="3" stdDeviation="5" flood-color="#24344c" flood-opacity=".06"/>
+    </filter>
+    <style>
+      text{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;fill:#24334a}
+      .title{font-size:32px;font-weight:750;letter-spacing:-.5px}.head{font-size:23px;font-weight:700}.body{font-size:18px}
+      .small{font-size:16px;fill:#63748b}.panel{fill:#fff;stroke:#e1e7f0;stroke-width:1.2;filter:url(#shadow)}
+      .line{fill:none;stroke:#8898ae;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;marker-end:url(#a)}
+    </style>
+    <marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 8 4 0 8Z" fill="#8898ae"/></marker>
+  </defs>
+  <rect width="1200" height="850" rx="24" fill="url(#canvas)"/>
+  <rect width="1200" height="850" rx="24" fill="url(#dots)"/>
+  <text class="title" x="45" y="55">Efficient Evaluation: Screen, Sample, and Reuse</text>
+  <rect x="40" y="100" width="500" height="165" rx="18" fill="#fff7ec" stroke="#edddc5" filter="url(#shadow)"/>
+  <circle cx="80" cy="131" r="19" fill="#f5e8d3"/>
+  <text x="80" y="137" text-anchor="middle" style="font-size:18px;font-weight:750;fill:#b98437">1</text>
+  <text class="head" x="114" y="139">Screen committed candidates</text>
+  <text class="body" x="65" y="179">Smoke test: a few real sessions and questions</text>
+  <text class="body" x="65" y="212">Early stage: mechanism changes and needed repairs</text>
+  <text class="small" x="65" y="244">Rejected → Return reasons and revise</text>
+  <path class="line" d="M546 182H634"/>
+  <rect x="640" y="100" width="520" height="165" rx="18" fill="#f0f2fd" stroke="#d5dcf3" filter="url(#shadow)"/>
+  <circle cx="680" cy="131" r="19" fill="#e0e6fb"/>
+  <text x="680" y="137" text-anchor="middle" style="font-size:18px;font-weight:750;fill:#6678cf">2</text>
+  <text class="head" x="714" y="139">Adaptively sample cases and queries</text>
+  <text class="body" x="665" y="179">Prioritize failures, stale units, and sparse observations</text>
+  <text class="body" x="665" y="212">Select cases first, then queries within the cap</text>
+  <text class="small" x="665" y="244">Retain exploration and check for regressions</text>
+  <path class="line" d="M900 271V324"/>
+  <rect class="panel" x="40" y="330" width="1120" height="255" rx="18"/>
+  <circle cx="80" cy="363" r="19" fill="#e0e6fb"/>
+  <text x="80" y="369" text-anchor="middle" style="font-size:18px;font-weight:750;fill:#6678cf">3</text>
+  <text class="head" x="114" y="371">Check construction equivalence against evaluated ancestors</text>
+  <text class="small" x="65" y="405">Inspect construction paths in code, prompts, and configuration; rebuild when equivalence is uncertain</text>
+  <rect x="65" y="438" width="500" height="118" rx="12" fill="#e4f3eb" stroke="#c4e2d3"/>
+  <rect x="635" y="438" width="500" height="118" rx="12" fill="#f3f5fa" stroke="#e0e6ef"/>
+  <text class="head" x="90" y="475" style="font-size:22px">Equivalent: reuse with a probability</text>
+  <text class="body" x="90" y="509">Restore the ancestor's constructed memory</text>
+  <text class="small" x="90" y="539">Retain reuse provenance and version links</text>
+  <text class="head" x="660" y="475">Changed, or no reuse this round</text>
+  <text class="body" x="660" y="509">Process original sessions and rebuild memory</text>
+  <text class="small" x="660" y="539">Save a new session-level memory history</text>
+  <path class="line" d="M315 562V629"/>
+  <path class="line" d="M885 562V629"/>
+  <rect x="40" y="635" width="1120" height="170" rx="18" fill="#eef8f4" stroke="#cce5da" filter="url(#shadow)"/>
+  <circle cx="80" cy="668" r="19" fill="#d9eee4"/>
+  <text x="80" y="674" text-anchor="middle" style="font-size:18px;font-weight:750;fill:#36876d">4</text>
+  <text class="head" x="114" y="676">Run retrieval, answering, and scoring in parallel; record evidence</text>
+  <text class="body" x="65" y="716">Scores, query tokens, and traces → Update history → Next diagnosis / Final selection</text>
+  <path d="M65 733H1135" stroke="#d2e7de"/>
+  <text class="small" x="65" y="761">Compare shared cases and queries, coverage, difficulty, and regressions. Do not rank by aggregate sampled scores.</text>
+  <text class="small" x="65" y="790">The Experiment Manager plans admission, sampling, and reuse; the Evaluation Environment executes each run.</text>
+</svg>

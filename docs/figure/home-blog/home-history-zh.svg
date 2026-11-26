@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="900" viewBox="0 0 1200 900" role="img" aria-labelledby="title desc">
+  <title id="title">用代码版本与记忆构建历史支撑失败归因</title>
+  <desc id="desc">上层 Harness repository 保存基线、候选分支与合并。评测记录固定具体代码提交，连接得分、查询轨迹与案例证据。下层每个案例有独立的逐会话记忆提交，快照保存状态，diff 定位信息何时写入或丢失。图中分支和案例均为示意。</desc>
+  <defs>
+    <linearGradient id="canvas" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#fbfcff"/><stop offset="1" stop-color="#f3f7f8"/>
+    </linearGradient>
+    <pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="0.8" fill="#c9d3df" opacity=".42"/>
+    </pattern>
+    <filter id="shadow" x="-10%" y="-15%" width="120%" height="135%">
+      <feDropShadow dx="0" dy="3" stdDeviation="5" flood-color="#24344c" flood-opacity=".06"/>
+    </filter>
+    <style>
+      text{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;fill:#24334a}
+      .title{font-size:32px;font-weight:750;letter-spacing:-.5px}.head{font-size:23px;font-weight:700}.body{font-size:19px}
+      .small{font-size:17px;fill:#63748b}.node{fill:#fff;stroke:#9caadd;stroke-width:2;filter:url(#shadow)}
+      .line{fill:none;stroke:#8898ae;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;marker-end:url(#a)}
+    </style>
+    <marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 8 4 0 8Z" fill="#8898ae"/></marker>
+  </defs>
+  <rect width="1200" height="900" rx="24" fill="url(#canvas)"/>
+  <rect width="1200" height="900" rx="24" fill="url(#dots)"/>
+  <text class="title" x="45" y="55">失败归因：连接代码版本与记忆构建历史</text>
+  <rect x="40" y="85" width="1120" height="310" rx="18" fill="#f0f2fd" stroke="#d5dcf3" filter="url(#shadow)"/>
+  <text class="head" x="65" y="125">Harness repository：代码、提示词与配置的版本</text>
+  <path class="line" d="M170 240C250 240 290 190 388 190"/>
+  <path class="line" d="M170 240C250 240 290 310 388 310"/>
+  <path class="line" d="M452 190H668"/>
+  <path class="line" d="M732 190C800 190 835 240 908 240"/>
+  <path class="line" d="M452 310C650 310 750 240 908 240"/>
+  <circle class="node" cx="140" cy="240" r="30"/>
+  <circle class="node" cx="420" cy="190" r="30"/>
+  <circle cx="700" cy="190" r="41" fill="#e0e5fc"/>
+  <circle cx="700" cy="190" r="30" fill="#6678cf" filter="url(#shadow)"/>
+  <circle class="node" cx="420" cy="310" r="30"/>
+  <circle class="node" cx="940" cy="240" r="30"/>
+  <text class="body" x="140" y="247" text-anchor="middle">h0</text>
+  <text class="body" x="420" y="197" text-anchor="middle">h1</text>
+  <text x="700" y="197" text-anchor="middle" style="font-size:19px;fill:#fff">h2</text>
+  <text class="body" x="420" y="317" text-anchor="middle">h3</text>
+  <text class="body" x="940" y="247" text-anchor="middle">h4</text>
+  <text class="small" x="140" y="292" text-anchor="middle">完整基线</text>
+  <text class="small" x="420" y="164" text-anchor="middle">方向 A</text>
+  <text class="small" x="560" y="174" text-anchor="middle">继续改进</text>
+  <text class="small" x="420" y="366" text-anchor="middle">从早期版本探索方向 B</text>
+  <text class="small" x="940" y="292" text-anchor="middle">合并互补改动</text>
+  <rect x="774" y="341" width="330" height="39" rx="19" fill="#e2e7fa"/>
+  <text class="small" x="939" y="366" text-anchor="middle">每个候选保留改动依据与结果</text>
+  <path class="line" d="M700 232V434" stroke-dasharray="5 6"/>
+  <rect x="40" y="440" width="1120" height="110" rx="18" fill="#fff7ec" stroke="#edddc5" filter="url(#shadow)"/>
+  <text class="head" x="65" y="480">评测记录：固定代码提交 h2，关联本次运行的证据</text>
+  <text class="body" x="65" y="521">代码版本 + 案例 / 问题范围 + 得分与 token + 查询轨迹 + 各案例的记忆仓库</text>
+  <path d="M600 551V578H315M600 578H885" fill="none" stroke="#8898ae" stroke-width="2"/>
+  <path class="line" d="M315 578V602"/>
+  <path class="line" d="M885 578V602"/>
+  <rect x="40" y="610" width="550" height="220" rx="18" fill="#eef8f4" stroke="#cce5da" filter="url(#shadow)"/>
+  <rect x="610" y="610" width="550" height="220" rx="18" fill="#eef8f4" stroke="#cce5da" filter="url(#shadow)"/>
+  <text class="head" x="65" y="650">案例 A · Memory construction history</text>
+  <text class="head" x="635" y="650">案例 B · Memory construction history</text>
+  <path class="line" d="M105 722H533"/>
+  <path class="line" d="M675 722H1103"/>
+  <g fill="#fff" stroke="#58a28b" stroke-width="2">
+    <circle cx="110" cy="722" r="12"/><circle cx="245" cy="722" r="12"/>
+    <circle cx="380" cy="722" r="12"/><circle cx="520" cy="722" r="12"/>
+    <circle cx="680" cy="722" r="12"/><circle cx="815" cy="722" r="12"/>
+    <circle cx="950" cy="722" r="12"/><circle cx="1090" cy="722" r="12"/>
+  </g>
+  <text class="small" x="110" y="694" text-anchor="middle">初始状态</text>
+  <text class="small" x="245" y="694" text-anchor="middle">会话 1 后</text>
+  <text class="small" x="380" y="694" text-anchor="middle">会话 2 后</text>
+  <text class="small" x="520" y="694" text-anchor="middle">会话 T 后</text>
+  <text class="small" x="680" y="694" text-anchor="middle">初始状态</text>
+  <text class="small" x="815" y="694" text-anchor="middle">会话 1 后</text>
+  <text class="small" x="950" y="694" text-anchor="middle">会话 2 后</text>
+  <text class="small" x="1090" y="694" text-anchor="middle">会话 T 后</text>
+  <rect x="68" y="746" width="494" height="42" rx="12" fill="#dff0e9"/>
+  <text class="body" x="315" y="772" text-anchor="middle">diff：这一轮新增、修改或删除了什么？</text>
+  <text class="small" x="315" y="806" text-anchor="middle">快照按需读取，追查何时写入或丢失</text>
+  <rect x="638" y="746" width="494" height="42" rx="12" fill="#dff0e9"/>
+  <text class="body" x="885" y="772" text-anchor="middle">每个案例有自己的逐会话记忆历史</text>
+  <text class="small" x="885" y="806" text-anchor="middle">对照原始会话与执行轨迹，定位原因</text>
+  <text class="small" x="600" y="870" text-anchor="middle">分支与案例为示意；代码仓库记录候选演化，记忆仓库记录案例内的构建过程</text>
+</svg>

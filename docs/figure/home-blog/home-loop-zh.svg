@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="880" viewBox="0 0 1200 880" role="img" aria-labelledby="title desc">
+  <title id="title">HoMe：Developer Agents 如何自动归因、修改与验证</title>
+  <desc id="desc">Developer Agents 内，Optimizer Agent 提出调查重点并根据 Diagnoser Agent 的报告修改候选；Diagnoser Agent 分派并汇总并行 Case Study Agents 的调查。Experiment Manager 管理代码版本、候选准入与评测计划；Evaluation Environment 记录逐会话记忆历史及查询轨迹，形成优化反馈。</desc>
+  <defs>
+    <linearGradient id="canvas" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#fbfcff"/><stop offset="1" stop-color="#f3f7f8"/>
+    </linearGradient>
+    <pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="0.8" fill="#c9d3df" opacity=".42"/>
+    </pattern>
+    <filter id="shadow" x="-10%" y="-15%" width="120%" height="135%">
+      <feDropShadow dx="0" dy="3" stdDeviation="5" flood-color="#24344c" flood-opacity=".06"/>
+    </filter>
+    <style>
+      text{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;fill:#24334a}
+      .title{font-size:32px;font-weight:750;letter-spacing:-.5px}.head{font-size:24px;font-weight:700}.name{font-size:21px;font-weight:700}
+      .body{font-size:19px}.small{font-size:17px;fill:#63748b}.panel{fill:#fff;stroke:#e1e7f0;stroke-width:1.2;filter:url(#shadow)}
+      .arrow{fill:none;stroke:#8898ae;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;marker-end:url(#a)}.both{marker-start:url(#a)}
+    </style>
+    <marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse"><path d="M0 0 8 4 0 8Z" fill="#8898ae"/></marker>
+  </defs>
+  <rect width="1200" height="880" rx="24" fill="url(#canvas)"/>
+  <rect width="1200" height="880" rx="24" fill="url(#dots)"/>
+  <text class="title" x="40" y="56">HoMe：自动执行归因、修改与验证</text>
+  <text class="body" x="40" y="90">完整基线评测 → 失败归因 → 自动修改候选 → 评测验证 → 继续迭代</text>
+  <rect x="40" y="120" width="590" height="610" rx="20" fill="#f0f2fd" stroke="#d5dcf3" filter="url(#shadow)"/>
+  <rect x="65" y="140" width="4" height="23" rx="2" fill="#7483d9"/>
+  <text class="head" x="81" y="160">Developer Agents</text>
+  <rect x="565" y="139" width="40" height="28" rx="10" fill="#dfe5fa"/>
+  <text x="585" y="159" text-anchor="middle" style="font-size:16px;font-weight:700;fill:#5365b4">01</text>
+  <rect class="panel" x="65" y="185" width="540" height="110" rx="14"/>
+  <rect x="82" y="201" width="3" height="25" rx="1.5" fill="#9ca9e6" opacity=".7"/>
+  <text class="name" x="94" y="217">Optimizer Agent</text>
+  <text class="body" x="94" y="248">选择父版本与优化假设 · 修改代码、提示词、配置</text>
+  <text class="small" x="94" y="277">提交候选，比较结果，选择最终的已评测版本</text>
+  <path class="arrow" d="M190 350V301"/>
+  <text class="small" x="210" y="330">归因报告</text>
+  <path class="arrow" d="M530 301V349"/>
+  <text class="small" x="345" y="330">调查重点与历史 ↓</text>
+  <rect class="panel" x="65" y="355" width="540" height="110" rx="14"/>
+  <rect x="82" y="371" width="3" height="25" rx="1.5" fill="#9ca9e6" opacity=".7"/>
+  <text class="name" x="94" y="387">Diagnoser Agent</text>
+  <text class="body" x="94" y="418">组织案例调查 · 交叉核对证据 · 定位共性原因</text>
+  <text class="small" x="94" y="447">将失败定位到具体会话、生命周期环节与组件</text>
+  <rect x="79" y="480" width="190" height="31" rx="15" fill="#e2e7fa"/>
+  <text class="small" x="174" y="501" text-anchor="middle">Map · 分派案例 ↓</text>
+  <rect x="405" y="480" width="190" height="31" rx="15" fill="#e2e7fa"/>
+  <text class="small" x="500" y="501" text-anchor="middle">Reduce · 汇总诊断 ↑</text>
+  <path class="arrow both" d="M335 472V521"/>
+  <path d="M150 522H520" fill="none" stroke="#8898ae" stroke-width="2"/>
+  <path class="arrow both" d="M150 524V544"/>
+  <path class="arrow both" d="M335 524V544"/>
+  <path class="arrow both" d="M520 524V544"/>
+  <rect class="panel" x="65" y="550" width="170" height="130" rx="14"/>
+  <rect x="82" y="566" width="3" height="40" rx="1.5" fill="#9ca9e6" opacity=".7"/>
+  <rect class="panel" x="250" y="550" width="170" height="130" rx="14"/>
+  <rect x="267" y="566" width="3" height="40" rx="1.5" fill="#9ca9e6" opacity=".7"/>
+  <rect class="panel" x="435" y="550" width="170" height="130" rx="14"/>
+  <rect x="452" y="566" width="3" height="40" rx="1.5" fill="#9ca9e6" opacity=".7"/>
+  <text class="name" x="150" y="580" text-anchor="middle">Case Study</text>
+  <text class="name" x="150" y="605" text-anchor="middle">Agent 1</text>
+  <text class="small" x="150" y="644" text-anchor="middle">独立追查案例 A</text>
+  <text class="name" x="335" y="580" text-anchor="middle">Case Study</text>
+  <text class="name" x="335" y="605" text-anchor="middle">Agent 2</text>
+  <text class="small" x="335" y="644" text-anchor="middle">独立追查案例 B</text>
+  <text class="name" x="520" y="580" text-anchor="middle">Case Study</text>
+  <text class="name" x="520" y="605" text-anchor="middle">Agent N</text>
+  <text class="small" x="520" y="644" text-anchor="middle">独立追查案例 N</text>
+  <text x="335" y="711" text-anchor="middle" style="font-size:17px;fill:#6675b6">并行运行 · 每个案例使用独立上下文</text>
+  <path class="arrow" d="M610 240H674"/>
+  <rect x="680" y="120" width="480" height="275" rx="20" fill="#fff7ec" stroke="#edddc5" filter="url(#shadow)"/>
+  <rect x="705" y="140" width="4" height="23" rx="2" fill="#d6a050"/>
+  <text class="head" x="721" y="160">Experiment Manager</text>
+  <rect x="1095" y="139" width="40" height="28" rx="10" fill="#f6e9d4"/>
+  <text x="1115" y="159" text-anchor="middle" style="font-size:16px;font-weight:700;fill:#a57630">02</text>
+  <text class="body" x="705" y="205">接收候选 · 管理工具访问边界</text>
+  <text class="body" x="705" y="242">冒烟测试 / 准入检查 / 抽样 / 复用</text>
+  <rect class="panel" x="705" y="275" width="430" height="92" rx="12"/>
+  <text class="name" x="725" y="307">Harness repository · Git</text>
+  <text class="small" x="725" y="341">基线 → 候选分支 / 合并 → 代码提交 + 评测记录</text>
+  <path class="arrow" d="M920 401V439"/>
+  <path class="arrow" d="M1100 439V401"/>
+  <text class="small" x="1008" y="424">结果回存</text>
+  <rect x="680" y="445" width="480" height="285" rx="20" fill="#eef8f4" stroke="#cce5da" filter="url(#shadow)"/>
+  <rect x="705" y="465" width="4" height="23" rx="2" fill="#53a38b"/>
+  <text class="head" x="721" y="485">Evaluation Environment</text>
+  <rect x="1095" y="464" width="40" height="28" rx="10" fill="#d9eee5"/>
+  <text x="1115" y="484" text-anchor="middle" style="font-size:16px;font-weight:700;fill:#34836a">03</text>
+  <text class="body" x="705" y="528">隔离沙箱 · 多案例并行评测</text>
+  <text class="body" x="705" y="565">构建记忆 → 检索 → 回答 → 评分</text>
+  <rect class="panel" x="705" y="595" width="430" height="108" rx="12"/>
+  <text class="name" x="725" y="627">Memory construction history · Git</text>
+  <text class="small" x="725" y="660">会话 1 → 会话 2 → … → 会话 T</text>
+  <text class="small" x="725" y="687">逐会话记忆快照与 diff + 查询轨迹</text>
+  <path class="arrow" d="M920 736V769Q920 793 896 793H359Q335 793 335 769V736" stroke-dasharray="6 6" style="stroke:#55a18b"/>
+  <rect x="415" y="773" width="430" height="40" rx="20" fill="#f7fafb"/>
+  <text class="small" x="630" y="800" text-anchor="middle">通过管理器读取评测历史，进入下一轮诊断</text>
+  <text class="small" x="600" y="851" text-anchor="middle">两套版本历史：追踪系统如何变化，也追踪每个案例的记忆如何形成</text>
+</svg>
