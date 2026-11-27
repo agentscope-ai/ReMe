@@ -12,6 +12,7 @@ from reme.core.context import ApplicationContext, RuntimeContext
 from reme.schema import DreamState
 from reme.steps.evolve.dream.integrate import DreamIntegrateStep
 from reme.steps.file_io.save import SaveStep
+from reme.steps.file_io.write import WriteStep
 from reme.utils.files import write_ledger
 
 from .test_auto_dream import _FileStore, _SequenceAgent, _tool_write, _touch
@@ -228,7 +229,6 @@ async def test_each_dream_write_tool_records_its_target(tmp_path, tool):
     from reme.steps.file_io.frontmatter_update import (  # pylint: disable=import-outside-toplevel
         FrontmatterUpdateStep,
     )
-    from reme.steps.file_io.write import WriteStep  # pylint: disable=import-outside-toplevel
 
     path = "digest/wiki/note.md"
     _touch(tmp_path / path, "---\nname: note\n---\nold body\n")
@@ -245,3 +245,47 @@ async def test_each_dream_write_tool_records_its_target(tmp_path, tool):
         await step_cls(app_context=app_context, file_store=store)(context)
     assert context.response.success, context.response.answer
     assert written == {(tmp_path / path).resolve()}
+
+
+class _ConfiguredAgent(_SequenceAgent):
+    """Merge call-time kwargs over configured defaults, the way real agent wrappers do."""
+
+    def __init__(self, injected_job_kwargs: dict, *outcomes):
+        super().__init__(*outcomes)
+        self.kwargs["injected_job_kwargs"] = injected_job_kwargs
+
+    async def reply(self, _message, **_kwargs):
+        return await super().reply(_message, **self._merged_kwargs(_kwargs))
+
+
+@pytest.mark.asyncio
+async def test_configured_tool_constraints_survive_the_ledger_id(tmp_path):
+    """ployts's repro: the ledger ID is added to, not substituted for, the wrapper's _allowed_paths."""
+    protected = "digest/procedure/protected.md"
+    _touch(tmp_path / _TARGET, "v0")
+    _touch(tmp_path / protected, "protected")
+    configured = {"_allowed_paths": [_TARGET]}
+    blocked = []
+
+    async def agent_writes():
+        injected = agent.requests[-1][1].get("injected_job_kwargs", {})
+        context = RuntimeContext(path=protected, content="overwritten", **injected)
+        await WriteStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)), file_store=_FileStore(tmp_path))(
+            context,
+        )
+        blocked.append(context.response)
+        await _tool_write(tmp_path, agent.requests[-1][1], _TARGET, "agent edit")
+        return _receipt(_TARGET)
+
+    agent = _ConfiguredAgent(configured, agent_writes)
+    context = await _run(tmp_path, agent)
+
+    injected = agent.requests[0][1]["injected_job_kwargs"]
+    assert injected["_allowed_paths"] == [_TARGET]
+    assert write_ledger.WRITE_LEDGER_KWARG in injected
+    assert blocked[0].success is False
+    assert (tmp_path / protected).read_text(encoding="utf-8") == "protected"
+    assert (tmp_path / _TARGET).read_text(encoding="utf-8").strip() == "agent edit"
+    # The wrapper's shared configuration is not mutated by the per-attempt ledger ID.
+    assert configured == {"_allowed_paths": [_TARGET]}
+    assert context.response.success is True

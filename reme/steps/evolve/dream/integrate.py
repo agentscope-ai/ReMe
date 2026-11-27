@@ -258,7 +258,7 @@ class DreamIntegrateStep(BaseStep):
                             bucket=bucket,
                         ),
                         job_tools=list(_TOOLS),
-                        injected_job_kwargs={WRITE_LEDGER_KWARG: ledger_id},
+                        injected_job_kwargs=self._injected_job_kwargs(ledger_id),
                     )
                 raw_result = agent_reply_result_text(result)
             except Exception as e:  # noqa: BLE001
@@ -345,6 +345,16 @@ class DreamIntegrateStep(BaseStep):
             )
             return [p for p in dict.fromkeys(failed_attempt_changes) if p != outcome.target_path]
         return None
+
+    def _injected_job_kwargs(self, ledger_id: str) -> dict:
+        """Add this attempt's ledger ID to the wrapper's configured tool constraints.
+
+        Call-time kwargs replace the wrapper's ``injected_job_kwargs`` wholesale, so passing
+        only the ledger ID would drop configured limits such as ``_allowed_paths``. Copy them
+        so the shared configuration is never mutated across attempts.
+        """
+        configured = (getattr(self.agent_wrapper, "kwargs", None) or {}).get("injected_job_kwargs")
+        return {**(configured or {}), WRITE_LEDGER_KWARG: ledger_id}
 
     def _recoverable(  # pylint: disable=too-many-arguments
         self,
