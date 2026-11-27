@@ -33,7 +33,7 @@ async def test_urgent_delivery_can_reach_an_active_foreground_turn(tmp_path, mon
 
         step = ChatAgentStep(app_context=context, agent_runtime="Remy")
         step.context = RuntimeContext()
-        session = await chat.ensure_session(step.session_options())
+        session = await chat.ensure_session(chat.session_options())
         wrapper.states[session] = "active"
         entered, release = asyncio.Event(), asyncio.Event()
 

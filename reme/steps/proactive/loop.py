@@ -3,7 +3,6 @@
 import asyncio
 
 from .base import BaseAgentStep
-from .agent.initialize import initialize_task
 from ...schema.proactive_agent import TIME_EVENT_SOURCE
 from ...core.registry import R
 from ...schema import Event
@@ -29,7 +28,6 @@ class AgentManagerLoopStep(BaseAgentStep):
 
     async def tick_runtime(self, runtime, definition):
         """Recover handoffs, admit due schedule input and start one eligible worker."""
-        await initialize_task(runtime, self.app_context)
         await runtime.recover_handoffs()
         if not definition.enabled or runtime.closed or runtime.retiring:
             runtime.next_trigger(definition)

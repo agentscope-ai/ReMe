@@ -71,7 +71,7 @@ class ProcessChatNotificationsStep(BaseChatNotificationsStep):
                 )
                 reply = await runtime.agent_wrapper.reply(
                     hint,
-                    system_prompt=self.session_options()["system_prompt"],
+                    system_prompt=runtime.session_options()["system_prompt"],
                     job_tools=["submit_chat_reply"],
                     skills=[],
                     resume=session_id,

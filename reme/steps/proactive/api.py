@@ -7,7 +7,6 @@ from time import monotonic
 
 from .base import BaseAgentStep
 from .chat.chat import BaseChatAgentStep
-from .agent.initialize import initialize_task
 from ...constants import CHAT_AGENT_NAME, PROACTIVE_MESSAGE_ID_PREFIX
 from ...core.registry import R
 from ...enumeration import ChunkEnum
@@ -386,7 +385,6 @@ class TaskDocumentStep(_AgentViewStep):
     async def execute(self):
         request = self.request(TaskDocumentRequest)
         runtime = await self.agent_manager.resolve(request.agent_name)
-        await initialize_task(runtime, self.app_context)
         self.require_paths(runtime.task_path)
         path = runtime.to_workspace_relative(runtime.task_path)
         if request.action == "read":

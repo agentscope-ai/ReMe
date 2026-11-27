@@ -101,7 +101,7 @@ ReMe5 计划提供一组预设，用于跟进持续进行的工作、定时整�
 
 Chat Agent 通过 `manage-proactive-runtime` skill 创建自定义 Agent，并管理预定义和自定义任务。你可以在对话中查看任务状态、追问进展，
 修改任务要求和运行设置，也可以暂停或恢复任务。
-[任务管理 skill](https://github.com/agentscope-ai/ReMe/blob/main/reme/steps/proactive/skills/manage_proactive_runtime.yaml)
+[任务管理 skill](https://github.com/agentscope-ai/ReMe/blob/main/reme/components/proactive/runtime/skills/manage_proactive_runtime.yaml)
 
 要创建时间触发任务，你可以说「每周五总结这周的实验结果，附上报告链接」。要创建事件触发任务，你可以让 Chat Agent 跟进实验日志，
 完成或失败时告诉你。事件触发任务需要接入能提供相应信息的来源。

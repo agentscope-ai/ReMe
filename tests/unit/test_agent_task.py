@@ -55,7 +55,7 @@ async def test_task_editor_rejects_remy_deleted_agents_and_outside_paths(tmp_pat
             await step(RuntimeContext(_allowed_paths=["daily"]), action="read", agent_name="monitor")
         with pytest.raises(ValueError):
             await step(action="read", agent_name="monitor", path="daily/other.md")
-        target = runtime.registry.task_path(await runtime.definition("monitor"))
+        target = (await runtime.resolve("monitor")).task_path
         outside = tmp_path.parent / f"{tmp_path.name}-outside.md"
         outside.write_text("Outside")
         target.unlink()

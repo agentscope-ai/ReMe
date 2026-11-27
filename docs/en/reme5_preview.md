@@ -117,7 +117,7 @@ interface and background task summaries that we can build on.
 The Chat Agent uses the `manage-proactive-runtime` skill to create custom agents and manage both predefined and custom
 tasks. From chat, you can check a task’s status or progress, revise its instructions and runtime settings, or pause
 and resume it.
-[Task management skill](https://github.com/agentscope-ai/ReMe/blob/main/reme/steps/proactive/skills/manage_proactive_runtime.yaml)
+[Task management skill](https://github.com/agentscope-ai/ReMe/blob/main/reme/components/proactive/runtime/skills/manage_proactive_runtime.yaml)
 
 For a time-triggered task, you might say, “Every Friday, summarize the week’s experiment results and link to the
 reports.” For an event-triggered task, you might ask the Chat Agent to follow an experiment’s log feed and tell you

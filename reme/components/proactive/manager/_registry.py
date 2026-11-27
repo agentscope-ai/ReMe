@@ -1,7 +1,6 @@
 """Agent-owned configuration files; directory scans are the registry."""
 
 from datetime import datetime
-from pathlib import Path
 import re
 
 from .base import TaskNotFoundError
@@ -92,53 +91,43 @@ class RuntimeRegistry:
         """Publish one validated definition without rewriting other agents."""
         self.files.write_json(self.directory_for(agent) / "config.json", agent.model_dump(mode="json"))
 
-    def task_path(self, agent: ProactiveRuntimeDefinition) -> Path:
-        """Locate the task's editable description."""
-        return self.files.checked(self.directory_for(agent) / "TASK.md")
-
     @staticmethod
     def _validate_schedule(config: ProactiveRuntimeConfig, now: datetime) -> None:
         """Reject schedules without a next occurrence before publishing configuration."""
         if config.agent_type == "time":
             next_cron_time(config.schedule, now)
 
-    def create(self, config, now: datetime):
-        """Restore the same identity without replacing its requirements or execution role."""
-        supplied = (
-            config.model_dump(exclude_unset=True) if isinstance(config, CreateProactiveRuntimeConfig) else dict(config)
-        )
+    def prepare_create(self, config, now: datetime, defaults):
+        """Validate creation or restoration before publishing any task state."""
+        supplied = dict(config)
         name = validate_agent_name(supplied.get("agent_name"))
         agents = self.load(include_deleted=True)
         previous = next((v for k, v in agents.items() if k.casefold() == name.casefold()), None)
         if previous is None:
             if name.casefold() in self.configured_names():
                 raise ValueError("An unavailable definition already owns this name")
-            values = supplied
+            values = {**defaults, **supplied}
         else:
             if previous.agent_name != name or previous.deleted_at is None:
                 raise ValueError("Task already exists")
-            if "run_job" in supplied and supplied["run_job"] != previous.run_job:
-                raise ValueError("Task execution Job cannot change on restore")
             if supplied.get("agent_type") != previous.agent_type:
                 raise ValueError("Task trigger type cannot change after creation")
+            if any(supplied[key] != value for key, value in previous.wiring().items() if key in supplied):
+                raise ValueError("Task Runtime wiring cannot change on restore")
             values = {
                 **previous.model_dump(exclude={"created_at", "deleted_at"}),
                 **supplied,
                 "enabled": supplied.get("enabled", True),
             }
         config = CreateProactiveRuntimeConfig.model_validate(values)
-        validated = ProactiveRuntimeConfig.model_validate(config.model_dump(exclude={"task_description"}))
-        self._validate_schedule(validated, now)
+        self._validate_schedule(config, now)
         agent = ProactiveRuntimeDefinition(
-            **validated.model_dump(),
+            **config.model_dump(exclude={"task_description"}),
             created_at=previous.created_at if previous else now,
         )
         agents[agent.agent_name] = agent
         if issues := self._name_issues(agents):
             raise ValueError(next(iter(issues.values())))
-        if config.task_description is not None:
-            self.files.write(self.task_path(agent), config.task_description, create_only=True)
-        self.save(agent)
         return agent, previous is not None
 
     def update(self, agent_name, patch, now: datetime):

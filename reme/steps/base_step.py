@@ -11,7 +11,7 @@ from ..components.base import ComponentMixin
 from ..core.registry import R
 from ..components.file_catalog import BaseFileCatalog
 from ..components.file_store import BaseFileStore
-from .prompt import PromptHandler
+from ..utils.prompt import PromptHandler
 from ..core.context import RuntimeContext
 from ..enumeration import ComponentEnum
 from ..schema import ApplicationConfig, Response

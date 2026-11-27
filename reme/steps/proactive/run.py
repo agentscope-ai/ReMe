@@ -10,119 +10,48 @@ import shlex
 from time import monotonic
 from urllib.parse import unquote, urlsplit
 
-from ..base import BaseAgentStep, ActivityTracker
-from ....enumeration import ChunkEnum
-from ....schema import AgentActivity, TokenUsage, collect_reply
-from ....schema.proactive_runtime import AgentReminder
-from ....schema.proactive_agent import ProactiveRecordDecision
-from ....utils.async_utils import complete_in_thread, finish_cleanup
-from ....utils.counter import global_counter_add_many
-from ....utils.documents.markdown_parser import markdown_link_targets
-from ....utils.files.path_lock import get_path_lock
-from ....utils.proactive_record import RoundRecord, split_record
+from .base import BaseAgentStep, ActivityTracker
+from ...core.registry import R
+from ...enumeration import ChunkEnum
+from ...schema import AgentActivity, TokenUsage, collect_reply
+from ...schema.proactive_runtime import AgentReminder
+from ...schema.proactive_agent import ProactiveRecordDecision
+from ...utils.async_utils import complete_in_thread, finish_cleanup
+from ...utils.counter import global_counter_add_many
+from ...utils.documents.markdown_parser import markdown_link_targets
+from ...utils.files.path_lock import get_path_lock
+from ...utils.proactive_record import RoundRecord, split_record
 
 _NO_KEY_INFORMATION = "NO_KEY_INFORMATION"
 
 
-class BaseProactiveAgentStep(BaseAgentStep):
+@R.register("proactive_agent_step")
+class ProactiveAgentStep(BaseAgentStep):
     """Process one round and record its results and reminder decision together."""
 
-    skill_names = ("proactive-record",)
-    job_tools = ()
-
-    def __init__(self, timeout_seconds=1200, max_local_search_calls=10, recent_history_hours=24, **kwargs):
+    def __init__(self, timeout_seconds=1200, **kwargs):
         super().__init__(**kwargs)
         if type(timeout_seconds) not in (int, float) or not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be a finite positive number")
         self.timeout_seconds = timeout_seconds
-        for name, value in (
-            ("max_local_search_calls", max_local_search_calls),
-            ("recent_history_hours", recent_history_hours),
-        ):
-            if type(value) is not int or value <= 0:
-                raise ValueError(f"{name} must be a positive integer")
-        self.max_local_search_calls = max_local_search_calls
-        self.recent_history_hours = recent_history_hours
         self._timeout = None
         self.runtime = None
 
     def _paths(self, agent, now: datetime, receipt_paths: frozenset[str] = frozenset()) -> dict[str, Path]:
-        manager = self.runtime
-        daily = manager.files.path(self.config_value("daily_dir"))
+        runtime = self.runtime
+        daily = runtime.files.path(self.config_value("daily_dir"))
         day = daily / now.date().isoformat()
         stem = f"{agent.agent_name}_{now:%H%M%S}"
-        record = manager.files.checked(day / f"{stem}.md")
+        record = runtime.files.checked(day / f"{stem}.md")
         collision = 0
         while (
-            record.relative_to(manager.files.workspace).as_posix() in receipt_paths
+            record.relative_to(runtime.files.workspace).as_posix() in receipt_paths
             or record.exists()
-            or manager.has_record_registration(record)
+            or runtime.has_record_registration(record)
         ):
             collision += 1
-            record = manager.files.checked(day / f"{stem}_{collision}.md")
-        return {"daily_dir": daily, "task_path": manager.task_path, "record_path": record}
-
-    def session_options(self, agent, now):
-        """Build tool bindings and permissions for an automatic run."""
-        skills = self.get_skills(agent.agent_name)
-        for skill in skills:
-            if skill["name"].startswith("proactive-record-"):
-                skill["content"] = skill["content"].format(
-                    recent_history_hours=self.recent_history_hours,
-                    max_local_search_calls=self.max_local_search_calls,
-                )
-        options = {
-            "job_tools": list(self.kwargs.get("job_tools", self.job_tools) or []),
-            "skills": skills,
-            "system_prompt": self.prompt_format(
-                "system_prompt",
-                workspace_dir=self.workspace_path,
-                app_timezone=self.app_context.app_config.timezone or str(now.tzinfo),
-                now=now.isoformat(),
-            ),
-            "injected_job_kwargs": {"_agent_name": agent.agent_name},
-            "approval_mode": "deny_all",
-        }
-        if (sandbox := self.kwargs.get("sandbox", "workspace-write")) is not None:
-            options["sandbox"] = sandbox
-        if (effort := self.kwargs.get("effort")) is not None:
-            options["effort"] = effort
-        return options
-
-    def _query(self, events, paths, task_content, *, is_time):
-        """Build the round prompt from the task snapshot and claimed events."""
-        files = self.runtime.files
-        event_sections = []
-        for number, event in enumerate(events, 1):
-            if is_time:
-                event_sections.append(self.prompt_format("scheduled_event_input", event_ts=event["event_ts"]))
-                continue
-            attachments = event["paths"]
-            event_sections.append(
-                self.prompt_format(
-                    "event_input",
-                    number=number,
-                    event_id=event["id"],
-                    event_ts=event["event_ts"],
-                    source=event["source"],
-                    description=event["description"],
-                    paths="\n".join(
-                        f"- {files.path(path).relative_to(files.workspace).as_posix()}" for path in attachments
-                    ),
-                    has_files=bool(attachments),
-                    no_files=not attachments,
-                ),
-            )
-        content = self.prompt_format(
-            "task_context",
-            event_batch="\n\n".join(event_sections),
-            is_time=is_time,
-            is_event=not is_time,
-            task_description=task_content,
-            daily_dir=paths["daily_dir"].relative_to(files.workspace).as_posix(),
-            record_path=paths["record_path"].relative_to(files.workspace).as_posix(),
-        )
-        return self.prompt_format("task_query", task_context=content, is_time=is_time, is_event=not is_time)
+            record = runtime.files.checked(day / f"{stem}_{collision}.md")
+        return {"daily_dir": daily, "task_path": runtime.task_path, "record_path": record}
 
     @staticmethod
     def _lookup_type(call):
@@ -217,9 +146,6 @@ class BaseProactiveAgentStep(BaseAgentStep):
             raise ValueError("Task execution requires only agent_name")
         self.runtime = await self.agent_manager.resolve(arguments["agent_name"])
         self.require_paths(self.workspace_path)
-        from .initialize import initialize_task
-
-        await initialize_task(self.runtime, self.app_context)
         record = RoundRecord(self.runtime.files)
         self.context.response.metadata.pop("reme.agent_run", None)
         started, outcome = monotonic(), "failed"
@@ -290,6 +216,7 @@ class BaseProactiveAgentStep(BaseAgentStep):
 
     async def _execute(self, agent, events, *, record):
         """Run one query with its skills, then validate the final record."""
+        runtime = self.runtime
         agent_type = agent.agent_type
         is_time = agent_type == "time"
         stats = {
@@ -300,27 +227,22 @@ class BaseProactiveAgentStep(BaseAgentStep):
             "tool_calls": 0,
             "web_lookup_calls": 0,
             "local_search_calls": 0,
-            "max_local_search_calls": self.max_local_search_calls,
+            "max_local_search_calls": runtime.initial_config.max_local_search_calls,
         }
         self.context.response.metadata["reme.agent_run"] = stats
-        manager = self.runtime
-        now = manager.now()
+        now = runtime.now()
         paths = await asyncio.to_thread(
             self._paths,
             agent,
             now,
-            receipt_paths=await manager.receipt_record_paths(),
+            receipt_paths=await runtime.receipt_record_paths(),
         )
         await record.prepare(paths["record_path"])
-        task_content = await asyncio.to_thread(manager.files.read, paths["task_path"])
+        task_content = await asyncio.to_thread(runtime.files.read, paths["task_path"])
         if not task_content.strip():
             raise ValueError("TASK.md must not be blank")
-        options = self.session_options(agent, now)
-        query = await asyncio.to_thread(self._query, events, paths, task_content, is_time=is_time)
-        query += "\n\n" + self.prompt_format(
-            "use_skills",
-            skill_names=" ".join("$" + skill["name"] for skill in options["skills"]),
-        )
+        options = runtime.session_options(now=now)
+        query = runtime.build_query(events, paths, task_content, options["skills"], is_time=is_time)
         started = monotonic()
         label = f"Proactive agent={agent.agent_name} agent_type={agent_type}"
         session_id = turn_id = None
@@ -335,10 +257,10 @@ class BaseProactiveAgentStep(BaseAgentStep):
             kinds = [self._lookup_type(call) for call in calls.values()]
             for key in ("web_lookup_calls", "local_search_calls"):
                 stats[key] = kinds.count(key)
-            if not warned and stats["local_search_calls"] > self.max_local_search_calls:
+            if not warned and stats["local_search_calls"] > runtime.initial_config.max_local_search_calls:
                 self.logger.warning(
                     f"{label} local_search_calls={stats['local_search_calls']} "
-                    f"exceeds limit={self.max_local_search_calls}; continuing",
+                    f"exceeds limit={runtime.initial_config.max_local_search_calls}; continuing",
                 )
                 warned = True
 
@@ -381,17 +303,17 @@ class BaseProactiveAgentStep(BaseAgentStep):
             publish(chunk)
 
         deadline = self._timeout.when()
-        async with manager.agent_wrapper.skill_scope(**options) as options:
+        async with runtime.agent_wrapper.skill_scope(**options) as options:
             try:
                 try:
                     async with asyncio.timeout_at(deadline):
-                        session_id = await manager.ensure_session(options, new=True)
+                        session_id = await runtime.ensure_session(options, new=True)
                         label += f" session={session_id}"
                         self.logger.info(f"{label} result=started path={record.path}")
-                        with manager.live_turns.observe(agent.agent_name, session_id, query) as publish:
+                        with runtime.live_turns.observe(agent.agent_name, session_id, query) as publish:
                             try:
                                 reply = await collect_reply(
-                                    manager.agent_wrapper.reply_stream(query, resume=session_id, **options),
+                                    runtime.agent_wrapper.reply_stream(query, resume=session_id, **options),
                                     on_chunk=observe,
                                 )
                             finally:
@@ -426,7 +348,7 @@ class BaseProactiveAgentStep(BaseAgentStep):
                 ):
                     try:
                         async with asyncio.timeout_at(deadline):
-                            saved = await manager.agent_wrapper.get_tool_calls(session_id, turn_id)
+                            saved = await runtime.agent_wrapper.get_tool_calls(session_id, turn_id)
                         if saved is not None:
                             for call in saved:
                                 previous = calls.get(call["id"], {})

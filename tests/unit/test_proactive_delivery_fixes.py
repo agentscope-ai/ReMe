@@ -100,7 +100,7 @@ async def test_pause_gate_survives_restart_and_never_changes_task_enabled(tmp_pa
             assert (await step()).answer["skipped"] == "paused"
             assert (await manager.definition("monitor")).enabled and not (tmp_path / "resource").exists()
             with pytest.raises(ValueError):
-                await tool(action="pause", connector_job="run_memory_agent")
+                await tool(action="pause", connector_job="run_proactive_agent")
     async with running_system(tmp_path) as (manager, context, _):
         job = BaseJob(name="screen_capture_cron", app_context=context, steps=[])
         context.jobs[job.name] = job

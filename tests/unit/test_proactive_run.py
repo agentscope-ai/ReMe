@@ -1,4 +1,4 @@
-"""Formal domain Jobs commit only validated, successful rounds."""
+"""One generic Job commits validated rounds using each Runtime binding."""
 
 # pylint: disable=missing-function-docstring,protected-access,redefined-outer-name
 
@@ -7,18 +7,15 @@ import asyncio
 import pytest
 
 from reme.schema import Event, StreamChunk
-from reme.steps.proactive.agent import NotebookAgentStep
-from reme.steps.proactive.agent.base import BaseProactiveAgentStep
-from reme.steps.proactive.agent.initialize import initialize_task
-from .proactive_helpers import running_system, queue_event
+from reme.steps.proactive.run import ProactiveAgentStep
+from .proactive_helpers import running_system, queue_event, runtime_config
 
 SKIP = '---\nreminder_priority: skip\nreminder_message: ""\n---\n'
 REMIND = "---\nreminder_priority: {priority}\nreminder_message: Verified result\n---{body}"
 
 
-async def prepare_round(manager, context, monkeypatch, name="monitor"):
+async def prepare_round(manager, _context, monkeypatch, name="monitor"):
     runtime = await manager.resolve(name)
-    await initialize_task(runtime, context)
     now = runtime.now()
     monkeypatch.setattr(runtime, "now", lambda: now)
     record = runtime.daily_directory / now.date().isoformat() / f"{name}_{now:%H%M%S}.md"
@@ -62,22 +59,13 @@ def install_round(
     return calls
 
 
-@pytest.mark.parametrize(
-    "job,agent_type",
-    [
-        ("run_memory_agent", "event"),
-        ("run_notebook_agent", "event"),
-        ("run_finance_agent", "event"),
-        ("run_news_agent", "event"),
-        ("run_memory_agent", "time"),
-        ("run_finance_agent", "time"),
-        ("run_news_agent", "time"),
-    ],
-)
+@pytest.mark.parametrize("preset", ["proactive_memory", "proactive_note", "proactive_fin", "proactive_news"])
+@pytest.mark.parametrize("agent_type", ["event", "time"])
 @pytest.mark.parametrize("language", ["en", "zh"])
 @pytest.mark.asyncio
-async def test_domain_jobs_share_executor_and_select_their_own_skills(tmp_path, monkeypatch, job, agent_type, language):
-    definition = {"agent_type": agent_type, "agent_name": "monitor", "run_job": job}
+async def test_generic_job_uses_runtime_skills_and_tools(tmp_path, monkeypatch, preset, agent_type, language):
+    definition = runtime_config(preset)
+    definition.update(agent_type=agent_type, schedule=None)
     if agent_type == "time":
         definition["schedule"] = "0 8 * * *"
     async with running_system(
@@ -106,7 +94,7 @@ async def test_domain_jobs_share_executor_and_select_their_own_skills(tmp_path, 
             monkeypatch,
             text=REMIND.format(priority="P1", body="\nEvidence\n"),
         )
-        response = await context.jobs[job](agent_name="monitor")
+        response = await context.jobs["run_proactive_agent"](agent_name="monitor")
         assert response.success, response.answer
         assert response.answer["processed"] == 1 and record.is_file()
         assert not await runtime.inbox.pending_ids()
@@ -122,7 +110,7 @@ async def test_domain_jobs_share_executor_and_select_their_own_skills(tmp_path, 
         assert options["approval_mode"] == "deny_all" and "output_schema" not in options
         expected_skills = ["proactive-record"]
         expected_tools = []
-        if job == "run_notebook_agent":
+        if preset == "proactive_note":
             expected_skills.append("manage-notebook")
             expected_tools.append("manage_notebook")
         assert [spec["name"].rsplit("-", 1)[0] for spec in options["skills"]] == expected_skills
@@ -131,7 +119,7 @@ async def test_domain_jobs_share_executor_and_select_their_own_skills(tmp_path, 
         assert all("$" + skill["name"] in calls[0][0] for skill in options["skills"])
         assert str(tmp_path) in options["system_prompt"] and runtime.now().isoformat() in options["system_prompt"]
         assert context.app_config.timezone in options["system_prompt"]
-        if job == "run_notebook_agent":
+        if preset == "proactive_note":
             assert "sandbox" not in options and options["injected_job_kwargs"]["_automatic_notebook"]
         assert all(not source.exists() for source in options["_skills"].sources.values())
 
@@ -223,20 +211,23 @@ async def test_invalid_record_keeps_inputs_and_draft_for_a_new_round_without_rep
 async def test_timeout_releases_claim_and_scoped_skills(tmp_path, monkeypatch, phase):
     async with running_system(
         tmp_path,
-        runtimes=[{"agent_type": "event", "agent_name": "monitor", "run_job": "run_notebook_agent"}],
+        runtimes=[runtime_config("proactive_note")],
     ) as (manager, context, wrapper):
         runtime, _ = await prepare_round(manager, context, monkeypatch)
         await queue_event(manager)
         sources = []
+        step = ProactiveAgentStep(app_context=context, timeout_seconds=10)
 
         async def stall(**options):
             sources.extend(options["_skills"].sources.values())
             assert len(sources) == 2 and all((source / "SKILL.md").is_file() for source in sources)
+            step._timeout.reschedule(asyncio.get_running_loop().time())
             await asyncio.Event().wait()
 
         async def stream(*_, **options):
             sources.extend(options["_skills"].sources.values())
             assert len(sources) == 2 and all((source / "SKILL.md").is_file() for source in sources)
+            step._timeout.reschedule(asyncio.get_running_loop().time())
             await asyncio.Event().wait()
             yield
 
@@ -244,7 +235,6 @@ async def test_timeout_releases_claim_and_scoped_skills(tmp_path, monkeypatch, p
             monkeypatch.setattr(wrapper, "create_session", stall)
         else:
             monkeypatch.setattr(wrapper, "reply_stream", stream)
-        step = NotebookAgentStep(app_context=context, timeout_seconds=0.03)
         with pytest.raises(TimeoutError):
             await step(agent_name="monitor")
         assert (
@@ -263,8 +253,11 @@ async def test_cancelled_round_does_not_wait_for_optional_native_statistics(tmp_
         runtime, _ = await prepare_round(manager, context, monkeypatch)
         await queue_event(manager)
         statistics_read = asyncio.Event()
+        inference_started = asyncio.Event()
 
         async def stream(*_, **__):
+            inference_started.set()
+            step._timeout.reschedule(asyncio.get_running_loop().time())
             await asyncio.Event().wait()
             yield
 
@@ -274,9 +267,10 @@ async def test_cancelled_round_does_not_wait_for_optional_native_statistics(tmp_
 
         monkeypatch.setattr(wrapper, "reply_stream", stream)
         monkeypatch.setattr(wrapper, "get_tool_calls", statistics)
-        step = BaseProactiveAgentStep(app_context=context, timeout_seconds=0.03)
+        step = ProactiveAgentStep(app_context=context, timeout_seconds=10)
         with pytest.raises(TimeoutError):
-            await asyncio.wait_for(step(agent_name="monitor"), 0.5)
+            await asyncio.wait_for(step(agent_name="monitor"), 5)
+        assert inference_started.is_set()
         assert not statistics_read.is_set()
         assert await runtime.inbox.pending_ids() == {"event-1"}
         assert not (await runtime.inbox.snapshot())["in_flight_count"]

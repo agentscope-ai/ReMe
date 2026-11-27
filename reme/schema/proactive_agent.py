@@ -16,8 +16,16 @@ from pydantic import (
 
 from ..constants import CHAT_AGENT_NAME
 from .agent_message import ClientModel
+from .agent_skill import SkillName
 from .event import Event
-from .proactive_runtime import AgentName, AgentReminder, InboxPriority, validate_agent_name
+from .proactive_runtime import (
+    AgentName,
+    AgentReminder,
+    AgentRuntimeBinding,
+    InboxPriority,
+    validate_agent_name,
+    validate_binding_names,
+)
 
 TIME_EVENT_SOURCE = "time"
 
@@ -111,15 +119,27 @@ class ProactiveRuntimeSettings(ClientModel):
         return expression
 
 
-class ProactiveRuntimeConfig(ProactiveRuntimeSettings):
+class ProactiveRuntimeDefaults(AgentRuntimeBinding):
+    """Defaults shared by preset and dynamically created background Runtimes."""
+
+    run_job: Literal["run_proactive_agent"] = "run_proactive_agent"
+    skills: list[SkillName] = Field(default_factory=lambda: ["proactive-record"])
+    max_batch_events: int = Field(default=20, ge=1, strict=True)
+    max_local_search_calls: int = Field(default=10, ge=1, strict=True)
+    recent_history_hours: int = Field(default=24, ge=1, strict=True)
+
+
+class ProactiveRuntimeConfig(ProactiveRuntimeDefaults, ProactiveRuntimeSettings):
     """A named task with internal batching limits; requirements live in TASK.md."""
 
     agent_name: AgentName
     agent_type: Literal["event", "time"]
-    max_batch_events: int = Field(default=20, ge=1, strict=True)
-    run_job: Literal["run_memory_agent", "run_notebook_agent", "run_finance_agent", "run_news_agent"] = (
-        "run_memory_agent"
-    )
+
+    def wiring(self):
+        """Separate immutable identity and session bindings from editable settings."""
+        return self.model_dump(
+            include=ProactiveRuntimeConfig.model_fields.keys() - ProactiveRuntimeSettings.model_fields.keys(),
+        )
 
     @field_validator("agent_name")
     @classmethod
@@ -136,8 +156,6 @@ class ProactiveRuntimeConfig(ProactiveRuntimeSettings):
             raise ValueError("Time-triggered tasks require a schedule")
         if self.agent_type == "event" and self.schedule is not None:
             raise ValueError("Event-triggered tasks cannot have a schedule")
-        if self.run_job == "run_notebook_agent" and self.agent_type != "event":
-            raise ValueError("Notebook runs only on events")
         return self
 
 
@@ -202,9 +220,12 @@ class ManageProactiveRuntimeRequest(ProactiveRuntimeSettings):
     action: Literal["list", "create", "status", "update", "delete", "query"]
     agent_name: AgentName | None = None
     agent_type: Literal["event", "time"] | None = None
-    run_job: Literal["run_memory_agent", "run_notebook_agent", "run_finance_agent", "run_news_agent"] | None = None
+    skills: list[SkillName] | None = None
+    job_tools: list[str] | None = None
     task_description: str | None = Field(default=None, min_length=1, max_length=100000)
     question: str | None = Field(default=None, min_length=1, max_length=100000)
+
+    _valid_names = field_validator("skills", "job_tools", mode="before")(validate_binding_names)
 
     @field_validator("task_description", "question")
     @classmethod
@@ -222,7 +243,7 @@ class ManageProactiveRuntimeRequest(ProactiveRuntimeSettings):
             "list": (set(), set()),
             "create": (
                 {"agent_name", "agent_type"},
-                settings | {"agent_name", "agent_type", "task_description", "run_job"},
+                settings | {"agent_name", "agent_type", "task_description", "skills", "job_tools"},
             ),
             "status": ({"agent_name"}, {"agent_name"}),
             "update": ({"agent_name"}, settings | {"agent_name"}),

@@ -1,8 +1,10 @@
 """Backend-independent file references and generated agent skills."""
 
-from typing import Self
+from typing import Annotated, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+SkillName = Annotated[str, Field(min_length=1, max_length=64, pattern=r"^[a-z0-9][a-z0-9_-]*$")]
 
 
 class SkillSpec(BaseModel):
@@ -10,7 +12,7 @@ class SkillSpec(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    name: str = Field(min_length=1, max_length=64, pattern=r"^[a-z0-9][a-z0-9_-]*$")
+    name: SkillName
     description: str | None = None
     content: str | None = None
 

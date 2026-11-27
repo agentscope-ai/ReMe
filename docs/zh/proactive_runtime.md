@@ -217,7 +217,7 @@ Agent 结合用户的关注范围和提醒条件，整理价格变化、相关�
 
 连续几周的记录还能帮助发现单次对话里不容易看出的情况，例如同一个难点持续存在，或投入方向已经偏离原定目标。保留下来的来源让每项判断都能回到具体记录中讨论。
 
-配置和接口见[服务与部署](./services.md#proactive-runtime)，内置任务见 [`proactive.yaml`](../../reme/config/proactive.yaml)，执行流程见 [Agent 实现与提示词](../../reme/steps/proactive/agent/)。关于长期运行 Agent 的通用设计，也可以阅读 Anthropic 的 [Building always-on agents](https://claude.com/resources/articles/building-always-on-agents)。
+配置和接口见[服务与部署](./services.md#proactive-runtime)，内置任务见 [`proactive.yaml`](../../reme/config/proactive.yaml)，执行流程见 [执行流程](../../reme/steps/proactive/run.py)和 [Runtime 与提示词](../../reme/components/proactive/runtime/)。关于长期运行 Agent 的通用设计，也可以阅读 Anthropic 的 [Building always-on agents](https://claude.com/resources/articles/building-always-on-agents)。
 
 
 ## 任务存储

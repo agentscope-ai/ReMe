@@ -82,20 +82,19 @@ reme manage_proactive_runtime action=create agent_type=event agent_name=experime
   task_description='跟进实验日志；异常和结束时提醒，正常进展只记录。'
 ```
 
-`manage_proactive_runtime` 支持 `list/create/status/update/delete/query`。创建时可选 `run_job`：
-`run_memory_agent`（默认）、`run_notebook_agent`、`run_finance_agent`、`run_news_agent`。
-省略 task_description 时由对应领域 YAML 生成 TASK.md；显式内容原样保存，已有文件不覆盖。
+`manage_proactive_runtime` 支持 `list/create/status/update/delete/query`。所有后台任务共用私有 Job `run_proactive_agent`。
+预设 Runtime 的 `initial_task`、`skills`、`job_tools` 和会话选项统一配置在 `components.agent_runtime` 下。
+Runtime 只在 TASK.md 不存在时写入初始文本，每轮执行读取当前文档，保留用户修改。
+动态创建支持 `task_description`、`skills`、`job_tools`，由 AgentManager 应用 `runtime_defaults` 并检查
+`allowed_job_tools`；工具的可信注入约束由部署配置指定。触发类型和会话绑定创建后固定，同名恢复时保留。
+动态运行配置仍保存在工作区的每任务 config.json 中。旧领域 Job 名称和旧配置结构不再支持，升级时更新任务配置，保留 TASK.md 和历史文件。
 创建、状态和更新返回原始运行信息：运行设置在 `config`，`running` 表示正在执行；列表返回 `items/total`。
 客户端 Agent 视图仍由 `list_agents` 和会话接口提供。
 
 创建时必须传 `agent_type=event` 或 `agent_type=time`。时间任务必须设置 `schedule` Cron 表达式，按应用时区执行；事件任务没有日程。
-创建后触发类型和 run_job 固定；Notebook 只支持事件触发。`update` 仅修改 enabled、schedule、
-min_trigger_interval_seconds、notify_window。暂停让当前轮完成，删除取消执行并保留工作区文件；同名恢复沿用领域和历史。
+创建后触发类型、skills 和工具绑定固定。`update` 仅修改 enabled、schedule、
+min_trigger_interval_seconds、notify_window。暂停让当前轮完成，删除取消执行并保留工作区文件；同名恢复沿用工具绑定和历史。
 读取或修改任务要求使用 `task_document action=read/save agent_name=...`，保存必须提交读取返回的 `mtime` 作为 expected_mtime。
-
-升级已有工作区前，先处理完排队的定时输入。服务中的 Runtime 设置和 `{reme_agent_dir}/*/config.json` 需将
-`cron` 改为 `schedule`，有日程时增加 `agent_type: time`，否则增加 `agent_type: event`，保留任务文件和历史。
-旧 Runtime 字段和 `source="cron"` 不再接受；采集 Job 自身仍使用 `cron` 配置。
 
 Remy 的个人记忆通过 `components.agent_runtime.Remy.initial_memory` 创建到 `{reme_agent_dir}/Remy/MEMORY.md`，
 已有内容保留。`components.agent_runtime.Remy.notification_config` 控制 P0 延迟（默认 0 秒）、P1 空闲（10 秒）、P2 空闲（1800 秒）。
@@ -139,12 +138,14 @@ Harness 公共层负责增量扫描、渲染、发布、投递和取消，Codex 
 提交前重新检查源文件、前台轮次、原生会话版本及发送方设置，过期决定不能发送或确认。原生写入响应丢失时先查固定消息 ID，再恢复确认。
 
 `agent_manager_loop` 调度后台任务，`chat_notifications_loop` 调度提醒，二者均为 BackgroundJob。
-`run_chat_agent`、四个领域 Job、`process_chat_notifications` 和 submit_chat_reply 均不对服务公开。
+`run_chat_agent`、`run_proactive_agent`、`process_chat_notifications` 和 submit_chat_reply 均不对服务公开。
 前台 ask_agent 负责外层流的 DONE；后台任务问答使用最新任务会话的临时只读 fork，不消费队列，也不修改任务主会话。
 
-steps/proactive/skills/ 下三个 YAML 均只含 name、description、content，由 BaseAgentStep.get_skills 按角色加载。Chat 选择三个操作技能；后台每轮生成独立 record skill，随记额外生成 notebook skill。
-技能源模板是同名 YAML，由 PromptHandler 按继承和语言加载。生成的 SKILL.md 在同一轮与修复期间复用，结束后清理。
-Wrapper 的 skills 使用 SkillSpec 定义列表：已有技能用 name，生成技能使用 name、description、content；原生会话协议保持不变。
+Runtime 组件从 `components/proactive/runtime/skills/` 加载内置技能模板，通过 PromptHandler 选择语言；也可按名称引用项目技能。
+Chat 与后台 Runtime 分别配置自己的 skills 和工具。生成的 SKILL.md 限于本次调用使用，结束后清理。
+Wrapper 的 skills 使用 SkillSpec 列表：已有技能用 name，生成技能使用 name、description、content；原生会话协议保持不变。
+公共提示词加载器位于 `reme/utils/prompt.py`，Runtime 初始化不再反查执行 Step。
+Notebook 自动写入限制由可信 Runtime 配置注入，在 manage_notebook 工具中检查。
 
 源码见 [组件](../../reme/components/proactive/)、[工作流](../../reme/steps/proactive/) 与 [配置](../../reme/config/proactive.yaml)。
 

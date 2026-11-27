@@ -1,7 +1,6 @@
 """Manage background Runtime identities without owning their lifecycle."""
 
 from ..base import BaseAgentStep
-from ..agent.initialize import initialize_task
 from ....core.registry import R
 from ....schema.proactive_agent import ManageProactiveRuntimeRequest
 
@@ -28,8 +27,6 @@ class ManageProactiveRuntimeStep(BaseAgentStep):
             answer = {"items": items, "total": len(items)}
         elif request.action == "create":
             answer = await manager.create({"agent_name": request.agent_name, **values})
-            runtime = await manager.resolve(request.agent_name)
-            await initialize_task(runtime, self.app_context, request.task_description)
             answer = {**await manager.status(request.agent_name), "restored": answer["restored"]}
         elif request.action == "update":
             answer = await manager.update(request.agent_name, values)

@@ -15,7 +15,7 @@ from reme.enumeration import ComponentEnum
 from reme.schema.proactive_agent import ManageProactiveRuntimeRequest
 from reme.steps.proactive.api import AgentListStep, AgentSessionStep, AskAgentStep, TaskDocumentStep
 from reme.steps.proactive.tools import ManageProactiveRuntimeStep
-from .proactive_helpers import running_system, queue_event
+from .proactive_helpers import running_system, queue_event, runtime_config
 
 
 @pytest.mark.parametrize("name", ["proactive", "proactive_cc", "demo"])
@@ -40,11 +40,23 @@ def test_builtin_configuration_has_five_runtimes_and_private_execution_jobs(name
         "process_chat_notifications",
         "chat_notifications_loop",
         "agent_manager_loop",
-        *manager["allowed_run_jobs"],
+        "run_proactive_agent",
         "submit_chat_reply",
     ]:
         assert jobs[job]["enable_serve"] is False
-    assert not {"todo", "idea", "append_task_events", "manage_proactive_agent", "run_proactive_agent"} & jobs.keys()
+    assert (
+        not {
+            "todo",
+            "idea",
+            "append_task_events",
+            "manage_proactive_agent",
+            "run_memory_agent",
+            "run_notebook_agent",
+            "run_finance_agent",
+            "run_news_agent",
+        }
+        & jobs.keys()
+    )
 
 
 @pytest.mark.asyncio
@@ -56,7 +68,7 @@ async def test_distinct_owners_and_create_only_memory(tmp_path):
             agent_type="event",
             action="create",
             agent_name="monitor",
-            run_job="run_finance_agent",
+            task_description="Track market changes of 3% or more.",
         )
         assert response.success, response.answer
         task = await manager.resolve("monitor")
@@ -70,7 +82,7 @@ async def test_distinct_owners_and_create_only_memory(tmp_path):
     assert not task.is_started and not chat.is_started
     async with running_system(tmp_path, initial_memory="Changed") as (manager, context, _):
         assert context.components["agent_runtime"]["Remy"].memory_path.read_text() == "User edited"
-        assert (await manager.resolve("monitor")).run_job == "run_finance_agent"
+        assert (await manager.resolve("monitor")).run_job == "run_proactive_agent"
 
 
 @pytest.mark.asyncio
@@ -81,7 +93,7 @@ async def test_delete_cancels_active_and_waiting_work_and_restore_preserves_role
             {
                 "agent_type": "event",
                 "agent_name": "monitor",
-                "run_job": "run_finance_agent",
+                "run_job": "run_proactive_agent",
                 "task_description": "Keep this",
             },
         ],
@@ -104,7 +116,7 @@ async def test_delete_cancels_active_and_waiting_work_and_restore_preserves_role
         assert runtime.task_path.read_text() == "Keep this"
         result = await manager.create({"agent_type": "event", "agent_name": "monitor"})
         restored = await manager.resolve("monitor")
-        assert result["restored"] and restored.run_job == "run_finance_agent"
+        assert result["restored"] and restored.run_job == "run_proactive_agent"
         assert (await restored.inbox.snapshot())["pending_count"] == 1
         assert restored.task_path.read_text() == "Keep this" and wrapper.is_started
 
@@ -150,7 +162,7 @@ async def test_chat_internal_job_preserves_one_service_response_and_formal_bindi
 async def test_task_document_defaults_are_created_without_model_calls(tmp_path):
     async with running_system(tmp_path) as (manager, context, wrapper):
         await manager.create(
-            {"agent_type": "time", "agent_name": "brief", "run_job": "run_news_agent", "schedule": "0 8 * * *"},
+            {"agent_type": "time", "agent_name": "brief", "schedule": "0 8 * * *"},
         )
         response = await TaskDocumentStep(app_context=context)(action="read", agent_name="brief")
         assert response.success and response.answer["content"] and response.answer["mtime"]
@@ -162,32 +174,17 @@ async def test_task_document_defaults_are_created_without_model_calls(tmp_path):
 @pytest.mark.asyncio
 async def test_yaml_skill_templates_are_scoped_per_invocation_and_do_not_rotate_chat(tmp_path, language, owner):
     """The same template can be loaded concurrently without changing logical session bindings."""
-    from pathlib import Path
-    import yaml
-    from reme.steps.proactive.chat import ChatAgentStep
-    from reme.steps.proactive.agent import NotebookAgentStep
-    from reme.steps.proactive import base
-
-    folder = Path(base.__file__).with_name("skills")
-    assert {path.name for path in folder.glob("*.yaml")} == {
-        "manage_proactive_runtime.yaml",
-        "manage_connector.yaml",
-        "manage_notebook.yaml",
-        "proactive_record.yaml",
-    }
-    for path in folder.glob("*.yaml"):
-        assert set(yaml.safe_load(path.read_text())) == {
-            "name",
-            "description",
-            "description_zh",
-            "content",
-            "content_zh",
-        }
-    async with running_system(tmp_path, language=language) as (_, context, wrapper):
-        first = ChatAgentStep(app_context=context, agent_runtime="Remy").get_skills("Remy")
-        second = NotebookAgentStep(app_context=context).get_skills(owner)
+    async with running_system(tmp_path, language=language, runtimes=[runtime_config("proactive_note", owner)]) as (
+        manager,
+        context,
+        wrapper,
+    ):
+        chat = context.components["agent_runtime"]["Remy"]
+        runtime = await manager.resolve(owner)
+        first = chat.get_skills()
+        second = runtime.get_skills()
         assert len(first) == 3 and len(second) == 2
-        repeated = NotebookAgentStep(app_context=context).get_skills(owner)
+        repeated = runtime.get_skills()
         for left, right in zip(second, repeated, strict=True):
             assert left == right
         assert first[-1]["content"] == second[-1]["content"]
@@ -230,10 +227,7 @@ async def test_application_orders_static_runtimes_and_manager_and_closes_dynamic
         if name
         in {
             "run_chat_agent",
-            "run_memory_agent",
-            "run_notebook_agent",
-            "run_finance_agent",
-            "run_news_agent",
+            "run_proactive_agent",
             "agent_manager_loop",
             "chat_notifications_loop",
             "process_chat_notifications",
@@ -261,7 +255,10 @@ async def test_application_orders_static_runtimes_and_manager_and_closes_dynamic
     assert not dynamic.is_started and all(not runtime.is_started for runtime in runtimes.values())
 
 
-@pytest.mark.parametrize("patch", [{"run_job": "run_news_agent"}, {"agent_type": "time", "schedule": "0 8 * * *"}])
+@pytest.mark.parametrize(
+    "patch",
+    [{"job_tools": ["manage_notebook"]}, {"skills": []}, {"agent_type": "time", "schedule": "0 8 * * *"}],
+)
 @pytest.mark.asyncio
 async def test_discovery_rejects_changed_wiring_before_scheduling_or_accepting_inputs(tmp_path, patch):
     async with running_system(tmp_path, runtimes=[{"agent_type": "event", "agent_name": "monitor"}]) as (manager, _, _):
@@ -292,3 +289,162 @@ async def test_retired_static_runtime_rejects_already_resolved_query_calls(tmp_p
                 async with runtime.query_session({}):
                     pytest.fail("A previously resolved static Runtime ran after deletion")
             assert len(wrapper.created) == 1
+
+
+@pytest.mark.asyncio
+async def test_runtime_initializes_without_jobs_and_restores_its_own_binding(tmp_path):
+    """Task files and capabilities are component-owned before any inference runs."""
+    async with running_system(tmp_path) as (manager, context, wrapper):
+        context.app_config.jobs.clear()
+        config = runtime_config("proactive_note")
+        config.update(task_description="Original task", recent_history_hours=12, max_local_search_calls=3)
+        await manager.create(config)
+        runtime = await manager.resolve("monitor")
+        assert runtime.task_path.read_text() == "Original task"
+        runtime.task_path.write_text("User edited {requirements}")
+        await runtime.initialize_task()
+        options = runtime.session_options()
+        assert runtime.task_path.read_text() == "User edited {requirements}"
+        assert options["job_tools"] == ["manage_notebook"]
+        assert options["injected_job_kwargs"]["_automatic_notebook"] is True
+        assert runtime.initial_config.recent_history_hours == 12
+        assert not wrapper.created and not wrapper.turns
+        expected = options
+    async with running_system(tmp_path) as (manager, _, wrapper):
+        runtime = await manager.resolve("monitor")
+        assert runtime.task_path.read_text() == "User edited {requirements}"
+        restored = runtime.session_options()
+        assert {key: value for key, value in restored.items() if key != "system_prompt"} == {
+            key: value for key, value in expected.items() if key != "system_prompt"
+        }
+        assert runtime.initial_config.max_local_search_calls == 3
+        assert not wrapper.created
+
+
+@pytest.mark.asyncio
+async def test_public_creation_selects_capabilities_under_trusted_tool_constraints(tmp_path):
+    async with running_system(tmp_path) as (manager, context, _):
+        tool = ManageProactiveRuntimeStep(app_context=context)
+        response = await tool(
+            action="create",
+            agent_name="notes",
+            agent_type="event",
+            task_description="Track progress",
+            skills=["proactive-record", "manage-notebook"],
+            job_tools=["manage_notebook"],
+        )
+        assert response.success, response.answer
+        runtime = await manager.resolve("notes")
+        assert runtime.binding.job_tools == ["manage_notebook"]
+        assert runtime.session_options()["injected_job_kwargs"]["_automatic_notebook"] is True
+        with pytest.raises(ValueError, match="disallowed"):
+            await tool(action="create", agent_name="unsafe", agent_type="event", job_tools=["manage_connector"])
+        assert not (manager.registry.directory / "unsafe").exists()
+        with pytest.raises(ValueError):
+            ManageProactiveRuntimeRequest(
+                action="create",
+                agent_name="unsafe",
+                agent_type="event",
+                injected_job_kwargs={"_automatic_notebook": False},
+            )
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        {"skills": ["../outside"]},
+        {"skills": ["proactive-record", "proactive-record"]},
+        {"job_tools": "manage_notebook"},
+        {"skills": [False]},
+        {"skills": ["MixedCase"]},
+        {"skills": ["a" * 65]},
+        {"skills": ["_invalid"]},
+    ],
+)
+def test_runtime_bindings_reject_paths_duplicates_and_invalid_types(values):
+    from reme.schema.proactive_agent import ProactiveRuntimeConfig
+
+    with pytest.raises(ValueError):
+        ProactiveRuntimeConfig(agent_name="monitor", agent_type="event", **values)
+
+
+@pytest.mark.parametrize("skill", ["proactive-record-project", "manage_notebook"])
+@pytest.mark.asyncio
+async def test_runtime_accepts_project_skills_without_a_builtin_template(tmp_path, skill):
+    async with running_system(tmp_path) as (manager, _, _):
+        await manager.create({"agent_name": "monitor", "agent_type": "event", "skills": [skill]})
+        runtime = await manager.resolve("monitor")
+        assert runtime.get_skills() == [{"name": skill}]
+
+
+@pytest.mark.asyncio
+async def test_creation_preserves_requirements_when_definition_publication_is_interrupted(tmp_path, monkeypatch):
+    """A durable definition must never outlive the user's initial requirements."""
+    async with running_system(tmp_path) as (manager, _, _):
+        save = manager.registry.save
+
+        def interrupted(definition):
+            save(definition)
+            raise OSError("Lost result after publishing the definition")
+
+        monkeypatch.setattr(manager.registry, "save", interrupted)
+        with pytest.raises(OSError):
+            await manager.create(
+                {
+                    "agent_name": "monitor",
+                    "agent_type": "event",
+                    "task_description": "Keep exact user requirements",
+                },
+            )
+        assert (manager.registry.directory / "monitor/TASK.md").read_text() == "Keep exact user requirements"
+        assert "monitor" not in manager.runtimes
+    async with running_system(tmp_path) as (manager, _, _):
+        runtime = await manager.resolve("monitor")
+        assert runtime.task_path.read_text() == "Keep exact user requirements"
+
+
+@pytest.mark.asyncio
+async def test_task_write_failure_leaves_identity_available_for_retry(tmp_path, monkeypatch):
+    async with running_system(tmp_path) as (manager, _, _):
+
+        async def failed_write(*_args):
+            raise OSError("Task write failed")
+
+        with monkeypatch.context() as patch:
+            patch.setattr(ProactiveAgentRuntime, "initialize_task", failed_write)
+            with pytest.raises(OSError):
+                await manager.create({"agent_name": "monitor", "agent_type": "event"})
+        assert not (manager.registry.directory / "monitor/config.json").exists()
+        assert "monitor" not in manager.runtimes
+        await manager.create({"agent_name": "monitor", "agent_type": "event", "task_description": "Retry"})
+        assert (await manager.resolve("monitor")).task_path.read_text() == "Retry"
+
+
+@pytest.mark.asyncio
+async def test_skill_validation_failure_does_not_publish_or_reserve_task(tmp_path, monkeypatch):
+    async with running_system(tmp_path) as (manager, _, _):
+
+        def invalid_skill(_self):
+            raise ValueError("Invalid skill template")
+
+        with monkeypatch.context() as patch:
+            patch.setattr(ProactiveAgentRuntime, "get_skills", invalid_skill)
+            with pytest.raises(ValueError, match="skill"):
+                await manager.create({"agent_name": "monitor", "agent_type": "event"})
+        assert not (manager.registry.directory / "monitor").exists()
+        await manager.create({"agent_name": "monitor", "agent_type": "event"})
+        assert (await manager.resolve("monitor")).is_started
+
+
+@pytest.mark.asyncio
+async def test_closed_manager_rejects_mutations_before_writing_files(tmp_path):
+    async with running_system(tmp_path, runtimes=[{"agent_name": "monitor", "agent_type": "event"}]) as (manager, _, _):
+        runtime = await manager.resolve("monitor")
+        before = runtime.config_path.read_bytes()
+        await manager.close()
+        with pytest.raises(RuntimeError, match="closed"):
+            await manager.create({"agent_name": "another", "agent_type": "event"})
+        with pytest.raises(RuntimeError, match="closed"):
+            await manager.update("monitor", {"enabled": False})
+        assert runtime.config_path.read_bytes() == before
+        assert not (manager.registry.directory / "another").exists()

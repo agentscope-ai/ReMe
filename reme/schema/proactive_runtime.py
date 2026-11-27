@@ -1,6 +1,6 @@
 """Shared agent identities, native sessions, notifications and inbox contracts."""
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 import re
 
 from pydantic import (
@@ -14,6 +14,7 @@ from pydantic import (
 )
 
 from ..constants import WINDOWS_RESERVED_DEVICE_NAMES
+from .agent_skill import SkillName
 from .event import Event
 
 
@@ -34,6 +35,33 @@ AgentName = Annotated[str, Field(min_length=1, max_length=80, pattern=r"^[\w-]+$
 AgentType = Literal["chat", "event", "time"]
 ChatMessageId = Annotated[str, Field(pattern=r"^[a-zA-Z0-9_-]{1,128}$")]
 InboxPriority = Literal["P0", "P1", "P2"]
+
+
+def validate_binding_names(values):
+    """Keep skill and Job references distinct and free of filesystem paths."""
+    if not isinstance(values, (list, tuple)) or any(
+        not isinstance(name, str) or re.fullmatch(r"[a-zA-Z0-9_][a-zA-Z0-9_-]{0,79}", name) is None for name in values
+    ):
+        raise ValueError("skills and job_tools must contain valid names")
+    if len(set(values)) != len(values):
+        raise ValueError("skills and job_tools must be distinct")
+    return values
+
+
+class AgentRuntimeBinding(BaseModel):
+    """Trusted component configuration for one Runtime's model sessions."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    skills: list[SkillName] = Field(default_factory=list)
+    job_tools: list[str] = Field(default_factory=list)
+    injected_job_kwargs: dict[str, Any] = Field(default_factory=dict)
+    effort: str | None = None
+    sandbox: Literal["read-only", "workspace-write", "danger-full-access"] | None = "workspace-write"
+    approval_mode: str = "deny_all"
+    prompt_dict: dict[str, str] = Field(default_factory=dict)
+
+    _valid_names = field_validator("skills", "job_tools", mode="before")(validate_binding_names)
 
 
 class NotificationConfig(BaseModel):

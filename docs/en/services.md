@@ -77,23 +77,23 @@ reme manage_proactive_runtime action=create agent_type=event agent_name=experime
   task_description='Follow experiment logs. Report errors and completion; record normal progress.'
 ```
 
-manage_proactive_runtime supports list/create/status/update/delete/query. Creation selects run_memory_agent (default),
-run_notebook_agent, run_finance_agent or run_news_agent through run_job. Omit task_description to render the domain's
-YAML default into TASK.md. Explicit text is saved verbatim; an existing file is preserved.
+`manage_proactive_runtime` supports `list/create/status/update/delete/query`. All background tasks use the private
+`run_proactive_agent` Job. Configure preset `initial_task`, `skills`, `job_tools` and session options under
+`components.agent_runtime`. A Runtime creates TASK.md only when missing and reads the current document on each run.
+Dynamic creation accepts `task_description`, `skills` and `job_tools`; AgentManager applies `runtime_defaults` and checks
+`allowed_job_tools`. Trusted injected tool constraints are configured by the operator. Existing task files are preserved.
+Trigger type and session bindings are fixed after creation and retained on restoration. Dynamic settings remain in the
+workspace's per-task config.json. Older domain Job names and definitions are unsupported; update task configurations to
+the new binding schema while retaining TASK.md and history.
 Management responses expose settings under config and execution through running; list returns items/total.
 Client Agent views remain available through list_agents and the session endpoints.
 
 Creation requires `agent_type=event` or `agent_type=time`. Time-triggered tasks require a `schedule` Cron expression
 in the application timezone; event-triggered tasks have no schedule.
-Trigger type and run_job are immutable after creation. Notebook accepts only events. Update accepts enabled, schedule,
+Trigger type, skills and tool bindings are immutable after creation. Update accepts enabled, schedule,
 min_trigger_interval_seconds and notify_window. Pause allows the current round to finish. Delete cancels execution and
-preserves files; restoring the same name retains its role and history. Use task_document action=read/save to edit TASK.md,
+preserves files; restoring the same name retains its bindings and history. Use task_document action=read/save to edit TASK.md,
 and pass the read response's mtime as expected_mtime when saving.
-
-When upgrading an existing workspace, finish queued scheduled inputs before switching. In service Runtime settings and
-`{reme_agent_dir}/*/config.json`, replace `cron` with `schedule` and add `agent_type: time` when a schedule exists,
-otherwise `agent_type: event`. Keep task files and history. The old Runtime fields and `source="cron"` are no longer accepted;
-collection Jobs still use their own `cron` setting.
 
 components.agent_runtime.Remy.initial_memory creates `{reme_agent_dir}/Remy/MEMORY.md` only when absent.
 Remy's notification_config sets the P0 delay (0 seconds), P1 idle threshold (10 seconds) and P2 idle threshold (1800 seconds).
@@ -142,14 +142,16 @@ and content, or action=skip without content. Commit rechecks source versions, fo
 and sender eligibility. Recovery probes a fixed native message ID before acknowledging a lost-response delivery.
 
 agent_manager_loop schedules tasks; chat_notifications_loop schedules reminders. Both are private BackgroundJobs.
-run_chat_agent, the four domain Jobs, process_chat_notifications and submit_chat_reply are private execution endpoints.
+run_chat_agent, run_proactive_agent, process_chat_notifications and submit_chat_reply are private execution endpoints.
 The public ask_agent stream owns DONE. Task questions use temporary read-only forks of the latest task session without
 consuming inputs or replacing its primary session.
 
-BaseAgentStep.get_skills loads the three name/description/content YAML files under steps/proactive/skills/. Chat selects all three operation skills; Notebook selects manage-notebook. Each task round generates a record
-skill; Notebook adds a follow-up skill. PromptHandler loads adjacent YAML by inheritance and language. Generated SKILL.md
-files remain scoped through repair and are removed afterward. Wrapper skills use SkillSpec lists: name references an
-existing skill; name/description/content defines generated content. Native Wrapper protocols remain unchanged.
+Runtime components load built-in skill templates from `components/proactive/runtime/skills/`, localized through
+PromptHandler, or reference project skills by name. Chat and task Runtimes configure their own skills and tools. Generated
+SKILL.md files are scoped to one invocation and cleaned up afterward. Wrapper skills use SkillSpec lists: name references
+an existing skill; name/description/content defines generated content. Native Wrapper protocols remain unchanged.
+The shared prompt loader is `reme/utils/prompt.py`; Runtime initialization does not inspect execution Steps.
+Notebook automatic-write constraints are injected through trusted Runtime configuration and checked by manage_notebook.
 
 See [components](../../reme/components/proactive/), [workflows](../../reme/steps/proactive/) and
 [configuration](../../reme/config/proactive.yaml).

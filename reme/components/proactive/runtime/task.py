@@ -31,11 +31,19 @@ class ProactiveAgentRuntime(BaseAgentRuntime):
         min_trigger_interval_seconds=0,
         max_batch_events=20,
         notify_window=None,
-        run_job="run_memory_agent",
+        run_job="run_proactive_agent",
+        initial_task=None,
+        max_local_search_calls=10,
+        recent_history_hours=24,
         **kwargs,
     ):
+        kwargs.setdefault("skills", ["proactive-record"])
         super().__init__(run_job=run_job, **kwargs)
+        if initial_task is not None and (not isinstance(initial_task, str) or not initial_task.strip()):
+            raise ValueError("initial_task must not be blank")
+        self.initial_task = initial_task
         self.initial_config = ProactiveRuntimeConfig(
+            **self.binding.model_dump(),
             agent_name=self.name,
             agent_type=agent_type,
             run_job=run_job,
@@ -44,7 +52,10 @@ class ProactiveAgentRuntime(BaseAgentRuntime):
             min_trigger_interval_seconds=min_trigger_interval_seconds,
             max_batch_events=max_batch_events,
             notify_window=notify_window,
+            max_local_search_calls=max_local_search_calls,
+            recent_history_hours=recent_history_hours,
         )
+        self.get_skills()
         self.notification_target = (
             self.bind(notification_target, BaseAgentRuntime, optional=False)
             if isinstance(notification_target, str)
@@ -81,15 +92,13 @@ class ProactiveAgentRuntime(BaseAgentRuntime):
 
     async def _start(self):
         value = await asyncio.to_thread(self.files.read_json, self.config_path, None)
+        if value is not None:
+            definition = ProactiveRuntimeDefinition.model_validate(value)
+            self.check_definition(definition)
+        await self.initialize_task()
         if value is None:
             definition = ProactiveRuntimeDefinition(**self.initial_config.model_dump(), created_at=self.now())
             await complete_in_thread(self.files.write_json, self.config_path, definition.model_dump(mode="json"))
-        else:
-            definition = ProactiveRuntimeDefinition.model_validate(value)
-            if definition.agent_name != self.name or definition.run_job != self.initial_config.run_job:
-                raise ValueError("Runtime wiring conflicts with its persisted definition")
-            if definition.agent_type != self.initial_config.agent_type:
-                raise ValueError("Runtime trigger type conflicts with its persisted definition")
         self.inbox = EventInbox(
             name=f"{self.name}_inbox",
             directory=self.to_workspace_relative(self.directory / "inbox"),
@@ -113,15 +122,77 @@ class ProactiveAgentRuntime(BaseAgentRuntime):
         if value is None:
             raise ValueError(f"Task definition is missing: {self.name}")
         definition = ProactiveRuntimeDefinition.model_validate(value)
-        if definition.agent_name != self.name or definition.run_job != self.initial_config.run_job:
-            raise ValueError("Task identity or execution Job changed")
-        if definition.agent_type != self.initial_config.agent_type:
-            raise ValueError("Task trigger type changed")
+        self.check_definition(definition)
         if (definition.deleted_at is not None or self.retiring) and not include_deleted:
             from ..manager.base import TaskNotFoundError
 
             raise TaskNotFoundError(f"Task is deleted: {self.name}")
         return definition
+
+    def check_definition(self, definition):
+        """Reject edits to identity, input type or session capabilities while live."""
+        if definition.wiring() != self.initial_config.wiring():
+            raise ValueError("Persisted task definition conflicts with immutable Runtime wiring")
+
+    async def initialize_task(self, initial_task=None):
+        """Create missing task requirements without rewriting user-owned content."""
+        content = self.initial_task if initial_task is None else initial_task
+        if content is None:
+            content = self.prompt.get_prompt("default_task")
+        if not content.strip():
+            raise ValueError("Task description must not be blank")
+        await complete_in_thread(self.files.write, self.task_path, content, create_only=True)
+
+    def get_skills(self):
+        """Fill the record skill's limits from this Runtime's configuration."""
+        skills = super().get_skills()
+        for skill in skills:
+            if skill.get("content") and skill["name"].startswith("proactive-record-"):
+                skill["content"] = skill["content"].format(
+                    recent_history_hours=self.initial_config.recent_history_hours,
+                    max_local_search_calls=self.initial_config.max_local_search_calls,
+                )
+        return skills
+
+    def build_query(self, events, paths, task_content, skills, *, is_time):
+        """Render this round from the current task document and claimed inputs."""
+        sections = []
+        for number, event in enumerate(events, 1):
+            if is_time:
+                sections.append(self.prompt.prompt_format("scheduled_event_input", event_ts=event["event_ts"]))
+                continue
+            attachments = event["paths"]
+            sections.append(
+                self.prompt.prompt_format(
+                    "event_input",
+                    number=number,
+                    event_id=event["id"],
+                    event_ts=event["event_ts"],
+                    source=event["source"],
+                    description=event["description"],
+                    paths="\n".join(f"- {self.to_workspace_relative(self.files.path(path))}" for path in attachments),
+                    has_files=bool(attachments),
+                    no_files=not attachments,
+                ),
+            )
+        context = self.prompt.prompt_format(
+            "task_context",
+            event_batch="\n\n".join(sections),
+            is_time=is_time,
+            is_event=not is_time,
+            task_description=task_content,
+            daily_dir=self.to_workspace_relative(paths["daily_dir"]),
+            record_path=self.to_workspace_relative(paths["record_path"]),
+        )
+        query = self.prompt.prompt_format("task_query", task_context=context, is_time=is_time, is_event=not is_time)
+        return (
+            query
+            + "\n\n"
+            + self.prompt.prompt_format(
+                "use_skills",
+                skill_names=" ".join("$" + skill["name"] for skill in skills),
+            )
+        )
 
     def owns_record(self, relative):
         """Check that a source belongs to this Runtime's daily record namespace."""

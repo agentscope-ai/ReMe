@@ -1,0 +1,58 @@
+default_task: Follow the task inputs, identify meaningful changes and record evidence-backed results.
+default_task_zh: 阅读任务输入，找出有意义的变化，记录有依据的结果。
+task_context: |-
+  # This run
+  [is_event] Trigger type: event
+  [is_time] Trigger type: time
+
+  ## Task requirements (TASK.md)
+  {task_description}
+
+  ## Inputs
+  {event_batch}
+
+  ## Output
+  - `Records directory`: {daily_dir}
+  - `Record path for this run`: {record_path}
+task_context_zh: |-
+  # 本轮任务
+  [is_event] 触发类型：event
+  [is_time] 触发类型：time
+
+  ## 任务要求（TASK.md）
+  {task_description}
+
+  ## 本轮输入
+  {event_batch}
+
+  ## 输出
+  - `记录目录`：{daily_dir}
+  - `本轮记录路径`：{record_path}
+task_query: '{task_context}'
+task_query_zh: '{task_context}'
+use_skills: |-
+  Skills for this run: {skill_names}
+  Complete the task work above, then use proactive-record to organize key information, check history, record results, decide reminders and verify the saved record.
+use_skills_zh: |-
+  本轮技能：{skill_names}
+  完成上述任务的业务处理后，使用 proactive-record 整理关键信息、查询历史、记录结果、决定提醒并校验记录。
+event_input: |-
+  ### Event {number}
+  - ID: `{event_id}`
+  - Time: {event_ts}
+  - Source: {source}
+  - Description: {description}
+  [has_files] Files:
+  [has_files] {paths}
+  [no_files] Files: None
+event_input_zh: |-
+  ### 事件 {number}
+  - ID：`{event_id}`
+  - 时间：{event_ts}
+  - 来源：{source}
+  - 描述：{description}
+  [has_files] 文件：
+  [has_files] {paths}
+  [no_files] 文件：无
+scheduled_event_input: '- Time trigger, scheduled time {event_ts}'
+scheduled_event_input_zh: '- 时间触发，计划时间 {event_ts}'

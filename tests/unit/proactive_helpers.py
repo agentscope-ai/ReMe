@@ -10,7 +10,17 @@ from reme.components.proactive import ChatAgentRuntime, LocalAgentManager
 from reme.config import resolve_app_config
 from reme.core.context import ApplicationContext
 from reme.schema import SessionMessage, SessionSnapshot, SessionStatus, StreamChunk
-from reme.steps.proactive.agent.initialize import initialize_task
+
+
+def runtime_config(preset, name="monitor"):
+    """Use a preset Runtime's actual binding when testing the generic executor."""
+    config = resolve_app_config(config="proactive", log_config=False)["components"]["agent_runtime"][preset]
+    values = {
+        key: value for key, value in config.items() if key not in {"backend", "agent_wrapper", "notification_target"}
+    }
+    values["agent_name"] = name
+    values["task_description"] = values.pop("initial_task")
+    return values
 
 
 class FakeWrapper(BaseAgentWrapper):
@@ -99,8 +109,19 @@ async def running_system(tmp_path, *, language="en", initial_memory="", runtimes
         jobs=config["jobs"],
     )
     wrapper = FakeWrapper(app_context=context)
-    chat = ChatAgentRuntime(name="Remy", agent_wrapper=wrapper, initial_memory=initial_memory, app_context=context)
-    manager = LocalAgentManager(name="default", agent_wrapper=wrapper, notification_target=chat, app_context=context)
+    chat_config = dict(config["components"]["agent_runtime"]["Remy"])
+    chat_config.pop("backend")
+    chat_config.update(agent_wrapper=wrapper, initial_memory=initial_memory)
+    chat = ChatAgentRuntime(name="Remy", app_context=context, **chat_config)
+    manager_config = config["components"]["agent_manager"]["default"]
+    manager = LocalAgentManager(
+        name="default",
+        agent_wrapper=wrapper,
+        notification_target=chat,
+        app_context=context,
+        runtime_defaults=manager_config["runtime_defaults"],
+        allowed_job_tools=manager_config["allowed_job_tools"],
+    )
     context.components = {
         "agent_wrapper": {"default": wrapper},
         "agent_runtime": {"Remy": chat},
@@ -119,11 +140,6 @@ async def running_system(tmp_path, *, language="en", initial_memory="", runtimes
             for value in runtimes or []:
                 if value["agent_name"] not in manager.runtimes:
                     await manager.create(value)
-                await initialize_task(
-                    await manager.resolve(value["agent_name"]),
-                    context,
-                    value.get("task_description"),
-                )
             yield manager, context, wrapper
         finally:
             for job in reversed(list(context.jobs.values())):

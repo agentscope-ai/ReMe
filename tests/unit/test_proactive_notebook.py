@@ -5,7 +5,7 @@
 import pytest
 
 from reme.schema import StreamChunk
-from .proactive_helpers import running_system, queue_event
+from .proactive_helpers import running_system, queue_event, runtime_config
 from .test_proactive_run import prepare_round, REMIND, SKIP
 
 
@@ -14,7 +14,7 @@ from .test_proactive_run import prepare_round, REMIND, SKIP
 async def test_notebook_reads_full_history_updates_progress_and_hands_off_decisions(tmp_path, monkeypatch, notify):
     async with running_system(
         tmp_path,
-        runtimes=[{"agent_type": "event", "agent_name": "notes", "run_job": "run_notebook_agent"}],
+        runtimes=[runtime_config("proactive_note", "notes")],
     ) as (
         manager,
         context,
@@ -91,7 +91,7 @@ async def test_notebook_reads_full_history_updates_progress_and_hands_off_decisi
             )
 
         monkeypatch.setattr(wrapper, "reply_stream", generate)
-        response = await context.jobs["run_notebook_agent"](agent_name="notes")
+        response = await context.jobs["run_proactive_agent"](agent_name="notes")
         assert response.success, response.answer
         after = (await job(kind="todo", action="get", id=todo["id"])).answer
         assert after["status"] == "in_progress" and [row["text"] for row in after["progress"]] == [
@@ -103,16 +103,20 @@ async def test_notebook_reads_full_history_updates_progress_and_hands_off_decisi
 
 
 @pytest.mark.asyncio
-async def test_restore_preserves_notebook_role_and_event_only_contract(tmp_path):
+async def test_restore_preserves_notebook_bindings_and_task_document(tmp_path):
     async with running_system(
         tmp_path,
         runtimes=[
-            {"agent_type": "event", "agent_name": "notes", "run_job": "run_notebook_agent", "task_description": "Keep"},
+            {**runtime_config("proactive_note", "notes"), "task_description": "Keep"},
         ],
     ) as (manager, _, _):
         await manager.delete("notes")
         await manager.create({"agent_type": "event", "agent_name": "notes"})
         runtime = await manager.resolve("notes")
-        assert runtime.run_job == "run_notebook_agent" and runtime.task_path.read_text() == "Keep"
+        assert (
+            runtime.run_job == "run_proactive_agent"
+            and runtime.binding.job_tools == ["manage_notebook"]
+            and runtime.task_path.read_text() == "Keep"
+        )
         with pytest.raises(ValueError):
             await manager.update("notes", {"schedule": "0 8 * * *"})

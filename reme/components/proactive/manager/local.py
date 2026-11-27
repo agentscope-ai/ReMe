@@ -9,7 +9,8 @@ from ..runtime.task import ProactiveAgentRuntime
 from ...agent_wrapper import BaseAgentWrapper
 from ....core.registry import R
 from ....schema.event import Event
-from ....schema.proactive_agent import TIME_EVENT_SOURCE, ProactiveRuntimeConfig, validate_runtime_names
+from ....schema.proactive_agent import TIME_EVENT_SOURCE, ProactiveRuntimeDefaults, validate_runtime_names
+from ....schema.proactive_runtime import validate_binding_names
 from ....utils.async_utils import complete_in_thread
 from ....utils.files.workspace_files import WorkspaceFiles
 
@@ -23,7 +24,8 @@ class LocalAgentManager(BaseAgentManager):
         runtimes=None,
         agent_wrapper="default",
         notification_target="Remy",
-        allowed_run_jobs=None,
+        runtime_defaults=None,
+        allowed_job_tools=(),
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -40,10 +42,10 @@ class LocalAgentManager(BaseAgentManager):
         self.static_names = validate_runtime_names(runtimes) if runtimes else []
         for index, name in enumerate(self.static_names):
             setattr(self, f"_static_{index}", self.bind(name, BaseAgentRuntime, optional=False))
-        choices = set(ProactiveRuntimeConfig.model_fields["run_job"].annotation.__args__)
-        self.allowed_run_jobs = frozenset(allowed_run_jobs if allowed_run_jobs is not None else choices)
-        if not self.allowed_run_jobs or not self.allowed_run_jobs <= choices:
-            raise ValueError("allowed_run_jobs must select supported domain execution Jobs")
+        self.runtime_defaults = ProactiveRuntimeDefaults.model_validate(runtime_defaults or {})
+        self.allowed_job_tools = frozenset(validate_binding_names(allowed_job_tools))
+        if not set(self.runtime_defaults.job_tools) <= self.allowed_job_tools:
+            raise ValueError("Runtime defaults select disallowed Job tools")
         self.files = WorkspaceFiles(self.workspace_path)
         directory = self.app_context.app_config.reme_agent_dir if self.app_context else "reme_agents"
         self.registry = RuntimeRegistry(self.files, directory, self.logger)
@@ -88,20 +90,26 @@ class LocalAgentManager(BaseAgentManager):
             raise TaskNotFoundError(f"Task is being deleted: {agent_name}")
         return await asyncio.to_thread(self.registry.get, agent_name, include_deleted=include_deleted)
 
-    async def _resolve_locked(self, definition):
+    def _check_open(self):
         if self.closed:
             raise RuntimeError("AgentManager is closed")
-        if definition.run_job not in self.allowed_run_jobs:
-            raise ValueError("Task selects a disallowed execution Job")
+
+    def _build_runtime(self, definition, *, initial_task=None):
+        return ProactiveAgentRuntime(
+            name=definition.agent_name,
+            agent_wrapper=self.agent_wrapper,
+            notification_target=self.notification_target,
+            app_context=self.app_context,
+            initial_task=initial_task,
+            **definition.model_dump(exclude={"agent_name", "created_at", "deleted_at"}),
+        )
+
+    async def _resolve_locked(self, definition, *, candidate=None):
+        self._check_open()
+        if not set(definition.job_tools) <= self.allowed_job_tools:
+            raise ValueError("Task selects disallowed Job tools")
         if definition.agent_name not in self.runtimes:
-            config = definition.model_dump(exclude={"agent_name", "created_at", "deleted_at"})
-            runtime = ProactiveAgentRuntime(
-                name=definition.agent_name,
-                agent_wrapper=self.agent_wrapper,
-                notification_target=self.notification_target,
-                app_context=self.app_context,
-                **config,
-            )
+            runtime = candidate or self._build_runtime(definition)
             try:
                 await runtime.start()
             except BaseException:
@@ -110,10 +118,8 @@ class LocalAgentManager(BaseAgentManager):
             self._dynamic[definition.agent_name] = runtime
             self.runtimes[definition.agent_name] = runtime
         runtime = self.runtimes[definition.agent_name]
-        initial = runtime.initial_config
-        if definition.run_job != initial.run_job or definition.agent_type != initial.agent_type:
-            raise ValueError("Persisted task definition conflicts with immutable Runtime wiring")
-        if getattr(runtime, "retiring", False):
+        runtime.check_definition(definition)
+        if runtime.retiring:
             raise TaskNotFoundError(f"Task is being deleted: {definition.agent_name}")
         return runtime
 
@@ -137,15 +143,24 @@ class LocalAgentManager(BaseAgentManager):
 
     async def create(self, config):
         async with self.lock:
-            previous = (await asyncio.to_thread(self.registry.load, include_deleted=True)).get(config.get("agent_name"))
-            job = config.get("run_job", previous.run_job if previous else "run_memory_agent")
-            if job not in self.allowed_run_jobs:
-                raise ValueError("Task selects a disallowed execution Job")
-            agent, restored = await complete_in_thread(self.registry.create, config, self.now())
-            runtime = self.runtimes.get(agent.agent_name)
-            if runtime is not None:
-                runtime.retiring = False
-            runtime = await self._resolve_locked(agent)
+            self._check_open()
+            agent, restored = await asyncio.to_thread(
+                self.registry.prepare_create,
+                config,
+                self.now(),
+                self.runtime_defaults.model_dump(),
+            )
+            if not set(agent.job_tools) <= self.allowed_job_tools:
+                raise ValueError("Task selects disallowed Job tools")
+            runtime = self.runtimes.get(agent.agent_name) or self._build_runtime(
+                agent,
+                initial_task=config.get("task_description"),
+            )
+            runtime.check_definition(agent)
+            await runtime.initialize_task(config.get("task_description"))
+            await complete_in_thread(self.registry.save, agent)
+            runtime.retiring = False
+            runtime = await self._resolve_locked(agent, candidate=runtime)
             self.changed.set()
         return {
             "agent_name": agent.agent_name,
@@ -155,6 +170,7 @@ class LocalAgentManager(BaseAgentManager):
 
     async def update(self, agent_name, settings):
         async with self.lock:
+            self._check_open()
             await self.definition(agent_name)
             definition = await complete_in_thread(self.registry.update, agent_name, settings, self.now())
             runtime = await self._resolve_locked(definition)

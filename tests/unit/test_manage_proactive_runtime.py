@@ -85,7 +85,7 @@ async def test_all_actions_expose_only_their_results_and_keep_task_files(tmp_pat
         }
         created = (await tool(**arguments)).answer
         assert created.pop("restored") is False
-        assert created["config"]["run_job"] == "run_memory_agent"
+        assert created["config"]["run_job"] == "run_proactive_agent"
         assert created["config"]["schedule"] == "0 8 * * *"
         assert created["next_trigger_at"] == "2026-11-17T08:00:00+08:00"
         task_file = tmp_path / created["task_path"]
@@ -186,7 +186,6 @@ async def test_time_task_restore_keeps_omitted_schedule_and_original_requirement
                 agent_type="time",
                 schedule="0 8 * * *",
                 task_description="Keep this briefing requirement.",
-                run_job="run_news_agent",
             )
         ).answer
         task = tmp_path / first["task_path"]
@@ -194,7 +193,7 @@ async def test_time_task_restore_keeps_omitted_schedule_and_original_requirement
         restored = (await tool(action="create", agent_name="briefing", agent_type="time")).answer
         assert restored["restored"] and restored["config"]["agent_type"] == "time"
         assert restored["config"]["schedule"] == "0 8 * * *"
-        assert restored["config"]["run_job"] == "run_news_agent"
+        assert restored["config"]["run_job"] == "run_proactive_agent"
         assert task.read_text() == "Keep this briefing requirement."
 
 

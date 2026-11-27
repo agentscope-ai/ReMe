@@ -19,8 +19,9 @@ content: |
   | Parameter | Usage |
   | --- | --- |
   | `action`, `agent_name` | `list` accepts only `action`. Every other action requires `agent_name`. New names should use short lowercase words joined by underscores, be unique ignoring case, and avoid the reserved name `Remy`. |
-  | `task_description` | Creation only: nonblank TASK.md text containing the goal, necessary context, sources, decision criteria and reminder requirements. Omit it to use the domain default. Later edits belong in the task document. |
-  | `run_job` | Creation only: `run_memory_agent` for projects/memory (default), `run_notebook_agent` for Todo/Idea follow-up, `run_finance_agent` for finance, or `run_news_agent` for briefings. Fixed after creation; omit when restoring. Notebook accepts only event triggers. |
+  | `task_description` | Creation only: nonblank TASK.md text containing the goal, necessary context, sources, decision criteria and reminder requirements. Omit it to use the generic task default. Later edits belong in the task document. |
+  | `skills` | Creation only: built-in or project skill names, defaulting to `["proactive-record"]`. Select `["proactive-record","manage-notebook"]` for Notebook follow-up. Fixed after creation; omit when restoring. |
+  | `job_tools` | Creation only: tools allowed by the AgentManager, empty by default. Notebook follow-up uses `["manage_notebook"]`; automatic-write restrictions come from trusted Runtime configuration. |
   | `enabled` | Boolean; defaults to `true` on creation or restoration. Use `false` to pause and `true` to resume. Task execution and collector controls are separate. |
   | `agent_type` | Required on creation and restoration: `event` or `time`. The type is fixed for the Runtime lifetime. |
   | `schedule` | Cron expression in the application timezone. Required for a new `time` task; omitted or `null` for `event`. A time-triggered task can update its expression; restoration retains an omitted schedule. |
@@ -39,10 +40,10 @@ content: |
   | Find tasks | `{"action":"list"}` |
   | Check status | `{"action":"status","agent_name":"experiment_watch"}` |
   | Ask about progress | `{"action":"query","agent_name":"experiment_watch","question":"What has progressed, and what still needs confirmation?"}` |
-  | Create an experiment event task | `{"action":"create","agent_type":"event","agent_name":"experiment_watch","run_job":"run_memory_agent","task_description":"On log updates, read the referenced files. Report error exits, NaN in key metrics or experiment completion with source links. Only record normal progress."}` |
-  | Create a daily briefing | `{"action":"create","agent_type":"time","agent_name":"ai_briefing","run_job":"run_news_agent","schedule":"0 8 * * *","task_description":"At 08:00 daily, search the previous calendar day in the application timezone for important AI news. Verify original sources and send a concise briefing with links on every run."}` |
-  | Create Notebook event follow-up | `{"action":"create","agent_type":"event","agent_name":"notebook_watch","run_job":"run_notebook_agent"}` |
-  | Create a finance event task | `{"action":"create","agent_type":"event","agent_name":"market_watch","run_job":"run_finance_agent"}` |
+  | Create an experiment event task | `{"action":"create","agent_type":"event","agent_name":"experiment_watch","task_description":"On log updates, read the referenced files. Report error exits, NaN in key metrics or experiment completion with source links. Only record normal progress."}` |
+  | Create a daily briefing | `{"action":"create","agent_type":"time","agent_name":"ai_briefing","schedule":"0 8 * * *","task_description":"At 08:00 daily, search the previous calendar day in the application timezone for important AI news. Verify original sources and send a concise briefing with links on every run."}` |
+  | Create Notebook event follow-up | `{"action":"create","agent_type":"event","agent_name":"notebook_watch","skills":["proactive-record","manage-notebook"],"job_tools":["manage_notebook"],"task_description":"Track existing Todos and Ideas. Update evidence-backed progress; send decisions to Remy."}` |
+  | Create a finance event task | `{"action":"create","agent_type":"event","agent_name":"market_watch","task_description":"Track XAU/USD, WTI, BTC/USDT and Nasdaq; remind on a verified absolute change of at least 3%."}` |
   | Pause a task | `{"action":"update","agent_name":"experiment_watch","enabled":false}` |
   | Resume a task | `{"action":"update","agent_name":"experiment_watch","enabled":true}` |
   | Change a time-triggered schedule | `{"action":"update","agent_name":"ai_briefing","schedule":"0 9 * * *"}` |
@@ -66,7 +67,7 @@ content: |
   ## Verify and restore
 
   Check `task_path` and saved requirements after creation or editing. Runtime settings are under `config`; `running` shows current execution. Check `next_trigger_at` after schedule changes, and use pending/in-flight event counts, `last_completed_at` and `error` to assess processing.
-  Deletion stops the task and retains its files. Supply the original `agent_type` when restoring. Same-name restoration preserves trigger type, execution Job, TASK.md and history; supplying a new `task_description` does not overwrite the existing file. Omitted schedules/settings are retained, except that `enabled` defaults to `true`; pass `enabled=false` to restore paused. Verify the restored requirements and edit the document if the user changed them.
+  Deletion stops the task and retains its files. Supply the original `agent_type` when restoring. Same-name restoration preserves trigger type, skills, tool bindings, TASK.md and history; supplying a new `task_description` does not overwrite the existing file. Omitted schedules/settings are retained, except that `enabled` defaults to `true`; pass `enabled=false` to restore paused. Verify the restored requirements and edit the document if the user changed them.
   When pausing or ending monitoring, stop collectors dedicated to that task as needed; keep shared collectors running.
 
 content_zh: |
@@ -87,8 +88,9 @@ content_zh: |
   | 参数 | 用法 |
   | --- | --- |
   | `action`、`agent_name` | `list` 只传 `action`，其他操作必须传 `agent_name`。新名称用简短小写英文单词加下划线，忽略大小写保持唯一，避开保留名 `Remy`。 |
-  | `task_description` | 仅创建时使用：非空的 TASK.md 正文，写清目标、必要背景、来源、判断标准和提醒要求。省略则使用领域默认要求，后续修改写入任务文档。 |
-  | `run_job` | 仅创建时使用：`run_memory_agent` 处理项目与记忆（默认），`run_notebook_agent` 跟进 Todo/Idea，`run_finance_agent` 处理金融，`run_news_agent` 整理早报。创建后固定，恢复时省略。Notebook 只接受事件触发。 |
+  | `task_description` | 仅创建时使用：非空的 TASK.md 正文，写清目标、必要背景、来源、判断标准和提醒要求。省略则使用通用任务要求，后续修改写入任务文档。 |
+  | `skills` | 仅创建时使用：内置或项目技能名，默认 `["proactive-record"]`。Notebook 跟进选择 `["proactive-record","manage-notebook"]`。创建后固定，恢复时省略。 |
+  | `job_tools` | 仅创建时使用：AgentManager 允许的工具，默认空列表。Notebook 跟进使用 `["manage_notebook"]`，自动写入限制来自可信 Runtime 配置。 |
   | `enabled` | 布尔值，创建或恢复默认 `true`。`false` 暂停，`true` 恢复。任务执行和采集开关分别管理。 |
   | `agent_type` | 创建和恢复时必填：`event` 或 `time`，Runtime 存续期间固定。 |
   | `schedule` | 使用应用时区的 Cron 表达式。新建 `time` 任务必填，`event` 任务省略或传 `null`。时间任务可修改表达式，恢复时省略则沿用原日程。 |
@@ -107,10 +109,10 @@ content_zh: |
   | 查找任务 | `{"action":"list"}` |
   | 查看状态 | `{"action":"status","agent_name":"experiment_watch"}` |
   | 询问进展 | `{"action":"query","agent_name":"experiment_watch","question":"有什么进展，还有哪些事项需要确认？"}` |
-  | 创建实验事件任务 | `{"action":"create","agent_type":"event","agent_name":"experiment_watch","run_job":"run_memory_agent","task_description":"日志更新时读取事件引用的文件。发生错误退出、关键指标 NaN 或实验完成时提醒，附来源链接；正常进展只记录。"}` |
-  | 创建每日早报 | `{"action":"create","agent_type":"time","agent_name":"ai_briefing","run_job":"run_news_agent","schedule":"0 8 * * *","task_description":"每天 08:00 检索应用时区前一自然日的重要 AI 新闻，核实原始来源，每轮发送简洁早报并附链接。"}` |
-  | 创建 Notebook 事件跟进 | `{"action":"create","agent_type":"event","agent_name":"notebook_watch","run_job":"run_notebook_agent"}` |
-  | 创建金融事件任务 | `{"action":"create","agent_type":"event","agent_name":"market_watch","run_job":"run_finance_agent"}` |
+  | 创建实验事件任务 | `{"action":"create","agent_type":"event","agent_name":"experiment_watch","task_description":"日志更新时读取事件引用的文件。发生错误退出、关键指标 NaN 或实验完成时提醒，附来源链接；正常进展只记录。"}` |
+  | 创建每日早报 | `{"action":"create","agent_type":"time","agent_name":"ai_briefing","schedule":"0 8 * * *","task_description":"每天 08:00 检索应用时区前一自然日的重要 AI 新闻，核实原始来源，每轮发送简洁早报并附链接。"}` |
+  | 创建 Notebook 事件跟进 | `{"action":"create","agent_type":"event","agent_name":"notebook_watch","skills":["proactive-record","manage-notebook"],"job_tools":["manage_notebook"],"task_description":"跟进已有 Todo 和 Idea，更新有依据的进展，将需要决定的事项交给 Remy。"}` |
+  | 创建金融事件任务 | `{"action":"create","agent_type":"event","agent_name":"market_watch","task_description":"关注黄金、WTI 原油、BTC/USDT 和纳指，核实涨跌幅绝对值达到 3% 时提醒。"}` |
   | 暂停任务 | `{"action":"update","agent_name":"experiment_watch","enabled":false}` |
   | 恢复任务 | `{"action":"update","agent_name":"experiment_watch","enabled":true}` |
   | 修改时间触发日程 | `{"action":"update","agent_name":"ai_briefing","schedule":"0 9 * * *"}` |
@@ -134,5 +136,5 @@ content_zh: |
   ## 核对与恢复
 
   创建或改文档后核对 `task_path` 和实际要求。运行设置在 `config`，`running` 表示正在执行。改日程后核对 `next_trigger_at`，结合待处理/处理中事件数、`last_completed_at`、`error` 判断处理情况。
-  删除会停止任务并保留文件。恢复时传原来的 `agent_type`。同名恢复沿用触发类型、执行 Job、TASK.md 和历史；新传 `task_description` 不会覆盖已有文件。省略的日程和设置沿用，只有 `enabled` 默认恢复为 `true`，需要暂停恢复时传 `enabled=false`。主人改了要求时，恢复后核对并修改任务文档。
+  删除会停止任务并保留文件。恢复时传原来的 `agent_type`。同名恢复沿用触发类型、skills、工具绑定、TASK.md 和历史；新传 `task_description` 不会覆盖已有文件。省略的日程和设置沿用，只有 `enabled` 默认恢复为 `true`，需要暂停恢复时传 `enabled=false`。主人改了要求时，恢复后核对并修改任务文档。
   暂停或结束监控时，按需停止该任务独占的采集器，保留仍被其他任务使用的采集器。

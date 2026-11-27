@@ -13,34 +13,9 @@ from ....schema.agent_view import AskAgentRequest
 class BaseChatAgentStep(BaseAgentStep):
     """Prepare the formal Chat binding independently of a reminder fork's tools."""
 
-    skill_names = ("manage-proactive-runtime", "manage-connector", "manage-notebook")
-    job_tools = ("manage_proactive_runtime", "manage_connector", "manage_notebook")
-
-    def session_options(self):
-        """Build the formal role binding independently of temporary fork tools."""
-        runtime = self.agent_runtime
-        config = self.app_context.app_config.jobs.get(runtime.run_job)
-        if config is None or not config.steps:
-            raise ValueError("Remy's execution Job must be configured")
-        binding = config.steps[0].model_dump()
-        options = {
-            "job_tools": list(binding.get("job_tools", self.job_tools) or []),
-            "skills": self.get_skills(runtime.name, binding.get("skills", self.skill_names)),
-            "system_prompt": self.prompt_format(
-                "system_prompt",
-                workspace_dir=self.workspace_path,
-                memory_path=runtime.memory_path,
-            ),
-            "injected_job_kwargs": {"_agent_name": runtime.name},
-        }
-        for key in ("effort", "sandbox"):
-            if binding.get(key) is not None:
-                options[key] = binding[key]
-        return options
-
     async def ensure_session(self, *, new=False):
         """Prepare a primary session using the role's execution binding."""
-        return await self.agent_runtime.ensure_session(self.session_options(), new=new)
+        return await self.agent_runtime.ensure_session(self.agent_runtime.session_options(), new=new)
 
     async def new_session(self):
         """Rotate the foreground conversation only while Chat is idle."""
@@ -54,7 +29,7 @@ class BaseChatAgentStep(BaseAgentStep):
         """Run one foreground turn within a scoped set of native skills."""
         runtime = self.agent_runtime
         async with runtime.chat_turn():
-            options = self.session_options()
+            options = self.agent_runtime.session_options()
             async with runtime.agent_wrapper.skill_scope(**options) as options:
                 session_id = await runtime.ensure_session(options)
                 return await self.stream_reply(query, session_id=session_id, on_chunk=on_chunk, **options)

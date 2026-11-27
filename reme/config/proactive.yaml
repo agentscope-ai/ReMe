@@ -602,8 +602,6 @@ jobs:
       - backend: process_chat_notifications_step
         agent_runtime: Remy
         agent_manager: default
-        job_tools: [submit_chat_reply]
-        skills: []
         timeout_seconds: 120
 
   chat_notifications_loop:
@@ -615,43 +613,14 @@ jobs:
         agent_manager: default
         process_job: process_chat_notifications
 
-  run_memory_agent:
+  run_proactive_agent:
     backend: base
     enable_serve: false
     track_execution: true
     steps:
-      - &task_execution
-        backend: memory_agent_step
+      - backend: proactive_agent_step
         agent_manager: default
-        effort: low
         timeout_seconds: 1200
-        max_local_search_calls: 10
-        recent_history_hours: 24
-        sandbox: null
-
-  run_notebook_agent:
-    backend: base
-    enable_serve: false
-    track_execution: true
-    steps:
-      - <<: *task_execution
-        backend: notebook_agent_step
-
-  run_finance_agent:
-    backend: base
-    enable_serve: false
-    track_execution: true
-    steps:
-      - <<: *task_execution
-        backend: finance_agent_step
-
-  run_news_agent:
-    backend: base
-    enable_serve: false
-    track_execution: true
-    steps:
-      - <<: *task_execution
-        backend: news_agent_step
 
   agent_manager_loop:
     backend: background
@@ -662,8 +631,8 @@ jobs:
 
   manage_proactive_runtime:
     backend: base
-    description: 'Manage background Runtimes: list/create/status/update/delete/query. Select one of the four run_job
-      values on creation. Trigger type and run_job are immutable; task requirements live in TASK.md. Follow manage-proactive-runtime.'
+    description: 'Manage background Runtimes: list/create/status/update/delete/query. Configure task text, skills and
+      allowed Job tools on creation. Requirements live in TASK.md. Follow manage-proactive-runtime.'
     parameters:
       type: object
       additionalProperties: false
@@ -687,7 +656,7 @@ jobs:
           type: string
           minLength: 1
           maxLength: 100000
-          description: 'Create only: explicit TASK.md text. Omit to render the selected domain default.'
+          description: 'Create only: initial TASK.md text. Existing task files are preserved.'
         enabled:
           type: boolean
         agent_type:
@@ -724,14 +693,18 @@ jobs:
           minLength: 1
           maxLength: 100000
           description: 'Query only: question for the latest task session.'
-        run_job:
-          type: string
-          enum:
-          - run_memory_agent
-          - run_notebook_agent
-          - run_finance_agent
-          - run_news_agent
-          description: Create only. Defaults to run_memory_agent for a new task; omitted when restoring.
+        skills:
+          type: array
+          items:
+            type: string
+          uniqueItems: true
+          description: 'Create only: built-in or project skills. Defaults to proactive-record.'
+        job_tools:
+          type: array
+          items:
+            type: string
+          uniqueItems: true
+          description: 'Create only: tools from the AgentManager allowlist. Empty by default.'
       required:
       - action
     steps:
@@ -1055,7 +1028,7 @@ components:
       app_server: default
       project_path: ..  # Keep project skills separate from the default .reme workspace.
       cwd: .
-      skills: []  # Role execution Jobs select their own skills.
+      skills: []  # Each Runtime configures its own session skills and tools.
       model: ${REME_MODEL_NAME:-qwen4-max}
       effort: xhigh
       approval_mode: deny_all  # SDK maps this to approval_policy=never; no approval requests.
@@ -1101,45 +1074,70 @@ components:
       agent_wrapper: default
       run_job: run_chat_agent
       enabled: true
+      skills: [manage-proactive-runtime, manage-connector, manage-notebook]
+      job_tools: [manage_proactive_runtime, manage_connector, manage_notebook]
       initial_memory: |
         主人关注 AI 相关的大新闻，以及当前项目的进度、进展、难点和待讨论问题。
       notification_config:
         p0_delay_seconds: 0
         p1_idle_seconds: 10
         p2_idle_seconds: 1800
-    proactive_memory:
+    proactive_memory: &proactive_runtime
       backend: proactive
       agent_type: event
       agent_wrapper: default
-      run_job: run_memory_agent
+      run_job: run_proactive_agent
       notification_target: Remy
       enabled: true
+      skills: [proactive-record]
+      job_tools: []
+      effort: low
+      sandbox: null
+      max_local_search_calls: 10
+      recent_history_hours: 24
       max_batch_events: 2
+      initial_task: |
+        帮我梳理目前在做的项目，跟进各个项目的进展和难点，整理需要进一步讨论的问题。
+
+        ## 跟进项目与记忆
+        阅读本轮输入及其引用的文件、图片，材料没读全时继续读取，按任务要求关联到对应项目和事项。
+        找出有意义的进展、难点、更正及需要用户决定的问题。
     proactive_note:
-      backend: proactive
-      agent_type: event
-      agent_wrapper: default
-      run_job: run_notebook_agent
-      notification_target: Remy
-      enabled: true
-      max_batch_events: 2
+      <<: *proactive_runtime
+      skills: [proactive-record, manage-notebook]
+      job_tools: [manage_notebook]
+      injected_job_kwargs:
+        _automatic_notebook: true
+      initial_task: |
+        跟进 Todo 和 Idea，更新有依据的活动 Todo 状态和进展，把需要用户决定的事项交给 Remy。
+
+        ## 跟进 Notebook
+        阅读本轮材料及其引用的文件、图片，找出与任务有关的依据。
+        使用 manage-notebook 技能和 manage_notebook 工具，按项目、关键词和分页找齐相关 Todo、Idea 及其关联。更新 Todo 前，用 kind=todo、action=get 读完全部进展。
+        只补新增事实。同一事项有后续结果时合并原进展；更正错误，使用原 progress_match 删除明确撤回的进展。有依据确认已经开工时才能设为 in_progress。
+        自动执行只修改活动 Todo 的进展或将状态设为 in_progress。创建、关闭、重开、修改内容、项目、日期、来源关联及 Idea 写操作，逐项交给 Remy 让用户决定。
+        记录需要决定的已有条目、新依据和建议，优先复用合适的已有条目。关闭 Todo 不自动关闭 Idea，还要核对其他关联 Todo。
     proactive_fin:
-      backend: proactive
-      agent_type: event
-      agent_wrapper: default
-      run_job: run_finance_agent
-      notification_target: Remy
-      enabled: true
+      <<: *proactive_runtime
       min_trigger_interval_seconds: 10
       max_batch_events: 20
+      initial_task: |
+        关注现货黄金（XAU/USD）、WTI 原油期货（CL）、BTC/USDT 和纳斯达克综合指数（IXIC），用财联社电报补充直接相关的背景。以最新有效报价为准，涨跌幅绝对值达到 3% 才提醒：黄金、原油和纳指以昨收为基准，BTC 使用滚动 24 小时涨跌幅。说明标的、价格或点位、涨跌幅、报价时间和来源；有延迟时注明，同一波变动只提醒一次。
+
+        ## 判断市场变化
+        阅读与任务有关的报价、新闻及源材料，核对标的、单位、报价时间、延迟和比较基准，不把过期或缺失的数据当成当前事实。
+        用有效报价检查任务条件，新闻只作为有依据的背景，找出本轮观察到的变化及其依据。
     proactive_news:
-      backend: proactive
+      <<: *proactive_runtime
       agent_type: time
-      agent_wrapper: default
-      run_job: run_news_agent
-      notification_target: Remy
-      enabled: true
       schedule: 0 8 * * *
+      max_batch_events: 20
+      initial_task: |
+        整理一份 AI 与科技简报，汇总本轮计划时间之前 24 小时的重要新闻，核对原始来源，简要说明事实和影响并附来源链接。每次整理好后提醒我查看。
+
+        ## 整理简报
+        按任务指定的主题、来源和时间范围整理；定时执行以输入的计划时间和应用时区确定统计时段。
+        阅读已有材料，按需补充检索。核对原始来源，区分发布时间和事件发生时间，合并同一事件的报道，简述事实和影响并附来源链接，资料不足时如实说明。
   agent_manager:
     default:
       backend: local
@@ -1150,8 +1148,10 @@ components:
       - proactive_note
       - proactive_fin
       - proactive_news
-      allowed_run_jobs:
-      - run_memory_agent
-      - run_notebook_agent
-      - run_finance_agent
-      - run_news_agent
+      allowed_job_tools: [manage_notebook]
+      runtime_defaults:
+        skills: [proactive-record]
+        effort: low
+        sandbox: null
+        injected_job_kwargs:
+          _automatic_notebook: true

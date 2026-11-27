@@ -3,13 +3,18 @@
 import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime
+from hashlib import sha256
+from pathlib import Path
+import re
 
 from ...base import BaseComponent
 from ...agent_wrapper import BaseAgentWrapper
 from ._live_turn import LiveTurns
 from ._sessions import RuntimeSessions
 from ....enumeration import ComponentEnum
-from ....schema.proactive_runtime import validate_agent_name
+from ....schema import SkillSpec
+from ....schema.proactive_runtime import AgentRuntimeBinding, validate_agent_name
+from ....utils.prompt import PromptHandler
 from ....utils.async_utils import finish_cleanup
 from ....utils.files.workspace_files import WorkspaceFiles
 from ....utils.timezone_utils import resolve_timezone
@@ -20,7 +25,19 @@ class BaseAgentRuntime(BaseComponent):
 
     component_type = ComponentEnum.AGENT_RUNTIME
 
-    def __init__(self, agent_wrapper="default", run_job="", **kwargs):
+    def __init__(
+        self,
+        agent_wrapper="default",
+        run_job="",
+        skills=(),
+        job_tools=(),
+        injected_job_kwargs=None,
+        effort=None,
+        sandbox="workspace-write",
+        approval_mode="deny_all",
+        prompt_dict=None,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         validate_agent_name(self.name)
         self.agent_wrapper = (
@@ -29,6 +46,20 @@ class BaseAgentRuntime(BaseComponent):
             else agent_wrapper
         )
         self.run_job = run_job
+        self.binding = AgentRuntimeBinding(
+            skills=skills,
+            job_tools=job_tools,
+            injected_job_kwargs=injected_job_kwargs or {},
+            effort=effort,
+            sandbox=sandbox,
+            approval_mode=approval_mode,
+            prompt_dict=prompt_dict or {},
+        )
+        language = self.app_context.app_config.language if self.app_context else ""
+        self.prompt = PromptHandler(language=language)
+        for cls in reversed(type(self).__mro__):
+            self.prompt.load_prompt_by_class(cls)
+        self.prompt.load_prompt_dict(self.binding.prompt_dict)
         self.files = WorkspaceFiles(self.workspace_path)
         root = self.app_context.app_config.reme_agent_dir if self.app_context else "reme_agents"
         self.directory = self.files.path(f"{root}/{self.name}")
@@ -44,6 +75,49 @@ class BaseAgentRuntime(BaseComponent):
         self.closed = True
         self.inbox = None
         self.outbox = None
+
+    def get_skills(self):
+        """Resolve built-in templates or project skill names for this Runtime."""
+        templates = {path.stem.replace("_", "-"): path for path in Path(__file__).with_name("skills").glob("*.yaml")}
+        values = []
+        for name in self.binding.skills:
+            if name not in templates:
+                values.append(SkillSpec(name=name).model_dump(exclude_none=True))
+                continue
+            path = templates[name]
+            prompt = PromptHandler(language=self.prompt.language).load_prompt_by_file(path)
+            fields = {"name", "description", "content"}
+            if not fields <= prompt.data.keys() <= fields | {"description_zh", "content_zh"}:
+                raise ValueError(f"Skill YAML requires name, description and content: {path}")
+            spec = {key: prompt.get_prompt(key) for key in fields}
+            if spec["name"] != name:
+                raise ValueError("Skill template identity does not match its filename")
+            identity = f"{name}-{self.name.lower()}"
+            if re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", identity) is None:
+                identity = f"{name}-{sha256(self.name.encode()).hexdigest()[:16]}"
+            spec["name"] = identity
+            values.append(SkillSpec.model_validate(spec).model_dump())
+        return values
+
+    def session_options(self, *, now=None):
+        """Render a fresh session binding without retaining invocation-owned resources."""
+        now = now or self.now()
+        options = self.binding.model_dump(exclude={"skills", "prompt_dict", "sandbox", "effort"})
+        options.update(
+            skills=self.get_skills(),
+            system_prompt=self.prompt.prompt_format(
+                "system_prompt",
+                workspace_dir=self.workspace_path,
+                app_timezone=self.app_context.app_config.timezone if self.app_context else str(now.tzinfo),
+                now=now.isoformat(),
+                memory_path=getattr(self, "memory_path", ""),
+            ),
+            injected_job_kwargs={**self.binding.injected_job_kwargs, "_agent_name": self.name},
+        )
+        for key in ("sandbox", "effort"):
+            if (value := getattr(self.binding, key)) is not None:
+                options[key] = value
+        return options
 
     def now(self):
         """Return application-local time using the configured timezone rules."""

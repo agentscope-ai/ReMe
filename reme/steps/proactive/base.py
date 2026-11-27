@@ -1,14 +1,9 @@
 """Shared workflow dependencies, authorization and read-only task queries."""
 
-from pathlib import Path
-from hashlib import sha256
-import re
-
 from ...components.proactive.manager import BaseAgentManager
 from ...components.proactive.runtime import BaseAgentRuntime
 from ...enumeration import ComponentEnum, ChunkEnum
-from ...schema import AgentActivity, StreamChunk, SkillSpec, collect_reply
-from ..prompt import PromptHandler
+from ...schema import AgentActivity, StreamChunk, collect_reply
 from ..base_step import BaseStep, Ref
 from ..file_io import check_path_permission
 
@@ -18,37 +13,6 @@ class BaseAgentStep(BaseStep):
 
     agent_manager = Ref(BaseAgentManager, ComponentEnum.AGENT_MANAGER)
     agent_runtime = Ref(BaseAgentRuntime, ComponentEnum.AGENT_RUNTIME)
-
-    skill_names = ()
-
-    def get_skills(self, agent_name: str, names=None):
-        """Load localized skills with stable names scoped to their owning agent."""
-        selected = self.kwargs.get("skills", self.skill_names) if names is None else names
-        available = {"manage-proactive-runtime", "manage-connector", "manage-notebook", "proactive-record"}
-        if not isinstance(selected, (list, tuple)) or any(
-            not isinstance(name, str) or name not in available for name in selected
-        ):
-            raise ValueError("Select proactive skills by their configured template names")
-        if len(set(selected)) != len(selected):
-            raise ValueError("Skill templates must be distinct")
-        values = []
-        fields = ("name", "description", "content")
-        allowed = {*fields, "description_zh", "content_zh"}
-        for name in selected:
-            path = Path(__file__).with_name("skills") / (name.replace("-", "_") + ".yaml")
-            prompt = PromptHandler(language=self.language).load_prompt_by_file(path)
-            if not set(fields) <= prompt.data.keys() <= allowed:
-                raise ValueError(f"Skill YAML requires name, description and content: {path}")
-            spec = {key: prompt.get_prompt(key) for key in fields}
-            if spec["name"] != name:
-                raise ValueError("Skill template identity does not match its filename")
-            # Namespace shared skill directories with a stable, portable owner identity.
-            identity = f"{name}-{agent_name.lower()}"
-            if re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", identity) is None:
-                identity = f"{name}-{sha256(agent_name.encode()).hexdigest()[:16]}"
-            spec["name"] = identity
-            values.append(SkillSpec.model_validate(spec).model_dump())
-        return values
 
     async def query_reply(self, agent_name, query, *, on_chunk=None):
         """Answer from a temporary read-only fork of the latest task session."""
