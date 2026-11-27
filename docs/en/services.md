@@ -125,6 +125,42 @@ batches; frozen batches retain their original recipients. Pause retains packages
 are independent of Runtime `enabled`. `list` reports `available` separately from the saved download switch; only configured,
 started Jobs in `connector_jobs` can be changed. Collection frequency remains in service configuration.
 
+### CloudEvents SSE subscriptions
+
+With `config=proactive`, `manage_connector` can create an HTTP(S) GET subscription whose endpoint returns
+`text/event-stream`, with one [CloudEvents 1.0](https://github.com/cloudevents/spec/blob/v1.0.2/cloudevents/spec.md)
+JSON envelope per SSE `data` field. First create the receiving event-triggered task, then call the MCP Job or
+`POST /manage_connector` with:
+
+```json
+{
+  "action": "create",
+  "name": "Experiment progress",
+  "trigger_type": "event",
+  "runtime_names": ["experiment_watch"],
+  "binding": {"type": "sse", "url": "https://example.com/events", "format": "cloudevents"}
+}
+```
+
+Creation returns `source_id` and starts the connection in the background; it does not confirm delivery. Use that ID
+instead of `connector_job` with `pause`, `enable` or `update`; update replaces `runtime_names`, and an empty list keeps
+collecting without new deliveries. `list` includes both presets and subscriptions. Subscription items report
+`connected`, `last_error`, `last_event_id` and `pending_delivery_count`; `available` describes the manager's lifecycle.
+Name, URL and format are fixed for a subscription. See the [request schema](https://github.com/agentscope-ai/ReMe/blob/main/reme/schema/proactive_agent.py).
+Recipient updates keep the active connection; enabling an already connected subscription is idempotent.
+Manual definition edits take effect after restart; control updates refuse to overwrite edits not yet loaded by the service.
+
+Definitions and delivery checkpoints persist under `{metadata_dir}/proactive/sources/<source_id>/`; original CloudEvents
+and their reception times live under `{resource_dir}/cloudevents/`. Internal Events reference those files. Identity uses
+CloudEvents `source + id`; changed content under the same identity fails explicitly. Equivalent timestamp offsets and
+omitted/null optional attributes are normalized for comparison, while original JSON is retained. Omitted event times use the first
+saved reception time. Pending deliveries retain their original recipients, retry only unaccepted targets, and block
+cursor advancement on rejection or error. Restore rejected receiving tasks before retrying. Pause closes the connection
+and preserves files and pending work. Restart restores enabled subscriptions and reconnects with the committed
+`Last-Event-ID`; historical replay depends on upstream support. HTTP 204 stops automatic reconnection until enable or
+restart. SSE lines and buffered event data are bounded to 1 MiB. This combines SSE with CloudEvents JSON; provider-specific subscription
+handshakes and custom authentication headers are not configured by this interface.
+
 For a new task, start with `manage-proactive-runtime`: scheduled work such as a daily briefing can fetch its own sources;
 event-triggered work needs an ongoing feed. Reuse a preset collector, or follow `manage-connector` to place a custom script
 beside TASK.md under `scripts/`, save source material to `resource_dir`, and send Events through HTTP

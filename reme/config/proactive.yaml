@@ -711,18 +711,46 @@ jobs:
       agent_manager: default
   manage_connector:
     backend: base
-    description: List preset collection Jobs, enable/pause downloads, or update their event-triggered Runtime targets.
-      send accepts Events from custom collectors. Follow manage-connector.
+    description: List preset collectors and SSE subscriptions, create CloudEvents SSE sources, enable/pause collection,
+      or update event-triggered Runtime targets. send accepts Events from custom collectors. Follow manage-connector.
     parameters:
       type: object
       additionalProperties: false
       properties:
+        source_id:
+          type: string
+          pattern: ^source_[0-9a-f]{32}$
+          description: 'Update/enable/pause a subscription returned by create or list; mutually exclusive with connector_job.'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: 'Create only: display name for the subscription.'
+        trigger_type:
+          type: string
+          enum: [event]
+          description: 'Create only: subscription events are delivered to event-triggered Runtimes.'
+        binding:
+          type: object
+          additionalProperties: false
+          description: 'Create only: HTTP(S) SSE endpoint whose data fields contain CloudEvents 1.0 JSON envelopes.'
+          properties:
+            type:
+              type: string
+              enum: [sse]
+            url:
+              type: string
+              format: uri
+            format:
+              type: string
+              enum: [cloudevents]
+          required: [type, url, format]
         runtime_names:
           type: array
           minItems: 0
           uniqueItems: true
-          description: Update replaces the preset's target list; an empty list keeps downloads without delivery.
-            send requires at least one target.
+          description: Update replaces a preset or subscription's target list; an empty list keeps collection without delivery.
+            create and send require at least one target.
           items:
             type: string
             minLength: 1
@@ -759,6 +787,7 @@ jobs:
           type: string
           enum:
           - list
+          - create
           - update
           - send
           - enable
@@ -771,6 +800,7 @@ jobs:
     steps:
     - backend: manage_connector_step
       agent_manager: default
+      connector_manager: default
       connector_jobs:
       - screen_capture_cron
       - codex_dialogue_cron
@@ -1139,3 +1169,7 @@ components:
         sandbox: null
         injected_job_kwargs:
           _automatic_notebook: true
+  connector_manager:
+    default:
+      backend: local
+      agent_manager: default

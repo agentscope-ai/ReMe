@@ -35,6 +35,7 @@ class ComponentEnum(str, Enum):
     AGENT_RUNTIME = "agent_runtime"
 
     AGENT_MANAGER = "agent_manager"
+    CONNECTOR_MANAGER = "connector_manager"
 
     KEYWORD_INDEX = "keyword_index"
 

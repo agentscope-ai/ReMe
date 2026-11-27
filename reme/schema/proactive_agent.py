@@ -8,7 +8,9 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    HttpUrl,
     StrictBool,
+    StrictStr,
     ValidationInfo,
     field_validator,
     model_validator,
@@ -40,14 +42,45 @@ def validate_runtime_names(names, *, allow_empty=False):
     return targets
 
 
-class ManageConnectorRequest(BaseModel):
-    """Deliver explicit observations or control one configured collection Job."""
+class SSEConnectorBinding(BaseModel):
+    """A consumer-initiated HTTP event stream carrying CloudEvents JSON."""
 
     model_config = ConfigDict(extra="forbid")
-    action: Literal["list", "update", "send", "enable", "pause"]
+    type: Literal["sse"]
+    url: HttpUrl
+    format: Literal["cloudevents"]
+
+
+class ConnectorSource(BaseModel):
+    """A user-owned subscription definition; delivery checkpoints live separately."""
+
+    model_config = ConfigDict(extra="forbid")
+    source_id: str = Field(pattern=r"^source_[0-9a-f]{32}$")
+    name: StrictStr = Field(min_length=1, max_length=80)
+    trigger_type: Literal["event"]
+    runtime_names: list[AgentName]
+    binding: SSEConnectorBinding
+    enabled: StrictBool = True
+
+    @field_validator("runtime_names", mode="before")
+    @classmethod
+    def validate_targets(cls, value):
+        """Permit download-only subscriptions without duplicate target identities."""
+        return validate_runtime_names(value, allow_empty=True)
+
+
+class ManageConnectorRequest(BaseModel):
+    """Deliver observations, control preset Jobs or manage persistent SSE sources."""
+
+    model_config = ConfigDict(extra="forbid")
+    action: Literal["list", "create", "update", "send", "enable", "pause"]
     runtime_names: list[AgentName] | None = None
     events: list[Event] | None = Field(default=None, min_length=1)
     connector_job: AgentName | None = None
+    source_id: str | None = Field(default=None, pattern=r"^source_[0-9a-f]{32}$")
+    name: StrictStr | None = Field(default=None, min_length=1, max_length=80)
+    trigger_type: Literal["event"] | None = None
+    binding: SSEConnectorBinding | None = None
 
     @model_validator(mode="after")
     def validate_action(self):
@@ -56,9 +89,16 @@ class ManageConnectorRequest(BaseModel):
         if self.action == "list":
             if supplied:
                 raise ValueError("list accepts only action")
+        elif self.action == "create":
+            if supplied != {"name", "trigger_type", "binding", "runtime_names"} or not self.name or not self.binding:
+                raise ValueError("create requires only name, trigger_type, binding and runtime_names")
+            if self.trigger_type != "event":
+                raise ValueError("Connector sources must be event-triggered")
+            validate_runtime_names(self.runtime_names)
         elif self.action == "update":
-            if supplied != {"connector_job", "runtime_names"} or not self.connector_job:
-                raise ValueError("update requires only connector_job and runtime_names")
+            identity = "source_id" if self.source_id else "connector_job"
+            if supplied != {identity, "runtime_names"} or not getattr(self, identity):
+                raise ValueError("update requires runtime_names and exactly one of connector_job or source_id")
             validate_runtime_names(self.runtime_names, allow_empty=True)
         elif self.action == "send":
             if supplied != {"runtime_names", "events"} or not self.events:
@@ -66,8 +106,10 @@ class ManageConnectorRequest(BaseModel):
             validate_runtime_names(self.runtime_names)
             if any(event.source == TIME_EVENT_SOURCE for event in self.events):
                 raise ValueError("time is a reserved framework source")
-        elif supplied != {"connector_job"} or not self.connector_job:
-            raise ValueError("enable/pause require only connector_job")
+        else:
+            identity = "source_id" if self.source_id else "connector_job"
+            if supplied != {identity} or not getattr(self, identity):
+                raise ValueError("enable/pause require exactly one of connector_job or source_id")
         return self
 
 

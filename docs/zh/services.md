@@ -123,6 +123,37 @@ Harness 公共层负责增量扫描、渲染、发布、投递和取消，Codex 
 暂停保留资料和待投递批次，下载开关与 Runtime 的 `enabled` 独立。
 `list` 分别返回 `available` 和持久化下载开关，只有 `connector_jobs` 名单中已配置、已启动的 Job 才能修改；采集频率仍在服务配置中调整。
 
+### CloudEvents SSE 订阅
+
+使用 `config=proactive` 时，`manage_connector` 可以订阅 HTTP(S) GET 事件接口。上游返回
+`text/event-stream`，每条 SSE 的 `data` 是一个 [CloudEvents 1.0](https://github.com/cloudevents/spec/blob/v1.0.2/cloudevents/spec.md)
+JSON 对象。先创建接收资料的事件触发任务，再调用 MCP Job 或 HTTP `POST /manage_connector`：
+
+```json
+{
+  "action": "create",
+  "name": "实验进度",
+  "trigger_type": "event",
+  "runtime_names": ["experiment_watch"],
+  "binding": {"type": "sse", "url": "https://example.com/events", "format": "cloudevents"}
+}
+```
+
+创建返回 `source_id`，在后台开始连接，不代表事件已成功投递。后续 `pause`、`enable`、`update` 使用该 ID，
+不再传 `connector_job`；update 用 `runtime_names` 完整替换目标，空名单表示继续采集、不投递新事件。
+`list` 同时列出预设和订阅；订阅项的 `connected`、`last_error`、`last_event_id`、`pending_delivery_count`
+分别表示连接状态、最近错误、已提交游标和待投递目标数量，`available` 表示管理组件正在运行。
+名称、URL 和格式在订阅中固定，参数以[请求 schema](https://github.com/agentscope-ai/ReMe/blob/main/reme/schema/proactive_agent.py)为准。
+修改目标不会断开现有连接，重复启用已连接的订阅也不会重连。手工编辑定义后需重启生效；控制接口拒绝覆盖尚未加载的文件改动。
+
+定义和投递检查点保存在 `{metadata_dir}/proactive/sources/<source_id>/`，原始 CloudEvents 和首次接收时间保存到
+`{resource_dir}/cloudevents/`，内部 Event 引用原文文件。事件身份使用 CloudEvents 的 `source + id`，同一身份内容变化会明确报错。
+比较时会规范化等价时间偏移、可选属性的省略或 null，原始 JSON 保持原样；省略事件时间时使用首次保存的接收时间。
+待投递事件保留原目标，只重试未接受的目标，错误或拒绝都会阻止游标推进；
+恢复被拒绝的接收任务后重试。暂停关闭连接，保留原文和待投递内容；服务重启后恢复启用的订阅，携带已提交的
+`Last-Event-ID` 重连，历史补发仍取决于上游。HTTP 204 停止自动重连，可再次 enable 或重启服务恢复。
+SSE 单行和事件数据缓冲上限为 1 MiB。这是 SSE 和 CloudEvents JSON 的组合，接口不配置平台特有的订阅握手或自定义鉴权头。
+
 新任务从 `manage-proactive-runtime` 开始：每日早报等时间任务到点自行取资料，事件任务需要持续的数据来源。
 优先复用预设采集器；自建时按 `manage-connector` 将脚本放到 TASK.md 同级的 `scripts/`，先把原始资料保存到
 `resource_dir`，再通过 HTTP `POST /manage_connector` 发送 `action="send"`、`runtime_names` 和 `events`。

@@ -1,14 +1,41 @@
-"""Explicit event delivery and durable control of configured collection Jobs."""
+"""Explicit event delivery, preset controls and persistent SSE subscriptions."""
 
 from ..base import BaseAgentStep
 from ..connector.base import read_connector_control, update_connector_control
+from ...base_step import Ref
+from ....components.proactive.connector import ConnectorManager
 from ....core.registry import R
+from ....enumeration import ComponentEnum
 from ....schema.proactive_agent import ManageConnectorRequest, validate_runtime_names
 
 
 @R.register("manage_connector_step")
 class ManageConnectorStep(BaseAgentStep):
-    """Control the workflow gate without starting a collector or creating a component."""
+    """Manage preset gates and delegate subscriptions to their lifecycle owner."""
+
+    connector_manager = Ref(ConnectorManager, ComponentEnum.CONNECTOR_MANAGER, optional=True)
+
+    async def subscription(self, request):
+        """Manage lifecycle-owned subscriptions after checking their durable file boundaries."""
+        manager = self.connector_manager
+        if manager is None or not manager.is_started:
+            raise ValueError("A started connector_manager is required to manage subscriptions")
+        self.require_paths(manager.directory)
+        if request.action != "pause":
+            self.require_paths(manager.resource_root, self.agent_manager.registry.directory)
+        if request.action == "create":
+            result = await manager.create(
+                request.model_dump(include={"name", "trigger_type", "binding", "runtime_names"}),
+            )
+        else:
+            changes = (
+                {"runtime_names": request.runtime_names}
+                if request.action == "update"
+                else {"enabled": request.action == "enable"}
+            )
+            result = await manager.update(request.source_id, **changes)
+        self.context.response.answer = result
+        return self.context.response
 
     async def preset(self, name):
         """Describe a configured Job without constructing or running its collection Steps."""
@@ -35,6 +62,8 @@ class ManageConnectorStep(BaseAgentStep):
 
     async def execute(self):
         request = ManageConnectorRequest.model_validate(self.parameters())
+        if request.action == "create" or request.source_id:
+            return await self.subscription(request)
         if request.action == "send":
             manager = self.agent_manager
             self.require_paths(manager.registry.directory)
@@ -46,6 +75,9 @@ class ManageConnectorStep(BaseAgentStep):
             allowed = validate_runtime_names(self.kwargs.get("connector_jobs", []), allow_empty=True)
             if request.action == "list":
                 items = [await self.preset(name) for name in allowed]
+                if self.connector_manager is not None:
+                    self.require_paths(self.connector_manager.directory)
+                    items.extend(await self.connector_manager.list_sources())
                 self.context.response.answer = {"items": items, "total": len(items)}
                 return self.context.response
             if request.connector_job not in allowed:
