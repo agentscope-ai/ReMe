@@ -48,6 +48,19 @@ class BaseTokenizer(BaseComponent):
         """Loaded stopwords (empty set if none were loaded)."""
         return self._stopwords
 
+    @property
+    def token_output_engine(self) -> str | None:
+        """Implementation setting that changes the emitted tokens, if any.
+
+        ``backend`` is a registry key: it selects which class is built and says
+        nothing about the tokens that class emits. Keyword indexes fingerprint
+        the output instead of the registry name, so a tokenizer whose tokens do
+        depend on a selectable implementation reports it here. A tokenizer with
+        no such choice leaves it ``None``, which keeps the index it already
+        wrote readable.
+        """
+        return None
+
     def tokenize(self, texts: list[str], lower: bool = True, **kwargs) -> list[list[str]]:
         """Tokenize each text and apply shared post-processing."""
         return [self._postprocess(self._tokenize_one(t, **kwargs), lower) for t in texts]
