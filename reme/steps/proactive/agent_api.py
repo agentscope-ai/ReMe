@@ -27,6 +27,7 @@ from ...schema.agent_view import (
     TaskDocumentRequest,
 )
 from ...schema.proactive_runtime import validate_agent_name
+from ...schema.proactive_trace import merge_traces
 from ...utils.agent_transcript import TranscriptProjector, project_messages
 from ...utils.files.path_lock import get_path_lock
 
@@ -54,7 +55,7 @@ class AgentViews:
                 "error": runtime.error,
                 "last_started_at": runtime.last_started_at.isoformat() if runtime.last_started_at else None,
                 "last_completed_at": runtime.last_completed_at.isoformat() if runtime.last_completed_at else None,
-                "next_trigger_at": runtime.retry_at.isoformat() if runtime.retry_at else None,
+                "retry_at": runtime.retry_at.isoformat() if runtime.retry_at else None,
             }
         else:
             facts = await runtime.status()
@@ -94,6 +95,9 @@ class AgentViews:
             last_started_at=facts.get("last_started_at"),
             last_completed_at=facts.get("last_completed_at"),
             next_trigger_at=facts.get("next_trigger_at"),
+            retry_at=facts.get("retry_at"),
+            waiting_reason=facts.get("waiting_reason"),
+            waiting_until=facts.get("waiting_until"),
             error=error,
             **document,
         )
@@ -258,11 +262,27 @@ class AgentViews:
         if receipt is None:
             receipt = await self.chat.inbox.processed(reference.id)
         item["read_at"] = receipt.consume_ts.isoformat() if receipt else None
-        item["delivered_at"] = (
-            delivery.delivered_at.isoformat()
-            if delivery and delivery.delivered_at
-            else reference.created_at.isoformat()
-        )
+        item["created_at"] = reference.created_at.isoformat()
+        item["delivered_at"] = delivery.delivered_at.isoformat() if delivery and delivery.delivered_at else None
+        item["delivery"] = delivery.model_dump(mode="json") if delivery else None
+        admitted = await self.chat.inbox.reference(reference.id)
+        item["remy_processing"] = {
+            "state": (
+                None
+                if admitted is None
+                else (
+                    "processed"
+                    if receipt
+                    else (
+                        "processing"
+                        if self.chat.active_turn and reference.id in self.chat.active_turn.ids
+                        else "pending"
+                    )
+                )
+            ),
+            "processed_at": receipt.consume_ts.isoformat() if receipt else None,
+        }
+        item["trace"] = {**merge_traces([reference.trace]), "record_paths": [reference.record_path]}
         if chat_message_ids is None:
             chat_message_ids = self._chat_message_ids(await self.chat.outbox.entries())
         item["chat_message_ids"] = chat_message_ids.get(reference.id, [])
@@ -300,7 +320,7 @@ class AgentViews:
                 rows.append({**item, "state": status})
             except (OSError, ValueError) as exc:
                 errors[reference.record_path] = str(exc)
-        rows.sort(key=lambda value: (value["delivered_at"], value["id"]), reverse=True)
+        rows.sort(key=lambda value: (value["created_at"], value["id"]), reverse=True)
         if errors:
             self.chat.error = "; ".join(errors.values())[:2000]
         return {"items": rows[offset : offset + limit], "total": len(rows), "offset": offset, "limit": limit}
@@ -322,6 +342,16 @@ class AgentViews:
             chat_message_ids = self._chat_message_ids(chat_deliveries)
             return {
                 "id": identifier,
+                "message": {
+                    "id": identifier,
+                    "session_id": delivery.session_id,
+                    "content": delivery.content,
+                    "delivered_at": delivery.delivered_at.isoformat() if delivery.delivered_at else None,
+                },
+                "trace": {
+                    **merge_traces(reference.trace for reference in references),
+                    "record_paths": [reference.record_path for reference in references],
+                },
                 "items": [
                     await self.reminder(reference, chat_message_ids=chat_message_ids) for reference in references
                 ],
@@ -518,7 +548,15 @@ class AgentInboxStep(_AgentViewStep):
             runtime = await self.agent_manager.resolve(name)
             answer = await runtime.inbox.read(**values)
             answer["items"] = [
-                {"event": row["item"], "state": row["state"], "consume_ts": row["consume_ts"]}
+                {
+                    "event": row["item"],
+                    "agent_name": name,
+                    "state": row["state"],
+                    "consume_ts": row["consume_ts"],
+                    "received_at": row["received_at"],
+                    "source_refs": [row["source_ref"]],
+                    "run_id": row["run_id"],
+                }
                 for row in answer["items"]
             ]
         self.context.response.answer = answer

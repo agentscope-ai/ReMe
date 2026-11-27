@@ -64,7 +64,11 @@ class NotificationOutbox(BaseOutbox):
                 raise ValueError("Notification target changed")
             if delivery.status == "delivered":
                 return delivery
-            await self.target.inbox.append(delivery.notification, wait=False)
+            try:
+                await self.target.inbox.append(delivery.notification, wait=False)
+            except (OSError, ValueError, RuntimeError, TimeoutError) as exc:
+                await self.save(delivery.model_copy(update={"last_error": str(exc)[:2000]}))
+                raise
             return await self.save(
                 NotificationDelivery.model_validate(
                     {

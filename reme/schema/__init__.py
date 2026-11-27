@@ -44,6 +44,16 @@ from .emb_node import EmbNode
 from .event import Event
 from .agent_inbox import InboxItem, InboxReceipt, NotificationRef
 from .agent_outbox import NotificationDelivery, ChatDelivery
+from .proactive_connector import ConnectorView, ConnectorSource, ManageConnectorRequest
+from .proactive_trace import SourceRef, InputTrace
+from .proactive_overview import (
+    WatchProactiveOverviewRequest,
+    ProactiveOverview,
+    OverviewSnapshot,
+    OverviewUpdate,
+    OverviewHeartbeat,
+    OverviewTransition,
+)
 from .finance import CryptoQuote, FinanceNewsItem, MarketQuote
 from .proactive_agent import (
     CreateProactiveRuntimeConfig,
@@ -71,6 +81,17 @@ from .todo import Todo, TodoProgress
 from .traverse_graph import TraverseGraph, TraverseGraphEdge, TraverseGraphNode
 
 __all__ = [
+    "ConnectorView",
+    "ConnectorSource",
+    "ManageConnectorRequest",
+    "SourceRef",
+    "InputTrace",
+    "WatchProactiveOverviewRequest",
+    "ProactiveOverview",
+    "OverviewSnapshot",
+    "OverviewUpdate",
+    "OverviewHeartbeat",
+    "OverviewTransition",
     "NotificationRef",
     "NotificationDelivery",
     "ChatDelivery",

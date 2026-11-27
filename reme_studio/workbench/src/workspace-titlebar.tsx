@@ -1,4 +1,9 @@
-import { createContext, useState, useSyncExternalStore } from "react";
+import {
+  createContext,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import { Maximize2, Menu, Minus, Moon, PanelLeft, Sun, X } from "lucide-react";
 import { errorText, translator } from "../../client/src/i18n.ts";
 import type { StudioAction, Settings } from "../../client/src/protocol.ts";
@@ -33,16 +38,20 @@ function subscribeToColorScheme(onChange: () => void) {
 export default function WorkspaceTitlebar({
   path,
   sidebar,
-  collapsed,
+  collapsed = true,
   settings,
   platform,
   setSidebarCollapsed,
   openNavigation,
   navigationOpen,
+  children,
+  status,
 }: NonNullable<React.ContextType<typeof WorkspaceLayout>> & {
   path: readonly Breadcrumb[];
-  sidebar: string;
-  collapsed: boolean;
+  sidebar?: string;
+  collapsed?: boolean;
+  children?: ReactNode;
+  status?: ReactNode;
 }) {
   const { action, desktop } = useHost();
   const { language, theme } = settings;
@@ -89,12 +98,15 @@ export default function WorkspaceTitlebar({
           <Menu size={22} aria-hidden />
         </button>
         {current !== t("conversationTab") && <span>{current}</span>}
+        {status}
+        {children}
       </header>
     );
   }
   return (
     <header
       className="workspace-titlebar"
+      data-has-sidebar={Boolean(sidebar)}
       data-sidebar-collapsed={collapsed}
       onDoubleClick={(event) => {
         if (desktop && !(event.target as HTMLElement).closest("button"))
@@ -102,24 +114,26 @@ export default function WorkspaceTitlebar({
       }}
     >
       <div className="workspace-titlebar-side">
-        <button
-          type="button"
-          className="titlebar-button"
-          aria-label={toggleLabel}
-          aria-expanded={!collapsed}
-          aria-controls={sidebar}
-          title={platform ? `${toggleLabel} (${shortcut})` : toggleLabel}
-          aria-keyshortcuts={
-            platform
-              ? platform === "darwin"
-                ? "Meta+Shift+S"
-                : "Control+Shift+S"
-              : undefined
-          }
-          onClick={() => setSidebarCollapsed(!collapsed)}
-        >
-          <PanelLeft size={17} aria-hidden />
-        </button>
+        {sidebar && (
+          <button
+            type="button"
+            className="titlebar-button"
+            aria-label={toggleLabel}
+            aria-expanded={!collapsed}
+            aria-controls={sidebar}
+            title={platform ? `${toggleLabel} (${shortcut})` : toggleLabel}
+            aria-keyshortcuts={
+              platform
+                ? platform === "darwin"
+                  ? "Meta+Shift+S"
+                  : "Control+Shift+S"
+                : undefined
+            }
+            onClick={() => setSidebarCollapsed(!collapsed)}
+          >
+            <PanelLeft size={17} aria-hidden />
+          </button>
+        )}
         <span className="workspace-brand" hidden={collapsed}>
           ReMe Studio
         </span>
@@ -141,7 +155,7 @@ export default function WorkspaceTitlebar({
                     title={title ?? label}
                     onClick={() => {
                       onSelect?.();
-                      if (revealSidebar) {
+                      if (revealSidebar && sidebar) {
                         setSidebarCollapsed(false);
                         requestAnimationFrame(() =>
                           document.getElementById(sidebar)?.focus(),
@@ -163,8 +177,10 @@ export default function WorkspaceTitlebar({
             );
           })}
         </ol>
+        {status}
       </nav>
       <div className="workspace-titlebar-actions">
+        {children}
         <button
           type="button"
           className="titlebar-button"

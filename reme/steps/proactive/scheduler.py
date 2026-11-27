@@ -51,19 +51,8 @@ class AgentManagerLoopStep(BaseAgentStep):
                     pass
                 else:
                     runtime.advance_schedule(definition, now)
-        if runtime.worker is not None or runtime.execution_lock.locked():
-            return
-        if runtime.retry_at is not None and runtime.retry_at.timestamp() > now.timestamp():
-            return
-        snapshot = await runtime.inbox.snapshot()
-        if not snapshot["pending_count"]:
-            return
-        receipt = snapshot["receipt"]
-        if (
-            definition.agent_type == "event"
-            and receipt is not None
-            and now.timestamp() - receipt.consume_ts.timestamp() < definition.min_trigger_interval_seconds
-        ):
+        reason, _ = runtime.waiting_state(definition, await runtime.inbox.snapshot())
+        if reason or runtime.worker is not None or runtime.execution_lock.locked():
             return
         runtime.worker = asyncio.create_task(self._work(runtime), name=f"agent:{runtime.name}")
 

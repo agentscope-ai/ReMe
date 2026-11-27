@@ -105,60 +105,34 @@ P0 可以进入正在执行的前台原生轮次；P1/P2 等待前台空闲。�
 
 ### 资料接入与采集控制
 
-Connector 是 workflow，采集 Job 先发布 `resource/<source>/<date>/<batch>/metadata.json` 及完整资料，再投递统一 Event。
-内置桌面截图、Codex 与 Claude Code 对话、财经新闻、黄金、原油、纳指和 BTC 八个采集 Job，默认每五分钟运行。
-对话采集的 init_steps 建立基线，不导入历史；增量游标、图片附件和未完成投递批次保存在对应资料源目录。
-Harness 公共层负责增量扫描、渲染、发布、投递和取消，Codex 与 Claude Code 适配器负责原生格式，输出相同的资源和响应结构。
+先启动 `reme start config=proactive`，再通过 HTTP 或 MCP 调用 `manage_connector`。
+预设采集器和自定义 SSE 订阅使用同一来源视图；预设 ID 为 `preset:<job-name>`，订阅 ID 为 `source_<uuid>`。
 
-通过 `manage_connector` MCP Job 管理预设采集 Job：
-
-| 操作 | 参数 |
+| 动作 | 输入和行为 |
 | --- | --- |
-| 查看预设、下载开关和目标 | `{"action":"list"}` |
-| 暂停或恢复下载 | `{"action":"pause","connector_job":"finance_news_cron"}` 或 `{"action":"enable","connector_job":"finance_news_cron"}` |
-| 替换投递目标 | `{"action":"update","connector_job":"finance_news_cron","runtime_names":["proactive_fin","market_watch"]}` |
+| `list` | 只传 action；通过 items/total 返回统一来源视图。 |
+| `create` | name、非空 runtime_names，以及 `binding: {url: "https://example.com/events"}`；固定 SSE/CloudEvents，不需要 format、trigger_type。 |
+| `update` | source_id，以及 name、runtime_names、enabled 中至少一项；未传字段保持原值，不接受 null 修改。 |
+| `send` | runtime_names 和非空 events；按目标返回 deliveries、rejected、errors。 |
 
-目标必须是已有事件触发任务。空名单表示继续下载、不投递新资料。设置保存在
-`{metadata_dir}/proactive/connectors/<connector_job>.json`，无需重启，新名单从新批次生效，冻结批次沿用原名单。
-暂停保留资料和待投递批次，下载开关与 Runtime 的 `enabled` 独立。
-`list` 分别返回 `available` 和持久化下载开关，只有 `connector_jobs` 名单中已配置、已启动的 Job 才能修改；采集频率仍在服务配置中调整。
-
-### CloudEvents SSE 订阅
-
-使用 `config=proactive` 时，`manage_connector` 可以订阅 HTTP(S) GET 事件接口。上游返回
-`text/event-stream`，每条 SSE 的 `data` 是一个 [CloudEvents 1.0](https://github.com/cloudevents/spec/blob/v1.0.2/cloudevents/spec.md)
-JSON 对象。先创建接收资料的事件触发任务，再调用 MCP Job 或 HTTP `POST /manage_connector`：
+runtime_names 完整替换目标；[] 表示继续采集、不投递新事件。目标必须已存在、为事件型且忽略大小写不重复。
+`update enabled=false` 暂停，`enabled=true` 恢复；改名不改变身份。已保存批次保留原目标和来源名称，
+来源开关不修改 Runtime 执行开关。旧的 enable/pause 动作和 connector_job 请求参数已移除。
 
 ```json
-{
-  "action": "create",
-  "name": "实验进度",
-  "trigger_type": "event",
-  "runtime_names": ["experiment_watch"],
-  "binding": {"type": "sse", "url": "https://example.com/events", "format": "cloudevents"}
-}
+{"action":"update","source_id":"preset:screen_capture_cron","name":"项目观察","enabled":false}
 ```
 
-创建返回 `source_id`，在后台开始连接，不代表事件已成功投递。后续 `pause`、`enable`、`update` 使用该 ID，
-不再传 `connector_job`；update 用 `runtime_names` 完整替换目标，空名单表示继续采集、不投递新事件。
-`list` 同时列出预设和订阅；订阅项的 `connected`、`last_error`、`last_event_id`、`pending_delivery_count`
-分别表示连接状态、最近错误、已提交游标和待投递目标数量，`available` 表示管理组件正在运行。
-名称、URL 和格式在订阅中固定，参数以[请求 schema](https://github.com/agentscope-ai/ReMe/blob/main/reme/schema/proactive_agent.py)为准。
-修改目标不会断开现有连接，重复启用已连接的订阅也不会重连。手工编辑定义后需重启生效；控制接口拒绝覆盖尚未加载的文件改动。
+采集器先发布完整工作区资料包，再投递 Event。SSE GET 接口返回 text/event-stream，每条 data 是一个
+CloudEvents 1.0 JSON 对象。原文和首次接收时间保存在 `{resource_dir}/cloudevents`，订阅定义和投递检查点
+保存在 `{metadata_dir}/proactive/sources`。事件身份由 CloudEvents source + id 决定，同身份内容变化会报错。
+配置成功不等于已连接、投递成功或已处理；统一来源视图区分 enabled、available、connected、待投递数和错误。
+手工修改订阅定义后需重启加载，更新接口会拒绝覆盖尚未加载的改动。
 
-定义和投递检查点保存在 `{metadata_dir}/proactive/sources/<source_id>/`，原始 CloudEvents 和首次接收时间保存到
-`{resource_dir}/cloudevents/`，内部 Event 引用原文文件。事件身份使用 CloudEvents 的 `source + id`，同一身份内容变化会明确报错。
-比较时会规范化等价时间偏移、可选属性的省略或 null，原始 JSON 保持原样；省略事件时间时使用首次保存的接收时间。
-待投递事件保留原目标，只重试未接受的目标，错误或拒绝都会阻止游标推进；
-恢复被拒绝的接收任务后重试。暂停关闭连接，保留原文和待投递内容；服务重启后恢复启用的订阅，携带已提交的
-`Last-Event-ID` 重连，历史补发仍取决于上游。HTTP 204 停止自动重连，可再次 enable 或重启服务恢复。
-SSE 单行和事件数据缓冲上限为 1 MiB。这是 SSE 和 CloudEvents JSON 的组合，接口不配置平台特有的订阅握手或自定义鉴权头。
-
-新任务从 `manage-proactive-runtime` 开始：每日早报等时间任务到点自行取资料，事件任务需要持续的数据来源。
-优先复用预设采集器；自建时按 `manage-connector` 将脚本放到 TASK.md 同级的 `scripts/`，先把原始资料保存到
-`resource_dir`，再通过 HTTP `POST /manage_connector` 发送 `action="send"`、`runtime_names` 和 `events`。
-事件路径必须相对工作区，`source="time"` 由框架保留。
-部分失败时也要检查 `deliveries`、`rejected`、`errors`，只对 `errors` 中的目标用原 ID 和原内容重试，所有目标结束后才推进采集游标。
+重启携带已提交的 Last-Event-ID 恢复，历史补发依赖上游。错误或拒绝保留待投递事件并阻止游标推进。
+HTTP 204 停止重连，直到显式恢复或重启。SSE 单行及事件缓冲上限为 1 MiB；不配置自定义鉴权头或平台特有握手。
+自建采集脚本继续通过 action=send 投递工作区相对路径的 Event，source=time 保留给框架。
+时间来源直接从 Runtime 计划生成；图标和 emoji 属于前端配置。
 
 ### 提醒提交与恢复
 
@@ -187,6 +161,39 @@ Runtime 的 `prompt_dict` 用于角色和初始化文本。
 Notebook 自动写入限制由可信 Runtime 配置注入，在 manage_notebook 工具中检查。
 
 源码见 [组件](../../reme/components/proactive/)、[工作流](../../reme/steps/proactive/) 与 [配置](../../reme/config/proactive.yaml)。
+
+### 主动智能总览订阅
+
+先启动 `reme start config=proactive`，再通过 HTTP `POST /watch_proactive_overview` 订阅，
+请求为 `{}` 或 `{"agent_names":["proactive_memory"]}`。可选名单筛选后台 Runtime，共享 Remy 自动包含。
+该只读 StreamJob 不执行模型、不创建原生会话、不领取输入，也不确认提醒；现有会话和详情 Job 继续保留。
+
+每个 `data` 类型的 StreamChunk 携带以下一种事件：
+
+- `snapshot {epoch, revision, as_of, overview}`：整体替换 `sources`、`agents`、`event_inbox`、
+  `remy_inbox`、`reminders`、`workspace` 六部分；`errors` 单独报告无法读取的事实。
+- `update {epoch, previous_revision, revision, as_of, changes, transitions}`：按集合和业务身份替换、移除对象，
+  change 的 value 为 null 时移除。动作带稳定 ID，关联成功入队、领取批次、提交记录、投递提醒和形成最终消息。
+- `heartbeat`：通常每 15 秒发送一次存活信号。错误和结束沿用 StreamChunk 的 `error`、`done` 契约。
+
+每次连接都先返回权威快照；慢客户端落后于有界动作缓冲时也重新接收快照。
+版本水位取读取开始时的值，快照读取期间发生的变化仍由后续增量补齐，不要求生产者空闲。
+增量的 epoch 和 previous_revision 必须与本地匹配，否则重连；快照历史不播放动画，实时动作按 ID 去重。
+Studio 共享客户端提供 `watchProactiveOverview` 和 `ProactiveOverviewModel`，包含重连、版本检查和减少动态效果支持。
+订阅共享有界读取投影，内部持久变更和执行活动会及时刷新，外部文件修改最长约五秒校验一次。
+Agent 的 `waiting_reason / waiting_until / retry_at` 与调度器共用判断；当前执行提供工具和 turn_id，
+执行记录保留本轮输入和产物，等待信息不重复存入每份执行记录。
+
+收件箱待处理数和处理中数互不重叠。入队时间和来源快照由 Inbox 入箱记录保存，独立于原始 Event。
+提交回执保留输入、来源、执行和文件关联，包括有记录但没有提醒的情况。
+提醒只包括已发送的原生消息，投递、Remy 处理和用户阅读分别表示。
+提醒查询区分创建时间和真实投递时间，未确认投递时 delivered_at 为空；delivery 与 remy_processing
+分别表示发送方和接收方状态，尚未入队时接收状态为空。
+工作区返回原始相对路径，正文和编辑仍使用已有文件 Job。契约见[公共模型](../../reme/schema/proactive_overview.py)。
+已登记来源的目标以当前配置为准，历史事件保留原来源快照，不恢复已经移除的连线。
+工作区保留配置入口、每个任务最近三条投递的记录、当前/最近执行产物，以及最近列表所引用的文件；
+历史投递不会全部加入工作区。完整历史继续通过原有详情和分页 Job 查询。
+
 
 ## MCP
 

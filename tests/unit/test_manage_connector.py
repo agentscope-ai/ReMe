@@ -14,9 +14,10 @@ import httpx
 import pytest
 
 from reme.components.job import BaseJob
+from reme.components.proactive.connector import ConnectorManager
 from reme.components.service import HttpService
 from reme.core.context import RuntimeContext
-from reme.schema.proactive_agent import ManageConnectorRequest
+from reme.schema.proactive_connector import ManageConnectorRequest
 from reme.steps.proactive.connector import BaseConnectorStep
 from reme.steps.proactive.connector.base import connector_control_path, read_connector_control
 from reme.steps.proactive.tools import ManageConnectorStep
@@ -54,8 +55,10 @@ async def preset(tmp_path, *, seed=True):
             ],
         )
         context.jobs[job.name] = job
-        async with job:
-            tool = ManageConnectorStep(app_context=context, connector_jobs=[job.name])
+        connectors = ConnectorManager(app_context=context, agent_manager=manager)
+        context.components["connector_manager"] = {"default": connectors}
+        async with job, connectors:
+            tool = ManageConnectorStep(app_context=context)
             yield manager, context, job, tool
 
 
@@ -64,26 +67,35 @@ def collector(context, job):
 
 
 @pytest.mark.asyncio
+async def test_preset_name_and_partial_updates_share_the_collection_source_identity(tmp_path):
+    async with preset(tmp_path) as (manager, context, job, tool):
+        source_id = "preset:" + job.name
+        result = (await tool(action="update", source_id=source_id, name="Project observations", enabled=False)).answer
+        assert result["name"] == "Project observations" and result["runtime_names"] == ["first"]
+        await tool(action="update", source_id=source_id, enabled=True)
+        await collector(context, job)()
+        source = (await (await manager.resolve("first")).inbox.overview())["items"][0]["source_ref"]
+        assert source == {"source_id": source_id, "name": "Project observations", "trigger_type": "event"}
+        await tool(action="update", source_id=source_id, name="Renamed")
+        assert (await (await manager.resolve("first")).inbox.overview())["items"][0]["source_ref"] == source
+
+
+@pytest.mark.asyncio
 async def test_list_is_readonly_and_includes_defaults_and_availability(tmp_path):
     async with preset(tmp_path) as (_, context, job, tool):
         before = {path: path.read_bytes() for path in tmp_path.rglob("*.json")}
         result = (await tool(action="list")).answer
-        assert result == {
-            "items": [
-                {
-                    "connector_job": job.name,
-                    "description": job.description,
-                    "schedule": "*/5 * * * *",
-                    "available": True,
-                    "enabled": True,
-                    "runtime_names": ["first"],
-                },
-            ],
-            "total": 1,
-        }
+        assert result["total"] == 8
+        item = next(item for item in result["items"] if item["source_id"] == "preset:" + job.name)
+        assert item["name"] == job.description
+        assert item["available"] and item["enabled"] and item["runtime_names"] == ["first"]
         assert before == {path: path.read_bytes() for path in tmp_path.rglob("*.json")}
-        unavailable = ManageConnectorStep(app_context=context, connector_jobs=["finance_news_cron"])
-        item = (await unavailable(action="list")).answer["items"][0]
+        unavailable = ManageConnectorStep(app_context=context)
+        item = next(
+            item
+            for item in (await unavailable(action="list")).answer["items"]
+            if item["source_id"] == "preset:finance_news_cron"
+        )
         assert not item["available"] and item["runtime_names"] == ["proactive_fin"]
         assert not (tmp_path / "resource").exists()
 
@@ -91,17 +103,19 @@ async def test_list_is_readonly_and_includes_defaults_and_availability(tmp_path)
 @pytest.mark.asyncio
 async def test_targets_and_gate_survive_restart_and_apply_to_collection(tmp_path):
     async with preset(tmp_path) as (manager, context, job, tool):
-        await tool(action="pause", connector_job=job.name)
-        updated = (await tool(action="update", connector_job=job.name, runtime_names=["second"])).answer
-        assert updated["changed"] and not updated["enabled"] and updated["runtime_names"] == ["second"]
+        await tool(action="update", enabled=False, source_id="preset:" + job.name)
+        updated = (await tool(action="update", source_id="preset:" + job.name, runtime_names=["second"])).answer
+        assert not updated["enabled"] and updated["runtime_names"] == ["second"]
         assert (await collector(context, job)()).answer["skipped"] == "paused"
-        resumed = (await tool(action="enable", connector_job=job.name)).answer
+        resumed = (await tool(action="update", enabled=True, source_id="preset:" + job.name)).answer
         assert resumed["runtime_names"] == ["second"]
         assert (await collector(context, job)()).success
         assert not await (await manager.resolve("first")).inbox.pending_ids()
         assert len(await (await manager.resolve("second")).inbox.pending_ids()) == 1
     async with preset(tmp_path, seed=False) as (manager, context, job, tool):
-        item = (await tool(action="list")).answer["items"][0]
+        item = next(
+            item for item in (await tool(action="list")).answer["items"] if item["source_id"] == "preset:" + job.name
+        )
         assert item["enabled"] and item["runtime_names"] == ["second"]
         assert (await collector(context, job)()).success
         assert len(await (await manager.resolve("second")).inbox.pending_ids()) == 2
@@ -112,7 +126,7 @@ async def test_targets_and_gate_survive_restart_and_apply_to_collection(tmp_path
 async def test_multiple_targets_replacement_and_download_without_targets(tmp_path):
     async with preset(tmp_path) as (manager, context, job, tool):
         for targets in (["first", "second"], ["second"], []):
-            await tool(action="update", connector_job=job.name, runtime_names=targets)
+            await tool(action="update", source_id="preset:" + job.name, runtime_names=targets)
             assert (await collector(context, job)()).success
         assert len(await (await manager.resolve("first")).inbox.pending_ids()) == 1
         assert len(await (await manager.resolve("second")).inbox.pending_ids()) == 2
@@ -131,7 +145,7 @@ async def test_detaching_targets_still_finishes_frozen_delivery(tmp_path, monkey
         with pytest.raises(RuntimeError, match="offline"):
             await collector(context, job)()
         frozen = failed.await_args.kwargs["events"]
-        await tool(action="update", connector_job=job.name, runtime_names=[])
+        await tool(action="update", source_id="preset:" + job.name, runtime_names=[])
         delivery = AsyncMock(side_effect=original)
         monkeypatch.setattr(manager, "deliver_events", delivery)
         assert (await collector(context, job)()).success
@@ -156,7 +170,7 @@ async def test_target_changes_during_collection_start_with_next_batch(tmp_path, 
         task = asyncio.create_task(step())
         try:
             assert await asyncio.to_thread(started.wait, 5)
-            await tool(action="update", connector_job=job.name, runtime_names=["second"])
+            await tool(action="update", source_id="preset:" + job.name, runtime_names=["second"])
         finally:
             release.set()
         assert (await task).success
@@ -169,10 +183,10 @@ async def test_target_changes_during_collection_start_with_next_batch(tmp_path, 
 @pytest.mark.asyncio
 async def test_concurrent_gate_and_target_updates_do_not_lose_fields(tmp_path):
     async with preset(tmp_path) as (_, context, job, tool):
-        other = ManageConnectorStep(app_context=context, connector_jobs=[job.name])
+        other = ManageConnectorStep(app_context=context)
         await asyncio.gather(
-            tool(action="update", connector_job=job.name, runtime_names=["second"]),
-            other(action="pause", connector_job=job.name),
+            tool(action="update", source_id="preset:" + job.name, runtime_names=["second"]),
+            other(action="update", enabled=False, source_id="preset:" + job.name),
         )
         control = await read_connector_control(tool, job.name)
         assert control["runtime_names"] == ["second"] and not control["enabled"]
@@ -185,11 +199,11 @@ async def test_invalid_target_updates_leave_control_unchanged(tmp_path, target):
         if target == "deleted":
             await manager.create({"agent_type": "event", "agent_name": target})
             await manager.delete(target)
-        await tool(action="pause", connector_job=job.name)
+        await tool(action="update", enabled=False, source_id="preset:" + job.name)
         _, path = connector_control_path(tool, job.name)
         before = path.read_bytes()
         with pytest.raises(ValueError):
-            await tool(action="update", connector_job=job.name, runtime_names=["second", target])
+            await tool(action="update", source_id="preset:" + job.name, runtime_names=["second", target])
         assert path.read_bytes() == before
 
 
@@ -207,11 +221,11 @@ async def test_invalid_target_updates_leave_control_unchanged(tmp_path, target):
 @pytest.mark.asyncio
 async def test_corrupt_control_fails_closed_before_collecting(tmp_path, patch):
     async with preset(tmp_path) as (_, context, job, tool):
-        await tool(action="pause", connector_job=job.name)
+        await tool(action="update", enabled=False, source_id="preset:" + job.name)
         _, path = connector_control_path(tool, job.name)
         path.write_text(json.dumps({**json.loads(path.read_text()), **patch}))
-        with pytest.raises(ValueError):
-            await tool(action="list")
+        items = (await tool(action="list")).answer["items"]
+        assert next(item for item in items if item["source_id"] == "preset:" + job.name)["last_error"]
         with pytest.raises(ValueError):
             await collector(context, job)()
         assert not (tmp_path / "resource").exists()
@@ -247,7 +261,7 @@ async def test_management_permissions_cover_control_and_target_definitions(tmp_p
             await tool(
                 RuntimeContext(_allowed_paths=["metadata"]),
                 action="update",
-                connector_job=job.name,
+                source_id="preset:" + job.name,
                 runtime_names=["second"],
             )
 
@@ -255,7 +269,7 @@ async def test_management_permissions_cover_control_and_target_definitions(tmp_p
 @pytest.mark.asyncio
 async def test_http_and_mcp_expose_list_and_empty_recipient_updates(tmp_path):
     async with preset(tmp_path) as (_, context, job, _):
-        expected = len(context.app_config.jobs["manage_connector"].steps[0].model_dump()["connector_jobs"])
+        expected = len(context.components["connector_manager"]["default"].presets())
         service = HttpService(app_context=context, web_enabled=False, jobs=["manage_connector"])
         app = SimpleNamespace(config=context.app_config, context=context)
         service.build_service(app)
@@ -271,7 +285,7 @@ async def test_http_and_mcp_expose_list_and_empty_recipient_updates(tmp_path):
                 "/manage_connector",
                 json={
                     "action": "update",
-                    "connector_job": job.name,
+                    "source_id": "preset:" + job.name,
                     "runtime_names": ["second"],
                 },
             )
@@ -283,7 +297,7 @@ async def test_http_and_mcp_expose_list_and_empty_recipient_updates(tmp_path):
                 "manage_connector",
                 {
                     "action": "update",
-                    "connector_job": job.name,
+                    "source_id": "preset:" + job.name,
                     "runtime_names": [],
                 },
             )

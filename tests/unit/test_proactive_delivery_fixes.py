@@ -7,8 +7,9 @@ import json
 import pytest
 
 from reme.components.job import BaseJob
+from reme.components.proactive.connector import ConnectorManager
 from reme.schema import Event
-from reme.schema.proactive_agent import ManageConnectorRequest
+from reme.schema.proactive_connector import ManageConnectorRequest
 from reme.steps.proactive.tools import ManageConnectorStep
 from reme.steps.proactive.connector import BaseConnectorStep
 from .proactive_helpers import running_system
@@ -94,24 +95,33 @@ async def test_pause_gate_survives_restart_and_never_changes_task_enabled(tmp_pa
         job = BaseJob(name="screen_capture_cron", app_context=context, steps=[])
         context.jobs[job.name] = job
         async with job:
-            tool = ManageConnectorStep(app_context=context, connector_jobs=[job.name])
-            await tool(action="pause", connector_job=job.name)
+            connectors = ConnectorManager(app_context=context, agent_manager=manager)
+            context.components["connector_manager"] = {"default": connectors}
+            await connectors.start()
+            tool = ManageConnectorStep(app_context=context)
+            await tool(action="update", source_id="preset:" + job.name, enabled=False)
             step = SmallConnector(app_context=context, connector_job=job.name, runtime_names=["monitor"])
             assert (await step()).answer["skipped"] == "paused"
             assert (await manager.definition("monitor")).enabled and not (tmp_path / "resource").exists()
             with pytest.raises(ValueError):
-                await tool(action="pause", connector_job="run_proactive_agent")
+                await tool(action="update", source_id="preset:run_proactive_agent", enabled=False)
+            await connectors.close()
     async with running_system(tmp_path) as (manager, context, _):
         job = BaseJob(name="screen_capture_cron", app_context=context, steps=[])
         context.jobs[job.name] = job
         async with job:
             step = SmallConnector(app_context=context, connector_job=job.name, runtime_names=["monitor"])
             assert (await step()).answer["skipped"] == "paused"
-            await ManageConnectorStep(app_context=context, connector_jobs=[job.name])(
-                action="enable",
-                connector_job=job.name,
+            connectors = ConnectorManager(app_context=context, agent_manager=manager)
+            context.components["connector_manager"] = {"default": connectors}
+            await connectors.start()
+            await ManageConnectorStep(app_context=context)(
+                action="update",
+                enabled=True,
+                source_id="preset:" + job.name,
             )
             assert (await step()).success
+            await connectors.close()
             events = (await (await manager.resolve("monitor")).inbox.read())["items"]
             assert len(events) == 1 and events[0]["item"]["paths"][0].endswith("metadata.json")
 

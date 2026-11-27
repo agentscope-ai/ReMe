@@ -337,6 +337,30 @@ jobs:
       agent_manager: default
     stream_queue_size: 1
 
+  watch_proactive_overview:
+    backend: stream
+    description: Observe sources, Runtime executions, both inboxes, reminders and workspace references without running models.
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        agent_names:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 80
+            pattern: ^[\w-]+$
+          description: Optional background Runtime filter; omit for all Runtimes and shared Remy.
+    steps:
+    - backend: watch_proactive_overview_step
+      connector_manager: default
+      agent_runtime: Remy
+      agent_manager: default
+    stream_queue_size: 1
+
   ask_agent:
     backend: stream
     parameters:
@@ -711,105 +735,56 @@ jobs:
       agent_manager: default
   manage_connector:
     backend: base
-    description: List preset collectors and SSE subscriptions, create CloudEvents SSE sources, enable/pause collection,
-      or update event-triggered Runtime targets. send accepts Events from custom collectors. Follow manage-connector.
+    description: List sources, create SSE subscriptions, update source names/targets/enabled, or send Events. Follow manage-connector.
     parameters:
       type: object
       additionalProperties: false
       properties:
+        action:
+          type: string
+          enum: [list, create, update, send]
         source_id:
           type: string
-          pattern: ^source_[0-9a-f]{32}$
-          description: 'Update/enable/pause a subscription returned by create or list; mutually exclusive with connector_job.'
+          pattern: '^(?:source_[0-9a-f]{32}|preset:[\w-]{1,80})$'
+          description: 'Update only: stable source identity returned by list or create.'
         name:
           type: string
           minLength: 1
           maxLength: 80
-          description: 'Create only: display name for the subscription.'
-        trigger_type:
-          type: string
-          enum: [event]
-          description: 'Create only: subscription events are delivered to event-triggered Runtimes.'
+        enabled:
+          type: boolean
+          description: 'Update only: enable or pause collection without deleting pending deliveries.'
+        runtime_names:
+          type: array
+          uniqueItems: true
+          items: {type: string, minLength: 1, maxLength: 80, pattern: '^[\w-]+$'}
+          description: Existing event Runtime names. Update replaces the list; empty means collection without new delivery.
         binding:
           type: object
           additionalProperties: false
-          description: 'Create only: HTTP(S) SSE endpoint whose data fields contain CloudEvents 1.0 JSON envelopes.'
           properties:
-            type:
-              type: string
-              enum: [sse]
-            url:
-              type: string
-              format: uri
-            format:
-              type: string
-              enum: [cloudevents]
-          required: [type, url, format]
-        runtime_names:
-          type: array
-          minItems: 0
-          uniqueItems: true
-          description: Update replaces a preset or subscription's target list; an empty list keeps collection without delivery.
-            create and send require at least one target.
-          items:
-            type: string
-            minLength: 1
-            maxLength: 80
-            pattern: ^[\w-]+$
-            description: Name of an existing event-triggered Runtime.
+            type: {type: string, enum: [sse], default: sse}
+            url: {type: string, format: uri}
+          required: [url]
         events:
           type: array
           minItems: 1
           items:
             type: object
             properties:
-              id:
-                type: string
-              event_ts:
-                type: string
-                format: date-time
-              source:
-                type: string
-              description:
-                type: string
-              paths:
-                type: array
-                items:
-                  type: string
-              metadata:
-                type: object
-            required:
-            - event_ts
-            - source
-            - description
+              id: {type: string}
+              event_ts: {type: string, format: date-time}
+              source: {type: string}
+              description: {type: string}
+              paths: {type: array, items: {type: string}}
+              metadata: {type: object}
+            required: [event_ts, source, description]
             additionalProperties: false
-        action:
-          type: string
-          enum:
-          - list
-          - create
-          - update
-          - send
-          - enable
-          - pause
-        connector_job:
-          type: string
-          description: 'Update/enable/pause only: preset connector Job name returned by list.'
-      required:
-      - action
+      required: [action]
     steps:
     - backend: manage_connector_step
       agent_manager: default
       connector_manager: default
-      connector_jobs:
-      - screen_capture_cron
-      - codex_dialogue_cron
-      - claude_code_dialogue_cron
-      - finance_news_cron
-      - gold_quotes_cron
-      - oil_quotes_cron
-      - nasdaq_quotes_cron
-      - btc_quotes_cron
   submit_chat_reply:
     backend: base
     enable_serve: false

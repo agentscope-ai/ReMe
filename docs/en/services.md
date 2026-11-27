@@ -105,68 +105,39 @@ P0 can reach an active native foreground turn; P1/P2 wait for idle. The sender's
 
 ### Collection and Connector controls
 
-Connectors are workflows. Each collection Job publishes a complete resource package and metadata.json before delivering
-standard Events. Eight configured Jobs collect screens, Codex and Claude Code dialogue, finance news, gold, oil, Nasdaq
-and BTC every five minutes. Dialogue init_steps establish a baseline without importing old history. Source directories
-retain opaque cursors, attachments and pending delivery batches. BaseHarnessConnectorStep owns scanning, publication, handoff and cancellation;
-Codex and Claude Code supply their native format adapters and share the same resource and response contracts.
+After starting `reme start config=proactive`, call `manage_connector` through HTTP or MCP.
+Configured collectors and custom SSE subscriptions share one source catalog and stable `source_id`.
+Preset IDs are `preset:<job-name>`; custom subscriptions use `source_<uuid>`.
 
-Use the `manage_connector` MCP Job to manage preset collection Jobs:
-
-| Action | Parameters |
+| Action | Inputs and behavior |
 | --- | --- |
-| List presets, download switches and recipients | `{"action":"list"}` |
-| Pause or resume downloads | `{"action":"pause","connector_job":"finance_news_cron"}` or `{"action":"enable","connector_job":"finance_news_cron"}` |
-| Replace recipients | `{"action":"update","connector_job":"finance_news_cron","runtime_names":["proactive_fin","market_watch"]}` |
+| `list` | Only action; returns a shared source view in `items/total`. |
+| `create` | `name`, nonempty `runtime_names`, `binding: {url: "https://example.com/events"}`. SSE/CloudEvents is fixed; no format or trigger_type parameter. |
+| `update` | `source_id` and any nonempty subset of `name`, `runtime_names`, `enabled`. Omitted fields are untouched; null patches are rejected. |
+| `send` | `runtime_names` and nonempty `events`; returns per-target deliveries, rejected and errors. |
 
-Only existing event-triggered tasks can be selected as recipients. An empty target list keeps downloads without new
-handoffs. Changes persist at `{metadata_dir}/proactive/connectors/<connector_job>.json` and apply without restart to new
-batches; frozen batches retain their original recipients. Pause retains packages and pending handoffs. Download controls
-are independent of Runtime `enabled`. `list` reports `available` separately from the saved download switch; only configured,
-started Jobs in `connector_jobs` can be changed. Collection frequency remains in service configuration.
-
-### CloudEvents SSE subscriptions
-
-With `config=proactive`, `manage_connector` can create an HTTP(S) GET subscription whose endpoint returns
-`text/event-stream`, with one [CloudEvents 1.0](https://github.com/cloudevents/spec/blob/v1.0.2/cloudevents/spec.md)
-JSON envelope per SSE `data` field. First create the receiving event-triggered task, then call the MCP Job or
-`POST /manage_connector` with:
+`runtime_names` replaces the full target list; [] collects without delivering new events. Targets must exist,
+be event-triggered and be unique ignoring case. Pause with `update enabled=false`; resume with `enabled=true`.
+Names do not change identities. Saved batches retain original recipients and source display names;
+source gates remain independent of Runtime enabled settings. No legacy enable/pause actions or connector_job request remain.
 
 ```json
-{
-  "action": "create",
-  "name": "Experiment progress",
-  "trigger_type": "event",
-  "runtime_names": ["experiment_watch"],
-  "binding": {"type": "sse", "url": "https://example.com/events", "format": "cloudevents"}
-}
+{"action":"update","source_id":"preset:screen_capture_cron","name":"Project observations","enabled":false}
 ```
 
-Creation returns `source_id` and starts the connection in the background; it does not confirm delivery. Use that ID
-instead of `connector_job` with `pause`, `enable` or `update`; update replaces `runtime_names`, and an empty list keeps
-collecting without new deliveries. `list` includes both presets and subscriptions. Subscription items report
-`connected`, `last_error`, `last_event_id` and `pending_delivery_count`; `available` describes the manager's lifecycle.
-Name, URL and format are fixed for a subscription. See the [request schema](https://github.com/agentscope-ai/ReMe/blob/main/reme/schema/proactive_agent.py).
-Recipient updates keep the active connection; enabling an already connected subscription is idempotent.
-Manual definition edits take effect after restart; control updates refuse to overwrite edits not yet loaded by the service.
+Collectors publish complete workspace resource packages before delivering Events. SSE GET endpoints return
+text/event-stream with one CloudEvents 1.0 JSON envelope per data field. Original JSON and the first reception time
+are retained under `{resource_dir}/cloudevents`; subscription definitions and delivery checkpoints live under
+`{metadata_dir}/proactive/sources`. Event identity is CloudEvents source + id. Changed content under the same
+identity is an error. Successful configuration does not confirm connection, delivery or processing.
+The shared view separates enabled, available, connected, pending_delivery_count and last_error.
+Manual subscription definition edits require a restart; updates refuse to overwrite unloaded edits.
 
-Definitions and delivery checkpoints persist under `{metadata_dir}/proactive/sources/<source_id>/`; original CloudEvents
-and their reception times live under `{resource_dir}/cloudevents/`. Internal Events reference those files. Identity uses
-CloudEvents `source + id`; changed content under the same identity fails explicitly. Equivalent timestamp offsets and
-omitted/null optional attributes are normalized for comparison, while original JSON is retained. Omitted event times use the first
-saved reception time. Pending deliveries retain their original recipients, retry only unaccepted targets, and block
-cursor advancement on rejection or error. Restore rejected receiving tasks before retrying. Pause closes the connection
-and preserves files and pending work. Restart restores enabled subscriptions and reconnects with the committed
-`Last-Event-ID`; historical replay depends on upstream support. HTTP 204 stops automatic reconnection until enable or
-restart. SSE lines and buffered event data are bounded to 1 MiB. This combines SSE with CloudEvents JSON; provider-specific subscription
-handshakes and custom authentication headers are not configured by this interface.
-
-For a new task, start with `manage-proactive-runtime`: scheduled work such as a daily briefing can fetch its own sources;
-event-triggered work needs an ongoing feed. Reuse a preset collector, or follow `manage-connector` to place a custom script
-beside TASK.md under `scripts/`, save source material to `resource_dir`, and send Events through HTTP
-`POST /manage_connector` with `action="send"`, `runtime_names` and `events`. Event paths are workspace-relative;
-`source="time"` is framework-reserved. Inspect `deliveries`, `rejected` and `errors` even after partial failure.
-Retry only `errors`, with unchanged event IDs and content, and retain the source cursor until every recipient is terminal.
+Subscriptions reconnect with the committed Last-Event-ID after restart; replay depends on upstream support.
+Errors/rejections retain the pending event and block cursor advancement. HTTP 204 stops reconnect until explicitly
+resumed or restarted. SSE lines/events are limited to 1 MiB; custom authentication and provider-specific handshakes
+are not configured. Custom HTTP collectors continue to send workspace-relative Events through action=send;
+source=time is reserved. Time sources are projected from Runtime schedules. Icons and emoji are frontend settings.
 
 ### Reminder commits and recovery
 
@@ -201,6 +172,45 @@ Notebook automatic-write constraints are injected through trusted Runtime config
 
 See [components](../../reme/components/proactive/), [workflows](../../reme/steps/proactive/) and
 [configuration](../../reme/config/proactive.yaml).
+
+### Proactive overview subscription
+
+After starting `reme start config=proactive`, subscribe through HTTP `POST /watch_proactive_overview`
+with `{}` or `{"agent_names":["proactive_memory"]}`. The optional filter selects background Runtimes;
+shared Remy is included automatically. This read-only StreamJob does not run models, create native sessions,
+claim inputs or acknowledge reminders. Existing conversation and detail Jobs remain available.
+
+Each `StreamChunk` of type `data` carries one of:
+
+- `snapshot {epoch, revision, as_of, overview}`: replace all six sections: `sources`, `agents`,
+  `event_inbox`, `remy_inbox`, `reminders` and `workspace`; `errors` isolates unavailable facts.
+- `update {epoch, previous_revision, revision, as_of, changes, transitions}`: replace/remove entities
+  by collection and business identity; a null change value removes an entity. Transitions have stable IDs
+  and link successful admissions, batch claims, record commits, notification deliveries and final messages.
+- `heartbeat`: transport liveness, normally every 15 seconds. Errors and termination use the usual
+  StreamChunk `error` and `done` contract.
+
+Every connection starts with an authoritative snapshot. A reader that falls behind the bounded journal also
+receives a new snapshot. Apply updates only when their epoch and previous revision match; reconnect on a gap.
+The watermark precedes the read, so changes during snapshot assembly remain available in subsequent updates.
+Never animate snapshot history, and deduplicate live transition IDs. The shared Studio client provides
+`watchProactiveOverview` and `ProactiveOverviewModel`, including reconnect, version checks and reduced-motion support.
+Subscriptions share bounded read projections. Durable owner changes and execution activity invalidate them;
+external file edits are checked within about five seconds. Agent waiting_reason, waiting_until and retry_at use
+the scheduler's own eligibility decision. Current runs include tool and turn identity; waiting state is not duplicated in runs.
+
+Inbox waiting and processing counts are disjoint. The admission envelope stores admission time and the source
+snapshot separately from the original Event. Committed receipts retain input/source/run/file provenance, including records that
+produce no reminder. Final reminders include only sent native messages; transport delivery, Remy processing and
+user reading remain distinct. Workspace entries are original relative file references; content and editing use
+existing file Jobs. See the [public models](../../reme/schema/proactive_overview.py).
+Reminder queries separate created_at from confirmed delivered_at; an unconfirmed delivery time stays null.
+delivery describes the sender, remy_processing describes the receiver, and its state is null before admission.
+Configured source targets follow the current definition; historical events retain their source snapshots without
+restoring removed connections. Workspace entries include configured locations, each task's three latest delivery
+records, current/latest run outputs, and files referenced by recent lists. Historical deliveries are not all added
+to the workspace; use existing detail and paging Jobs for full history.
+
 
 ## MCP
 

@@ -22,6 +22,7 @@ import { useHost } from "./host.ts";
 import { useSpeechPlayback } from "./speech/playback.ts";
 import { useMobileDrawerGesture } from "./mobile-gesture.ts";
 import AgentWorkspace from "./agent-workspace.tsx";
+import ProactiveOverview from "./proactive/index.tsx";
 import Settings from "./settings.tsx";
 import BackendSetup from "./backend-setup.tsx";
 import { BackendAccess } from "./backend-access.tsx";
@@ -160,7 +161,7 @@ export default function Workbench({
     previousMenu.current = mobileMenu;
   }, [mobileMenu]);
   useEffect(() => {
-    if (!platform) return;
+    if (!platform || state.activePage === "tasks") return;
     const toggle = (event: KeyboardEvent) => {
       if (
         event.defaultPrevented ||
@@ -182,20 +183,13 @@ export default function Workbench({
     };
     window.addEventListener("keydown", toggle);
     return () => window.removeEventListener("keydown", toggle);
-  }, [platform, activeSidebarCollapsed, setSidebarCollapsed]);
+  }, [platform, activeSidebarCollapsed, setSidebarCollapsed, state.activePage]);
   useEffect(() => {
     if (state.documentTarget && !compact)
       setCollapsed((value) => ({ ...value, knowledge: false }));
   }, [state.documentTarget, compact]);
   const lastPage = useRef<Exclude<StudioPage, "settings">>("remy");
   const settingsOpen = state.activePage === "settings";
-  const agentPage =
-    state.activePage === "tasks" ||
-    (state.activePage !== "remy" &&
-      state.selectedAgentName &&
-      state.selectedAgentName !== "Remy")
-      ? "tasks"
-      : "remy";
   useEffect(() => {
     if (state.activePage !== "settings") lastPage.current = state.activePage;
   }, [state.activePage]);
@@ -297,14 +291,16 @@ export default function Workbench({
         hidden={settingsOpen}
         inert={settingsOpen}
       >
-        <Tabs.Content value={agentPage} forceMount className="workspace-page">
+        <Tabs.Content value="remy" forceMount className="workspace-page">
           <AgentWorkspace
             key={scope}
             state={state}
-            page={agentPage}
-            collapsed={sidebarCollapsed(agentPage)}
+            collapsed={sidebarCollapsed("remy")}
             onNavigate={closeCompactSidebar}
           />
+        </Tabs.Content>
+        <Tabs.Content value="tasks" forceMount className="workspace-page">
+          <ProactiveOverview key={scope} state={state} />
         </Tabs.Content>
         <Tabs.Content value="notebook" forceMount className="workspace-page">
           <Notebook
@@ -401,7 +397,7 @@ export default function Workbench({
                     }
                     onClick={() => {
                       select(page);
-                      setMobileMenu("secondary");
+                      setMobileMenu(page === "tasks" ? null : "secondary");
                     }}
                   >
                     <span className="mobile-module-icon">
@@ -412,7 +408,9 @@ export default function Workbench({
                       {page === "remy" && state.unread > 0 && (
                         <i className="mobile-unread" />
                       )}
-                      <ChevronRight size={15} aria-hidden />
+                      {page !== "tasks" && (
+                        <ChevronRight size={15} aria-hidden />
+                      )}
                     </span>
                   </button>
                 ))}

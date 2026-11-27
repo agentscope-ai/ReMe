@@ -14,6 +14,26 @@ from reme.steps.proactive.chat import ProcessChatNotificationsStep
 from .proactive_helpers import running_system, emit_notification, queue_event
 
 
+@pytest.mark.asyncio
+async def test_failed_delivery_has_no_delivery_time_and_keeps_full_provenance(tmp_path, monkeypatch):
+    async with running_system(tmp_path) as (manager, context, _):
+        chat = manager.notification_target
+        monkeypatch.setattr(chat.inbox, "append", AsyncMock(side_effect=OSError("receiver offline")))
+        reference = await emit_notification(manager, context)
+        result = (
+            await AgentReminderStep(app_context=context, agent_runtime="Remy")(
+                agent_name="monitor",
+                message_id=reference.record_path,
+            )
+        ).answer
+        assert result["created_at"] and result["delivered_at"] is None
+        assert result["delivery"]["status"] == "prepared"
+        assert result["delivery"]["last_error"] == "receiver offline"
+        assert result["remy_processing"] == {"state": None, "processed_at": None}
+        assert result["trace"]["run_ids"] == [reference.trace.run_id]
+        assert result["trace"]["record_paths"] == [reference.record_path]
+
+
 @pytest.mark.parametrize("agent_name", [None, "monitor"])
 @pytest.mark.asyncio
 async def test_reminder_pages_and_combined_detail_share_one_chat_outbox_read(tmp_path, monkeypatch, agent_name):

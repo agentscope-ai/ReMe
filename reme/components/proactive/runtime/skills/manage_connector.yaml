@@ -1,262 +1,91 @@
 name: manage-connector
-description: Use manage_connector to manage preset collectors, subscribe to CloudEvents over SSE, and deliver custom HTTP events to background tasks.
-description_zh: 通过 manage_connector 管理预设采集器、订阅 CloudEvents SSE，并向后台任务投递自建 HTTP 事件。
+description: Manage collection sources and deliver custom events with manage_connector.
+description_zh: 通过 manage_connector 管理采集来源并投递自建事件。
 content: |
   # Manage connectors
 
-  Start with `manage-proactive-runtime` to create or identify the receiving event-triggered task. Use the `manage_connector` MCP Job to manage preset collectors or subscribe to compatible SSE endpoints. Custom collection scripts deliver data through HTTP `POST /manage_connector` with `action="send"`.
+  First create or identify the receiving event-triggered Runtime with manage-proactive-runtime.
+  manage_connector has four actions:
 
-  ## Subscribe to CloudEvents over SSE
-
-  If a source exposes an HTTP(S) GET endpoint returning `text/event-stream`, with one CloudEvents 1.0 JSON envelope in each SSE `data` field, create a subscription directly:
-
-  ```json
-  {
-    "action": "create",
-    "name": "Experiment progress",
-    "trigger_type": "event",
-    "runtime_names": ["experiment_watch"],
-    "binding": {
-      "type": "sse",
-      "url": "https://example.com/events",
-      "format": "cloudevents"
-    }
-  }
-  ```
-
-  All four creation fields (`name`, `trigger_type`, `runtime_names`, `binding`) are required. Targets must already exist, be event-triggered, and be unique ignoring case; creation requires a nonempty list. ReMe saves the definition, returns `source_id`, and starts the connection in the background. Creation success confirms configuration, not successful connection or delivery. No collection script is needed for a compatible stream. This combines SSE framing with CloudEvents JSON; it does not implement a provider-specific subscription handshake or custom authentication headers.
-
-  Use the returned `source_id` instead of `connector_job` for subsequent controls; never supply both. `pause` and `enable` accept only `action` and `source_id`. `update` accepts only `action`, `source_id` and the complete replacement `runtime_names`; an empty list continues saving new events without delivery. Example: `{"action":"update","source_id":"source_0123456789abcdef0123456789abcdef","runtime_names":["experiment_watch","project_watch"]}`; replace the example ID with the real returned ID. Name, URL and format are fixed for that subscription.
-
-  `list` returns both presets and subscriptions. Subscription items include `source_id`, `name`, `binding`, `enabled`, `runtime_names`, `available`, `connected`, `last_error`, `last_event_id` and `pending_delivery_count`. `available` means the manager is running; `connected` describes the current stream, not completed processing. Inspect errors and pending deliveries before reporting success.
-
-  Recipient updates keep the connection open, and repeated enable is idempotent while connected. Manual definition edits require a service restart; controls refuse to overwrite unloaded edits. Definitions and checkpoints persist under `{metadata_dir}/proactive/sources/<source_id>/`; raw envelopes and their first reception times are saved under `{resource_dir}/cloudevents/`. Events reference those files. CloudEvents `source` plus `id` determines event identity; comparison normalizes optional null attributes and equivalent timestamp offsets, while retaining original JSON. Changed content under the same identity is an error. If `time` is omitted, the first saved reception time is reused on retries.
-
-  ReMe freezes recipients before delivery and retries only targets that have not accepted the event. An error or rejection blocks cursor advancement; inspect `last_error` and restore rejected receiving tasks before retrying. Recipient updates affect new events, not saved pending deliveries. Pause closes the stream and retains files, pending deliveries and the committed cursor. Enabled subscriptions reconnect after restart with `Last-Event-ID`; historical replay requires upstream support. HTTP 204 stops automatic reconnect until the subscription is enabled again or ReMe restarts. SSE lines and buffered event data are limited to 1 MiB. CloudEvents defines event envelopes, not the schema or meaning of the business `data`.
-
-  ## Preset collectors: MCP management
-
-  | Action | Parameters and meaning |
+  | Action | Inputs |
   | --- | --- |
-  | `list` | Only `action`. Returns `items` and `total` for presets and subscriptions; preset items include `connector_job`, `description`, `schedule`, `available`, `enabled` and `runtime_names`. For presets, `available` means the configured Job is enabled and started; `enabled` is its persistent download switch. |
-  | `pause`, `enable` | `action` and `connector_job` returned by `list`. Pause/resume downloading; do not change Runtime execution settings. The Job must be available. |
-  | `update` | `action`, `connector_job`, `runtime_names`. Replace the complete recipient list with existing event-triggered Runtime names, unique ignoring case. Read the list first to retain other subscribers. An empty list keeps downloads without new deliveries. |
+  | list | action only; returns items and total |
+  | create | name, runtime_names, binding with an HTTP(S) SSE url |
+  | update | source_id and any nonempty subset of name, runtime_names, enabled |
+  | send | runtime_names and a nonempty events array |
 
-  The workspace retains the switch and recipient override across restart; changes apply without restarting ReMe. Without an override, recipients come from the service configuration. New lists apply to new batches; already saved delivery batches keep their original recipients and retry progress. Pausing preserves files and pending batches. Configure collection frequency and source details in the service configuration.
+  Use the source_id returned by list or create for all updates. Preset identities are preset:<job-name>;
+  custom subscriptions use source_<uuid>. Connector Job names are internal bindings, not request parameters.
+  Update only supplied fields. runtime_names replaces the complete target list; [] continues collecting
+  without delivering new events. enabled=false pauses collection; enabled=true resumes it. Existing files,
+  admitted events, committed cursors and pending deliveries remain. Saved batches keep their original targets
+  and source name; changes affect subsequent inputs. Source IDs stay stable when names change.
+  Preset controls do not alter the target Runtime's enabled setting.
 
-  The following examples assume `finance_news_cron` currently delivers to `proactive_fin` and the new `market_watch` task already exists.
+  Examples:
+  - {"action":"list"}
+  - {"action":"create","name":"Experiment progress","runtime_names":["experiment_watch"],"binding":{"url":"https://example.com/events"}}
+  - {"action":"update","source_id":"preset:screen_capture_cron","enabled":false}
+  - {"action":"update","source_id":"preset:screen_capture_cron","name":"Project observations","runtime_names":["project_watch"],"enabled":true}
 
-  | Operation | Complete MCP parameters |
-  | --- | --- |
-  | Find preset sources and settings | `{"action":"list"}` |
-  | Pause downloads | `{"action":"pause","connector_job":"finance_news_cron"}` |
-  | Resume downloads | `{"action":"enable","connector_job":"finance_news_cron"}` |
-  | Add a recipient while retaining the original | `{"action":"update","connector_job":"finance_news_cron","runtime_names":["proactive_fin","market_watch"]}` |
-  | Remove a recipient | `{"action":"update","connector_job":"finance_news_cron","runtime_names":["proactive_fin"]}` |
-  | Download without new deliveries | `{"action":"update","connector_job":"finance_news_cron","runtime_names":[]}` |
+  Targets must exist, be event-triggered and be unique ignoring case. Creation requires a nonempty target list.
+  SSE GET endpoints return text/event-stream; each data field contains one CloudEvents 1.0 JSON envelope.
+  The protocol is fixed: no trigger_type or format parameter is needed. URL and binding type are immutable.
+  Definition success does not confirm a network connection, delivery or Agent processing. enabled is the
+  configured gate; available means the owner is available; connected describes the SSE connection only.
+  Inspect last_error, pending_delivery_count and actual receiving queues before reporting success.
+  Manual subscription definition edits require a restart; updates refuse to overwrite unloaded edits.
 
-  ## Custom sources: save material, then deliver HTTP events
+  CloudEvents source + id identifies an event. Original envelopes are saved in resource/cloudevents;
+  definitions and cursor/pending checkpoints are saved in metadata/proactive/sources. Retry only unresolved
+  recipients. A rejected or failed handoff blocks the cursor; restore the receiver to allow automatic recovery.
+  SSE resumes with Last-Event-ID after restart; historical replay depends on the upstream server. HTTP 204
+  stops the stream until enabled again or the service restarts. Lines and event buffers are limited to 1 MiB.
+  This supports SSE framing with CloudEvents JSON, not provider-specific subscription handshakes or custom auth headers.
 
-  If neither a preset nor a compatible SSE endpoint fits, put a collection script in `scripts/collect.py` beside the task's TASK.md, using the actual `task_path`. For example: `reme_agents/experiment_watch/scripts/collect.py`. Use the current service address; `POST /get_client_info` with `{}` supplies `workspace_dir` and `resource_dir`. Save original material under the resource directory and reference it in Events, as the preset CLS news collector does.
-
-  `send` accepts only `action`, nonempty `runtime_names` and nonempty `events`. Recipients must be existing event-triggered Runtimes; time-triggered Runtimes fetch their own data. Manual delivery saves no files and creates no resource package for you.
-
-  | Event field | Meaning |
-  | --- | --- |
-  | `id` | Optional nonempty ID, up to 128 characters; generated when omitted. Supply a stable ID for retries. Same ID and content are idempotent per recipient; changed content needs a new ID. |
-  | `event_ts` | Required observation timestamp with timezone; retain it on retries. |
-  | `source` | Required nonempty source name; `time` is reserved for the framework. |
-  | `description` | Required string summarizing the observation. |
-  | `paths` | Optional, default `[]`. Normalized workspace-relative paths to saved files; no absolute/home paths, backslashes or `..`. |
-  | `metadata` | Optional JSON object, default `{}`, for extra context. |
-
-  Each request below is an independent `POST /manage_connector` example. In the retry example, only `project_watch` failed in the first request; keep the exact original Events.
-
-  | Delivery | Complete HTTP body |
-  | --- | --- |
-  | Send one observation to several Runtimes | `{"action":"send","runtime_names":["experiment_watch","project_watch"],"events":[{"id":"log-001","event_ts":"2026-11-27T10:30:00+08:00","source":"experiment_log","description":"Log updated","paths":["resource/experiments/log-001.txt"],"metadata":{"experiment":"demo"}}]}` |
-  | Retry only a failed recipient | `{"action":"send","runtime_names":["project_watch"],"events":[{"id":"log-001","event_ts":"2026-11-27T10:30:00+08:00","source":"experiment_log","description":"Log updated","paths":["resource/experiments/log-001.txt"],"metadata":{"experiment":"demo"}}]}` |
-  | Send a batch of observations | `{"action":"send","runtime_names":["experiment_watch"],"events":[{"id":"log-002","event_ts":"2026-11-27T10:35:00+08:00","source":"experiment_log","description":"Training ended","paths":["resource/experiments/log-002.txt"]},{"id":"log-003","event_ts":"2026-11-27T10:40:00+08:00","source":"experiment_log","description":"Evaluation ended","paths":["resource/experiments/log-003.txt"]}]}` |
-  | Correct information with a new event | `{"action":"send","runtime_names":["experiment_watch"],"events":[{"id":"log-004","event_ts":"2026-11-27T10:45:00+08:00","source":"experiment_log","description":"The earlier run ended with an error","paths":["resource/experiments/log-004.txt"]}]}` |
-
-  ### Example: watch an experiment log
-
-  This script reads the existing UTF-8 log, then polls once per second for appended output. Save each new chunk under `resource_dir` and send its path to the receiving Runtime.
-
-  ```python
-  import sys
-  import time
-  from datetime import datetime
-  from pathlib import Path
-  from uuid import uuid4
-
-  import httpx
-
-  base, log_path, runtime_name = sys.argv[1:]
-  with httpx.Client(base_url=base, timeout=30) as client:
-      info = client.post("/get_client_info", json={}).raise_for_status().json()
-      if not info["success"]:
-          raise RuntimeError(info["answer"])
-      workspace = Path(info["answer"]["workspace_dir"])
-      folder = workspace / info["answer"]["resource_dir"] / "experiment_log"
-      folder.mkdir(parents=True, exist_ok=True)
-
-      with Path(log_path).open(encoding="utf-8") as log:
-          while True:
-              text = log.read()
-              if text:
-                  path = folder / f"{uuid4().hex}.log"
-                  path.write_text(text, encoding="utf-8")
-                  event = {
-                      "id": path.stem,
-                      "event_ts": datetime.now().astimezone().isoformat(),
-                      "source": "experiment_log",
-                      "description": "Log output added",
-                      "paths": [path.relative_to(workspace).as_posix()],
-                  }
-                  result = client.post("/manage_connector", json={
-                      "action": "send", "runtime_names": [runtime_name], "events": [event],
-                  }).raise_for_status().json()
-                  if not result["success"]:
-                      raise RuntimeError(result["answer"])
-                  print(result["answer"], flush=True)
-              time.sleep(1)
-  ```
-
-  Run `python <script_path> <reme_service_url> <experiment_log_path> experiment_watch`. Keep the process running; stop it with Ctrl+C.
-
-  ## Verify results
-
-  For manual `send`, read all per-target results even when the overall response fails: `answer.deliveries` contains accepted event IDs, `answer.rejected` contains terminal rejection reasons, and `answer.errors` contains retryable errors. Retain original Events on retries; advance the custom script's cursor only once every recipient has accepted or explicitly rejected the batch. Managed SSE subscriptions instead block their cursor until all targets accept. Report rejections and persistent errors.
-
-  Use task `status` event counts, `last_completed_at` and `error` to check consumption; use `query` or daily records to check analysis. Verify actual sending when reminder conditions occur. State separately what is configured, running, accepted, processed and verified.
-
+  Custom collectors save files under the configured workspace resource directory, then use HTTP POST
+  /manage_connector with action=send, runtime_names and Events. Each Event includes a stable id, an aware
+  event_ts, source, description and optional workspace-relative paths. Preserve identical IDs and payloads
+  when retrying; inspect deliveries, rejected and errors per receiver. source=time is reserved for the scheduler.
+  Time sources are projected from time-triggered Runtimes; edit their schedule and enabled through
+  manage_proactive_runtime. Icons and emoji belong to the frontend.
 content_zh: |
   # 管理资料接入
 
-  先通过 `manage-proactive-runtime` 创建或找到接收资料的事件触发 Runtime。预设采集器和兼容的 SSE 订阅都用 `manage_connector` MCP Job 管理；自建采集脚本通过 HTTP `POST /manage_connector` 的 `action="send"` 投递数据。
+  先通过 manage-proactive-runtime 创建或找到接收资料的事件型 Runtime。
+  manage_connector 只有四个动作：
 
-  ## 订阅 CloudEvents SSE
-
-  如果来源提供 HTTP(S) GET 接口，返回 `text/event-stream`，且每条 SSE 的 `data` 是一个 CloudEvents 1.0 JSON 对象，可以直接创建订阅：
-
-  ```json
-  {
-    "action": "create",
-    "name": "实验进度",
-    "trigger_type": "event",
-    "runtime_names": ["experiment_watch"],
-    "binding": {
-      "type": "sse",
-      "url": "https://example.com/events",
-      "format": "cloudevents"
-    }
-  }
-  ```
-
-  创建的四个字段 `name`、`trigger_type`、`runtime_names`、`binding` 都必填。目标必须已存在、为事件触发类型，忽略大小写不能重复；创建时目标名单不能为空。ReMe 保存定义，返回 `source_id`，并在后台开始连接。创建成功只表示配置成功，不表示已连接或已投递。来源兼容时无需自建采集脚本。这是 SSE 分帧和 CloudEvents JSON 的组合，不执行平台特有的订阅握手，也不配置自定义鉴权头。
-
-  后续操作使用返回的 `source_id`，不再传 `connector_job`，二者不能同时使用。`pause`、`enable` 只传 `action`、`source_id`；`update` 只传 `action`、`source_id` 和完整的 `runtime_names` 替换名单，空名单表示继续保存新事件、不投递。例如 `{"action":"update","source_id":"source_0123456789abcdef0123456789abcdef","runtime_names":["experiment_watch","project_watch"]}`，将示例 ID 换成实际返回值。名称、URL 和格式在该订阅中固定。
-
-  `list` 同时返回预设和订阅。订阅项包括 `source_id`、`name`、`binding`、`enabled`、`runtime_names`、`available`、`connected`、`last_error`、`last_event_id`、`pending_delivery_count`。`available` 表示管理组件正在运行，`connected` 只表示当前事件流连接状态，不表示任务已处理。报告成功前检查错误及待投递数量。
-
-  修改目标保持连接，重复启用已连接的订阅也不会重连。手工编辑定义后需重启服务；控制接口拒绝覆盖尚未加载的改动。定义和检查点保存在 `{metadata_dir}/proactive/sources/<source_id>/`，原始事件和首次接收时间保存在 `{resource_dir}/cloudevents/`，投递事件引用这些文件。CloudEvents 的 `source + id` 决定事件身份，比较时规范化可选 null 属性和等价时间偏移，保留原始 JSON。同一身份内容变化会报错。省略 `time` 时使用首次保存的接收时间，重试不改变时间。
-
-  投递前冻结接收名单，只重试尚未接受的目标。错误或拒绝都会阻止游标推进；查看 `last_error`，恢复被拒绝的接收任务后重试。修改目标只影响新事件，已保存的待投递内容保留原目标。暂停关闭连接，保留文件、待投递事件和已提交游标；重启后恢复启用的订阅，携带 `Last-Event-ID` 重连，历史补发仍要求上游支持。HTTP 204 停止自动重连，可再次 enable 或重启 ReMe 恢复。SSE 单行和事件数据缓冲上限为 1 MiB。CloudEvents 统一事件封装，业务 `data` 的结构和含义仍由来源定义。
-
-  ## 预设采集器：通过 MCP 管理
-
-  | 操作 | 参数和含义 |
+  | 动作 | 输入 |
   | --- | --- |
-  | `list` | 只传 `action`。返回预设和订阅的 `items`、`total`，预设项含 `connector_job`、`description`、`schedule`、`available`、`enabled`、`runtime_names`。预设的 `available` 表示配置的 Job 已启用并启动，`enabled` 是持久化的下载开关。 |
-  | `pause`、`enable` | 传 `action` 和 `list` 返回的 `connector_job`，暂停/恢复下载，不修改 Runtime 执行开关。Job 必须可用。 |
-  | `update` | 传 `action`、`connector_job`、`runtime_names`，用完整名单替换目标。目标必须是已有事件触发 Runtime，忽略大小写不能重复。先读取原名单，保留其他订阅者；空名单表示继续下载，不投递新资料。 |
+  | list | 只传 action，返回 items 和 total |
+  | create | name、runtime_names，以及包含 HTTP(S) SSE url 的 binding |
+  | update | source_id，以及 name、runtime_names、enabled 中至少一项 |
+  | send | runtime_names 和非空 events 数组 |
 
-  开关和目标覆盖名单保存在工作区，重启后保留，修改后不需要重启 ReMe。没有覆盖名单时使用服务配置的目标。新名单只影响新批次；已保存的待投递批次保留原名单和重试进度。暂停保留文件和待投递批次，采集频率、来源细节仍在服务配置中调整。
+  更新统一使用 list/create 返回的 source_id。预设身份为 preset:<job-name>，自定义订阅为 source_<uuid>；
+  Connector Job 名只是内部绑定，不作为请求参数。只修改传入字段。runtime_names 完整替换目标名单；
+  [] 表示继续采集、不投递新事件。enabled=false 暂停，enabled=true 恢复。文件、已入队事件、已提交游标和
+  待投递批次保留；已保存批次保留原目标和来源名称，修改只影响后续输入。改名不改变来源身份。
+  来源开关不修改目标 Runtime 的 enabled。
 
-  以下示例假定 `finance_news_cron` 原来投递给 `proactive_fin`，新 Runtime `market_watch` 已创建。
+  示例：
+  - {"action":"list"}
+  - {"action":"create","name":"实验进度","runtime_names":["experiment_watch"],"binding":{"url":"https://example.com/events"}}
+  - {"action":"update","source_id":"preset:screen_capture_cron","enabled":false}
+  - {"action":"update","source_id":"preset:screen_capture_cron","name":"项目观察","runtime_names":["project_watch"],"enabled":true}
 
-  | 操作 | 完整 MCP 参数 |
-  | --- | --- |
-  | 查看预设来源和设置 | `{"action":"list"}` |
-  | 暂停下载 | `{"action":"pause","connector_job":"finance_news_cron"}` |
-  | 恢复下载 | `{"action":"enable","connector_job":"finance_news_cron"}` |
-  | 保留原目标并新增一个 | `{"action":"update","connector_job":"finance_news_cron","runtime_names":["proactive_fin","market_watch"]}` |
-  | 移除一个目标 | `{"action":"update","connector_job":"finance_news_cron","runtime_names":["proactive_fin"]}` |
-  | 只下载，不投递新资料 | `{"action":"update","connector_job":"finance_news_cron","runtime_names":[]}` |
+  目标必须已存在、为事件型，忽略大小写不能重复；创建要求非空目标名单。SSE GET 接口返回 text/event-stream，
+  每条 data 是一个 CloudEvents 1.0 JSON 对象。协议固定，不需要 trigger_type 和 format 参数；地址和绑定类型不可修改。
+  配置成功不等于已连接、投递成功或 Agent 已处理。enabled 是配置开关，available 是所属组件是否可用，connected
+  只表示 SSE 连接。报告成功前检查 last_error、pending_delivery_count 和实际接收队列。
+  手工修改订阅定义后需重启加载，更新接口会拒绝覆盖尚未加载的改动。
 
-  ## 自建来源：先保存资料，再通过 HTTP 投递
+  CloudEvents 的 source + id 决定事件身份。原文保存在 resource/cloudevents；定义、游标和待投递检查点保存在
+  metadata/proactive/sources。只重试尚未接受的目标，错误或拒绝会阻止游标推进，恢复接收方后自动重试。
+  重启携带 Last-Event-ID 恢复，历史补发仍依赖上游。HTTP 204 停止连接，可再次 enabled=true 或重启服务恢复。
+  单行和事件缓冲上限为 1 MiB；不配置平台特有握手和自定义鉴权头。
 
-  没有合适的预设或兼容的 SSE 接口时，按实际 `task_path`，把采集脚本放在 TASK.md 同级的 `scripts/collect.py`，例如 `reme_agents/experiment_watch/scripts/collect.py`。使用当前服务地址，先用 `POST /get_client_info`（请求体 `{}`）取得 `workspace_dir`、`resource_dir`。参考预设财联社新闻采集：先把原始资料保存到资源目录，再通过 Event 引用文件。
-
-  `send` 只接受 `action`、非空的 `runtime_names` 和 `events`。目标必须是已有事件触发 Runtime，时间触发 Runtime 自己取资料。手动投递不会替你保存文件或创建 resource 包。
-
-  | Event 字段 | 含义 |
-  | --- | --- |
-  | `id` | 可选非空 ID，最长 128 字符，省略时自动生成。需要重试时显式给稳定 ID；同一目标下，同 ID 同内容幂等，内容变化换新 ID。 |
-  | `event_ts` | 必填，带时区的观察时间，重试保持原值。 |
-  | `source` | 必填非空来源名，`time` 由框架保留。 |
-  | `description` | 必填字符串，简述本次观察。 |
-  | `paths` | 可选，默认 `[]`，引用已保存文件的规范工作区相对路径，不含绝对/家目录路径、反斜杠或 `..`。 |
-  | `metadata` | 可选 JSON 对象，默认 `{}`，补充背景。 |
-
-  下表每行是独立的 `POST /manage_connector` 请求。重试示例假定第一行只有 `project_watch` 失败，必须原样复用原 Event。
-
-  | 投递 | 完整 HTTP 正文 |
-  | --- | --- |
-  | 一条观察发给多个 Runtime | `{"action":"send","runtime_names":["experiment_watch","project_watch"],"events":[{"id":"log-001","event_ts":"2026-11-27T10:30:00+08:00","source":"experiment_log","description":"日志已更新","paths":["resource/experiments/log-001.txt"],"metadata":{"experiment":"demo"}}]}` |
-  | 只重试失败目标 | `{"action":"send","runtime_names":["project_watch"],"events":[{"id":"log-001","event_ts":"2026-11-27T10:30:00+08:00","source":"experiment_log","description":"日志已更新","paths":["resource/experiments/log-001.txt"],"metadata":{"experiment":"demo"}}]}` |
-  | 批量投递观察 | `{"action":"send","runtime_names":["experiment_watch"],"events":[{"id":"log-002","event_ts":"2026-11-27T10:35:00+08:00","source":"experiment_log","description":"训练已结束","paths":["resource/experiments/log-002.txt"]},{"id":"log-003","event_ts":"2026-11-27T10:40:00+08:00","source":"experiment_log","description":"评估已结束","paths":["resource/experiments/log-003.txt"]}]}` |
-  | 用新事件更正信息 | `{"action":"send","runtime_names":["experiment_watch"],"events":[{"id":"log-004","event_ts":"2026-11-27T10:45:00+08:00","source":"experiment_log","description":"此前运行因错误退出","paths":["resource/experiments/log-004.txt"]}]}` |
-
-  ### 示例：观察实验日志
-
-  脚本先读取已有的 UTF-8 日志，随后每秒读取新增内容。将每段新增内容保存到 `resource_dir`，再把文件路径发送给接收 Runtime。
-
-  ```python
-  import sys
-  import time
-  from datetime import datetime
-  from pathlib import Path
-  from uuid import uuid4
-
-  import httpx
-
-  base, log_path, runtime_name = sys.argv[1:]
-  with httpx.Client(base_url=base, timeout=30) as client:
-      info = client.post("/get_client_info", json={}).raise_for_status().json()
-      if not info["success"]:
-          raise RuntimeError(info["answer"])
-      workspace = Path(info["answer"]["workspace_dir"])
-      folder = workspace / info["answer"]["resource_dir"] / "experiment_log"
-      folder.mkdir(parents=True, exist_ok=True)
-
-      with Path(log_path).open(encoding="utf-8") as log:
-          while True:
-              text = log.read()
-              if text:
-                  path = folder / f"{uuid4().hex}.log"
-                  path.write_text(text, encoding="utf-8")
-                  event = {
-                      "id": path.stem,
-                      "event_ts": datetime.now().astimezone().isoformat(),
-                      "source": "experiment_log",
-                      "description": "实验日志有新增输出",
-                      "paths": [path.relative_to(workspace).as_posix()],
-                  }
-                  result = client.post("/manage_connector", json={
-                      "action": "send", "runtime_names": [runtime_name], "events": [event],
-                  }).raise_for_status().json()
-                  if not result["success"]:
-                      raise RuntimeError(result["answer"])
-                  print(result["answer"], flush=True)
-              time.sleep(1)
-  ```
-
-  运行 `python <script_path> <reme_service_url> <experiment_log_path> experiment_watch`，保持进程运行，用 Ctrl+C 停止。
-
-  ## 核对结果
-
-  手动 `send` 的整体响应失败时也看各目标结果：`answer.deliveries` 是已接收事件 ID，`answer.rejected` 是明确拒绝，`answer.errors` 是可重试错误。重试保持原事件不变；所有目标都接受或明确拒绝后，才推进自建脚本的采集游标。托管 SSE 订阅则必须等所有目标接受后才推进游标。拒绝和持续失败都要报告。
-
-  用任务 `status` 的事件计数、`last_completed_at`、`error` 核对消费，用 `query` 或每日记录核对分析；提醒条件出现时核对实际发送。分清已配置、正在运行、事件已接收、已处理和已验证。
+  自建采集脚本先将文件保存到配置的工作区 resource 目录，再通过 HTTP POST /manage_connector 的 action=send
+  投递。Event 包括稳定 id、带时区的 event_ts、source、description 和可选的工作区相对 paths。重试保留原 ID
+  和原始内容，按接收方检查 deliveries、rejected、errors。source=time 由调度器保留。
+  时间来源直接从时间型 Runtime 投影，通过 manage_proactive_runtime 修改计划和启停；图标与 emoji 由前端管理。

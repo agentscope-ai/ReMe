@@ -7,6 +7,7 @@ from datetime import timedelta, timezone
 from .base import BaseAgentRuntime
 from ..inbox import EventInbox
 from ..outbox import NotificationOutbox
+from ..overview_events import notify_overview
 from ....core.registry import R
 from ....schema.agent_inbox import NotificationRef
 from ....schema.proactive_agent import ProactiveRuntimeConfig, ProactiveRuntimeDefinition
@@ -15,6 +16,8 @@ from ....utils.cron_utils import next_cron_time
 from ....utils.files.path_lock import get_path_lock
 from ....utils.proactive_record import is_date_directory, is_round_record, split_record
 from ....schema.proactive_agent import ProactiveRecordDecision
+from ....schema.proactive_trace import InputTrace
+from ....schema.proactive_trace import SourceRef
 from ....utils.timezone_utils import resolve_timezone
 
 
@@ -66,6 +69,50 @@ class ProactiveAgentRuntime(BaseAgentRuntime):
         self.delivery_error = None
         self.retiring = False
         self._handoffs = {}
+        self.active_run = None
+        self.last_run = None
+
+    def begin_run(self, batch):
+        """Expose the claimed attempt before preparing any native session."""
+        self.active_run = {
+            **self.input_trace(batch).model_dump(mode="json"),
+            "phase": "working",
+            "turn_id": batch["token"],
+            "started_at": self.last_started_at.isoformat(),
+        }
+
+    def input_trace(self, batch):
+        """Preserve every input and source in a batched execution."""
+        refs = {}
+        for item in batch["items"]:
+            ref = SourceRef.model_validate(batch["source_refs"][item["id"]])
+            refs[ref.source_id] = ref
+        return InputTrace(
+            run_id=batch["token"],
+            event_ids=[item["id"] for item in batch["items"]],
+            source_refs=list(refs.values()),
+        )
+
+    def finish_run(self, outcome, error=None):
+        """Keep the latest attempt in memory; successful receipts survive restart."""
+        if self.active_run is None:
+            return
+        self.last_run = {
+            **self.active_run,
+            "phase": outcome,
+            "completed_at": self.now().isoformat(),
+            "error": error[:2000] if error else None,
+        }
+        self.active_run = None
+        notify_overview(
+            self,
+            "run_completed" if outcome == "completed" else "run_failed",
+            identity=self.last_run["run_id"],
+            agent_name=self.name,
+            run_id=self.last_run["run_id"],
+            event_ids=self.last_run["event_ids"],
+            paths=self.last_run.get("record_paths", []),
+        )
 
     def _check_open(self):
         super()._check_open()
@@ -138,6 +185,7 @@ class ProactiveAgentRuntime(BaseAgentRuntime):
         snapshot = await self.inbox.snapshot()
         receipt = snapshot["receipt"]
         next_trigger = self.next_trigger(definition)
+        reason, until = self.waiting_state(definition, snapshot)
         return {
             "agent_name": self.name,
             "config": definition.model_dump(mode="json"),
@@ -149,7 +197,33 @@ class ProactiveAgentRuntime(BaseAgentRuntime):
             "last_completed_at": receipt.consume_ts.isoformat() if receipt else None,
             "next_trigger_at": next_trigger.isoformat() if next_trigger else None,
             "error": self.error or self.delivery_error,
+            "retry_at": self.retry_at.isoformat() if self.retry_at else None,
+            "waiting_reason": reason,
+            "waiting_until": until.isoformat() if until else None,
         }
+
+    def waiting_state(self, definition, snapshot):
+        """The scheduler and every public view use the same eligibility decision."""
+        reason, until = None, None
+        now = self.now()
+        if self.closed or self.retiring:
+            reason = "stopped"
+        elif self.worker is not None or self.execution_lock.locked():
+            reason = "execution_wait" if self.activity and self.activity.phase == "waiting" else None
+        elif not definition.enabled:
+            reason = "paused"
+        elif self.retry_at is not None and self.retry_at.timestamp() > now.timestamp():
+            reason, until = "retry_backoff", self.retry_at
+        elif not snapshot["pending_count"]:
+            if definition.agent_type == "time":
+                reason, until = "waiting_schedule", self.next_trigger(definition)
+            else:
+                reason = "waiting_input"
+        elif definition.agent_type == "event" and snapshot["receipt"] is not None:
+            deadline = snapshot["receipt"].consume_ts + timedelta(seconds=definition.min_trigger_interval_seconds)
+            if deadline.timestamp() > now.timestamp():
+                reason, until = "cooldown", deadline
+        return reason, until
 
     async def initialize_task(self, initial_task=None):
         """Create missing task requirements without rewriting user-owned content."""
@@ -177,19 +251,17 @@ class ProactiveAgentRuntime(BaseAgentRuntime):
     async def receipt_record_paths(self):
         """Keep committed record names reserved after a file is moved."""
         return frozenset(
-            receipt.metadata["reminder_path"]
-            for receipt in await self.inbox.receipts()
-            if isinstance(receipt.metadata.get("reminder_path"), str)
+            path for receipt in await self.inbox.receipts() for path in receipt.metadata.get("record_paths", [])
         )
 
-    async def append(self, events):
+    async def append(self, events, *, source_ref=None):
         """Persist an idempotent batch, optionally waiting for pending capacity."""
         definition = await self.definition()
         if definition.agent_type != "event":
             from ..manager.base import TimeTriggeredTaskDeliveryError
 
             raise TimeTriggeredTaskDeliveryError(f"Time-triggered task cannot receive observations: {self.name}")
-        return await self.inbox.append(events, wait=False)
+        return await self.inbox.append(events, wait=False, source_ref=source_ref)
 
     async def commit_round(self, batch, reminder, session_id, record):
         """The durable input receipt precedes asynchronous reminder transport."""
@@ -206,13 +278,40 @@ class ProactiveAgentRuntime(BaseAgentRuntime):
                 decision = ProactiveRecordDecision.parse(split_record(self.files.read(record.path))[0])
                 if decision.reminder(reminder.id) != reminder:
                     raise ValueError("Reminder changed before commit")
-                reference = NotificationRef.from_record(self.name, reminder.id, self.now())
+                reference = NotificationRef.from_record(
+                    self.name,
+                    reminder.id,
+                    self.now(),
+                    trace=self.input_trace(batch),
+                )
+            record_paths = (
+                [self.to_workspace_relative(record.path)] if record is not None and record.written is not None else []
+            )
             metadata = {
                 "session_id": session_id,
-                "reminder_path": reminder.id if reminder else None,
                 "notification": reference.model_dump(mode="json") if reference else None,
+                "notification_requested": reference is not None,
+                **self.input_trace(batch).model_dump(mode="json"),
+                "record_paths": record_paths,
+                "started_at": self.last_started_at.isoformat() if self.last_started_at else None,
             }
             await self.inbox.ack(batch["token"], metadata=metadata, retain=reference is not None)
+            if self.active_run is not None:
+                self.active_run.update(
+                    session_id=session_id,
+                    record_paths=record_paths,
+                    notification_requested=reference is not None,
+                )
+            if record_paths:
+                notify_overview(
+                    self,
+                    "record_committed",
+                    identity=batch["token"],
+                    agent_name=self.name,
+                    run_id=batch["token"],
+                    event_ids=metadata["event_ids"],
+                    paths=record_paths,
+                )
             if reference is not None:
                 self._handoffs[reference.id] = (await self.inbox.snapshot())["receipt"]
             self.retry_items = None

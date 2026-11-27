@@ -164,6 +164,8 @@ class BaseAgentRuntime(BaseComponent):
     async def start_children(self):
         """Start owned Inbox and Outbox resources with rollback on failure."""
         self.directory.mkdir(parents=True, exist_ok=True)
+        self.inbox.agent_name = self.outbox.agent_name = self.name
+        self.outbox.inbox = self.inbox
         try:
             await self.inbox.start()
             await self.outbox.start()

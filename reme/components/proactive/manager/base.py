@@ -42,13 +42,13 @@ class BaseAgentManager(BaseComponent):
         """Retire execution while preserving its workspace files."""
 
     @abstractmethod
-    async def append_events(self, agent_name, events):
+    async def append_events(self, agent_name, events, *, source_ref=None):
         """Append to one receiver independently."""
 
-    async def deliver_events(self, runtime_names, events):
+    async def deliver_events(self, runtime_names, events, *, source_ref=None):
         """Fan out independently and distinguish rejection from retryable failure."""
         results = await asyncio.gather(
-            *(self.append_events(name, events) for name in runtime_names),
+            *(self.append_events(name, events, source_ref=source_ref) for name in runtime_names),
             return_exceptions=True,
         )
         deliveries, rejected, errors = {}, {}, {}

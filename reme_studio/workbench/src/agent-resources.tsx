@@ -30,16 +30,22 @@ export default function AgentResources({
   state,
   inbox,
   revision,
+  agentName = state.selectedAgentName ?? "Remy",
+  active = state.activePage === (agentName === "Remy" ? "remy" : "tasks"),
+  embedded = false,
+  agentLabel = (name: string) => name,
 }: {
   state: StudioState;
   inbox: boolean;
   revision?: number;
+  agentName?: string;
+  active?: boolean;
+  embedded?: boolean;
+  agentLabel?: (name: string) => string;
 }) {
   const requestResource = useResource();
   const { action } = useHost();
   const t = translator(state.settings.language);
-  const agentName = state.selectedAgentName ?? "Remy";
-  const active = state.activePage === (agentName === "Remy" ? "remy" : "tasks");
   const [offset, setOffset] = useState(0);
   const [filter, setFilter] = useState<EventState>("all");
   const [selected, setSelected] = useState("");
@@ -163,6 +169,7 @@ export default function AgentResources({
       )}
       <ResourcePane
         state={state}
+        embedded={embedded}
         view={inbox ? "inbox" : "outbox"}
         listKey={`${filter}:${offset}`}
         loading={
@@ -205,7 +212,7 @@ export default function AgentResources({
             <button
               className="icon-button"
               onClick={refresh}
-              aria-label={t(inbox ? "refreshInbox" : "refreshFiles")}
+              aria-label={t(inbox ? "refreshInbox" : "refreshOutbox")}
             >
               <RefreshCw size={14} className={loading ? "spinning" : ""} />
             </button>
@@ -258,10 +265,12 @@ export default function AgentResources({
           return {
             id: value.id,
             title: resourceSummary(value.message, value.from_agent_name),
-            date: value.delivered_at,
+            date: value.delivered_at ?? value.created_at,
             metadata: (
               <>
-                <span>{value.from_agent_name}</span>
+                {(!embedded || value.from_agent_name !== agentName) && (
+                  <span>{agentLabel(value.from_agent_name)}</span>
+                )}
                 {badge}
               </>
             ),
@@ -345,13 +354,17 @@ export default function AgentResources({
             <ResourceMessage
               key={item.id}
               state={state}
-              sender={item.from_agent_name}
+              sender={
+                embedded && item.from_agent_name === agentName
+                  ? ""
+                  : agentLabel(item.from_agent_name)
+              }
               message={{
                 id: item.id,
                 role: "assistant",
                 source: "proactive",
                 content: item.message,
-                createdAt: item.delivered_at,
+                createdAt: item.delivered_at ?? item.created_at,
                 completed: true,
                 streaming: false,
                 status: null,

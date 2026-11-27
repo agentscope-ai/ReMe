@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 
 from .base import BaseOutbox
+from ..overview_events import notify_overview
 from ....constants import PROACTIVE_MESSAGE_ID_PREFIX
 from ....core.registry import R
 from ....schema.agent_outbox import ChatDelivery
@@ -34,6 +35,7 @@ class ChatOutbox(BaseOutbox):
             if delivery.status in {"sent", "acknowledged"}:
                 return delivery
             message = await self.find_message(delivery)
+            fresh = message is None
             if message is None:
                 if validate is not None:
                     await validate()
@@ -48,7 +50,7 @@ class ChatOutbox(BaseOutbox):
                 )
             if message.content != delivery.content:
                 raise ValueError("Native message conflicts with the prepared Chat reply")
-            return await self.save(
+            saved = await self.save(
                 ChatDelivery.model_validate(
                     {
                         **delivery.model_dump(),
@@ -58,6 +60,36 @@ class ChatOutbox(BaseOutbox):
                     },
                 ),
             )
+            if fresh:
+                await self._notify_sent(saved)
+            return saved
+
+    async def _notify_sent(self, delivery):
+        """A recovered native message updates state without replaying its old action."""
+        if self.agent_name is None:
+            return
+        traces = []
+        if self.inbox is not None:
+            for identifier in delivery.notification_ids:
+                reference = await self.inbox.reference(identifier)
+                if reference is not None and reference.trace is not None:
+                    traces.append(reference.trace)
+        run_ids = list(dict.fromkeys(trace.run_id for trace in traces))
+        source_ids = {ref.source_id for trace in traces for ref in trace.source_refs}
+        notify_overview(
+            self,
+            "reminder_sent",
+            identity=delivery.message_id,
+            agent_name=self.agent_name,
+            delivery_id=delivery.id,
+            message_id=PROACTIVE_MESSAGE_ID_PREFIX + delivery.message_id,
+            run_id=run_ids[0] if len(run_ids) == 1 else None,
+            run_ids=run_ids,
+            source_id=next(iter(source_ids)) if len(source_ids) == 1 else None,
+            event_ids=list(dict.fromkeys(identifier for trace in traces for identifier in trace.event_ids)),
+            paths=list(delivery.record_versions),
+            occurred_at=delivery.delivered_at.isoformat(),
+        )
 
     async def acknowledge(self, identifier, now):
         """Finalize sender state after the receiver receipt is durable."""

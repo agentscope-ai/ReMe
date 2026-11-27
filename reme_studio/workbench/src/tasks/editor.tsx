@@ -6,25 +6,21 @@ import {
   taskSettings,
   type TaskDocument,
 } from "../../../client/src/tasks.ts";
-import { formatDate, useResource } from "../resources.ts";
+import { useResource } from "../resources.ts";
 import { taskSettingsDraft, toRuntimeSettings } from "./settings-draft.ts";
 import TaskSettingsFields from "./settings.tsx";
 import "./tasks.css";
-
-const tabs = [
-  ["description", "taskTab"],
-  ["settings", "taskSettings"],
-  ["details", "taskDetails"],
-] as const;
 
 export default function TaskEditor({
   agent,
   state,
   onCreated,
+  initialTrigger = "event",
 }: {
   agent?: AgentView;
   state: StudioState;
   onCreated: (agentName: string) => void;
+  initialTrigger?: "event" | "time";
 }) {
   const requestResource = useResource();
   const language = state.settings.language;
@@ -38,15 +34,16 @@ export default function TaskEditor({
   const [settings, setSettings] = useState(() =>
     taskSettingsDraft(
       baseline,
-      agent?.agent_type === "time" ? "time" : "event",
+      agent ? (agent.agent_type === "time" ? "time" : "event") : initialTrigger,
     ),
   );
-  const [tab, setTab] = useState<(typeof tabs)[number][0]>("description");
   const [loading, setLoading] = useState(!create);
   const [retry, setRetry] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
-  const [saved, setSaved] = useState(false);
+  const [saved, setSaved] = useState<
+    "description" | "settings" | "create" | null
+  >(null);
   const live = useRef(false);
   useEffect(() => {
     live.current = true;
@@ -80,11 +77,11 @@ export default function TaskEditor({
       current = false;
     };
   }, [agentName, retry]);
-  const save = async () => {
+  const save = async (section: "description" | "settings" | "create") => {
     if (busy) return;
     setBusy(true);
     setError(null);
-    setSaved(false);
+    setSaved(null);
     try {
       if (!agentName) {
         const result = await requestResource<{ agent_name: string }>({
@@ -96,7 +93,7 @@ export default function TaskEditor({
           settings: toRuntimeSettings(settings),
         });
         if (live.current) onCreated(result.agent_name);
-      } else if (tab === "description" && document) {
+      } else if (section === "description" && document) {
         const result = await requestResource<
           Pick<TaskDocument, "mtime" | "path">
         >({
@@ -108,9 +105,9 @@ export default function TaskEditor({
         });
         if (live.current) {
           setDocument({ ...document, ...result, content });
-          setSaved(true);
+          setSaved(section);
         }
-      } else if (tab === "settings" && baseline) {
+      } else if (section === "settings" && baseline) {
         const updated = toRuntimeSettings(settings, baseline);
         const changes = changedTaskSettings(baseline, updated);
         if (Object.keys(changes).length)
@@ -122,7 +119,7 @@ export default function TaskEditor({
           });
         if (live.current) {
           setBaseline(updated);
-          setSaved(true);
+          setSaved(section);
         }
       }
     } catch (reason) {
@@ -131,27 +128,63 @@ export default function TaskEditor({
       if (live.current) setBusy(false);
     }
   };
+  const description = (
+    <label className="task-field">
+      <span>{t("taskTab")}</span>
+      <textarea
+        required
+        rows={7}
+        maxLength={100000}
+        value={content}
+        placeholder={t("taskDescriptionPlaceholder")}
+        onChange={(event) => {
+          setContent(event.target.value);
+          setSaved(null);
+        }}
+      />
+    </label>
+  );
+  const fields = (
+    <TaskSettingsFields
+      create={create}
+      value={settings}
+      timezone={state.clientInfo?.timezone ?? null}
+      language={language}
+      onChange={(value) => {
+        setSettings(value);
+        setSaved(null);
+      }}
+    />
+  );
+  const footer = (section: "description" | "settings" | "create") => (
+    <footer>
+      <span role="status">{saved === section ? t("taskSaved") : ""}</span>
+      <button
+        className="primary"
+        disabled={
+          busy ||
+          (section === "create"
+            ? !name.trim() || !content.trim()
+            : section === "description"
+              ? !document || !content.trim() || content === document.content
+              : !baseline)
+        }
+      >
+        {t(
+          busy
+            ? "taskSaving"
+            : section === "create"
+              ? "taskCreate"
+              : section === "description"
+                ? "flowSaveDescription"
+                : "flowSaveSettings",
+        )}
+      </button>
+    </footer>
+  );
   return (
     <div className="task-editor">
-      {agent && (
-        <nav className="task-editor-tabs" aria-label={t("taskManage")}>
-          {tabs.map(([id, label]) => (
-            <button
-              type="button"
-              key={id}
-              aria-current={tab === id ? "page" : undefined}
-              disabled={busy}
-              onClick={() => {
-                setTab(id);
-                setSaved(false);
-              }}
-            >
-              {t(label)}
-            </button>
-          ))}
-        </nav>
-      )}
-      {tab !== "details" && error != null && (
+      {error != null && (
         <div className="task-editor-error" role="alert">
           {errorText(error, language)}
           {agent && (
@@ -161,7 +194,7 @@ export default function TaskEditor({
               disabled={busy}
               onClick={() => {
                 setError(null);
-                setSaved(false);
+                setSaved(null);
                 const value = taskSettings(agent);
                 setBaseline(value);
                 setSettings(
@@ -178,99 +211,60 @@ export default function TaskEditor({
           )}
         </div>
       )}
-      {tab === "details" && agent ? (
-        <div>
-          <dl className="task-facts">
-            <dt>{t("taskLastStarted")}</dt>
-            <dd>{formatDate(agent.last_started_at, language)}</dd>
-            <dt>{t("taskLastCompleted")}</dt>
-            <dd>{formatDate(agent.last_completed_at, language)}</dd>
-            <dt>{t("nextTrigger")}</dt>
-            <dd>{formatDate(agent.next_trigger_at, language)}</dd>
-            <dt>{t("pendingEvents")}</dt>
-            <dd>{agent.pending_events}</dd>
-            <dt>{t("taskInFlight")}</dt>
-            <dd>{agent.in_flight_events}</dd>
-          </dl>
-          {agent.error && (
-            <p className="action-error" role="alert">
-              {agent.error}
-            </p>
-          )}
-        </div>
-      ) : loading ? (
+      {loading ? (
         <p className="task-hint">{t("documentLoading")}</p>
-      ) : (
+      ) : create ? (
         <form
           onSubmit={(event) => {
             event.preventDefault();
-            void save();
+            void save("create");
           }}
         >
           <fieldset disabled={busy}>
-            {create && (
-              <label className="task-field">
-                <span>{t("taskName")}</span>
-                <input
-                  autoFocus
-                  required
-                  maxLength={80}
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  placeholder="proactive_news"
-                />
-              </label>
-            )}
-            {(create || tab === "description") && (
-              <label className="task-field">
-                <span>{t("taskTab")}</span>
-                <textarea
-                  required
-                  rows={9}
-                  maxLength={100000}
-                  value={content}
-                  placeholder={t("taskDescriptionPlaceholder")}
-                  onChange={(event) => {
-                    setContent(event.target.value);
-                    setSaved(false);
-                  }}
-                />
-              </label>
-            )}
-            {(create || tab === "settings") && (
-              <TaskSettingsFields
-                create={create}
-                value={settings}
-                timezone={state.clientInfo?.timezone ?? null}
-                language={language}
-                onChange={(value) => {
-                  setSettings(value);
-                  setSaved(false);
-                }}
+            <label className="task-field">
+              <span>{t("taskName")}</span>
+              <input
+                autoFocus
+                required
+                maxLength={80}
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="proactive_news"
               />
-            )}
-            {agent?.status === "active" && (
-              <p className="task-hint">
-                {t(agent.enabled ? "taskChangesHint" : "taskPauseHint")}
-              </p>
-            )}
+            </label>
+            {description}
+            {fields}
           </fieldset>
-          <footer>
-            <span role="status">{saved ? t("taskSaved") : ""}</span>
-            <button
-              className="primary"
-              disabled={
-                busy ||
-                (create
-                  ? !name.trim() || !content.trim()
-                  : !baseline ||
-                    (tab === "description" && (!document || !content.trim())))
-              }
-            >
-              {t(busy ? "taskSaving" : create ? "taskCreate" : "taskSave")}
-            </button>
-          </footer>
+          {footer("create")}
         </form>
+      ) : (
+        <>
+          <form
+            className="task-settings-section"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void save("description");
+            }}
+          >
+            <fieldset disabled={busy}>{description}</fieldset>
+            {footer("description")}
+          </form>
+          <form
+            className="task-settings-section"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void save("settings");
+            }}
+          >
+            <fieldset disabled={busy}>{fields}</fieldset>
+            {footer("settings")}
+          </form>
+        </>
+      )}
+      {agent?.status === "active" && (
+        <p className="task-hint">
+          {t(agent.enabled ? "taskChangesHint" : "taskPauseHint")}
+        </p>
       )}
     </div>
   );

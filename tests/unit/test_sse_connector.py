@@ -17,7 +17,7 @@ from reme.components.proactive.connector.sse import read_sse
 from reme.components.service import HttpService
 from reme.core.context import RuntimeContext
 from reme.schema.cloud_event import CloudEvent
-from reme.schema.proactive_agent import ManageConnectorRequest
+from reme.schema.proactive_connector import ManageConnectorRequest
 from reme.steps.proactive.tools import ManageConnectorStep
 from .proactive_helpers import running_system
 
@@ -34,9 +34,8 @@ def create_request(**changes):
     return {
         "action": "create",
         "name": "实验进度",
-        "trigger_type": "event",
         "runtime_names": ["first"],
-        "binding": {"type": "sse", "url": "https://events.example/stream", "format": "cloudevents"},
+        "binding": {"type": "sse", "url": "https://events.example/stream"},
         **changes,
     }
 
@@ -118,6 +117,56 @@ async def test_sse_comments_do_not_accumulate_as_pending_event_data():
     assert len(values) == 1 and values[0].data == "ok"
 
 
+@pytest.mark.asyncio
+async def test_partial_source_updates_keep_identity_connection_and_historical_names(tmp_path):
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        event = cloud_event(id=f"event-{len(requests)}")
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "text/event-stream"},
+            stream=Parts([frame(event)], keep_open=True),
+        )
+
+    async with subscription_system(tmp_path, handler) as (agents, connectors, _, tool):
+        source_id = (await tool(**create_request())).answer["source_id"]
+        await wait_for(lambda: cursor_is(connectors, source_id, "cursor-1"))
+        first = await agents.resolve("first")
+        original = (await first.inbox.overview())["items"][0]["source_ref"]
+        renamed = (await tool(action="update", source_id=source_id, name="Renamed")).answer
+        assert renamed["name"] == "Renamed" and renamed["enabled"] and renamed["runtime_names"] == ["first"]
+        assert len(requests) == 1
+        assert (await first.inbox.overview())["items"][0]["source_ref"] == original
+        paused = (
+            await tool(
+                action="update",
+                source_id=source_id,
+                name="Second name",
+                runtime_names=["second"],
+                enabled=False,
+            )
+        ).answer
+        assert not paused["enabled"] and paused["runtime_names"] == ["second"]
+        await tool(action="update", source_id=source_id, enabled=True)
+        second = await agents.resolve("second")
+
+        async def admitted():
+            return bool(await second.inbox.pending_ids())
+
+        await wait_for(admitted)
+        source = (await second.inbox.overview())["items"][0]["source_ref"]
+        assert source == {"source_id": source_id, "name": "Second name", "trigger_type": "event"}
+
+
+def test_creation_uses_protocol_defaults_and_rejects_display_only_fields():
+    request = create_request(binding={"url": "https://events.example/stream"})
+    assert ManageConnectorRequest.model_validate(request).binding.type == "sse"
+    with pytest.raises(ValueError):
+        ManageConnectorRequest.model_validate({**request, "emoji": "news"})
+
+
 @pytest.mark.parametrize(
     "changes",
     [
@@ -171,8 +220,8 @@ async def test_live_create_delivery_deduplication_and_pause_close_stream(tmp_pat
         assert len(requests) == 1 and requests[0].method == "GET"
         assert requests[0].headers["Accept"] == "text/event-stream"
         listed = (await tool(action="list")).answer
-        assert listed["total"] == 1 and listed["items"][0]["connected"]
-        paused = (await tool(action="pause", source_id=source_id)).answer
+        assert next(item for item in listed["items"] if item["source_id"] == source_id)["connected"]
+        paused = (await tool(action="update", enabled=False, source_id=source_id)).answer
         assert not paused["enabled"] and not paused["connected"] and stream.closed
         assert not connectors.tasks
         assert len(await runtime.inbox.pending_ids()) == 2
@@ -207,10 +256,12 @@ async def test_restart_resumes_committed_cursor_and_retries_identical_event(tmp_
         await wait_for(reconnected)
         assert requests[-1].headers["Last-Event-ID"] == "durable-cursor"
         assert len(await (await agents.resolve("first")).inbox.pending_ids()) == 1
-        await tool(action="pause", source_id=source_id)
+        await tool(action="update", enabled=False, source_id=source_id)
     async with subscription_system(tmp_path, handler, seed=False) as (_, connectors, _, tool):
         assert not connectors.tasks
-        assert not (await tool(action="list")).answer["items"][0]["enabled"]
+        assert not next(item for item in (await tool(action="list")).answer["items"] if item["source_id"] == source_id)[
+            "enabled"
+        ]
 
 
 @pytest.mark.asyncio
@@ -249,7 +300,7 @@ async def test_partial_delivery_is_durable_and_freezes_original_targets(tmp_path
         state = await connectors._read_state(source_id)
         assert state.cursor == "" and state.pending.remaining == ["second"]
         assert len(requests) == 1
-        await tool(action="pause", source_id=source_id)
+        await tool(action="update", enabled=False, source_id=source_id)
         await tool(action="update", source_id=source_id, runtime_names=[])
         assert (await connectors._read_state(source_id)).pending.remaining == ["second"]
     async with subscription_system(tmp_path, handler, seed=False) as (agents, connectors, _, tool):
@@ -261,12 +312,12 @@ async def test_partial_delivery_is_durable_and_freezes_original_targets(tmp_path
             return await deliver(names, events, **kwargs)
 
         monkeypatch.setattr(agents, "deliver_events", recovered)
-        await tool(action="enable", source_id=source_id)
+        await tool(action="update", enabled=True, source_id=source_id)
         await wait_for(lambda: cursor_is(connectors, source_id, "pending-cursor"))
         assert calls[0] == ["second"]
         assert len(await (await agents.resolve("first")).inbox.pending_ids()) == 1
         assert len(await (await agents.resolve("second")).inbox.pending_ids()) == 1
-        await tool(action="pause", source_id=source_id)
+        await tool(action="update", enabled=False, source_id=source_id)
 
 
 @pytest.mark.asyncio
@@ -298,9 +349,9 @@ async def test_failed_rejected_and_conflicting_events_do_not_advance_cursor(tmp_
 
         await wait_for(blocked)
         assert (await connectors.status(source_id))["last_event_id"] == ""
-        await tool(action="pause", source_id=source_id)
+        await tool(action="update", enabled=False, source_id=source_id)
         monkeypatch.setattr(agents, "deliver_events", original)
-        await tool(action="enable", source_id=source_id)
+        await tool(action="update", enabled=True, source_id=source_id)
 
         async def conflict():
             return "Conflicting CloudEvent" in ((await connectors.status(source_id))["last_error"] or "")
@@ -327,7 +378,7 @@ async def test_permissions_and_target_validation_precede_network_and_files(tmp_p
                 await tool(RuntimeContext(_allowed_paths=allowed), **create_request())
         assert not connectors.directory.exists() and not requests
         source_id = (await tool(**create_request())).answer["source_id"]
-        await tool(action="pause", source_id=source_id)
+        await tool(action="update", enabled=False, source_id=source_id)
         before = (connectors.source_directory(source_id) / "config.json").read_bytes()
         with pytest.raises(ValueError):
             await tool(action="update", source_id=source_id, runtime_names=["clock"])
@@ -339,7 +390,7 @@ async def test_permissions_and_target_validation_precede_network_and_files(tmp_p
     [
         create_request(runtime_names=[]),
         create_request(runtime_names=["first", "FIRST"]),
-        create_request(binding={"type": "sse", "url": "file:///etc/passwd", "format": "cloudevents"}),
+        create_request(binding={"type": "sse", "url": "file:///etc/passwd"}),
         create_request(binding={"type": "sse", "url": "https://events.example", "format": "json"}),
         create_request(trigger_type=None),
         create_request(connector_job="preset"),
@@ -368,7 +419,10 @@ async def test_http_and_mcp_create_and_control_native_subscriptions(tmp_path):
             assert response.status_code == 200 and response.json()["success"]
             source_id = response.json()["answer"]["source_id"]
         async with Client(service.mcp_server) as client:
-            result = await client.call_tool("manage_connector", {"action": "pause", "source_id": source_id})
+            result = await client.call_tool(
+                "manage_connector",
+                {"action": "update", "enabled": False, "source_id": source_id},
+            )
             assert result.structured_content["source_id"] == source_id
             assert not result.structured_content["enabled"]
             result = await client.call_tool(
@@ -401,7 +455,7 @@ async def test_invalid_http_or_event_response_keeps_cursor_and_surfaces_error(tm
         await wait_for(failed)
         assert (await connectors.status(source_id))["last_event_id"] == ""
         assert not connectors.resource_root.exists()
-        await tool(action="pause", source_id=source_id)
+        await tool(action="update", enabled=False, source_id=source_id)
 
 
 @pytest.mark.asyncio
@@ -422,7 +476,7 @@ async def test_204_stops_reconnect_and_controls_retain_concurrent_changes(tmp_pa
         await asyncio.sleep(0.03)
         assert len(requests) == 1
         await asyncio.gather(
-            ManageConnectorStep(app_context=tool.app_context)(action="pause", source_id=source_id),
+            ManageConnectorStep(app_context=tool.app_context)(action="update", enabled=False, source_id=source_id),
             ManageConnectorStep(app_context=tool.app_context)(
                 action="update",
                 source_id=source_id,
@@ -431,7 +485,7 @@ async def test_204_stops_reconnect_and_controls_retain_concurrent_changes(tmp_pa
         )
         status = await connectors.status(source_id)
         assert not status["enabled"] and status["runtime_names"] == ["second"]
-        await tool(action="enable", source_id=source_id)
+        await tool(action="update", enabled=True, source_id=source_id)
         await wait_for(stopped)
         assert len(requests) == 2
 
@@ -459,7 +513,7 @@ async def test_target_update_affects_only_new_events(tmp_path):
         source_id = (await tool(**create_request())).answer["source_id"]
         await wait_for(lambda: cursor_is(connectors, source_id, "1"))
         await tool(action="update", source_id=source_id, runtime_names=["second"])
-        await tool(action="enable", source_id=source_id)
+        await tool(action="update", enabled=True, source_id=source_id)
         assert len(streams) == 1 and not streams[0].closed
         next_event.set()
         await wait_for(lambda: cursor_is(connectors, source_id, "2"))
@@ -495,7 +549,7 @@ async def test_connection_recovery_clears_error_without_waiting_for_an_event(tmp
 async def test_update_does_not_overwrite_manual_source_edits(tmp_path):
     async with subscription_system(tmp_path, lambda _request: httpx.Response(204)) as (_, connectors, _, tool):
         source_id = (await tool(**create_request())).answer["source_id"]
-        await tool(action="pause", source_id=source_id)
+        await tool(action="update", enabled=False, source_id=source_id)
         path = connectors.source_directory(source_id) / "config.json"
         value = json.loads(path.read_text())
         value["name"] = "Manually edited"
@@ -535,13 +589,13 @@ async def test_failed_definition_write_keeps_the_existing_connection_and_targets
 async def test_restart_ignores_unpublished_definitions_without_deleting_files(tmp_path):
     async with subscription_system(tmp_path, lambda _request: httpx.Response(204)) as (_, connectors, _, tool):
         source_id = (await tool(**create_request())).answer["source_id"]
-        await tool(action="pause", source_id=source_id)
+        await tool(action="update", enabled=False, source_id=source_id)
         orphan = connectors.source_directory("source_" + "a" * 32)
         orphan.mkdir()
         temporary = orphan / ".agent-interrupted.tmp"
         temporary.write_text("unfinished definition")
     async with subscription_system(tmp_path, lambda _request: httpx.Response(204), seed=False) as (_, _, _, tool):
-        assert (await tool(action="list")).answer["total"] == 1
+        assert (await tool(action="list")).answer["total"] == len(connectors.presets()) + 1
         assert temporary.read_text() == "unfinished definition"
 
 

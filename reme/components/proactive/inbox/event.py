@@ -11,6 +11,8 @@ from ....schema.event import Event
 class EventInbox(BaseInbox):
     """Validate the observation contract and order inputs by observation time."""
 
+    overview_kind = "event"
+
     def validate_item(self, value):
         """Validate and normalize one durable queue payload."""
         if hasattr(value, "model_dump"):

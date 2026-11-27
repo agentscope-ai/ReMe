@@ -12,9 +12,12 @@ from uuid import uuid4
 from ...base import BaseComponent
 from ....enumeration import ComponentEnum
 from ....schema.agent_inbox import InboxItem, InboxReceipt
+from ....schema.agent_outbox import NotificationDelivery
+from ....schema.proactive_trace import SourceRef
 from ....utils.async_utils import finish_cleanup
 from ....utils.files.file_sync import sync_directory, sync_file
 from ....utils.files.workspace_files import WorkspaceFiles
+from ..overview_events import notify_overview, source_ref as event_source_ref
 
 
 class InvalidInboxBatchError(ValueError):
@@ -26,10 +29,12 @@ class BaseInbox(BaseComponent):
 
     component_type = ComponentEnum.AGENT_INBOX
     keep_processed = False
+    overview_kind = None
 
     def __init__(
         self,
         directory,
+        agent_name=None,
         max_read_items=1000,
         max_pending_items=10000,
         max_pending_bytes=16 * 1024 * 1024,
@@ -42,6 +47,7 @@ class BaseInbox(BaseComponent):
         super().__init__(**kwargs)
         self.files = WorkspaceFiles(self.workspace_path)
         self.directory = self.files.path(directory)
+        self.agent_name = agent_name
         if self.directory == self.workspace_path:
             raise ValueError("Inbox directory must be a workspace subdirectory")
         limits = {
@@ -69,6 +75,8 @@ class BaseInbox(BaseComponent):
         self._pending = OrderedDict()
         self._history = []
         self._seen = {}
+        self._received_at = {}
+        self._received_sources = {}
         self._retained = set()
         self._claim = None
         self._owner_fd = None
@@ -134,10 +142,12 @@ class BaseInbox(BaseComponent):
             self._pending.clear()
             self._history.clear()
             self._seen.clear()
+            self._received_at.clear()
+            self._received_sources.clear()
             self._retained.clear()
             self._claim = None
             for row in self._lines(self._path("inbox_read.jsonl")):
-                items = [self.validate_item(item) for item in row.pop("items")]
+                items = [self._restore(item) for item in row.pop("items")]
                 receipt = InboxReceipt(item_ids=[item["id"] for item in items], **row)
                 for item in items:
                     if item["id"] in self._seen:
@@ -145,7 +155,7 @@ class BaseInbox(BaseComponent):
                     self._seen[item["id"]] = self._encode(item)
                 self._history.append((items, receipt))
             for value in self._lines(self._path("inbox_unread.jsonl")):
-                item = self.validate_item(value)
+                item = self._restore(value)
                 raw = self._encode(item)
                 previous = self._seen.get(item["id"])
                 if previous is not None:
@@ -158,11 +168,72 @@ class BaseInbox(BaseComponent):
                 self._pending[item["id"]] = item
             if len(self._pending) > self.max_pending_items or self._pending_size() > self.max_pending_bytes:
                 raise ValueError("Persisted Inbox exceeds pending limits")
-            self._replace(self._path("inbox_unread.jsonl"), b"".join(self._encode(v) for v in self._pending.values()))
+            self._replace(self._path("inbox_unread.jsonl"), b"".join(self._stored(v) for v in self._pending.values()))
         except BaseException:
             os.close(fd)
             raise
         self._owner_fd = fd
+
+    def _restore(self, value):
+        """Restore the admission envelope written by this queue."""
+        if not isinstance(value, dict) or value.keys() != {"item", "received_at", "source_ref"}:
+            raise ValueError("Invalid Inbox admission envelope")
+        received_at = value["received_at"]
+        if not isinstance(received_at, str) or datetime.fromisoformat(received_at).tzinfo is None:
+            raise ValueError("Inbox admission time must include a timezone")
+        item = self.validate_item(value["item"])
+        if value["source_ref"] is not None:
+            ref = SourceRef.model_validate(value["source_ref"])
+            self._received_sources.setdefault(item["id"], ref.model_dump(mode="json"))
+        elif self.overview_kind == "event":
+            raise ValueError("Event admission must include its source")
+        self._received_at.setdefault(item["id"], received_at)
+        return item
+
+    def _stored(self, item, received_at=None, ref=None):
+        return self._encode(
+            {
+                "item": item,
+                "received_at": received_at or self._received_at.get(item["id"]),
+                "source_ref": ref or self._received_sources.get(item["id"]),
+            },
+        )
+
+    def _source_for(self, item):
+        return self._received_sources.get(item["id"]) or event_source_ref(item, self.agent_name).model_dump(mode="json")
+
+    def _notify(self, kind=None, *, identity=None, items=(), run_id=None):
+        if self.agent_name is None or self.overview_kind is None:
+            return
+        event_ids = list(
+            dict.fromkeys(
+                identifier
+                for item in items
+                for identifier in (
+                    [item["id"]] if self.overview_kind == "event" else (item.get("trace") or {}).get("event_ids", [])
+                )
+            ),
+        )
+        source_ids = {
+            ref["source_id"]
+            for item in items
+            for ref in (
+                [self._source_for(item)]
+                if self.overview_kind == "event"
+                else (item.get("trace") or {}).get("source_refs", [])
+            )
+        }
+        run_ids = list(dict.fromkeys(item["trace"]["run_id"] for item in items if item.get("trace")))
+        notify_overview(
+            self,
+            kind,
+            identity=identity,
+            agent_name=self.agent_name,
+            event_ids=event_ids,
+            run_id=run_id,
+            run_ids=run_ids,
+            source_id=next(iter(source_ids)) if len(source_ids) == 1 else None,
+        )
 
     async def _close(self):
         async with self.changed:
@@ -205,9 +276,10 @@ class BaseInbox(BaseComponent):
             self.changed.notify_all()
             raise
 
-    async def append(self, items, *, wait=False):
+    async def append(self, items, *, wait=False, source_ref=None):
         """Persist an idempotent batch, optionally waiting for pending capacity."""
         values = items if isinstance(items, list) else [items]
+        source = SourceRef.model_validate(source_ref).model_dump(mode="json") if source_ref is not None else None
         prepared = {}
         for value in values:
             item = self.validate_item(value)
@@ -242,16 +314,64 @@ class BaseInbox(BaseComponent):
                     await self.changed.wait()
                 if fresh:
                     deadline.reschedule(None)
+                    received_at = datetime.now(timezone.utc).isoformat()
 
                     async def commit_append():
                         await self._persist(
                             self._write,
                             self._path("inbox_unread.jsonl"),
-                            b"".join(self._encode(v) for v in fresh.values()),
+                            b"".join(
+                                self._stored(
+                                    v,
+                                    received_at,
+                                    source or (self._source_for(v) if self.overview_kind == "event" else None),
+                                )
+                                for v in fresh.values()
+                            ),
                         )
                         self._pending.update(fresh)
                         self._seen.update({k: self._encode(v) for k, v in fresh.items()})
+                        self._received_at.update({key: received_at for key in fresh})
+                        self._received_sources.update(
+                            {
+                                key: source or self._source_for(item)
+                                for key, item in fresh.items()
+                                if self.overview_kind == "event"
+                            },
+                        )
                         self.changed.notify_all()
+                        for key, item in fresh.items():
+                            if self.agent_name is not None and self.overview_kind == "event":
+                                notify_overview(
+                                    self,
+                                    "event_admitted",
+                                    identity=f"{self.agent_name}:{key}",
+                                    agent_name=self.agent_name,
+                                    event_ids=[key],
+                                    source_id=self._source_for(item)["source_id"],
+                                    occurred_at=received_at,
+                                    paths=item.get("paths", []),
+                                )
+                            elif self.agent_name is not None and self.overview_kind == "notification":
+                                trace = item.get("trace") or {}
+                                refs = trace.get("source_refs", [])
+                                delivery_id = NotificationDelivery.identity(key, self.agent_name)
+                                notify_overview(
+                                    self,
+                                    "notification_delivered",
+                                    identity=delivery_id,
+                                    agent_name=item["source_agent"],
+                                    target_agent=self.agent_name,
+                                    delivery_id=delivery_id,
+                                    run_id=trace.get("run_id"),
+                                    run_ids=[trace["run_id"]] if trace else [],
+                                    event_ids=trace.get("event_ids", []),
+                                    source_id=refs[0]["source_id"] if len(refs) == 1 else None,
+                                    occurred_at=received_at,
+                                    paths=[item["record_path"]],
+                                )
+                            else:
+                                self._notify()
 
                     await finish_cleanup(commit_append())
                 return list(prepared)
@@ -281,7 +401,16 @@ class BaseInbox(BaseComponent):
                 return None
             token = uuid4().hex
             self._claim = (token, tuple(item["id"] for item in items))
-            return {"token": token, "items": deepcopy(items)}
+            self._notify("input_claimed", identity=f"{self.agent_name}:{token}", items=items, run_id=token)
+            return {
+                "token": token,
+                "items": deepcopy(items),
+                **(
+                    {"source_refs": deepcopy({item["id"]: self._source_for(item) for item in items})}
+                    if self.overview_kind == "event"
+                    else {}
+                ),
+            }
 
     async def ack(self, token, *, metadata=None, retain=False):
         """Commit the processing receipt before removing unread inputs."""
@@ -309,11 +438,16 @@ class BaseInbox(BaseComponent):
 
             def commit():
                 raw = b"".join(
-                    self._encode({"items": batch, **value.model_dump(mode="json", exclude={"item_ids"})})
+                    self._encode(
+                        {
+                            "items": [json.loads(self._stored(item)) for item in batch],
+                            **value.model_dump(mode="json", exclude={"item_ids"}),
+                        },
+                    )
                     for batch, value in history
                 )
                 self._replace(self._path("inbox_read.jsonl"), raw)
-                self._replace(self._path("inbox_unread.jsonl"), b"".join(self._encode(v) for v in remaining.values()))
+                self._replace(self._path("inbox_unread.jsonl"), b"".join(self._stored(v) for v in remaining.values()))
 
             async def commit_ack():
                 await self._persist(commit)
@@ -321,7 +455,12 @@ class BaseInbox(BaseComponent):
                 self._retained = protected
                 self._seen = {item["id"]: self._encode(item) for batch, _ in history for item in batch}
                 self._seen.update({key: self._encode(value) for key, value in remaining.items()})
+                self._received_at = {key: self._received_at.get(key) for key in self._seen}
+                self._received_sources = {
+                    key: value for key, value in self._received_sources.items() if key in self._seen
+                }
                 self.changed.notify_all()
+                self._notify("input_processed", identity=f"{self.agent_name}:{token}", items=items, run_id=token)
                 return receipt.consume_ts.isoformat()
 
             return await finish_cleanup(commit_ack())
@@ -330,8 +469,80 @@ class BaseInbox(BaseComponent):
         """Release a live claim while preserving its unread inputs."""
         async with self.changed:
             if self._claim is not None and self._claim[0] == token:
+                items = [self._pending[key] for key in self._claim[1]]
                 self._claim = None
                 self.changed.notify_all()
+                self._notify("input_released", identity=f"{self.agent_name}:{token}", items=items, run_id=token)
+
+    def _rows(self):
+        """Project one locked queue state for recent views and paged history."""
+        claimed = set(self._claim[1]) if self._claim else set()
+        rows = [
+            {
+                "item": item,
+                "state": "processed",
+                "consume_ts": receipt.consume_ts.isoformat(),
+                "metadata": receipt.metadata,
+                "run_id": receipt.metadata.get("run_id"),
+            }
+            for batch, receipt in self._history
+            for item in batch
+        ]
+        rows.extend(
+            {
+                "item": item,
+                "state": "processing" if key in claimed else "pending",
+                "consume_ts": None,
+                "metadata": {},
+                "run_id": self._claim[0] if key in claimed else None,
+            }
+            for key, item in self._pending.items()
+        )
+        for row in rows:
+            row["received_at"] = self._received_at.get(row["item"]["id"])
+            if self.overview_kind == "event":
+                row["source_ref"] = self._source_for(row["item"])
+        return rows
+
+    async def overview(self, limit=3, *, source_agents=None):
+        """Read recent admissions, provenance and disjoint counts under one queue lock."""
+        async with self.changed:
+            self._check_open()
+            rows = self._rows()
+            if source_agents is not None:
+                rows = [row for row in rows if row["item"].get("source_agent") in source_agents]
+            sources = {}
+            for row in rows:
+                if self.overview_kind == "event":
+                    ref = row["source_ref"]
+                    previous = sources.get(ref["source_id"])
+                    if (
+                        previous is None
+                        or row["received_at"]
+                        and (
+                            previous["last_admitted_at"] is None
+                            or datetime.fromisoformat(row["received_at"])
+                            > datetime.fromisoformat(previous["last_admitted_at"])
+                        )
+                    ):
+                        sources[ref["source_id"]] = {**ref, "last_admitted_at": row["received_at"]}
+            rows.sort(
+                key=lambda row: (
+                    datetime.fromisoformat(row["received_at"]).timestamp() if row["received_at"] else -float("inf"),
+                    row["item"]["id"],
+                ),
+                reverse=True,
+            )
+            return deepcopy(
+                {
+                    "items": rows[:limit],
+                    "sources": list(sources.values()),
+                    "waiting_count": sum(row["state"] == "pending" for row in rows),
+                    "processing_count": sum(row["state"] == "processing" for row in rows),
+                    "processed_count": sum(row["state"] == "processed" for row in rows),
+                    "receipt": self._history[-1][1] if self._history else None,
+                },
+            )
 
     async def snapshot(self):
         """Read queue counts and the latest durable receipt without claiming."""
@@ -353,16 +564,7 @@ class BaseInbox(BaseComponent):
             raise ValueError("Invalid Inbox pagination")
         async with self.changed:
             self._check_open()
-            claimed = set(self._claim[1]) if self._claim else set()
-            items = [
-                {"item": item, "state": "processed", "consume_ts": receipt.consume_ts.isoformat()}
-                for batch, receipt in self._history
-                for item in batch
-            ]
-            items.extend(
-                {"item": item, "state": "processing" if item["id"] in claimed else "pending", "consume_ts": None}
-                for item in self._pending.values()
-            )
+            items = self._rows()
             items = [v for v in items if state in {"all", v["state"]}]
             items.sort(key=lambda row: self.sort_key(row["item"]), reverse=True)
             return deepcopy(
@@ -391,7 +593,7 @@ class BaseInbox(BaseComponent):
 
             def persisted():
                 return any(
-                    identifiers.intersection(item["id"] for item in row["items"])
+                    identifiers.intersection(item["item"]["id"] for item in row["items"])
                     for row in self.files.iter_jsonl(self._path("inbox_read.jsonl"))
                 )
 

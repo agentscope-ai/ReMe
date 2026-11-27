@@ -6,6 +6,7 @@ from .base import BaseAgentManager, TaskNotFoundError
 from ._registry import RuntimeRegistry
 from ..runtime.base import BaseAgentRuntime
 from ..runtime.proactive import ProactiveAgentRuntime
+from ..overview_events import OverviewEvents
 from ...agent_wrapper import BaseAgentWrapper
 from ....core.registry import R
 from ....schema.event import Event
@@ -54,12 +55,15 @@ class LocalAgentManager(BaseAgentManager):
         self._deleting = set()
         self.lock = asyncio.Lock()
         self.closed = True
+        self.overview_events = OverviewEvents()
 
     def now(self):
         """Return application-local time using the configured timezone rules."""
         return self.notification_target.now()
 
     async def _start(self):
+        self.overview_events.reset()
+        self.overview_events.attach(self.app_context)
         self.runtimes = {name: getattr(self, f"_static_{index}") for index, name in enumerate(self.static_names)}
         if any(not isinstance(value, ProactiveAgentRuntime) for value in self.runtimes.values()):
             raise ValueError("AgentManager can only manage background Runtimes")
@@ -72,6 +76,7 @@ class LocalAgentManager(BaseAgentManager):
 
     async def _close(self):
         self.closed = True
+        self.overview_events.close()
         errors = []
         for runtime in reversed(list(self._dynamic.values())):
             try:
@@ -196,13 +201,13 @@ class LocalAgentManager(BaseAgentManager):
             self._deleting.discard(agent_name)
         return {"agent_name": agent_name, "deleted": True, "files_retained": True}
 
-    async def append_events(self, agent_name, events):
+    async def append_events(self, agent_name, events, *, source_ref=None):
         events = [Event.model_validate(value) for value in events]
         if any(value.source == TIME_EVENT_SOURCE for value in events):
             raise ValueError("time is a reserved framework source")
         async with self.lock:
             runtime = await self._resolve_locked(await self.definition(agent_name))
-            identifiers = await runtime.append(events)
+            identifiers = await runtime.append(events, source_ref=source_ref)
         return {"agent_name": agent_name, "event_ids": identifiers}
 
     async def status(self, agent_name):

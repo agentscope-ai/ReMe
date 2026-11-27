@@ -59,6 +59,7 @@ export default function ResourcePane({
   listKey,
   loading,
   children,
+  embedded = false,
 }: {
   state: StudioState;
   view: "reminders" | "inbox" | "outbox";
@@ -75,6 +76,7 @@ export default function ResourcePane({
   listKey?: string;
   loading?: boolean;
   children?: ReactNode;
+  embedded?: boolean;
 }) {
   const { action } = useHost();
   const language = state.settings.language;
@@ -100,19 +102,30 @@ export default function ResourcePane({
         detailKey={selected}
         onClose={() => onSelect("")}
         heading={
-          <TimelineHeading
-            title={t(view)}
-            icon={<Icon size={22} />}
-            controls={
-              <>
-                <div className="resource-controls">{controls}</div>
-                <span className="timeline-order">
-                  <CalendarDays size={14} aria-hidden />
-                  {t("timelineNewest")}
-                </span>
-              </>
-            }
-          />
+          embedded ? (
+            <div className="resource-embedded-controls">
+              <div className="resource-controls">{controls}</div>
+              <span>
+                {t("flowItemCount", {
+                  count: pagination?.total ?? rows.length,
+                })}
+              </span>
+            </div>
+          ) : (
+            <TimelineHeading
+              title={t(view)}
+              icon={<Icon size={22} />}
+              controls={
+                <>
+                  <div className="resource-controls">{controls}</div>
+                  <span className="timeline-order">
+                    <CalendarDays size={14} aria-hidden />
+                    {t("timelineNewest")}
+                  </span>
+                </>
+              }
+            />
+          )
         }
         list={
           <>
@@ -242,7 +255,7 @@ export function ResourceMessage({
   return (
     <article className="detail-article">
       <header className="detail-meta resource-message-meta">
-        <span>{sender}</span>
+        {sender && <span>{sender}</span>}
         {metadata}
         {message.createdAt && (
           <time dateTime={message.createdAt}>

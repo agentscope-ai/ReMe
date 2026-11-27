@@ -14,6 +14,7 @@ class NotificationInbox(BaseInbox):
     """Keep processing receipts even after they leave the displayed history window."""
 
     keep_processed = True
+    overview_kind = "notification"
 
     def validate_item(self, value):
         """Validate and normalize one durable queue payload."""

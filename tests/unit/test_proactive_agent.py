@@ -155,7 +155,7 @@ async def test_tasks_without_record_skill_complete_without_a_record(
         assert not await context.components["agent_runtime"]["Remy"].inbox.pending_ids()
         assert not record.exists()
         receipt = (await runtime.inbox.receipts())[-1]
-        assert receipt.metadata["session_id"] and receipt.metadata["reminder_path"] is None
+        assert receipt.metadata["session_id"] and receipt.metadata["record_paths"] == []
         assert receipt.metadata["notification"] is None
         query, options = calls[0]
         assert runtime.task_path.read_text() in query

@@ -2,8 +2,9 @@
 
 import asyncio
 from contextlib import suppress
-from datetime import datetime
+from datetime import datetime, timezone
 from hashlib import sha256
+import json
 from pathlib import Path
 import re
 import shutil
@@ -14,6 +15,9 @@ from ....schema.resource_metadata import RESOURCE_METADATA_FILENAME
 from ....schema.proactive_agent import validate_runtime_names
 from ....schema.proactive_runtime import validate_agent_name
 from ....components.proactive.manager import BaseAgentManager
+from ....components.proactive.connector.controls import ConnectorControls
+from ....schema.proactive_trace import SourceRef
+from ....components.proactive.overview_events import notify_overview
 from ....enumeration import ComponentEnum
 from ...base_step import BaseStep, Ref
 from ...file_io import check_path_permission, resolve_path
@@ -32,46 +36,22 @@ def resource_package_id(now: datetime) -> str:
 
 # Control and delivery are files, not invocation-spanning Step fields.
 def connector_control_path(step, connector_job):
-    """Resolve the bounded workspace path of a configured collection gate."""
-    name = validate_agent_name(connector_job)
-    files = WorkspaceFiles(step.workspace_path)
-    path = files.path(f"{step.config_value('metadata_dir')}/proactive/connectors/{name}.json")
+    """Authorize the invocation before accessing component-owned controls."""
+    controls = ConnectorControls(step.workspace_path, step.config_value("metadata_dir"))
+    path = controls.path(connector_job)
     if not check_path_permission(
         step.workspace_path,
         path,
         step.context.get("_allowed_paths") if step.context else None,
     ):
         raise PermissionError("no permission to control this collection workflow")
-    return files, path
-
-
-def _read_connector_control(files, path, name):
-    value = files.read_json(path, None)
-    if value is None:
-        return {"schema_version": 1, "connector_job": name, "enabled": True}
-    required = {"schema_version", "connector_job", "enabled", "updated_at"}
-    if not isinstance(value, dict) or not required <= value.keys() <= required | {"runtime_names"}:
-        raise ValueError("Invalid persistent Connector control state")
-    if (
-        type(value["schema_version"]) is not int
-        or value["schema_version"] != 1
-        or value["connector_job"] != name
-        or type(value["enabled"]) is not bool
-        or not isinstance(value["updated_at"], str)
-    ):
-        raise ValueError("Invalid persistent Connector control state")
-    stamp = datetime.fromisoformat(value["updated_at"])
-    if stamp.tzinfo is None:
-        raise ValueError("Connector control time must include a timezone")
-    if "runtime_names" in value:
-        validate_runtime_names(value["runtime_names"], allow_empty=True)
-    return value
+    return controls.files, path
 
 
 async def read_connector_control(step, connector_job):
-    """Read a validated gate and optional recipient override from the workspace."""
-    files, path = connector_control_path(step, connector_job)
-    return await asyncio.to_thread(_read_connector_control, files, path, connector_job)
+    """Read the same control store used by ConnectorManager."""
+    connector_control_path(step, connector_job)
+    return await ConnectorControls(step.workspace_path, step.config_value("metadata_dir")).read(connector_job)
 
 
 async def connector_enabled(step, connector_job):
@@ -80,29 +60,15 @@ async def connector_enabled(step, connector_job):
 
 
 async def update_connector_control(step, connector_job, **changes):
-    """Patch one control file without losing concurrent gate or recipient changes."""
-    if not changes or changes.keys() - {"enabled", "runtime_names"}:
-        raise ValueError("Connector control accepts enabled and runtime_names")
-    if "enabled" in changes and type(changes["enabled"]) is not bool:
-        raise ValueError("Connector enabled must be a boolean")
-    if "runtime_names" in changes:
-        changes["runtime_names"] = validate_runtime_names(changes["runtime_names"], allow_empty=True)
-    files, path = connector_control_path(step, connector_job)
-    async with await get_path_lock(path):
-        previous = await asyncio.to_thread(_read_connector_control, files, path, connector_job)
-        changed = any(previous.get(key) != value for key, value in changes.items())
-        config = step.app_context.app_config if step.app_context else ApplicationConfig()
-        now = datetime.now(resolve_timezone(config.timezone))
-        current = {**previous, **changes, "updated_at": now.isoformat()}
-        await complete_in_thread(
-            files.write_json,
-            path,
-            current,
-        )
-    return {**current, "changed": changed}
+    """Internal collector controls retain invocation path authorization."""
+    connector_control_path(step, connector_job)
+    return await ConnectorControls(step.workspace_path, step.config_value("metadata_dir")).update(
+        connector_job,
+        **changes,
+    )
 
 
-def resource_event(workspace, directory, metadata, paths):
+def resource_event(workspace, directory, metadata, paths, source_ref=None):
     """Create a stable standard Event for one published resource package."""
     relative = directory.relative_to(workspace).as_posix()
     return Event(
@@ -110,6 +76,7 @@ def resource_event(workspace, directory, metadata, paths):
         event_ts=metadata.created_at,
         source=metadata.source,
         description=metadata.description,
+        metadata={"source_ref": source_ref.model_dump(mode="json")} if source_ref else {},
         paths=list(
             dict.fromkeys(
                 path.relative_to(workspace).as_posix() for path in [directory / RESOURCE_METADATA_FILENAME, *paths]
@@ -133,11 +100,22 @@ class BaseConnectorStep(BaseStep):
         )
         self.runtime_names = self._configured_runtime_names
         self.connector_job = validate_agent_name(connector_job)
+        self.source_ref = SourceRef(
+            source_id=f"preset:{self.connector_job}",
+            name=self.connector_job,
+            trigger_type="event",
+        )
 
     async def load_control(self):
         """Capture recipients for one new collection batch; saved batches keep their own."""
         control = await read_connector_control(self, self.connector_job)
         self.runtime_names = control.get("runtime_names", self._configured_runtime_names)
+        config = self.app_context.app_config.jobs.get(self.connector_job) if self.app_context else None
+        self.source_ref = SourceRef(
+            source_id=f"preset:{self.connector_job}",
+            name=control.get("name", (config.description if config else "") or self.connector_job),
+            trigger_type="event",
+        )
         return control["enabled"]
 
     def collect(self, directory: Path) -> list[dict]:
@@ -209,6 +187,7 @@ class BaseConnectorStep(BaseStep):
             self.context.response.success = True
             self.context.response.answer = {"skipped": "no_new_data"}
             return self.context.response
+        notify_overview(self)
         result = {"path": self.to_workspace_relative(target / RESOURCE_METADATA_FILENAME), "files": metadata["files"]}
         self.context["resource"] = result
         self.context.response.success = True
@@ -246,6 +225,11 @@ class BaseConnectorStep(BaseStep):
             if cancelled.is_set() or (self.context.stop_event is not None and self.context.stop_event.is_set()):
                 raise RuntimeError("Resource collection stopped before publication")
             result = metadata.model_dump(mode="json", exclude_none=True)
+            store.write(
+                target / ".collection.json",
+                json.dumps({"collected_at": datetime.now(timezone.utc).isoformat()}) + "\n",
+                create_only=True,
+            )
             if self.runtime_names:
                 self.prepare_delivery(target, metadata)
             store.write_json(target / RESOURCE_METADATA_FILENAME, result)
@@ -259,7 +243,7 @@ class BaseConnectorStep(BaseStep):
         """Freeze recipients and Event content before publishing a manifest."""
         files = WorkspaceFiles(self.workspace_path)
         paths = [directory / name for name in self.event_payloads(metadata)]
-        event = resource_event(files.workspace, directory, metadata, paths)
+        event = resource_event(files.workspace, directory, metadata, paths, self.source_ref)
         files.write_json(
             directory / ".delivery.json",
             {
@@ -268,6 +252,7 @@ class BaseConnectorStep(BaseStep):
                 "delivered_to": [],
                 "rejected": {},
                 "events": [event.model_dump(mode="json")],
+                "collected_at": datetime.now(timezone.utc).isoformat(),
             },
         )
 
@@ -287,7 +272,11 @@ class BaseConnectorStep(BaseStep):
             if result["deliveries"] or result["rejected"]:
                 await save(batch)
             if result["errors"]:
+                batch["last_error"] = str(result["errors"])[:2000]
+                await save(batch)
                 raise RuntimeError(f"Resource event delivery failed: {result['errors']}")
+            if batch.pop("last_error", None) is not None:
+                await save(batch)
         return True
 
     async def flush_deliveries(self, root):
@@ -337,5 +326,6 @@ class BaseConnectorStep(BaseStep):
 
         async def save(value):
             await complete_in_thread(files.write_json, manifest.with_name(".delivery.json"), value)
+            notify_overview(self)
 
         return await self.deliver_batch(events, state, save)

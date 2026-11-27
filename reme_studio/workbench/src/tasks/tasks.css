@@ -9,25 +9,6 @@
   max-width: 44rem;
   margin-inline: auto;
 }
-.task-editor-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding-bottom: 12px;
-  margin-bottom: 22px;
-  border-bottom: 1px solid var(--line);
-}
-.task-editor-tabs button {
-  padding: 7px 12px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--muted);
-}
-.task-editor-tabs button[aria-current] {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
 .task-editor fieldset {
   display: flex;
   flex-direction: column;
@@ -110,17 +91,11 @@
 .task-editor-error button {
   flex-shrink: 0;
 }
-.task-facts {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 18px 28px;
-  margin: 0 0 20px;
+.task-settings-section + .task-settings-section {
+  margin-top: 28px;
+  padding-top: 28px;
+  border-top: 1px solid var(--line);
 }
-.task-facts dt {
-  color: var(--muted);
-}
-.task-facts dd {
-  margin: 0;
-  text-align: right;
-  overflow-wrap: anywhere;
+.task-editor > .task-hint {
+  margin-top: 18px;
 }

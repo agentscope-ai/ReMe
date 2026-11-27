@@ -1,6 +1,7 @@
 """File-native SSE subscriptions with durable, independently retried delivery."""
 
 import asyncio
+from datetime import datetime
 from hashlib import sha256
 import json
 import math
@@ -11,14 +12,18 @@ import httpx
 from pydantic import AwareDatetime, BaseModel, ConfigDict, JsonValue
 
 from .sse import read_sse
+from .controls import ConnectorControls
 from ...base import BaseComponent
 from ..manager import BaseAgentManager
+from ..overview_events import notify_overview
 from ....constants import SSE_MEDIA_TYPE
 from ....core.registry import R
 from ....enumeration import ComponentEnum
 from ....schema.cloud_event import CloudEvent
 from ....schema.event import Event
-from ....schema.proactive_agent import ConnectorSource, validate_runtime_names
+from ....schema.proactive_agent import validate_runtime_names
+from ....schema.proactive_connector import ConnectorSource, ConnectorView
+from ....schema.proactive_trace import SourceRef
 from ....utils.async_utils import complete_in_thread, finish_cleanup
 from ....utils.files.path_lock import get_path_lock
 from ....utils.files.workspace_files import WorkspaceFiles
@@ -31,6 +36,7 @@ class PendingDelivery(BaseModel):
     event: Event
     remaining: list[str]
     cursor: str
+    source_ref: SourceRef
 
 
 class ConnectorCheckpoint(BaseModel):
@@ -73,6 +79,8 @@ class ConnectorManager(BaseComponent):
         self.reconnect_seconds = float(reconnect_seconds)
         self.max_event_bytes = max_event_bytes
         self.files = WorkspaceFiles(self.workspace_path)
+        metadata = self.app_context.app_config.metadata_dir if self.app_context else "metadata"
+        self.controls = ConnectorControls(self.workspace_path, metadata)
         self.sources = {}
         self.statuses = {}
         self.tasks = {}
@@ -157,7 +165,7 @@ class ConnectorManager(BaseComponent):
             if (await self.agent_manager.definition(name)).agent_type != "event":
                 raise ValueError("Connector targets must be event-triggered Runtimes")
 
-    async def _apply_source(self, source, *, original=None):
+    async def _apply_source(self, source, *, original=None, start=False):
         """Publish a definition and reconcile its worker without reconnecting for target changes."""
         path = self.source_directory(source.source_id) / "config.json"
         async with await get_path_lock(path):
@@ -166,10 +174,11 @@ class ConnectorManager(BaseComponent):
             if source != original:
                 await complete_in_thread(self.files.write_json, path, source.model_dump(mode="json"))
             self.sources[source.source_id] = source
+            notify_overview(self)
             task = self.tasks.get(source.source_id)
             if not source.enabled:
                 await self._stop(source.source_id)
-            elif task is None or task.done():
+            elif start and (task is None or task.done()):
                 self._spawn(source)
 
     async def create(self, values):
@@ -180,41 +189,143 @@ class ConnectorManager(BaseComponent):
             self._check_open()
             await self._validate_targets(source.runtime_names)
 
-            await finish_cleanup(self._apply_source(source))
+            await finish_cleanup(self._apply_source(source, start=True))
             return await self.status(source.source_id)
 
     async def update(self, source_id, **changes):
         """Replace recipients or pause/resume; saved deliveries keep their original recipients."""
-        if not changes or changes.keys() - {"runtime_names", "enabled"}:
-            raise ValueError("Connector updates accept runtime_names or enabled")
+        if not changes or changes.keys() - {"name", "runtime_names", "enabled"}:
+            raise ValueError("Connector updates accept name, runtime_names or enabled")
         async with self.operations:
             self._check_open()
+            if "runtime_names" in changes:
+                await self._validate_targets(changes["runtime_names"])
+            preset = self.presets().get(source_id)
+            if preset is not None:
+                await self.controls.update(preset["job"], **changes)
+                notify_overview(self)
+                return await self.status(source_id)
             self.source_directory(source_id)
             if source_id not in self.sources:
                 raise ValueError(f"Connector source not found: {source_id}")
             original = self.sources[source_id]
             source = ConnectorSource.model_validate({**original.model_dump(), **changes})
-            if "runtime_names" in changes:
-                await self._validate_targets(source.runtime_names)
-
-            await finish_cleanup(self._apply_source(source, original=original))
+            await finish_cleanup(self._apply_source(source, original=original, start=changes.get("enabled") is True))
             return await self.status(source_id)
 
     async def status(self, source_id):
         """Report saved configuration separately from connection and pending handoff state."""
+        preset = self.presets().get(source_id)
+        if preset is not None:
+            control = await self.controls.read(preset["job"])
+            job = self.app_context.jobs.get(preset["job"])
+            return ConnectorView(
+                source_id=source_id,
+                name=control.get("name", preset["name"]),
+                trigger_type="event",
+                runtime_names=control.get("runtime_names", preset["runtime_names"]),
+                enabled=control["enabled"],
+                available=bool(job and job.enabled and job.is_started),
+                schedule=preset["schedule"],
+                **await asyncio.to_thread(self._collector_facts, preset),
+            ).model_dump(mode="json")
         source = self.sources[source_id]
         state = await self._read_state(source_id)
-        return {
-            **source.model_dump(mode="json"),
-            "available": not self.closed,
-            **self.statuses.get(source_id, {"connected": False, "last_error": None}),
-            "last_event_id": state.cursor,
-            "pending_delivery_count": len(state.pending.remaining) if state.pending else 0,
-        }
+        return ConnectorView(
+            **{
+                **source.model_dump(mode="json"),
+                "trigger_type": "event",
+                "available": not self.closed,
+                "last_event_id": state.cursor,
+                **self.statuses.get(source_id, {"connected": False, "last_error": None}),
+                "pending_delivery_count": len(state.pending.remaining) if state.pending else 0,
+            },
+        ).model_dump(mode="json")
 
     async def list_sources(self):
         """List subscriptions without starting collectors or changing their files."""
-        return [await self.status(source_id) for source_id in list(self.sources)]
+        items = []
+        for source_id in [*self.presets(), *self.sources]:
+            try:
+                item = await self.status(source_id)
+            except (OSError, ValueError, RuntimeError) as exc:
+                item = ConnectorView(
+                    source_id=source_id,
+                    name=source_id,
+                    trigger_type="event",
+                    last_error=str(exc)[:2000],
+                ).model_dump(mode="json")
+            items.append(item)
+        return items
+
+    def presets(self):
+        """Project configured collection Jobs without constructing or executing Steps."""
+        values = {}
+        if self.app_context is None:
+            return values
+        for name, job in self.app_context.app_config.jobs.items():
+            live = self.app_context.jobs.get(name)
+            steps = live.step_configs if live and live.step_configs else [step.model_dump() for step in job.steps]
+            for options in steps:
+                if options.get("connector_job") != name:
+                    continue
+                implementation = self.app_context.registry.get(ComponentEnum.STEP, options["backend"])
+                source = getattr(implementation, "source", "")
+                if not source and options.get("instrument"):
+                    source = f"{options['instrument']}_quotes"
+                values[f"preset:{name}"] = {
+                    "job": name,
+                    "source": source,
+                    "name": (live.description if live else job.description) or name,
+                    "runtime_names": options.get("runtime_names") or [],
+                    "schedule": getattr(job, "cron", None),
+                }
+        return values
+
+    def _collector_facts(self, preset):
+        """Rebuild collection and delivery facts from the existing package journals."""
+        files = self.files
+        resource_dir = self.app_context.app_config.resource_dir
+        identifier, connector_job = preset["source"], preset["job"]
+        collected, pending, errors, found = None, 0, [], False
+        root = files.path(f"{resource_dir}/{identifier}")
+        for path in root.glob("*/*/metadata.json"):
+            files.checked(path)
+            value = files.read_json(files.checked(path.parent / ".delivery.json"), {})
+            if not isinstance(value, dict):
+                raise ValueError("Invalid collection delivery journal")
+            if value and value.get("connector_job") != connector_job:
+                continue
+            for key in ("runtime_names", "delivered_to"):
+                if not isinstance(value.get(key, []), list) or any(
+                    not isinstance(item, str) for item in value.get(key, [])
+                ):
+                    raise ValueError("Invalid collection delivery targets")
+            if not isinstance(value.get("rejected", {}), dict):
+                raise ValueError("Invalid collection delivery rejections")
+            found = True
+            collection = files.read_json(files.checked(path.parent / ".collection.json"), {})
+            if not isinstance(collection, dict):
+                raise ValueError("Invalid collection status journal")
+            stamp = collection.get("collected_at") or value.get("collected_at")
+            if stamp and (not isinstance(stamp, str) or datetime.fromisoformat(stamp).tzinfo is None):
+                raise ValueError("Collection time must include a timezone")
+            if stamp and (collected is None or datetime.fromisoformat(stamp) > datetime.fromisoformat(collected)):
+                collected = stamp
+            pending += len(
+                set(value.get("runtime_names", []))
+                - set(value.get("delivered_to", []))
+                - set(value.get("rejected", {})),
+            )
+            if value.get("last_error"):
+                errors.append(str(value["last_error"]))
+            if value.get("rejected"):
+                errors.append(str(value["rejected"]))
+        return {
+            "last_collected_at": collected,
+            "pending_delivery_count": pending if found else None,
+            "last_error": "; ".join(errors)[-2000:] or None,
+        }
 
     async def _read_state(self, source_id):
         path = self.source_directory(source_id) / "state.json"
@@ -268,6 +379,7 @@ class ConnectorManager(BaseComponent):
         result = await self.agent_manager.deliver_events(
             pending.remaining,
             [pending.event],
+            source_ref=pending.source_ref,
         )
         remaining = [name for name in pending.remaining if name not in result["deliveries"]]
         if remaining:
@@ -283,7 +395,13 @@ class ConnectorManager(BaseComponent):
         if frame.data is None:
             return await self._save_state(source.source_id, ConnectorCheckpoint(cursor=cursor))
         event = await self._resource_event(json.loads(frame.data))
-        pending = PendingDelivery(event=event, remaining=list(source.runtime_names), cursor=cursor)
+        self.statuses[source.source_id]["last_collected_at"] = self.agent_manager.now().isoformat()
+        pending = PendingDelivery(
+            event=event,
+            remaining=list(source.runtime_names),
+            cursor=cursor,
+            source_ref=SourceRef(source_id=source.source_id, name=source.name, trigger_type="event"),
+        )
         state = await self._save_state(source.source_id, state.model_copy(update={"pending": pending}))
         state = await self._deliver_pending(source, state)
         self.statuses[source.source_id]["last_error"] = None

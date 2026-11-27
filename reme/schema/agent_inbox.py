@@ -6,6 +6,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, mod
 
 from .event import Event
 from .proactive_runtime import AgentName
+from .proactive_trace import InputTrace
 
 
 class InboxItem(BaseModel):
@@ -37,6 +38,7 @@ class NotificationRef(BaseModel):
     source_agent: AgentName
     record_path: str
     created_at: AwareDatetime
+    trace: InputTrace | None = None
 
     @staticmethod
     def identity(path: str) -> str:
@@ -52,11 +54,12 @@ class NotificationRef(BaseModel):
         return self
 
     @classmethod
-    def from_record(cls, source_agent, record_path, created_at):
+    def from_record(cls, source_agent, record_path, created_at, *, trace=None):
         """Freeze the reference once the source input batch is committed."""
         return cls(
             id=cls.identity(record_path),
             source_agent=source_agent,
             record_path=record_path,
             created_at=created_at,
+            trace=trace,
         )

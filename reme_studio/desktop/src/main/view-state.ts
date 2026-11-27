@@ -14,6 +14,7 @@ export function viewState(state: StudioState, companion: boolean): StudioState {
         ...state,
         messages: noMessages,
         agents: [],
+        proactive: undefined,
         selectedAgentName: "Remy",
         sessionId:
           state.agents?.find((agent) => agent.agent_name === "Remy")

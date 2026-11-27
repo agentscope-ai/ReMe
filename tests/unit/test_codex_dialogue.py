@@ -589,16 +589,16 @@ async def test_codex_collection_without_targets_keeps_resources_and_advances_cur
 
 @pytest.mark.asyncio
 async def test_partial_delivery_retries_only_the_pending_recipient(tmp_path, source, monkeypatch):
-    """A saved batch retains its recipients when configuration changes."""
+    """A saved batch retains its recipients and source after configuration changes."""
     home, path = source
     async with runtime(tmp_path) as (context, inbox, delivery):
         agents = context.components["agent_manager"]["default"]
         original = agents.append_events
 
-        async def write(name, events):
+        async def write(name, events, *, source_ref=None):
             if name == "proactive_note":
                 raise OSError("inbox unavailable")
-            return await original(name, events)
+            return await original(name, events, source_ref=source_ref)
 
         await CodexDialogueInitStep(**options(context, home))()
         append(path, record("UserMessage", "for both"))
@@ -610,6 +610,14 @@ async def test_partial_delivery_retries_only_the_pending_recipient(tmp_path, sou
                 )()
         assert (await inbox["proactive_memory"].snapshot())["pending_count"] == 1
         first = delivery.await_args.kwargs["events"]
+
+        from reme.steps.proactive.connector.base import update_connector_control
+
+        await update_connector_control(
+            CodexDialogueStep(**options(context, home)),
+            "codex_dialogue_cron",
+            name="Renamed source",
+        )
 
         response = await CodexDialogueStep(**options(context, home, runtime_names=["proactive_memory"]))()
         assert response.success
@@ -862,10 +870,10 @@ async def test_screenshot_delivery_failure_does_not_block_dialogue_progress(
         committed = progress(context).read_bytes()
         append_events = proactive_runtime.append_events
 
-        async def fail_screenshot(agent_name, events):
+        async def fail_screenshot(agent_name, events, *, source_ref=None):
             if any(event.source == "screenshot" for event in events):
                 raise ConnectionError("screen delivery failed")
-            return await append_events(agent_name, events)
+            return await append_events(agent_name, events, source_ref=source_ref)
 
         with monkeypatch.context() as patch:
             patch.setattr(context.components["agent_manager"]["default"], "append_events", fail_screenshot)

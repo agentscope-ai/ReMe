@@ -9,6 +9,7 @@ from ....enumeration import ComponentEnum
 from ....utils.async_utils import complete_in_thread
 from ....utils.files.path_lock import get_path_lock
 from ....utils.files.workspace_files import WorkspaceFiles
+from ..overview_events import notify_overview
 
 
 class BaseOutbox(BaseComponent):
@@ -23,6 +24,8 @@ class BaseOutbox(BaseComponent):
         self.files = WorkspaceFiles(self.workspace_path)
         self.directory = self.files.path(directory)
         self.issues = {}
+        self.agent_name = None
+        self.inbox = None
 
     def path(self, identifier):
         """Delivery identities are filenames, never caller-selected paths."""
@@ -53,7 +56,33 @@ class BaseOutbox(BaseComponent):
         delivery = self.delivery_model.model_validate(delivery.model_dump())
         await complete_in_thread(self.files.write_json, self.path(delivery.id), delivery.model_dump(mode="json"))
         self.issues.pop(delivery.id, None)
+        self._notify(delivery)
         return delivery
+
+    def _notify(self, delivery):
+        if self.agent_name is None:
+            return
+        notification = getattr(delivery, "notification", None)
+        if notification is not None:
+            if delivery.status == "delivered":
+                notify_overview(self)
+                return
+            trace = notification.trace
+            notify_overview(
+                self,
+                "notification_prepared",
+                identity=delivery.id,
+                agent_name=notification.source_agent,
+                target_agent=delivery.target_agent,
+                delivery_id=delivery.id,
+                run_id=trace.run_id if trace else None,
+                run_ids=[trace.run_id] if trace else [],
+                source_id=trace.source_refs[0].source_id if trace and len(trace.source_refs) == 1 else None,
+                event_ids=trace.event_ids if trace else [],
+                paths=[notification.record_path],
+                occurred_at=(delivery.delivered_at or delivery.created_at).isoformat(),
+            )
+        notify_overview(self)
 
     async def entries(self):
         """Isolate damaged records without hiding their health information."""

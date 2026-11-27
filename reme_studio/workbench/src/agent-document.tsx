@@ -10,10 +10,12 @@ export default function AgentDocument({
   state,
   path,
   onEdit,
+  agentName = state.selectedAgentName,
 }: {
   state: StudioState;
   path: string;
   onEdit?: () => void;
+  agentName?: string;
 }) {
   const requestResource = useResource();
   const { action } = useHost();
@@ -21,7 +23,7 @@ export default function AgentDocument({
   const [error, setError] = useState<unknown>(null);
   const t = translator(state.settings.language);
   const completed = state.agents?.find(
-    (agent) => agent.agent_name === state.selectedAgentName,
+    (agent) => agent.agent_name === agentName,
   )?.last_completed_at;
   useEffect(() => {
     let live = true;

@@ -306,8 +306,9 @@ test("Workspace modules share their default sidebar width and headings", async (
   };
   const notebook = render(createElement(Notebook, { state }));
   const knowledge = render(createElement(Knowledge, { state }));
-  const remy = render(createElement(AgentWorkspace, { state, page: "remy" }));
-  const tasks = render(createElement(AgentWorkspace, { state, page: "tasks" }));
+  const remy = render(
+    createElement(AgentWorkspace, { state, onNavigate() {} }),
+  );
   const settings = render(
     createElement(Settings, {
       state,
@@ -321,7 +322,6 @@ test("Workspace modules share their default sidebar width and headings", async (
     [notebook, "NOTES &amp; TO-DOS"],
     [knowledge, "KNOWLEDGE &amp; HISTORY"],
     [remy, "AT YOUR SIDE"],
-    [tasks, "IN THE BACKGROUND"],
     [settings, "YOUR SPACE"],
   ]) {
     assert.match(html, /--sidebar-width:256px/);

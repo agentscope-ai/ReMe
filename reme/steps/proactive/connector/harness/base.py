@@ -2,7 +2,7 @@
 
 import asyncio
 from contextlib import suppress
-from datetime import datetime
+from datetime import datetime, timezone
 from itertools import groupby
 from pathlib import Path
 import os
@@ -11,7 +11,9 @@ from threading import Event as ThreadEvent
 
 from ._dialogue_index import BaseDialogueIndex
 from ..base import BaseConnectorStep, resource_package_id, resource_event, connector_enabled
+from .....components.proactive.overview_events import notify_overview
 from .....schema import ApplicationConfig, ResourceMetadata
+from .....schema.proactive_trace import SourceRef
 from .....schema.resource_metadata import RESOURCE_METADATA_FILENAME
 from .....utils.async_utils import finish_cleanup
 from .....utils.files.path_lock import get_path_lock
@@ -120,6 +122,7 @@ class BaseHarnessConnectorStep(BaseConnectorStep):
         batch = {
             "id": resource_package_id(now),
             "runtime_names": self.runtime_names,
+            "source_ref": self.source_ref.model_dump(mode="json"),
             "delivered_to": [],
             "resource": None,
             **{key: scan[key] for key in ("updates", "message_ids", "next_path", "scanned_bytes", "errors")},
@@ -188,7 +191,29 @@ class BaseHarnessConnectorStep(BaseConnectorStep):
         if saved is None:
             index.files.write_json(manifest, resource["metadata"])
         payloads = [path for path in paths[1:] if path.name != "dialogue.jsonl"]
-        event = resource_event(index.files.workspace, directory, metadata, payloads)
+        event = resource_event(
+            index.files.workspace,
+            directory,
+            metadata,
+            payloads,
+            SourceRef.model_validate(batch["source_ref"]),
+        )
+        collection_path = directory / ".collection.json"
+        if saved is None and not collection_path.exists():
+            index.files.write_json(collection_path, {"collected_at": datetime.now(timezone.utc).isoformat()})
+        delivery_path = directory / ".delivery.json"
+        if batch["runtime_names"] and not delivery_path.exists():
+            index.files.write_json(
+                delivery_path,
+                {
+                    "connector_job": self.connector_job,
+                    "runtime_names": batch["runtime_names"],
+                    "delivered_to": batch["delivered_to"],
+                    "rejected": batch.get("rejected", {}),
+                    "events": [event.model_dump(mode="json")],
+                    "collected_at": index.files.read_json(collection_path, {}).get("collected_at"),
+                },
+            )
         return [event]
 
     def _commit(self, batch):
@@ -208,10 +233,24 @@ class BaseHarnessConnectorStep(BaseConnectorStep):
                 self.require_paths(WorkspaceFiles(self.workspace_path).path(self.config_value("reme_agent_dir")))
             batch = await self._offload(self._prepare)
             events = await self._offload(self._publish, batch)
+            notify_overview(self)
             index = self._index()
 
             async def save(value):
                 await self._offload(index.files.write_json, index.pending_path, value)
+                if value.get("resource"):
+                    path = index.files.path(value["resource"]["path"]) / ".delivery.json"
+                    state = await self._offload(index.files.read_json, path, {})
+                    await self._offload(
+                        index.files.write_json,
+                        path,
+                        {
+                            **state,
+                            "delivered_to": value["delivered_to"],
+                            "rejected": value.get("rejected", {}),
+                            "last_error": value.get("last_error"),
+                        },
+                    )
 
             if not await self.deliver_batch(events, batch, save):
                 self.context.response.answer = {"skipped": "paused"}

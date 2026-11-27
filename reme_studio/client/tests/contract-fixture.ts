@@ -19,6 +19,9 @@ export const contract = {
     "last_started_at": null,
     "last_completed_at": null,
     "next_trigger_at": null,
+    "retry_at": null,
+    "waiting_reason": null,
+    "waiting_until": null,
     "error": null
   },
   "messages": [

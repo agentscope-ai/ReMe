@@ -146,6 +146,15 @@ export interface StudioState {
   revision: number;
   selectedAgentName?: string;
   agents?: AgentView[];
+  proactive?: {
+    overview: import("./wire.ts").ProactiveOverview | null;
+    /** Bounded recent actions; renderers baseline on mount and deduplicate by ID. */
+    actions: import("./wire.ts").OverviewTransition[];
+    sequence: number;
+    live: boolean;
+    asOf: string | null;
+    error: string | null;
+  };
   connection: "connecting" | "connected" | "reconnecting" | "error";
   connectionError: string;
   settings: Settings;
@@ -246,6 +255,7 @@ export interface JobResponse<T = unknown> {
 }
 
 export type WorkspaceRequest =
+  | import("./connectors.ts").ConnectorRequest
   | import("./backend.ts").BackendRequest
   | import("./tasks.ts").TaskRequest
   | import("./notebook.ts").NotebookRequest
@@ -288,7 +298,8 @@ export interface TaskReminder {
   from_agent_name: string;
   priority: "P0" | "P1" | "P2";
   message: string;
-  delivered_at: string;
+  created_at: string;
+  delivered_at: string | null;
   read_at: string | null;
 }
 

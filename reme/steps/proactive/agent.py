@@ -16,6 +16,7 @@ from ...enumeration import ChunkEnum
 from ...schema import AgentActivity, TokenUsage, collect_reply
 from ...schema.proactive_runtime import AgentReminder
 from ...schema.proactive_agent import ProactiveRecordDecision
+from ...components.proactive.overview_events import notify_overview
 from ...utils.async_utils import complete_in_thread, finish_cleanup
 from ...utils.counter import global_counter_add_many
 from ...utils.documents.markdown_parser import markdown_link_targets
@@ -219,6 +220,7 @@ class ProactiveAgentStep(BaseAgentStep):
         record = None
         self.context.response.metadata.pop("reme.agent_run", None)
         activity = None
+        run_error = None
         started, outcome = monotonic(), "failed"
         try:
             async with self.runtime.execution():
@@ -237,6 +239,7 @@ class ProactiveAgentStep(BaseAgentStep):
                     return self.context.response
                 self.runtime.retry_items = [item["id"] for item in batch["items"]]
                 self.runtime.last_started_at = self.runtime.now()
+                self.runtime.begin_run(batch)
                 self.runtime.activity = activity = AgentActivity(
                     session_id="",
                     turn_id=batch["token"],
@@ -261,14 +264,18 @@ class ProactiveAgentStep(BaseAgentStep):
                 finally:
                     await finish_cleanup(self.runtime.inbox.nack(batch["token"]))
                 outcome = "completed"
-        except asyncio.CancelledError:
-            outcome = "failed" if self._timeout.expired() else "interrupted"
+        except BaseException as exc:
+            run_error = str(exc) or type(exc).__name__
+            if isinstance(exc, asyncio.CancelledError):
+                outcome = "failed" if self._timeout.expired() else "interrupted"
             raise
         finally:
             if activity is not None and outcome != "completed":
                 self.runtime.activity = self.runtime.activity.model_copy(
                     update={"phase": "failed" if outcome == "failed" else "interrupted"},
                 )
+            if activity is not None:
+                self.runtime.finish_run(outcome, run_error)
             if stats := self.context.response.metadata.get("reme.agent_run"):
                 if self._timeout.expired():
                     stats["model_status"] = "timeout"
@@ -317,6 +324,15 @@ class ProactiveAgentStep(BaseAgentStep):
             )
             await record.prepare(paths["record_path"])
         task_content = await asyncio.to_thread(runtime.files.read, paths["task_path"])
+        notify_overview(
+            runtime,
+            "workspace_read",
+            identity=f"{runtime.activity.turn_id}:task",
+            agent_name=runtime.name,
+            run_id=runtime.activity.turn_id,
+            event_ids=[event["id"] for event in events],
+            paths=[runtime.to_workspace_relative(paths["task_path"])],
+        )
         if not task_content.strip():
             raise ValueError("TASK.md must not be blank")
         options = self.round_options(paths, now=now)
@@ -346,6 +362,8 @@ class ProactiveAgentStep(BaseAgentStep):
             nonlocal turn_id, usage, stream_error
             if chunk.turn_id:
                 turn_id = chunk.turn_id
+                if runtime.active_run is not None:
+                    runtime.active_run["turn_id"] = chunk.turn_id
             kind, payload = chunk.chunk_type, chunk.chunk
             if kind == ChunkEnum.ERROR and chunk.metadata.get("will_retry") is not True:
                 stream_error = str(payload)
@@ -386,6 +404,8 @@ class ProactiveAgentStep(BaseAgentStep):
                 try:
                     async with asyncio.timeout_at(deadline):
                         session_id = await runtime.ensure_session(options, new=True)
+                        if runtime.active_run is not None:
+                            runtime.active_run["session_id"] = session_id
                         label += f" session={session_id}"
                         self.logger.info(f"{label} result=started path={paths.get('record_path')}")
                         with runtime.live_turns.observe(agent.agent_name, session_id, query) as publish:
