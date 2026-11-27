@@ -91,25 +91,22 @@ class RuntimeSessions:
             if exists and previous.signature == signature:
                 return previous.session_id
 
-            async def create():
-                arguments = dict(options)
-                if exists:
-                    arguments.update(resume=previous.session_id, fork_session=True)
-                identifier = await wrapper.create_session(**arguments)
+            arguments = dict(options)
+            if exists:
+                arguments.update(resume=previous.session_id, fork_session=True)
+            identifier = await wrapper.create_session(**arguments)
+            try:
+                await complete_in_thread(
+                    self._record,
+                    AgentSession(session_id=identifier, created_at=self.runtime.now(), signature=signature),
+                )
+            except BaseException:
+                await finish_cleanup(wrapper.release_session(identifier))
+                raise
+            self.active_session_id = identifier
+            if previous is not None:
                 try:
-                    await complete_in_thread(
-                        self._record,
-                        AgentSession(session_id=identifier, created_at=self.runtime.now(), signature=signature),
-                    )
-                except BaseException:
-                    await finish_cleanup(wrapper.release_session(identifier))
-                    raise
-                self.active_session_id = identifier
-                if previous is not None:
-                    try:
-                        await wrapper.release_session(previous.session_id)
-                    except Exception as exc:
-                        self.runtime.logger.warning(f"Could not release previous session: {exc}")
-                return identifier
-
-            return await create()
+                    await wrapper.release_session(previous.session_id)
+                except Exception as exc:
+                    self.runtime.logger.warning(f"Could not release previous session: {exc}")
+            return identifier

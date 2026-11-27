@@ -124,7 +124,10 @@ class ChatAgentRuntime(BaseAgentRuntime):
 
     async def reminder_item(self, reference):
         """Resolve a reference into the current canonical reminder view."""
-        reminder = await asyncio.to_thread(self.inbox.reminder, reference)
+        return (await asyncio.to_thread(self._reminder_material, reference))[0]
+
+    def _reminder_material(self, reference):
+        reminder, version = self.inbox.material(reference)
         if reminder is None:
             raise ValueError("Source record no longer requests a reminder")
         return {
@@ -132,7 +135,7 @@ class ChatAgentRuntime(BaseAgentRuntime):
             "from_agent_name": reference.source_agent,
             "delivered_at": reference.created_at.isoformat(),
             "notification_id": reference.id,
-        }
+        }, version
 
     @asynccontextmanager
     async def notification_turn(self, session_id, priority, identifiers, *, format_item, eligible=None):
@@ -150,15 +153,7 @@ class ChatAgentRuntime(BaseAgentRuntime):
             items, versions, ids = [], {}, []
             for raw in batch["items"]:
                 reference = await self.inbox.reference(raw["id"])
-                reminder, version = await asyncio.to_thread(self.inbox.material, reference)
-                if reminder is None:
-                    raise ValueError("Source record no longer requests a reminder")
-                item = {
-                    **reminder.model_dump(mode="json"),
-                    "from_agent_name": reference.source_agent,
-                    "delivered_at": reference.created_at.isoformat(),
-                    "notification_id": reference.id,
-                }
+                item, version = await asyncio.to_thread(self._reminder_material, reference)
                 if item["priority"] != priority:
                     raise RuntimeError("Notification priority changed; reassess this batch")
                 items.append(item)

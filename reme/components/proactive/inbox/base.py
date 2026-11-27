@@ -271,7 +271,7 @@ class BaseInbox(BaseComponent):
                     continue
                 length = len(self._encode(item))
                 if (
-                    len(items) >= min(limit or self.claim_max_items, self.claim_max_items)
+                    len(items) >= min(limit or self.claim_max_items, self.claim_max_items, self.max_read_items)
                     or size + length > self.claim_max_bytes
                 ):
                     break

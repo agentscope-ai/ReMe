@@ -120,6 +120,47 @@ async def test_delete_cancels_active_and_waiting_work_and_restore_preserves_role
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["release", "cancellation"])
+async def test_restore_after_interrupted_delete_starts_a_fresh_runtime(tmp_path, monkeypatch, failure):
+    async with running_system(
+        tmp_path,
+        runtimes=[{"agent_type": "event", "agent_name": "monitor", "task_description": "Keep this"}],
+    ) as (manager, _, wrapper):
+        runtime = await manager.resolve("monitor")
+        await queue_event(manager)
+        await runtime.ensure_session({"skills": []}, new=True)
+        entered, release = asyncio.Event(), asyncio.Event()
+
+        async def release_session(_identifier):
+            entered.set()
+            await release.wait()
+            if failure == "release":
+                raise OSError("Native release failed")
+
+        with monkeypatch.context() as patch:
+            patch.setattr(wrapper, "release_session", release_session)
+            deletion = asyncio.create_task(manager.delete("monitor"))
+            try:
+                await asyncio.wait_for(entered.wait(), 2)
+                if failure == "cancellation":
+                    deletion.cancel("Delete cancelled")
+                    await asyncio.sleep(0)
+                    assert not deletion.done()
+            finally:
+                release.set()
+                expected = OSError if failure == "release" else asyncio.CancelledError
+                with pytest.raises(expected):
+                    await deletion
+        assert "monitor" not in manager.runtimes and "monitor" not in manager._dynamic
+        assert runtime.closed and not runtime.is_started
+        result = await manager.create({"agent_type": "event", "agent_name": "monitor"})
+        restored = await manager.resolve("monitor")
+        assert result["restored"] and restored is not runtime and restored.is_started
+        assert (await manager.status("monitor"))["pending_events"] == 1
+        assert restored.task_path.read_text() == "Keep this"
+
+
+@pytest.mark.asyncio
 async def test_identity_and_trigger_contracts_and_disk_edits(tmp_path):
     async with running_system(tmp_path, runtimes=[{"agent_type": "event", "agent_name": "monitor"}]) as (manager, _, _):
         for values in ({"run_job": "run_news_agent"}, {"schedule": "0 8 * * *"}, {"max_batch_events": 4}):

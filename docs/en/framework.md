@@ -614,10 +614,10 @@ A disposable read-only fork receives the selected Chat inbox entries in its prom
 Only explicitly submitted text is appended to the foreground conversation; fork reasoning and ordinary replies stay
 outside it. Codex stores injected content in its native rollout without a second application-authored message copy.
 `reme_agents/` contains task configuration, event inboxes, personal memory and session references.
-Remy's inbox derives its state from reminders and acknowledgement fields in the daily records. Native
-conversation histories retain the conversation content.
+Daily records own reminder content. Remy's Inbox stores notification references and processing receipts;
+Outboxes retain delivery facts. Native conversation histories retain the conversation content.
 
-Each Proactive Runtime owns its execution state. The Proactive Manager projects activity and live output for Remy and the named runtimes. Desktop clients observe `watch_agent_session`; native Codex status notifications remain internal to operation completion and disconnect handling.
+Each Runtime owns its execution state, activity and live output. The conversation facade projects these into views for Remy and the named Runtimes. Desktop clients observe `watch_agent_session`; native Codex status notifications remain internal to operation completion and disconnect handling.
 All three wrappers support `append_session(..., role="user" | "assistant")` without generating a reply; the default role
 is `assistant`. Retries with the same `message_id` must retain both content and role. Injected messages keep
 `source="proactive"` independently of their role, including after reload or fork.

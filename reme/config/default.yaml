@@ -1083,14 +1083,6 @@ components:
     proactive:
       backend: local
 
-  # Enable when jobs use Agent inboxes; each directory allows one writer.
-#  agent_inbox:
-#    default:
-#      backend: local
-#      directory: agent_inbox
-#      # inbox_unread.jsonl stores pending inputs; inbox_read.jsonl stores consumed batches.
-#      max_read_items: 1000  # Unread inputs are never evicted; trim oldest consumed batches.
-
   file_chunker:
     markdown:
       backend: markdown

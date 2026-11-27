@@ -57,15 +57,16 @@ class BaseOutbox(BaseComponent):
 
     async def entries(self):
         """Isolate damaged records without hiding their health information."""
-        values = []
+        values, issues = [], {}
         for path in sorted(self.directory.glob("*.json")):
             try:
                 value = await self.read(path.stem)
             except (OSError, ValueError) as exc:
-                self.issues[path.stem] = str(exc)
+                issues[path.stem] = str(exc)
             else:
                 if value is not None:
                     values.append(value)
+        self.issues = issues
         return values
 
     async def pending(self):

@@ -47,7 +47,7 @@ class AgentViews:
         """Compose a public Agent view from each resource owner."""
         runtime = await self.runtime(name)
         if name == CHAT_AGENT_NAME:
-            facts, config, agent_type = {}, {}, "chat"
+            config, agent_type = {}, "chat"
             running = runtime.busy or runtime.notification_worker is not None
             document = {"memory_path": runtime.to_workspace_relative(runtime.memory_path)}
             facts = {
@@ -57,13 +57,14 @@ class AgentViews:
                 "next_trigger_at": runtime.retry_at.isoformat() if runtime.retry_at else None,
             }
         else:
-            facts = await self.manager.status(name)
+            facts = await runtime.status()
             config = facts["config"]
             agent_type = config["agent_type"]
             running = facts["running"]
             document = {"task_path": facts["task_path"]}
         session, status, error = None, "idle", facts.get("error")
         if runtime.outbox.issues:
+            await runtime.outbox.entries()
             error = "; ".join(filter(None, [error, *runtime.outbox.issues.values()]))[:2000]
         try:
             session = await runtime.current_session()

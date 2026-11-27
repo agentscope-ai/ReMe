@@ -41,7 +41,10 @@ def split_record(text):
     """Read YAML metadata while keeping the exact Markdown suffix for state updates."""
     header, body = _split_frontmatter(text)
     if header is not None:
-        metadata = yaml.safe_load(header)
+        try:
+            metadata = yaml.safe_load(header)
+        except yaml.YAMLError as exc:
+            raise ValueError(f"Invalid record YAML: {exc}") from exc
         if isinstance(metadata, dict):
             return metadata, body
     return {}, text.removeprefix("\ufeff")

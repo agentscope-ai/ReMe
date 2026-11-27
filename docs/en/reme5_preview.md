@@ -48,7 +48,7 @@ schedule for a time-triggered task. The roadmap includes a standalone desktop pr
 
 ## How the runtime works
 
-The Proactive Manager coordinates named runtimes. An event-triggered task receives observations such as new dialogue or
+AgentManager manages named background Runtimes. An event-triggered task receives observations such as new dialogue or
 logs. A time-triggered task receives cron triggers, for example for a daily briefing or nightly memory consolidation.
 Each task has its own inbox and calls the model when it has work.
 

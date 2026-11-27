@@ -1279,6 +1279,49 @@ async def test_failed_cleanup_preserves_the_original_request_error(system, monke
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["new", "fork", "resume"])
+async def test_cancelled_creation_releases_only_its_new_native_session(system, monkeypatch, operation):
+    first, _, server, _ = system
+    source = await first.create_session()
+    client = _Codex.instances[0]
+    entered, release = asyncio.Event(), asyncio.Event()
+    cleanup_entered, cleanup_release = asyncio.Event(), asyncio.Event()
+    identifiers = []
+
+    async def wait_idle(thread):
+        identifiers.append(thread.id)
+        if len(identifiers) == 1:
+            entered.set()
+            await release.wait()
+        else:
+            cleanup_entered.set()
+            await cleanup_release.wait()
+
+    monkeypatch.setattr(server, "wait_idle", wait_idle)
+    options = {} if operation == "new" else {"resume": source, "fork_session": operation == "fork"}
+    task = asyncio.create_task(first.create_session(**options))
+    try:
+        await asyncio.wait_for(entered.wait(), 2)
+        task.cancel("original cancellation")
+        release.set()
+        if operation != "resume":
+            await asyncio.wait_for(cleanup_entered.wait(), 2)
+            task.cancel("repeated cancellation")
+    finally:
+        release.set()
+        cleanup_release.set()
+        with pytest.raises(asyncio.CancelledError, match="original cancellation"):
+            await task
+    identifier = identifiers[0]
+    assert server._threads[source].pending is not None
+    assert source not in client.unsubscribed
+    if operation != "resume":
+        assert server._threads[identifier].pending is None
+        assert identifier in client.unsubscribed
+    assert all(not thread.inputs for thread in client.threads.values())
+
+
+@pytest.mark.asyncio
 async def test_repeated_cancellation_finishes_native_thread_cleanup(system, monkeypatch):
     """The lease stays held until native idle and unsubscribe have both settled."""
     first, _, server, _ = system

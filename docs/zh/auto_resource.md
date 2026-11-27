@@ -137,7 +137,7 @@ Markdown 层次、JSONL 消息字段和图片文件。Event 仅来源及资源�
 新增电报或行情有变化时，在 `resource/<source>/YYYY-MM-DD/hhmmss_<suffix>/` 发布资源包。行情保留报价时间和采集时间。
 电报回看最多 24 小时，按新闻 ID 去重。已发布但投递未完成的事件会重试。
 
-在一个终端运行 `reme start config=proactive`，在另一个终端运行 `reme manage_proactive_runtime action=status agent_name=finance`
+在一个终端运行 `reme start config=proactive`，在另一个终端运行 `reme manage_proactive_runtime action=status agent_name=proactive_fin`
 查看任务的 `TASK.md`。启动时用 `jobs.<任务名>.enabled=false` 关闭对应采集任务。
 
 ## 图像资源

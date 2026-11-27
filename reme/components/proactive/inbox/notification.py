@@ -21,10 +21,6 @@ class NotificationInbox(BaseInbox):
             value = value.model_dump(mode="json")
         return NotificationRef.model_validate(value).model_dump(mode="json")
 
-    def reminder(self, reference):
-        """Resolve mutable reminder content only from the canonical daily record."""
-        return self.material(reference)[0]
-
     def material(self, reference):
         """Read reminder content and its version from the same file snapshot."""
         reference = NotificationRef.model_validate(reference)

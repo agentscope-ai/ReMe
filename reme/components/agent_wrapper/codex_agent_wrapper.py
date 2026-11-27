@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncGenerator, AsyncIterator
-from contextlib import asynccontextmanager, nullcontext
+from contextlib import asynccontextmanager, nullcontext, suppress
 from dataclasses import dataclass
 from functools import partial
 import json
@@ -259,8 +259,17 @@ class CodexAgentWrapper(BaseAgentWrapper):
 
     async def _create_session(self, **kwargs) -> str:
         """Start an empty thread with the same instructions and tools as its future turns."""
-        async with self._session(self._reply_kwargs(kwargs), keep_empty=True) as thread:
-            return thread.id
+        options = self._reply_kwargs(kwargs)
+        created = options.get("fork_session") or not (options.get("resume") or options.get("session_id"))
+        thread = None
+        try:
+            async with self._session(options, keep_empty=True) as thread:
+                return thread.id
+        except BaseException:
+            if created and thread is not None:
+                with suppress(Exception, asyncio.CancelledError):
+                    await finish_cleanup(self.release_session(thread.id))
+            raise
 
     async def release_session(self, session_id: str) -> None:
         """Release a superseded empty thread; regular turns already release their leases."""

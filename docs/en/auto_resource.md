@@ -158,7 +158,7 @@ Quote records preserve provider and collection times. CLS looks back up to 24 ho
 Pending deliveries are retried from published packages.
 
 Start the service with `reme start config=proactive`. In another terminal, run
-`reme manage_proactive_runtime action=status agent_name=finance` to find the task's `TASK.md`.
+`reme manage_proactive_runtime action=status agent_name=proactive_fin` to find the task's `TASK.md`.
 Disable a collector at startup with `jobs.<job_name>.enabled=false`.
 
 ## Image Resources

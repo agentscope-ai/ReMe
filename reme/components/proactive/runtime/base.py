@@ -224,17 +224,12 @@ class BaseAgentRuntime(BaseComponent):
                 raise ValueError("Task has no queryable session yet")
             identifier = None
             try:
-
-                async def create():
-                    nonlocal identifier
-                    identifier = await self.agent_wrapper.create_session(
-                        resume=source.session_id,
-                        fork_session=True,
-                        **options,
-                    )
-                    await self.sessions.record(identifier, temporary=True)
-
-                await create()
+                identifier = await self.agent_wrapper.create_session(
+                    resume=source.session_id,
+                    fork_session=True,
+                    **options,
+                )
+                await self.sessions.record(identifier, temporary=True)
                 yield identifier
             finally:
                 if identifier is not None:

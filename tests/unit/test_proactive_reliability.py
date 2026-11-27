@@ -48,20 +48,27 @@ async def test_notification_failure_backs_off_or_blocks_incompatible_sdk(tmp_pat
             assert call.await_count == 2 and chat.retry_at is None and chat.error is None
 
 
+@pytest.mark.parametrize("damage", ["missing", "yaml"])
 @pytest.mark.asyncio
-async def test_missing_record_is_reported_without_erasing_refs_and_restores_after_restart(tmp_path, monkeypatch):
+async def test_bad_record_is_isolated_without_erasing_refs_and_restores_after_restart(tmp_path, monkeypatch, damage):
     async with running_system(tmp_path) as (manager, context, _):
         missing = await emit_notification(manager, context, priority="P0")
         path = tmp_path / missing.record_path
         saved = path.read_text()
-        path.unlink()
+        if damage == "missing":
+            path.unlink()
+        else:
+            path.write_text("---\nreminder_priority: P0\nreminder_message: [unfinished\n---\nEvidence\n")
         okay = await emit_notification(manager, context, suffix=1, priority="P0")
         loop = ChatNotificationsLoopStep(app_context=context, agent_runtime="Remy")
         loop.context = RuntimeContext()
         call = AsyncMock(return_value=Response())
         monkeypatch.setattr(loop, "run_job", call)
         await loop.tick()
-        await context.components["agent_runtime"]["Remy"].notification_worker
+        chat = context.components["agent_runtime"]["Remy"]
+        assert chat.error
+        assert missing.id in await chat.inbox.pending_ids()
+        await chat.notification_worker
         assert call.await_args.kwargs["msg_ids"] == [okay.id]
     path.write_text(saved)
     async with running_system(tmp_path) as (_, context, _):

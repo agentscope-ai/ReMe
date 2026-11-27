@@ -5,7 +5,7 @@ description: How ReMe follows ongoing tasks, saves progress, and brings useful r
 
 # Proactive Runtime
 
-ReMe gives agents local, file-native long-term memory. Its Proactive Runtime brings that memory into ongoing tasks. It accepts new information or schedules a run, delegates execution to an agent runtime such as Codex through an `AgentWrapper`, saves the results, and lets the user know when their attention is needed. Each ongoing task has a named Proactive Runtime. The application’s Proactive Manager loads them from the workspace, routes events, and connects reminders to Remy.
+ReMe gives agents local, file-native long-term memory. Its Proactive Runtime brings that memory into ongoing tasks. It accepts new information or schedules a run, delegates execution to an agent runtime such as Codex through an `AgentWrapper`, saves the results, and lets the user know when their attention is needed. Each ongoing task has a named Proactive Runtime. AgentManager loads and manages background Runtimes from the workspace. Each Runtime sends reminders to Remy through its Outbox.
 
 The [full illustrated guide is available in Chinese](../zh/proactive_runtime.md).
 
@@ -13,7 +13,7 @@ The [full illustrated guide is available in Chinese](../zh/proactive_runtime.md)
 
 Start ReMe with `reme start config=proactive`. Collectors send observations to event-triggered Runtimes through `manage_connector(action="send", runtime_names=..., events=...)`. Time-triggered tasks use an explicit `agent_type: time` and `schedule` expression. Use an event-triggered task to check new experiment logs and a separate time-triggered task to summarize progress every day at 18:00.
 
-Each run opens a fresh native session and reads `TASK.md`. Consecutive observations can be processed together. Each scheduled trigger gets its own run in queue order. The query retains the scheduled trigger's planned time; the system prompt supplies the actual start time. A trigger planned for 08:00 and processed at 08:07 shows both times.
+Each run opens a fresh native session and reads `TASK.md`. Inputs are selected by event time, then by event ID when times match. Observations can be processed together; each scheduled trigger gets its own run. The query retains the scheduled trigger's planned time; the record skill receives the actual run start time. A trigger planned for 08:00 and processed at 08:07 supplies those two times respectively.
 
 The AgentWrapper supplies backend instructions and environment context. Remy's role prompt belongs to Chat.
 The [execution Step](../../reme/steps/proactive/agent.py) assembles each background run from `TASK.md`, the trigger
@@ -105,7 +105,7 @@ The observation cooldown starts after the last successful receipt. Time-triggere
 
 Each task owns a directory under `reme_agent_dir`. Deleting a task stops its execution and preserves its files. Temporary query sessions are recorded as independent branches.
 
-Remy's inbox durably retains references and processing receipts, and applies count and byte limits to each active batch. Task input inboxes use durable claim, acknowledgement and retry.
+Remy's inbox durably retains references and processing receipts, and applies count and byte limits to each active batch. A missing or invalid source record remains pending and reports an error without blocking other reminders. Task input inboxes use durable claim, acknowledgement and retry.
 
 `list_agent_inbox` returns input events for background tasks and reminder records for Remy. Remy's reminder records have the same fields as `list_task_reminders`, including the source path as `id` and the current `state`. Remy's inbox also reports `processing` for reminders in an active batch.
 

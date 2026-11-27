@@ -11,7 +11,7 @@ from ....core.registry import R
 from ....schema.event import Event
 from ....schema.proactive_agent import TIME_EVENT_SOURCE, ProactiveRuntimeDefaults, validate_runtime_names
 from ....schema.proactive_runtime import validate_binding_names
-from ....utils.async_utils import complete_in_thread
+from ....utils.async_utils import complete_in_thread, finish_cleanup
 from ....utils.files.workspace_files import WorkspaceFiles
 
 
@@ -184,8 +184,11 @@ class LocalAgentManager(BaseAgentManager):
             async with self.lock:
                 await complete_in_thread(self.registry.delete, agent_name, self.now())
                 if agent_name in self._dynamic:
-                    await self._dynamic.pop(agent_name).close()
-                    self.runtimes.pop(agent_name, None)
+                    try:
+                        await finish_cleanup(runtime.close())
+                    finally:
+                        self._dynamic.pop(agent_name, None)
+                        self.runtimes.pop(agent_name, None)
         except BaseException:
             runtime.retiring = False
             raise
@@ -205,19 +208,4 @@ class LocalAgentManager(BaseAgentManager):
     async def status(self, agent_name):
         """Read operational settings and state from the Runtime owners."""
         runtime = await self.resolve(agent_name)
-        definition = await runtime.definition()
-        snapshot = await runtime.inbox.snapshot()
-        receipt = snapshot["receipt"]
-        next_trigger = runtime.next_trigger(definition)
-        return {
-            "agent_name": agent_name,
-            "config": definition.model_dump(mode="json"),
-            "task_path": self.to_workspace_relative(runtime.task_path),
-            "running": runtime.worker is not None or runtime.execution_lock.locked(),
-            "pending_events": snapshot["pending_count"],
-            "in_flight_events": snapshot["in_flight_count"],
-            "last_started_at": runtime.last_started_at.isoformat() if runtime.last_started_at else None,
-            "last_completed_at": receipt.consume_ts.isoformat() if receipt else None,
-            "next_trigger_at": next_trigger.isoformat() if next_trigger else None,
-            "error": runtime.error or runtime.delivery_error,
-        }
+        return await runtime.status()

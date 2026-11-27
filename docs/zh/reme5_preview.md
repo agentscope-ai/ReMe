@@ -41,7 +41,7 @@ ReMe 现有的记忆流程是这个能力的基础。Auto Memory 把对话提炼
 
 ## 运行时如何工作
 
-Proactive Manager 管理具名 Runtime。事件触发任务接收新增对话或日志等观察，时间触发任务按 Cron 触发，例如每天整理简报或在夜间整理记忆。
+AgentManager 管理具名后台 Runtime。事件触发任务接收新增对话或日志等观察，时间触发任务按 Cron 触发，例如每天整理简报或在夜间整理记忆。
 每个任务用自己的收件箱，有待处理输入时才调用模型。
 
 ![Proactive Runtime 如何把新观察交给 Work Agent，并将进展、来源和提醒决定写入同一记录](../figure/proactive-runtime.svg)

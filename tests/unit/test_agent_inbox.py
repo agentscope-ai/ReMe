@@ -98,6 +98,20 @@ async def test_event_history_window_and_retained_handoffs(tmp_path):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("retain", [False, True])
+async def test_claim_fits_history_window_and_preserves_receipt_after_restart(tmp_path, retain):
+    async with make_inbox(tmp_path, max_read_items=1) as inbox:
+        await inbox.append([event("a"), event("b")])
+        batch = await inbox.claim()
+        assert [item["id"] for item in batch["items"]] == ["a"]
+        await inbox.ack(batch["token"], retain=retain)
+    async with make_inbox(tmp_path, max_read_items=1) as inbox:
+        assert (await inbox.receipts())[0].item_ids == ["a"]
+        await inbox.append(event("a"))
+        assert await inbox.pending_ids() == {"b"}
+
+
+@pytest.mark.asyncio
 async def test_notification_receipts_survive_display_limit_and_restart(tmp_path):
     refs = [
         NotificationRef.from_record("monitor", f"daily/2026-11-20/monitor_{index:06}.md", datetime.now(timezone.utc))

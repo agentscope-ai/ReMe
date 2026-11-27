@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from reme.steps.proactive.chat import ProcessChatNotificationsStep
+from reme.steps.proactive.agent_api import AgentSessionStep, AgentViews
 from reme.steps.proactive.tools import SubmitChatReplyStep
 from .proactive_helpers import running_system, emit_notification
 
@@ -81,6 +82,41 @@ async def test_native_side_effect_recovers_before_another_model_decision(tmp_pat
         assert (await chat.inbox.processed(ref.id)).metadata["decision"] == "send"
         assert (await chat.outbox.entries())[0].status == "acknowledged"
         assert sum(len(rows) for rows in wrapper.messages.values()) == 1 and not wrapper.turns
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("owner", ["task", "chat"])
+async def test_repaired_terminal_outbox_record_clears_agent_health_error(tmp_path, monkeypatch, owner):
+    async with running_system(tmp_path) as (manager, context, wrapper):
+        ref = await emit_notification(manager, context)
+        runtime = await manager.resolve("monitor")
+        if owner == "chat":
+
+            async def send(_query, **options):
+                return await SubmitChatReplyStep(app_context=context, agent_runtime="Remy")(
+                    action="send",
+                    content="Result",
+                    **options["injected_job_kwargs"],
+                )
+
+            monkeypatch.setattr(wrapper, "reply", send)
+            await ProcessChatNotificationsStep(app_context=context, agent_runtime="Remy")(
+                priority="P1",
+                msg_ids=[ref.id],
+            )
+            runtime = context.components["agent_runtime"]["Remy"]
+        delivery = (await runtime.outbox.entries())[0]
+        path = runtime.outbox.path(delivery.id)
+        original = path.read_bytes()
+        path.write_text("{")
+        await runtime.outbox.entries()
+        views = AgentViews(AgentSessionStep(app_context=context, agent_runtime="Remy"))
+        assert (await views.view(runtime.name)).status == "error"
+        path.write_bytes(original)
+        assert (await views.view(runtime.name)).status == "idle"
+        assert not runtime.outbox.issues
+        assert not await runtime.outbox.pending()
+        assert path.read_bytes() == original
 
 
 @pytest.mark.asyncio

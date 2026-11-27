@@ -132,6 +132,25 @@ class ProactiveAgentRuntime(BaseAgentRuntime):
         if definition.wiring() != self.initial_config.wiring():
             raise ValueError("Persisted task definition conflicts with immutable Runtime wiring")
 
+    async def status(self):
+        """Read operational settings and state without resolving this Runtime again."""
+        definition = await self.definition()
+        snapshot = await self.inbox.snapshot()
+        receipt = snapshot["receipt"]
+        next_trigger = self.next_trigger(definition)
+        return {
+            "agent_name": self.name,
+            "config": definition.model_dump(mode="json"),
+            "task_path": self.to_workspace_relative(self.task_path),
+            "running": self.worker is not None or self.execution_lock.locked(),
+            "pending_events": snapshot["pending_count"],
+            "in_flight_events": snapshot["in_flight_count"],
+            "last_started_at": self.last_started_at.isoformat() if self.last_started_at else None,
+            "last_completed_at": receipt.consume_ts.isoformat() if receipt else None,
+            "next_trigger_at": next_trigger.isoformat() if next_trigger else None,
+            "error": self.error or self.delivery_error,
+        }
+
     async def initialize_task(self, initial_task=None):
         """Create missing task requirements without rewriting user-owned content."""
         content = self.initial_task if initial_task is None else initial_task
