@@ -4,7 +4,7 @@ from datetime import datetime
 import json
 from uuid import UUID
 
-from .base_dialogue_index import BaseDialogueIndex
+from ._dialogue_index import BaseDialogueIndex
 from .....constants import DEFAULT_MAX_FILE_BYTES
 
 

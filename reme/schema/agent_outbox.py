@@ -23,10 +23,15 @@ class NotificationDelivery(BaseModel):
     delivered_at: AwareDatetime | None = None
     last_error: str | None = None
 
+    @staticmethod
+    def identity(notification_id: str, target_agent: str) -> str:
+        """Keep one stable sending identity for each notification and recipient."""
+        return "delivery-" + sha256(f"{notification_id}\0{target_agent}".encode()).hexdigest()
+
     @model_validator(mode="after")
     def validate_delivery(self):
         """Require sending identities, payloads and terminal timestamps to agree."""
-        expected = "delivery-" + sha256(f"{self.notification.id}\0{self.target_agent}".encode()).hexdigest()
+        expected = self.identity(self.notification.id, self.target_agent)
         if self.id != expected:
             raise ValueError("Notification delivery identity does not match its payload")
         if (self.status == "delivered") != (self.delivered_at is not None):

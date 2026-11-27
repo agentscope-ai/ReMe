@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 
-from reme.steps.proactive.api import AskAgentStep
+from reme.steps.proactive.agent_api import AskAgentStep
 from reme.steps.proactive.chat import ProcessChatNotificationsStep
 from reme.steps.proactive.tools import SubmitChatReplyStep, ManageProactiveRuntimeStep
 from reme.core.context import RuntimeContext
@@ -29,7 +29,7 @@ async def test_urgent_delivery_can_reach_an_active_foreground_turn(tmp_path, mon
 
         monkeypatch.setattr(wrapper, "read_session", active)
         # Keep the formal Chat signature stable while preparing this fork.
-        from reme.steps.proactive.chat.chat import ChatAgentStep
+        from reme.steps.proactive.chat.agent import ChatAgentStep
 
         step = ChatAgentStep(app_context=context, agent_runtime="Remy")
         step.context = RuntimeContext()

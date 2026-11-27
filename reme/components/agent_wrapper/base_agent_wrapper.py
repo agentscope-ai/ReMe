@@ -2,6 +2,7 @@
 
 from collections.abc import AsyncGenerator
 from contextlib import aclosing, asynccontextmanager
+from datetime import datetime
 from importlib import metadata
 from pathlib import Path
 from typing import Any, ClassVar, Literal, TYPE_CHECKING
@@ -16,6 +17,8 @@ from ...schema import AgentReply, SessionMessage, SessionSnapshot, SessionStatus
 from ...schema.agent_reply import AgentReplyStatus, collect_reply
 from ...utils.counter import global_counter_add_many
 from ...utils.files.workspace_files import WorkspaceFiles
+from ...utils.prompt import PromptHandler
+from ...utils.timezone_utils import resolve_timezone
 
 if TYPE_CHECKING:
     from ..job.base_job import BaseJob
@@ -57,6 +60,10 @@ class BaseAgentWrapper(BaseComponent):
         super().__init__(**kwargs)
         self._cwd = cwd
         self._project_path = project_path
+        language = self.app_context.app_config.language if self.app_context else ""
+        self.prompt = PromptHandler(language=language)
+        for cls in reversed(type(self).__mro__):
+            self.prompt.load_prompt_by_class(cls)
         self.outbound_proxy = self.bind(
             "default",
             BaseOutboundProxy,
@@ -85,6 +92,25 @@ class BaseAgentWrapper(BaseComponent):
         """Set the agent's system prompt. Returns self for chaining."""
         self.kwargs["system_prompt"] = prompt
         return self
+
+    def get_session_system_prompt(self, prompt: str) -> str | dict[str, Any]:
+        """Adapt a Runtime's role instructions to the backend's native prompt format."""
+        return prompt
+
+    def get_base_instructions(self) -> str:
+        """Render shared defaults and backend guidance separately from role instructions."""
+        timezone = self.app_context.app_config.timezone if self.app_context else None
+        now = datetime.now(resolve_timezone(timezone))
+        return "\n\n".join(
+            self.prompt.prompt_format(
+                key,
+                workspace_dir=self.workspace_path,
+                app_timezone=timezone or str(now.tzinfo),
+                now=now.isoformat(),
+            )
+            for key in ("base_instructions", "backend_instructions")
+            if self.prompt.has_prompt(key)
+        )
 
     def add_job_tools(self, job_tools: list[str]) -> "BaseAgentWrapper":
         """Append job names as tools to the agent. Returns self for chaining."""

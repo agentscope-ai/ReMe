@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from .base_finance import FinanceCollectorStep
+from .base import FinanceCollectorStep
 from .....core.registry import R
 from .....schema.finance import FinanceNewsItem
 

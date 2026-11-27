@@ -3,8 +3,8 @@
 import os
 from pathlib import Path
 
-from .base_harness_connector import BaseHarnessConnectorStep
-from ._codex_dialogue import CodexDialogueIndex
+from .base import BaseHarnessConnectorStep
+from ._codex_index import CodexDialogueIndex
 from .....core.registry import R
 
 

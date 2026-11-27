@@ -14,8 +14,8 @@ from reme.config import resolve_app_config
 from reme.components.job import CronJob
 from reme.schema import ResourceMetadata
 from reme.steps.proactive.connector.harness import ClaudeCodeDialogueInitStep, ClaudeCodeDialogueStep
-from reme.steps.proactive.connector.harness._claude_code_dialogue import ClaudeCodeDialogueIndex
-from reme.steps.proactive.connector.harness import base_harness_connector
+from reme.steps.proactive.connector.harness._claude_code_index import ClaudeCodeDialogueIndex
+from reme.steps.proactive.connector.harness import base as harness_base
 from reme.utils.files.workspace_files import WorkspaceFiles
 from .proactive_helpers import running_system
 
@@ -291,7 +291,7 @@ async def test_publishes_same_resource_contract_and_delivers_both_tasks(tmp_path
     home, path = source
     clock = Mock(wraps=datetime)
     clock.now.return_value = NOW
-    monkeypatch.setattr(base_harness_connector, "datetime", clock)
+    monkeypatch.setattr(harness_base, "datetime", clock)
     async with running_system(
         tmp_path / "workspace",
         language="zh",

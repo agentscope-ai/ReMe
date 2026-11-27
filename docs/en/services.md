@@ -68,6 +68,10 @@ finance and technology news. Configure them under `components.agent_runtime`; `c
 background identities only. Runtimes own sessions, execution locks, Inbox and Outbox resources. Jobs own execution and
 scheduling; each call creates fresh Steps. The Application owns the shared AgentWrapper and App Server.
 
+For Claude Code, start `reme start config=proactive_cc`. This preset uses Claude Code's native system prompt and appends
+each Runtime's role instructions, including Remy's Chat prompt. Prompt snapshots are disabled so resumed calls use the
+current appended instructions.
+
 ```bash
 # Terminal one
 reme start config=proactive
@@ -147,10 +151,16 @@ The public ask_agent stream owns DONE. Task questions use temporary read-only fo
 consuming inputs or replacing its primary session.
 
 Runtime components load built-in skill templates from `components/proactive/runtime/skills/`, localized through
-PromptHandler, or reference project skills by name. Chat and task Runtimes configure their own skills and tools. Generated
+PromptHandler, or reference project skills by name. Chat and Proactive Runtimes configure their own skills and tools. Generated
 SKILL.md files are scoped to one invocation and cleaned up afterward. Wrapper skills use SkillSpec lists: name references
 an existing skill; name/description/content defines generated content. Native Wrapper protocols remain unchanged.
+An OS lock protects each generated skill name; a later invocation recovers abandoned links after a process exits.
+Execution Jobs are fixed by the workflow. Runtime definitions no longer contain `run_job`, and notification loops no
+longer accept `process_job`; remove these fields when migrating an earlier configuration.
 The shared prompt loader is `reme/utils/prompt.py`; Runtime initialization does not inspect execution Steps.
+Per-run query and input templates belong to `reme/steps/proactive/agent.yaml`. Customize them through
+`jobs.run_proactive_agent.steps[0].prompt_dict`, using `query`, `record_instruction`, `event_input` and `time_input`
+or their `_zh` variants. Runtime `prompt_dict` configures role and initialization text.
 Notebook automatic-write constraints are injected through trusted Runtime configuration and checked by manage_notebook.
 
 See [components](../../reme/components/proactive/), [workflows](../../reme/steps/proactive/) and

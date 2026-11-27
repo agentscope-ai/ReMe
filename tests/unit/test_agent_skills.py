@@ -87,13 +87,13 @@ async def test_failed_stream_and_explicit_stream_close_clean_generated_files(tmp
     agent = wrapper(tmp_path)
     with pytest.raises(RuntimeError, match="model failed"):
         _ = [chunk async for chunk in agent.reply_stream("fail", skills=[GENERATED])]
-    assert not (tmp_path / "metadata/agent_skills/run-task").exists()
+    assert not list((tmp_path / "metadata/agent_skills").glob("run-task-*"))
     stream = agent.reply_stream("wait", skills=[GENERATED])
     await anext(stream)
     assert (tmp_path / ".agents/skills/run-task/SKILL.md").is_file()
     await stream.aclose()
     assert not (tmp_path / ".agents/skills/run-task").is_symlink()
-    assert not (tmp_path / "metadata/agent_skills/run-task").exists()
+    assert not list((tmp_path / "metadata/agent_skills").glob("run-task-*"))
 
 
 @pytest.mark.asyncio
@@ -110,7 +110,7 @@ async def test_cancelled_execution_closes_stream_before_skill_cleanup(tmp_path):
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
-    assert not (tmp_path / "metadata/agent_skills/run-task").exists()
+    assert not list((tmp_path / "metadata/agent_skills").glob("run-task-*"))
     assert not (tmp_path / ".agents/skills/run-task").is_symlink()
 
 
@@ -132,14 +132,14 @@ async def test_partial_preparation_and_publication_roll_back_only_owned_files(tm
     with pytest.raises(FileNotFoundError):
         async with agent.skill_scope(skills=[GENERATED, {"name": "missing"}]):
             pytest.fail("Missing file reference was accepted")
-    assert not (tmp_path / "metadata/agent_skills/run-task").exists()
+    assert not list((tmp_path / "metadata/agent_skills").glob("run-task-*"))
     target = tmp_path / ".agents/skills/run-task"
     target.mkdir(parents=True)
     (target / "SKILL.md").write_text("User skill")
     with pytest.raises(FileExistsError):
         await agent.create_session(skills=[GENERATED])
     assert (target / "SKILL.md").read_text() == "User skill"
-    assert not (tmp_path / "metadata/agent_skills/run-task").exists()
+    assert not list((tmp_path / "metadata/agent_skills").glob("run-task-*"))
 
 
 @pytest.mark.asyncio
@@ -168,7 +168,19 @@ async def test_cleanup_preserves_a_replaced_discovery_link(tmp_path):
             target.mkdir()
             (target / "keep").write_text("User replacement")
     assert (target / "keep").read_text() == "User replacement"
-    assert not (tmp_path / "metadata/agent_skills/run-task").exists()
+    assert not list((tmp_path / "metadata/agent_skills").glob("run-task-*"))
+
+
+@pytest.mark.asyncio
+async def test_cleanup_preserves_a_replaced_generated_directory(tmp_path):
+    agent = wrapper(tmp_path)
+    with pytest.raises(ExceptionGroup, match="clean generated"):
+        async with agent.skill_scope(skills=[GENERATED]) as options:
+            source = Path(options["_skills"].directories[0])
+            source.rename(tmp_path / "moved-skill")
+            source.mkdir()
+            (source / "keep").write_text("User replacement")
+    assert (source / "keep").read_text() == "User replacement"
 
 
 @pytest.mark.asyncio
@@ -217,4 +229,4 @@ async def test_claude_native_options_read_generated_skill_in_the_enabled_scope(t
     assert (await agent.reply("execute", skills=[GENERATED], setting_sources=[setting_source]))["status"] == "completed"
     assert len(seen) == 1 and not seen[0].exists()
     assert not seen[0].parent.is_symlink()
-    assert not (tmp_path / "metadata/agent_skills/run-task").exists()
+    assert not list((tmp_path / "metadata/agent_skills").glob("run-task-*"))

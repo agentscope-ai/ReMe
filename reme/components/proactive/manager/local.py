@@ -5,7 +5,7 @@ import asyncio
 from .base import BaseAgentManager, TaskNotFoundError
 from ._registry import RuntimeRegistry
 from ..runtime.base import BaseAgentRuntime
-from ..runtime.task import ProactiveAgentRuntime
+from ..runtime.proactive import ProactiveAgentRuntime
 from ...agent_wrapper import BaseAgentWrapper
 from ....core.registry import R
 from ....schema.event import Event
@@ -53,7 +53,6 @@ class LocalAgentManager(BaseAgentManager):
         self._dynamic = {}
         self._deleting = set()
         self.lock = asyncio.Lock()
-        self.changed = asyncio.Event()
         self.closed = True
 
     def now(self):
@@ -73,7 +72,6 @@ class LocalAgentManager(BaseAgentManager):
 
     async def _close(self):
         self.closed = True
-        self.changed.set()
         errors = []
         for runtime in reversed(list(self._dynamic.values())):
             try:
@@ -161,7 +159,6 @@ class LocalAgentManager(BaseAgentManager):
             await complete_in_thread(self.registry.save, agent)
             runtime.retiring = False
             runtime = await self._resolve_locked(agent, candidate=runtime)
-            self.changed.set()
         return {
             "agent_name": agent.agent_name,
             "restored": restored,
@@ -175,7 +172,6 @@ class LocalAgentManager(BaseAgentManager):
             definition = await complete_in_thread(self.registry.update, agent_name, settings, self.now())
             runtime = await self._resolve_locked(definition)
             runtime.next_trigger(definition)
-            self.changed.set()
         return await self.status(agent_name)
 
     async def delete(self, agent_name):
@@ -190,7 +186,6 @@ class LocalAgentManager(BaseAgentManager):
                 if agent_name in self._dynamic:
                     await self._dynamic.pop(agent_name).close()
                     self.runtimes.pop(agent_name, None)
-                self.changed.set()
         except BaseException:
             runtime.retiring = False
             raise
@@ -205,7 +200,6 @@ class LocalAgentManager(BaseAgentManager):
         async with self.lock:
             runtime = await self._resolve_locked(await self.definition(agent_name))
             identifiers = await runtime.append(events)
-            self.changed.set()
         return {"agent_name": agent_name, "event_ids": identifiers}
 
     async def status(self, agent_name):

@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from stat import S_ISREG
 
-from .base_connector import BaseConnectorStep
+from .base import BaseConnectorStep
 from ...file_io import check_path_permission
 from ....core.registry import R
 from ....utils.files.workspace_files import WorkspaceFiles

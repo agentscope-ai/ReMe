@@ -43,7 +43,7 @@ and concise documentation together.
 - `reme/core/registry.py`: the frozen built-in registry template and application-local registry factory.
 - `reme/components/job/`: base, stream, background, and cron job implementations.
 - `reme/components/service/`: local CLI, HTTP, and MCP service backends.
-- `reme/components/proactive/`: lifecycle-owned Inbox, Outbox, Chat/task Runtime, and background AgentManager.
+- `reme/components/proactive/`: lifecycle-owned Inbox, Outbox, Chat/Proactive Runtime, and background AgentManager.
 - `reme/steps/proactive/`: task execution, Remy conversation and notifications, management tools, Connector workflows, and BackgroundJob scheduling.
 - `reme/components/`: agent wrappers, model adapters, stores, catalogs, graphs, indexes, clients, tokenizers, and
   outbound proxies.

@@ -1,6 +1,6 @@
 """Transfer committed record references to Remy's NotificationInbox."""
 
-from hashlib import sha256
+import asyncio
 
 from .base import BaseOutbox
 from ....core.registry import R
@@ -20,10 +20,32 @@ class NotificationOutbox(BaseOutbox):
         super().__init__(**kwargs)
         self.target = target
 
+    @staticmethod
+    def directory_for(agent_directory):
+        """Locate retained notification deliveries beneath their source Agent."""
+        return agent_directory / "outbox/notifications"
+
+    def reference_path(self, notification_id):
+        """Locate a notification's delivery even when its contents are damaged."""
+        return self.path(NotificationDelivery.identity(notification_id, self.target.name))
+
+    @classmethod
+    async def read_reference(cls, files, agent_directory, notification_id, target_agent):
+        """Read retained sender state without creating or starting its Runtime."""
+        identifier = NotificationDelivery.identity(notification_id, target_agent)
+        path = files.checked(cls.directory_for(agent_directory) / f"{identifier}.json")
+        value = await asyncio.to_thread(files.read_json, path, None)
+        if value is None:
+            return None
+        delivery = NotificationDelivery.model_validate(value)
+        if delivery.id != identifier:
+            raise ValueError("Delivery identity does not match its filename")
+        return delivery
+
     async def prepare_reference(self, reference):
         """Freeze a stable record reference and its destination before handoff."""
         reference = NotificationRef.model_validate(reference)
-        identifier = "delivery-" + sha256(f"{reference.id}\0{self.target.name}".encode()).hexdigest()
+        identifier = NotificationDelivery.identity(reference.id, self.target.name)
         return await self.prepare(
             NotificationDelivery(
                 id=identifier,

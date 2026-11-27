@@ -113,7 +113,7 @@ class RuntimeRegistry:
             if supplied.get("agent_type") != previous.agent_type:
                 raise ValueError("Task trigger type cannot change after creation")
             if any(supplied[key] != value for key, value in previous.wiring().items() if key in supplied):
-                raise ValueError("Task Runtime wiring cannot change on restore")
+                raise ValueError("Proactive Runtime wiring cannot change on restore")
             values = {
                 **previous.model_dump(exclude={"created_at", "deleted_at"}),
                 **supplied,

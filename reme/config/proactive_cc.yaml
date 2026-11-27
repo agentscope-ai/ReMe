@@ -11,6 +11,11 @@ components:
   agent_wrapper:
     default:
       backend: claude_code
+      # Keep Claude Code's native instructions and append each Runtime's role prompt.
+      system_prompt:
+        type: preset
+        preset: claude_code
+        snapshot: false
       api_key: ${CC_LLM_API_KEY:-}
       anthropic_relay: default
       permission_mode: bypassPermissions

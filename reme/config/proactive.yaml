@@ -1,4 +1,4 @@
-# Remy and four domain task Runtimes, managed by private workflow Jobs.
+# Remy and four domain Proactive Runtimes, managed by private workflow Jobs.
 # Start with LLM_API_KEY, LLM_BASE_URL and optionally REME_MODEL_NAME.
 # reme start config=proactive
 # Studio jobs and their runtime dependencies. Examples live in demo.yaml.
@@ -611,7 +611,6 @@ jobs:
       - backend: chat_notifications_loop_step
         agent_runtime: Remy
         agent_manager: default
-        process_job: process_chat_notifications
 
   run_proactive_agent:
     backend: base
@@ -1072,7 +1071,6 @@ components:
     Remy:
       backend: chat
       agent_wrapper: default
-      run_job: run_chat_agent
       enabled: true
       skills: [manage-proactive-runtime, manage-connector, manage-notebook]
       job_tools: [manage_proactive_runtime, manage_connector, manage_notebook]
@@ -1086,7 +1084,6 @@ components:
       backend: proactive
       agent_type: event
       agent_wrapper: default
-      run_job: run_proactive_agent
       notification_target: Remy
       enabled: true
       skills: [proactive-record]
@@ -1097,11 +1094,8 @@ components:
       recent_history_hours: 24
       max_batch_events: 2
       initial_task: |
-        帮我梳理目前在做的项目，跟进各个项目的进展和难点，整理需要进一步讨论的问题。
-
-        ## 跟进项目与记忆
-        阅读本轮输入及其引用的文件、图片，材料没读全时继续读取，按任务要求关联到对应项目和事项。
-        找出有意义的进展、难点、更正及需要用户决定的问题。
+        根据本轮输入及其引用的文件、图片，梳理目前在做的项目，跟进各个项目的进展、难点和更正，整理需要进一步讨论或决定的问题。
+        根据进展的重要性和待讨论、待决策事项判断是否提醒。
     proactive_note:
       <<: *proactive_runtime
       skills: [proactive-record, manage-notebook]
@@ -1109,35 +1103,25 @@ components:
       injected_job_kwargs:
         _automatic_notebook: true
       initial_task: |
-        跟进 Todo 和 Idea，更新有依据的活动 Todo 状态和进展，把需要用户决定的事项交给 Remy。
-
-        ## 跟进 Notebook
-        阅读本轮材料及其引用的文件、图片，找出与任务有关的依据。
-        使用 manage-notebook 技能和 manage_notebook 工具，按项目、关键词和分页找齐相关 Todo、Idea 及其关联。更新 Todo 前，用 kind=todo、action=get 读完全部进展。
-        只补新增事实。同一事项有后续结果时合并原进展；更正错误，使用原 progress_match 删除明确撤回的进展。有依据确认已经开工时才能设为 in_progress。
-        自动执行只修改活动 Todo 的进展或将状态设为 in_progress。创建、关闭、重开、修改内容、项目、日期、来源关联及 Idea 写操作，逐项交给 Remy 让用户决定。
-        记录需要决定的已有条目、新依据和建议，优先复用合适的已有条目。关闭 Todo 不自动关闭 Idea，还要核对其他关联 Todo。
+        根据本轮材料及其引用的文件、图片，使用 manage-notebook 技能跟进并更新已有 Todo 的进展。
+        需要我决定是否新建 Idea，或是否完成、调整已有 Todo 时，提醒我并说明依据和建议。
     proactive_fin:
       <<: *proactive_runtime
       min_trigger_interval_seconds: 10
       max_batch_events: 20
       initial_task: |
-        关注现货黄金（XAU/USD）、WTI 原油期货（CL）、BTC/USDT 和纳斯达克综合指数（IXIC），用财联社电报补充直接相关的背景。以最新有效报价为准，涨跌幅绝对值达到 3% 才提醒：黄金、原油和纳指以昨收为基准，BTC 使用滚动 24 小时涨跌幅。说明标的、价格或点位、涨跌幅、报价时间和来源；有延迟时注明，同一波变动只提醒一次。
-
-        ## 判断市场变化
-        阅读与任务有关的报价、新闻及源材料，核对标的、单位、报价时间、延迟和比较基准，不把过期或缺失的数据当成当前事实。
-        用有效报价检查任务条件，新闻只作为有依据的背景，找出本轮观察到的变化及其依据。
+        关注现货黄金（XAU/USD）、WTI 原油期货（CL）、BTC/USDT 和纳斯达克综合指数（IXIC），用财联社电报补充直接相关的背景。
+        阅读相关报价、新闻及源材料，核对标的、单位、报价时间、延迟和比较基准，以最新有效报价为准，不把过期或缺失的数据当成当前事实。黄金、原油和纳指以昨收为基准，BTC 使用滚动 24 小时涨跌幅。
+        结果包含标的、价格或点位、涨跌幅、报价时间、来源及相关背景，有延迟时注明；涨跌幅绝对值达到 3% 才提醒，同一波变动只提醒一次。
     proactive_news:
       <<: *proactive_runtime
       agent_type: time
       schedule: 0 8 * * *
       max_batch_events: 20
       initial_task: |
-        整理一份 AI 与科技简报，汇总本轮计划时间之前 24 小时的重要新闻，核对原始来源，简要说明事实和影响并附来源链接。每次整理好后提醒我查看。
-
-        ## 整理简报
-        按任务指定的主题、来源和时间范围整理；定时执行以输入的计划时间和应用时区确定统计时段。
-        阅读已有材料，按需补充检索。核对原始来源，区分发布时间和事件发生时间，合并同一事件的报道，简述事实和影响并附来源链接，资料不足时如实说明。
+        整理一份 AI 与科技简报，以输入的计划时间和应用时区确定统计时段，汇总本轮计划时间之前 24 小时的重要新闻。
+        阅读已有材料并按需补充检索，核对原始来源，区分发布时间和事件发生时间，合并同一事件的报道，简述事实和影响并附来源链接，资料不足时如实说明。
+        每次整理好简报后，提醒我查看。
   agent_manager:
     default:
       backend: local

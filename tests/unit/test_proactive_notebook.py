@@ -6,7 +6,7 @@ import pytest
 
 from reme.schema import StreamChunk
 from .proactive_helpers import running_system, queue_event, runtime_config
-from .test_proactive_run import prepare_round, REMIND, SKIP
+from .test_proactive_agent import prepare_round, REMIND, SKIP
 
 
 @pytest.mark.parametrize("notify", [False, True])
@@ -113,10 +113,6 @@ async def test_restore_preserves_notebook_bindings_and_task_document(tmp_path):
         await manager.delete("notes")
         await manager.create({"agent_type": "event", "agent_name": "notes"})
         runtime = await manager.resolve("notes")
-        assert (
-            runtime.run_job == "run_proactive_agent"
-            and runtime.binding.job_tools == ["manage_notebook"]
-            and runtime.task_path.read_text() == "Keep"
-        )
+        assert runtime.binding.job_tools == ["manage_notebook"] and runtime.task_path.read_text() == "Keep"
         with pytest.raises(ValueError):
             await manager.update("notes", {"schedule": "0 8 * * *"})

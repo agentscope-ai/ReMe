@@ -83,3 +83,8 @@ class RoundRecord:
         """Reject edits made before commit, including a file created after a skip."""
         if path != self.path or self._version(path) != self.written:
             raise RuntimeError(f"Agent output changed outside this round: {path}")
+
+    def discard(self):
+        """Remove only this round's captured, unchanged output."""
+        if self.path is not None and self.written is not None and self._version(self.path) == self.written:
+            self.files.remove(self.path)

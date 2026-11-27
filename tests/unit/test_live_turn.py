@@ -96,7 +96,7 @@ async def test_live_subscription_recovers_partial_output_without_polling_each_to
     tmp_path,
 ):
     from .proactive_helpers import running_system as running_manager
-    from reme.steps.proactive.api import AgentViews, AgentSessionStep
+    from reme.steps.proactive.agent_api import AgentViews, AgentSessionStep
     from reme.schema import SessionSnapshot, SessionStatus
     from unittest.mock import AsyncMock
 
@@ -133,7 +133,7 @@ async def test_live_subscription_recovers_partial_output_without_polling_each_to
 @pytest.mark.asyncio
 async def test_native_handoff_invalidates_every_subscribers_cached_snapshot(tmp_path):
     from .proactive_helpers import running_system as running_manager
-    from reme.steps.proactive.api import AgentViews, AgentSessionStep
+    from reme.steps.proactive.agent_api import AgentViews, AgentSessionStep
     from reme.schema import SessionSnapshot, SessionStatus, SessionMessage
     from unittest.mock import AsyncMock
 

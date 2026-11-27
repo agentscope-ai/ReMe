@@ -2,6 +2,6 @@
 
 from .base import BaseAgentRuntime
 from .chat import ChatAgentRuntime
-from .task import ProactiveAgentRuntime
+from .proactive import ProactiveAgentRuntime
 
 __all__ = ["BaseAgentRuntime", "ChatAgentRuntime", "ProactiveAgentRuntime"]

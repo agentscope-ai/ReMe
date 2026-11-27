@@ -3,12 +3,51 @@
 import asyncio
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import sys
 from threading import Thread
 
 import pytest
 
 from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.core.context import ApplicationContext
+
+
+@pytest.mark.asyncio
+async def test_generated_skill_recovers_after_owner_process_exits(tmp_path):
+    """OS locks release after a crash; the next run replaces only its abandoned link and files."""
+    script = """
+import os
+from pathlib import Path
+import sys
+from reme.components.agent_wrapper.skills import SkillScope
+from reme.schema import SkillSpec
+
+root = Path(sys.argv[1]).resolve()
+scope = SkillScope([SkillSpec(name="run-task", description="Task", content="Old task")],
+                   root / "skills", root / "metadata/agent_skills")
+scope.prepare()
+scope.publish(root / ".agents/skills")
+os._exit(0)
+"""
+    process = await asyncio.create_subprocess_exec(sys.executable, "-c", script, str(tmp_path))
+    try:
+        async with asyncio.timeout(20):
+            assert await process.wait() == 0
+    finally:
+        if process.returncode is None:
+            process.kill()
+            await process.wait()
+    target = tmp_path / ".agents/skills/run-task"
+    previous = target.resolve()
+    assert previous.is_dir()
+    wrapper = BaseAgentWrapper(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
+    definition = {"name": "run-task", "description": "Task", "content": "New task"}
+    async with wrapper.skill_scope(skills=[definition]) as options:
+        options["_skills"].publish(tmp_path / ".agents/skills")
+        current = target.resolve()
+        assert current != previous and not previous.exists()
+        assert "New task" in (current / "SKILL.md").read_text()
+    assert not current.exists() and not target.is_symlink()
 
 
 def _texts(value):

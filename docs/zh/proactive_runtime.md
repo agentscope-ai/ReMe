@@ -55,7 +55,7 @@ Codex 采集进度由自身管理：`resource/codex_dialogue/progress.jsonl` 保
 
 每个任务有自己的收件箱。同一个 Agent 一次处理一批事件；执行期间到达的新信息留给后续轮次，不同任务则可以各自推进。事件 ID 用于识别重复投递，避免同一批资料因为重试被反复加入。
 
-只有一轮成功完成并保存结果后，这批事件才会被记为已处理。执行失败时，已写入的记录和待重试的输入都会保留。
+只有一轮成功完成并保存结果后，这批事件才会被记为已处理。提交前失败时，系统清理本轮未被外部修改的草稿，保留输入等待重试。
 
 ### 时间触发
 
@@ -67,18 +67,25 @@ Codex 采集进度由自身管理：`resource/codex_dialogue/progress.jsonl` 保
 
 使用 `reme start config=proactive` 启动。每轮领取一批观察事件或一次时间触发，新建原生会话，并读取非空的 `TASK.md`。观察轮从事件和附件找关键信息，时间触发轮按任务说明完成约定工作。
 
-各领域 Agent 共用个人助理 system prompt，并在其中提供工作区、时区和当前时间。每轮 query 包含 `TASK.md`、触发输入、
-领域处理要求和所选技能，由 Harness 执行一次。
+AgentWrapper 提供对应后端的基础指令和运行环境；Remy 的角色提示用于 Chat。
+[执行 Step](../../reme/steps/proactive/agent.py) 根据 `TASK.md`、触发输入和所选技能组装每轮后台任务，由 Harness 执行一次。
+本轮 query 和输入展示的中英文模板位于相邻的 [`agent.yaml`](../../reme/steps/proactive/agent.yaml)。Runtime 管理稳定的能力绑定、
+原生会话和可靠提交；Step 将本轮时间、路径和搜索预算填入记录技能的独立副本，保持缓存模板不变。
 
-所有后台 Agent 默认加载共用的 `proactive-record` 技能。领域提示只描述本轮业务，技能统一处理历史检索、记录和提醒去重、
-提醒等级与内容，以及 Markdown 产出。Notebook 额外使用 `manage-notebook`；Runtime 管理由 Remy 的
+执行提示通过 `jobs.run_proactive_agent.steps[0].prompt_dict` 定制，使用 `query`、`record_instruction`、`event_input`、`time_input`
+及对应的 `_zh` 键。Runtime 的 `prompt_dict` 用于角色和初始化文本。
+
+预设 `TASK.md` 只写业务、结果要求和提醒条件。启用 `proactive-record` 时，统一 query 追加 `record_instruction`；记录格式和路径由技能提供。
+
+后台 Agent 默认加载共用的 `proactive-record` 技能，先完成本轮业务，再由技能处理历史检索、记录和提醒去重、
+提醒等级与内容，以及 Markdown 产出。任务的 `skills` 不包含 `proactive-record`（包括 `skills=[]`）时，可以不写每日记录正常完成，也不通过记录生成提醒。Notebook 额外使用 `manage-notebook`；Runtime 管理由 Remy 的
 `manage-proactive-runtime` 技能负责。
 
 Agent 在所有任务共用的 `daily_dir` 中搜索历史记录，核对已有的进展和提醒。优先查 `recent_history_hours` 指定的最近时段，默认 24 小时。`max_local_search_calls` 控制 Prompt 中的本地关键词或正则搜索次数，默认 10 次。超出时每轮只记录一次告警，执行继续。响应的 `reme.agent_run` 记录工具调用、模型状态和执行结果。失败轮次保留输入，默认从 5 秒开始退避，最长 5 分钟。
 
 ### 本轮记录
 
-每轮记录默认写到 `daily/YYYY-MM-DD/{agent_name}_HHMMSS.md`。同一秒重名时追加 `_1`、`_2` 等后缀。观察轮没有关键信息时，可以在模型成功结束并只回复 `NO_KEY_INFORMATION` 的情况下省略文件。时间触发轮都要写记录。
+启用 `proactive-record` 时，每轮记录默认写到 `daily/YYYY-MM-DD/{agent_name}_HHMMSS.md`。同一秒重名时追加 `_1`、`_2` 等后缀。观察轮没有关键信息时，可以在模型成功结束并只回复 `NO_KEY_INFORMATION` 的情况下省略文件。使用该技能的时间触发轮都要写记录。
 
 正文只写值得留下的新进展、依据和来源，也可以留空。文件中的本地链接以当前记录所在目录为基准。Agent 在 frontmatter 写两个字段：
 
@@ -91,10 +98,15 @@ Agent 在所有任务共用的 `daily_dir` 中搜索历史记录，核对已有�
 
 ### 提交与投递
 
-技能在同一次执行中检查并修正输出。提交前，ReMe 会重新校验整个文件；校验失败时保留草稿和输入，等待后续任务重试。
+未启用 `proactive-record` 时，模型正常完成后确认输入，无需记录校验，也不登记提醒。
 
-ReMe 持有文件写锁，核对记录、确认输入并把需要投递的提醒登记到任务发件箱。模型报错或超时时保留输入和草稿，等待重试。
-确认失败且回执尚未落盘时，Markdown 留在原处，输入继续等待重试。回执落盘后，重启可继续登记提醒。
+技能在同一次执行中检查并修正输出。提交前，ReMe 会重新校验整个文件；模型报错、超时、取消或校验失败时，清理本轮未被外部修改的草稿，保留输入等待后续任务重试。
+
+ReMe 持有文件写锁，核对记录、确认输入并把需要投递的提醒登记到任务发件箱。
+确认失败且回执尚未落盘时，同样清理本轮草稿，输入继续等待重试。回执落盘后保留记录，重启可继续登记提醒。
+
+进程突然退出后，没有持久化回执的输入仍待处理；已提交提醒根据回执和发件箱状态继续投递，无需再次调用模型。
+突然退出无法执行草稿清理，因此每日目录中可能留下未提交草稿。文件存在本身不能证明本轮已提交或提醒已投递。
 
 提醒 ID 使用记录的工作区相对路径。任务发件箱保存交付事实，Remy 收件箱保存通知引用及处理回执，Chat 发件箱关联原生消息；
 正文仍从原始每日记录读取。Remy 在通知窗口及配置的条数和字节上限内按优先级和投递时间选择提醒。提交决定前会在文件写锁内重新核对提醒，
@@ -217,7 +229,7 @@ Agent 结合用户的关注范围和提醒条件，整理价格变化、相关�
 
 连续几周的记录还能帮助发现单次对话里不容易看出的情况，例如同一个难点持续存在，或投入方向已经偏离原定目标。保留下来的来源让每项判断都能回到具体记录中讨论。
 
-配置和接口见[服务与部署](./services.md#proactive-runtime)，内置任务见 [`proactive.yaml`](../../reme/config/proactive.yaml)，执行流程见 [执行流程](../../reme/steps/proactive/run.py)和 [Runtime 与提示词](../../reme/components/proactive/runtime/)。关于长期运行 Agent 的通用设计，也可以阅读 Anthropic 的 [Building always-on agents](https://claude.com/resources/articles/building-always-on-agents)。
+配置和接口见[服务与部署](./services.md#proactive-runtime)，内置任务见 [`proactive.yaml`](../../reme/config/proactive.yaml)，执行流程见 [执行流程](../../reme/steps/proactive/agent.py)和 [Runtime 与提示词](../../reme/components/proactive/runtime/)。关于长期运行 Agent 的通用设计，也可以阅读 Anthropic 的 [Building always-on agents](https://claude.com/resources/articles/building-always-on-agents)。
 
 
 ## 任务存储

@@ -9,10 +9,11 @@ import os
 import shutil
 from threading import Event as ThreadEvent
 
-from .base_dialogue_index import BaseDialogueIndex
-from ..base_connector import BaseConnectorStep, resource_package_id, resource_event, connector_enabled
+from ._dialogue_index import BaseDialogueIndex
+from ..base import BaseConnectorStep, resource_package_id, resource_event, connector_enabled
 from .....schema import ApplicationConfig, ResourceMetadata
 from .....schema.resource_metadata import RESOURCE_METADATA_FILENAME
+from .....utils.async_utils import finish_cleanup
 from .....utils.files.path_lock import get_path_lock
 from .....utils.files.workspace_files import WorkspaceFiles
 from .....utils.files.file_sync import sync_directory, sync_file
@@ -92,7 +93,7 @@ class BaseHarnessConnectorStep(BaseConnectorStep):
         except asyncio.CancelledError:
             self.cancelled.set()
             with suppress(Exception):
-                await task
+                await finish_cleanup(task)
             raise
 
     async def initialize(self):

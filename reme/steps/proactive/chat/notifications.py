@@ -4,7 +4,7 @@ import asyncio
 import math
 from datetime import timedelta, timezone
 
-from .chat import BaseChatAgentStep
+from .agent import BaseChatAgentStep
 from ....core.registry import R
 from ....schema.proactive_runtime import ProcessChatNotificationsRequest
 
@@ -95,7 +95,7 @@ class ChatNotificationsLoopStep(BaseChatNotificationsStep):
         runtime.last_started_at = runtime.now()
         try:
             response = await self.run_job(
-                self.kwargs.get("process_job", "process_chat_notifications"),
+                "process_chat_notifications",
                 priority=priority,
                 msg_ids=identifiers,
             )

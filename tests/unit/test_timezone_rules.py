@@ -40,8 +40,8 @@ def test_midnight_schedule_and_calendar_dates_share_rules(tmp_path, monkeypatch,
     for module in (
         "reme.components.proactive.runtime.base",
         "reme.components.file_catalog.base_file_catalog",
-        "reme.steps.proactive.connector.base_connector",
-        "reme.steps.proactive.connector.harness.base_harness_connector",
+        "reme.steps.proactive.connector.base",
+        "reme.steps.proactive.connector.harness.base",
     ):
         monkeypatch.setattr(f"{module}.datetime", FixedDatetime)
     monkeypatch.setattr(_evolve, "datetime", SimpleNamespace(datetime=FixedDatetime))

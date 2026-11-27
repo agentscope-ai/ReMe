@@ -1,7 +1,7 @@
 """Explicit event delivery and durable control of configured collection Jobs."""
 
 from ..base import BaseAgentStep
-from ..connector.base_connector import read_connector_control, update_connector_control
+from ..connector.base import read_connector_control, update_connector_control
 from ....core.registry import R
 from ....schema.proactive_agent import ManageConnectorRequest, validate_runtime_names
 

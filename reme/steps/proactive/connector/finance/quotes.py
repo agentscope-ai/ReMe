@@ -6,7 +6,7 @@ from pathlib import Path
 
 import httpx
 
-from .base_finance import FinanceCollectorStep
+from .base import FinanceCollectorStep
 from .....schema import ResourceMetadata
 from .....schema.resource_metadata import RESOURCE_METADATA_FILENAME
 

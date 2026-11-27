@@ -1,0 +1,50 @@
+query: |-
+  Follow the task requirements below to process this run's inputs.
+
+  # This run
+  [is_event] Trigger type: event
+  [is_time] Trigger type: time
+
+  ## Task requirements (TASK.md)
+  {task_description}
+
+  ## Inputs
+  {event_batch}
+
+  {record_instruction}
+query_zh: |-
+  按下面的任务要求，处理本轮输入。
+
+  # 本轮任务
+  [is_event] 触发类型：event
+  [is_time] 触发类型：time
+
+  ## 任务要求（TASK.md）
+  {task_description}
+
+  ## 本轮输入
+  {event_batch}
+
+  {record_instruction}
+record_instruction: After completing the task, use the proactive-record skill to record the results and decide whether to remind the user.
+record_instruction_zh: 完成任务后，使用 proactive-record 技能记录结果，并判断是否需要提醒用户。
+event_input: |-
+  ### Event {number}
+  - ID: `{event_id}`
+  - Time: {event_ts}
+  - Source: {source}
+  - Description: {description}
+  [has_files] Files:
+  [has_files] {paths}
+  [no_files] Files: None
+event_input_zh: |-
+  ### 事件 {number}
+  - ID：`{event_id}`
+  - 时间：{event_ts}
+  - 来源：{source}
+  - 描述：{description}
+  [has_files] 文件：
+  [has_files] {paths}
+  [no_files] 文件：无
+time_input: '- Time trigger, scheduled time {event_ts}'
+time_input_zh: '- 时间触发，计划时间 {event_ts}'

@@ -123,7 +123,7 @@ async def test_pausing_after_publication_defers_frozen_delivery_until_resume(tmp
         context,
         _,
     ):
-        from reme.steps.proactive.connector.base_connector import update_connector_control
+        from reme.steps.proactive.connector.base import update_connector_control
 
         step = SmallConnector(app_context=context, connector_job="sample", runtime_names=["monitor"])
         original = step._collect
@@ -150,7 +150,7 @@ async def test_pausing_after_publication_defers_frozen_delivery_until_resume(tmp
 @pytest.mark.asyncio
 async def test_paused_connector_waiting_for_source_lock_does_not_begin_collection(tmp_path, monkeypatch, kind):
     import asyncio
-    from reme.steps.proactive.connector.base_connector import update_connector_control
+    from reme.steps.proactive.connector.base import update_connector_control
     from reme.steps.proactive.connector.harness import CodexDialogueStep, CodexDialogueInitStep
     from reme.utils.files.path_lock import get_path_lock
 

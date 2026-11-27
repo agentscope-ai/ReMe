@@ -10,6 +10,8 @@ import pytest
 from reme.components.agent_wrapper.as_agent_wrapper import AsAgentWrapper
 from reme.components.agent_wrapper.cc_agent_wrapper import CcAgentWrapper
 from reme.components.agent_wrapper.cc_session_store import CcFileSessionStore
+from reme.components.proactive import ChatAgentRuntime
+from reme.config import resolve_app_config
 from reme.core.context import ApplicationContext
 from reme.components.outbound_proxy import FixedHttpOutboundProxy
 from reme.enumeration import ChunkEnum, ComponentEnum
@@ -20,6 +22,47 @@ from .skill_helpers import install_builtin
 
 def _wrapper(tmp_path: Path) -> CcAgentWrapper:
     return CcAgentWrapper(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
+
+
+@pytest.mark.parametrize("language", ["en", "zh"])
+def test_proactive_cc_appends_chat_role_to_native_prompt(tmp_path, monkeypatch, language):
+    """The shipped preset keeps native CC instructions and adds the localized Chat role."""
+    config = resolve_app_config(config="proactive_cc", log_config=False)
+    context = ApplicationContext(workspace_dir=str(tmp_path), language=language)
+    wrapper_config = dict(config["components"]["agent_wrapper"]["default"])
+    wrapper_config.pop("backend")
+    wrapper_config["anthropic_relay"] = None
+    wrapper = CcAgentWrapper(app_context=context, **wrapper_config)
+
+    def reject_reme_baseline():
+        raise AssertionError("CC must use its native preset instead of ReMe's base instructions")
+
+    monkeypatch.setattr(wrapper, "get_base_instructions", reject_reme_baseline)
+    chat_config = dict(config["components"]["agent_runtime"]["Remy"])
+    chat_config.pop("backend")
+    chat_config["agent_wrapper"] = wrapper
+    chat = ChatAgentRuntime(name="Remy", app_context=context, **chat_config)
+    role = chat.session_options()["system_prompt"]
+    options = wrapper._build_options("hello", **wrapper._merged_kwargs({"system_prompt": role}))
+
+    assert wrapper.kwargs["system_prompt"] == {"type": "preset", "preset": "claude_code", "snapshot": False}
+    assert options.system_prompt == {**wrapper.kwargs["system_prompt"], "append": role["append"]}
+    assert "Remy" in role["append"] and str(chat.memory_path) in role["append"]
+    assert ("主人" if language == "zh" else "Master") in role["append"]
+    assert "Codex CLI" not in role["append"] and "exec_command" not in role["append"]
+
+
+def test_cc_runtime_prompts_preserve_configured_append_without_accumulating(tmp_path):
+    """Each invocation gets a fresh preset while retaining operator instructions."""
+    preset = {"type": "preset", "preset": "claude_code", "append": "Operator guidance.", "snapshot": False}
+    wrapper = CcAgentWrapper(app_context=ApplicationContext(workspace_dir=str(tmp_path)), system_prompt=preset)
+
+    first = wrapper.get_session_system_prompt("First role.")
+    second = wrapper.get_session_system_prompt("Second role.")
+
+    assert first == {**preset, "append": "Operator guidance.\n\nFirst role."}
+    assert second == {**preset, "append": "Operator guidance.\n\nSecond role."}
+    assert preset["append"] == "Operator guidance."
 
 
 async def _publish_claude(wrapper, skills, **kwargs):

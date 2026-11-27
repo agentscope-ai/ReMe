@@ -16,8 +16,8 @@ from reme.core.context import RuntimeContext
 from reme.utils.files.workspace_files import WorkspaceFiles
 from reme.schema import CryptoQuote, FinanceNewsItem, MarketQuote
 from reme.steps.proactive.connector import BtcQuotesStep, FinanceNewsStep, TencentQuotesStep
-from reme.steps.proactive.connector import base_connector
-from reme.steps.proactive.connector.finance import base_quotes as _finance
+from reme.steps.proactive.connector import base as connector_base
+from reme.steps.proactive.connector.finance import quotes as _finance
 from .proactive_helpers import running_system
 
 _SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -27,7 +27,7 @@ _SHANGHAI = ZoneInfo("Asia/Shanghai")
 def clock(monkeypatch):
     value = Mock(wraps=datetime)
     value.now.return_value = datetime(2026, 11, 16, 10, 0, tzinfo=_SHANGHAI)
-    monkeypatch.setattr(base_connector, "datetime", value)
+    monkeypatch.setattr(connector_base, "datetime", value)
     monkeypatch.setattr(_finance, "datetime", value)
     return value
 

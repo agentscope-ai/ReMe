@@ -1,6 +1,7 @@
 """Lifecycle, sessions and execution protection shared by Agent Runtimes."""
 
 import asyncio
+from copy import deepcopy
 from contextlib import asynccontextmanager
 from datetime import datetime
 from hashlib import sha256
@@ -28,7 +29,6 @@ class BaseAgentRuntime(BaseComponent):
     def __init__(
         self,
         agent_wrapper="default",
-        run_job="",
         skills=(),
         job_tools=(),
         injected_job_kwargs=None,
@@ -45,7 +45,6 @@ class BaseAgentRuntime(BaseComponent):
             if isinstance(agent_wrapper, str)
             else agent_wrapper
         )
-        self.run_job = run_job
         self.binding = AgentRuntimeBinding(
             skills=skills,
             job_tools=job_tools,
@@ -60,6 +59,7 @@ class BaseAgentRuntime(BaseComponent):
         for cls in reversed(type(self).__mro__):
             self.prompt.load_prompt_by_class(cls)
         self.prompt.load_prompt_dict(self.binding.prompt_dict)
+        self._skills = None
         self.files = WorkspaceFiles(self.workspace_path)
         root = self.app_context.app_config.reme_agent_dir if self.app_context else "reme_agents"
         self.directory = self.files.path(f"{root}/{self.name}")
@@ -77,6 +77,12 @@ class BaseAgentRuntime(BaseComponent):
         self.outbox = None
 
     def get_skills(self):
+        """Return fresh specs while parsing this Runtime's templates only once."""
+        if self._skills is None:
+            self._skills = self._load_skills()
+        return deepcopy(self._skills)
+
+    def _load_skills(self):
         """Resolve built-in templates or project skill names for this Runtime."""
         templates = {path.stem.replace("_", "-"): path for path in Path(__file__).with_name("skills").glob("*.yaml")}
         values = []
@@ -105,15 +111,17 @@ class BaseAgentRuntime(BaseComponent):
         options = self.binding.model_dump(exclude={"skills", "prompt_dict", "sandbox", "effort"})
         options.update(
             skills=self.get_skills(),
-            system_prompt=self.prompt.prompt_format(
+            injected_job_kwargs={**self.binding.injected_job_kwargs, "_agent_name": self.name},
+        )
+        if self.prompt.has_prompt("system_prompt"):
+            prompt = self.prompt.prompt_format(
                 "system_prompt",
                 workspace_dir=self.workspace_path,
                 app_timezone=self.app_context.app_config.timezone if self.app_context else str(now.tzinfo),
                 now=now.isoformat(),
                 memory_path=getattr(self, "memory_path", ""),
-            ),
-            injected_job_kwargs={**self.binding.injected_job_kwargs, "_agent_name": self.name},
-        )
+            )
+            options["system_prompt"] = self.agent_wrapper.get_session_system_prompt(prompt)
         for key in ("sandbox", "effort"):
             if (value := getattr(self.binding, key)) is not None:
                 options[key] = value

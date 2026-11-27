@@ -48,11 +48,19 @@ class CcAgentWrapper(BaseAgentWrapper):
     MCP_SERVER_NAME = "mcp_server"
 
     def __init__(self, anthropic_relay: str | None = None, **kwargs):
+        kwargs.setdefault("system_prompt", {"type": "preset", "preset": "claude_code", "snapshot": False})
         super().__init__(**kwargs)
         self.anthropic_relay = (
             self.bind(anthropic_relay, BaseAnthropicRelay, optional=False) if anthropic_relay else None
         )
         self._session_owner: CcSessions | None = None
+
+    def get_session_system_prompt(self, prompt: str) -> dict[str, Any]:
+        """Append Runtime instructions to Claude Code's configured native preset."""
+        preset = self.kwargs["system_prompt"]
+        if not isinstance(preset, dict) or preset.get("type") != "preset" or preset.get("preset") != "claude_code":
+            raise ValueError("Runtime role instructions require the claude_code system prompt preset")
+        return {**preset, "append": "\n\n".join(text for text in (preset.get("append", ""), prompt) if text)}
 
     @staticmethod
     def _claude_usage(usage: dict[str, Any] | None) -> TokenUsage:

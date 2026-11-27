@@ -24,8 +24,8 @@ from reme.steps.proactive.connector import (
     CodexDialogueInitStep,
     CodexDialogueStep,
 )
-from reme.steps.proactive.connector.harness._codex_dialogue import CodexDialogueIndex
-from reme.steps.proactive.connector.harness import base_harness_connector as codex_clock
+from reme.steps.proactive.connector.harness._codex_index import CodexDialogueIndex
+from reme.steps.proactive.connector.harness import base as codex_clock
 from .proactive_helpers import running_system
 
 _NOW = datetime(2026, 11, 15, 12, 0, tzinfo=timezone.utc)
@@ -81,7 +81,7 @@ def devices(monkeypatch):
     clock = Mock(wraps=datetime)
     clock.now.return_value = _NOW
     monkeypatch.setattr(codex_clock, "datetime", clock)
-    monkeypatch.setattr("reme.steps.proactive.connector.base_connector.datetime", clock)
+    monkeypatch.setattr("reme.steps.proactive.connector.base.datetime", clock)
 
     def capture(_step, directory):
         assert directory.is_relative_to(_step.workspace_path / "resource/screenshot")
@@ -189,7 +189,7 @@ def messages(context):
 @pytest.mark.asyncio
 async def test_independent_collectors_deliver_dialogue_and_all_screens_to_work(tmp_path, source, monkeypatch):
     monkeypatch.setattr(
-        "reme.steps.proactive.connector.base_connector.uuid4",
+        "reme.steps.proactive.connector.base.uuid4",
         Mock(return_value=Mock(hex="a8f3c2" + "0" * 26)),
     )
     home, path = source
@@ -545,7 +545,7 @@ async def test_delivery_failure_reuses_frozen_batch_before_reading_further_chang
             await CodexDialogueStep(**options(context, home))()
         frozen = delivery.await_args.kwargs["events"]
         append(path, record("UserMessage", "later", "user-2"))
-        from reme.steps.proactive.connector.base_connector import update_connector_control
+        from reme.steps.proactive.connector.base import update_connector_control
 
         await update_connector_control(
             CodexDialogueStep(**options(context, home)),
@@ -565,7 +565,7 @@ async def test_delivery_failure_reuses_frozen_batch_before_reading_further_chang
 
 @pytest.mark.asyncio
 async def test_codex_collection_without_targets_keeps_resources_and_advances_cursor(tmp_path, source):
-    from reme.steps.proactive.connector.base_connector import update_connector_control
+    from reme.steps.proactive.connector.base import update_connector_control
 
     home, path = source
     async with runtime(tmp_path) as (context, inbox, delivery):
@@ -701,7 +701,7 @@ async def test_partial_resource_publication_resumes_without_rescanning(tmp_path,
 async def test_collection_never_overwrites_an_existing_resource_package(tmp_path, source, source_name, monkeypatch):
     home, path = source
     monkeypatch.setattr(
-        "reme.steps.proactive.connector.base_connector.uuid4",
+        "reme.steps.proactive.connector.base.uuid4",
         Mock(return_value=Mock(hex="a8f3c2" + "0" * 26)),
     )
     async with runtime(tmp_path) as (context, inbox, _):
@@ -741,8 +741,14 @@ async def test_screenshot_failure_does_not_drop_dialogue(tmp_path, source, devic
         assert (await inbox["proactive_memory"].claim())["items"][0]["source"] == "codex_dialogue"
 
 
+@pytest.mark.parametrize("cancel_count", [1, 2])
 @pytest.mark.asyncio
-async def test_scanning_does_not_block_screens_and_cancellation_joins_its_worker(tmp_path, source, monkeypatch):
+async def test_scanning_does_not_block_screens_and_cancellation_joins_its_worker(
+    tmp_path,
+    source,
+    monkeypatch,
+    cancel_count,
+):
     home, _ = source
     async with runtime(tmp_path) as (context, _, _):
         await CodexDialogueInitStep(**options(context, home))()
@@ -766,9 +772,10 @@ async def test_scanning_does_not_block_screens_and_cancellation_joins_its_worker
             assert thread_ids == [thread_ids[0]] and thread_ids[0] != threading.get_ident()
             screen = await asyncio.wait_for(capture_screen(context), 1)
             assert screen.success
-            task.cancel()
-            await asyncio.sleep(0.01)
-            assert not task.done()
+            for _ in range(cancel_count):
+                task.cancel()
+                done, _ = await asyncio.wait({task}, timeout=0.01)
+                assert not done
         finally:
             release.set()
         with pytest.raises(asyncio.CancelledError):

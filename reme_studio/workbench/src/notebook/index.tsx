@@ -78,13 +78,10 @@ export default function Notebook({
   const [closeNote, setCloseNote] = useState("");
   const closeDialog = useRef<HTMLDialogElement>(null);
   const closeTitleId = useId();
-  const missing = ["todo", "idea"].find(
-    (name) => !state.clientInfo?.jobs.includes(name),
-  );
-  const available = Boolean(state.clientInfo && !missing);
+  const available = Boolean(state.clientInfo?.jobs.includes("manage_notebook"));
   const capabilityError =
-    state.clientInfo && missing
-      ? new UiError("missingJob", { job: missing })
+    state.clientInfo && !available
+      ? new UiError("missingJob", { job: "manage_notebook" })
       : null;
   const [detailError, setDetailError] = useState<unknown>(null);
   const [actionError, setActionError] = useState<unknown>(null);

@@ -1,4 +1,4 @@
-"""Background Job that schedules the Manager's task Runtimes."""
+"""Background Job that schedules the Manager's Proactive Runtimes."""
 
 import asyncio
 
@@ -14,7 +14,7 @@ class AgentManagerLoopStep(BaseAgentStep):
 
     async def _work(self, runtime):
         try:
-            response = await self.run_job(runtime.run_job, agent_name=runtime.name)
+            response = await self.run_job("run_proactive_agent", agent_name=runtime.name)
             if not response.success:
                 raise RuntimeError(str(response.answer))
             runtime.completed_round()
@@ -24,7 +24,6 @@ class AgentManagerLoopStep(BaseAgentStep):
         finally:
             runtime.worker = None
             runtime.live_turns.notify()
-            self.agent_manager.changed.set()
 
     async def tick_runtime(self, runtime, definition):
         """Recover handoffs, admit due schedule input and start one eligible worker."""
@@ -86,7 +85,6 @@ class AgentManagerLoopStep(BaseAgentStep):
             raise RuntimeError("Agent scheduling requires a BackgroundJob stop_event")
         try:
             while not stop.is_set() and not self.agent_manager.closed:
-                self.agent_manager.changed.clear()
                 await self.tick()
                 try:
                     await asyncio.wait_for(stop.wait(), timeout=1)

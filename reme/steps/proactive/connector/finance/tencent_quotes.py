@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
-from .base_quotes import QuoteCollectorStep
+from .quotes import QuoteCollectorStep
 from .....core.registry import R
 from .....schema.finance import MarketQuote
 

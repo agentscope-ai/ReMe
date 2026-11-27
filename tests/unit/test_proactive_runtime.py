@@ -13,7 +13,7 @@ from reme.config import resolve_app_config
 from reme.core.registry import R
 from reme.enumeration import ComponentEnum
 from reme.schema.proactive_agent import ManageProactiveRuntimeRequest
-from reme.steps.proactive.api import AgentListStep, AgentSessionStep, AskAgentStep, TaskDocumentStep
+from reme.steps.proactive.agent_api import AgentListStep, AgentSessionStep, AskAgentStep, TaskDocumentStep
 from reme.steps.proactive.tools import ManageProactiveRuntimeStep
 from .proactive_helpers import running_system, queue_event, runtime_config
 
@@ -82,7 +82,6 @@ async def test_distinct_owners_and_create_only_memory(tmp_path):
     assert not task.is_started and not chat.is_started
     async with running_system(tmp_path, initial_memory="Changed") as (manager, context, _):
         assert context.components["agent_runtime"]["Remy"].memory_path.read_text() == "User edited"
-        assert (await manager.resolve("monitor")).run_job == "run_proactive_agent"
 
 
 @pytest.mark.asyncio
@@ -93,7 +92,6 @@ async def test_delete_cancels_active_and_waiting_work_and_restore_preserves_role
             {
                 "agent_type": "event",
                 "agent_name": "monitor",
-                "run_job": "run_proactive_agent",
                 "task_description": "Keep this",
             },
         ],
@@ -116,7 +114,7 @@ async def test_delete_cancels_active_and_waiting_work_and_restore_preserves_role
         assert runtime.task_path.read_text() == "Keep this"
         result = await manager.create({"agent_type": "event", "agent_name": "monitor"})
         restored = await manager.resolve("monitor")
-        assert result["restored"] and restored.run_job == "run_proactive_agent"
+        assert result["restored"] and restored.binding == runtime.binding
         assert (await restored.inbox.snapshot())["pending_count"] == 1
         assert restored.task_path.read_text() == "Keep this" and wrapper.is_started
 
@@ -197,6 +195,8 @@ async def test_yaml_skill_templates_are_scoped_per_invocation_and_do_not_rotate_
                 for scope in [foreground, background]
                 for source in scope["_skills"].sources.values()
             )
+        repeated[0]["content"] = "Changed by one invocation"
+        assert runtime.get_skills() == second
         for _ in range(2):
             response = await AskAgentStep(app_context=context, agent_runtime="Remy")(
                 RuntimeContext(stream_queue=asyncio.Queue()),
@@ -359,6 +359,7 @@ async def test_public_creation_selects_capabilities_under_trusted_tool_constrain
         {"skills": ["MixedCase"]},
         {"skills": ["a" * 65]},
         {"skills": ["_invalid"]},
+        {"run_job": "run_proactive_agent"},
     ],
 )
 def test_runtime_bindings_reject_paths_duplicates_and_invalid_types(values):

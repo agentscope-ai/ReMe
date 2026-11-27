@@ -27,7 +27,7 @@ _NO_KEY_INFORMATION = "NO_KEY_INFORMATION"
 
 @R.register("proactive_agent_step")
 class ProactiveAgentStep(BaseAgentStep):
-    """Process one round and record its results and reminder decision together."""
+    """Process one round and validate any enabled record and reminder output."""
 
     def __init__(self, timeout_seconds=1200, **kwargs):
         super().__init__(**kwargs)
@@ -36,6 +36,64 @@ class ProactiveAgentStep(BaseAgentStep):
         self.timeout_seconds = timeout_seconds
         self._timeout = None
         self.runtime = None
+
+    def round_options(self, paths, *, now):
+        """Render invocation-owned skill content from the Runtime's stable binding."""
+        runtime = self.runtime
+        options = runtime.session_options(now=now)
+        timezone_name = self.app_context.app_config.timezone if self.app_context else None
+        for name, skill in zip(runtime.binding.skills, options["skills"], strict=True):
+            if name == "proactive-record":
+                skill["content"] = skill["content"].format(
+                    now=now.isoformat(),
+                    app_timezone=timezone_name or str(now.tzinfo),
+                    daily_dir=self.to_workspace_relative(paths["daily_dir"]),
+                    record_path=self.to_workspace_relative(paths["record_path"]),
+                    recent_history_hours=runtime.initial_config.recent_history_hours,
+                    max_local_search_calls=runtime.initial_config.max_local_search_calls,
+                )
+        return options
+
+    def build_query(self, events, paths, task_content, *, is_time):
+        """Render the task requirements and claimed inputs for this invocation."""
+        sections = []
+        for number, event in enumerate(events, 1):
+            if is_time:
+                sections.append(self.prompt_format("time_input", event_ts=event["event_ts"]))
+                continue
+            attachments = event["paths"]
+            sections.append(
+                self.prompt_format(
+                    "event_input",
+                    number=number,
+                    event_id=event["id"],
+                    event_ts=event["event_ts"],
+                    source=event["source"],
+                    description=event["description"],
+                    paths="\n".join(
+                        f"- {self.to_workspace_relative(self.runtime.files.path(path))}" for path in attachments
+                    ),
+                    has_files=bool(attachments),
+                    no_files=not attachments,
+                ),
+            )
+        record_context = {
+            "has_record": "record_path" in paths,
+            "daily_dir": self.to_workspace_relative(paths["daily_dir"]) if "daily_dir" in paths else "",
+            "record_path": self.to_workspace_relative(paths["record_path"]) if "record_path" in paths else "",
+        }
+        record_instruction = (
+            self.prompt_format("record_instruction", **record_context) if record_context["has_record"] else ""
+        )
+        return self.prompt_format(
+            "query",
+            event_batch="\n\n".join(sections),
+            is_time=is_time,
+            is_event=not is_time,
+            task_description=task_content,
+            record_instruction=record_instruction,
+            **record_context,
+        )
 
     def _paths(self, agent, now: datetime, receipt_paths: frozenset[str] = frozenset()) -> dict[str, Path]:
         runtime = self.runtime
@@ -140,18 +198,33 @@ class ProactiveAgentStep(BaseAgentStep):
         async with self._timeout:
             return await self._execute_round()
 
+    async def _discard_uncommitted_record(self, record, batch):
+        # Accepted low-priority edge case: a hard exit after writing the record but before receipt commit
+        # bypasses cleanup. The orphan record may suppress a reminder during history deduplication after restart.
+        if record is None or record.path is None or record.written is None:
+            return
+        try:
+            if not await self.runtime.inbox.has_receipt(item["id"] for item in batch["items"]):
+                async with await get_path_lock(record.path):
+                    await complete_in_thread(record.discard)
+        except (OSError, ValueError, RuntimeError) as exc:
+            self.logger.warning(f"Could not clean up failed round record {record.path}: {exc}")
+
     async def _execute_round(self):
         arguments = self.parameters()
         if set(arguments) != {"agent_name"}:
             raise ValueError("Task execution requires only agent_name")
         self.runtime = await self.agent_manager.resolve(arguments["agent_name"])
         self.require_paths(self.workspace_path)
-        record = RoundRecord(self.runtime.files)
+        record = None
         self.context.response.metadata.pop("reme.agent_run", None)
+        activity = None
         started, outcome = monotonic(), "failed"
         try:
             async with self.runtime.execution():
                 agent = await self.runtime.definition()
+                if "proactive-record" in agent.skills:
+                    record = RoundRecord(self.runtime.files)
                 if not agent.enabled:
                     self.context.response.answer = {"agent_name": agent.agent_name, "skipped": "disabled"}
                     return self.context.response
@@ -164,7 +237,7 @@ class ProactiveAgentStep(BaseAgentStep):
                     return self.context.response
                 self.runtime.retry_items = [item["id"] for item in batch["items"]]
                 self.runtime.last_started_at = self.runtime.now()
-                self.runtime.activity = AgentActivity(
+                self.runtime.activity = activity = AgentActivity(
                     session_id="",
                     turn_id=batch["token"],
                     source="task",
@@ -182,6 +255,9 @@ class ProactiveAgentStep(BaseAgentStep):
                     self.runtime.activity = self.runtime.activity.model_copy(
                         update={"session_id": session_id, "phase": "completed"},
                     )
+                except BaseException:
+                    await finish_cleanup(self._discard_uncommitted_record(record, batch))
+                    raise
                 finally:
                     await finish_cleanup(self.runtime.inbox.nack(batch["token"]))
                 outcome = "completed"
@@ -189,7 +265,7 @@ class ProactiveAgentStep(BaseAgentStep):
             outcome = "failed" if self._timeout.expired() else "interrupted"
             raise
         finally:
-            if self.runtime.activity is not None and outcome != "completed":
+            if activity is not None and outcome != "completed":
                 self.runtime.activity = self.runtime.activity.model_copy(
                     update={"phase": "failed" if outcome == "failed" else "interrupted"},
                 )
@@ -215,7 +291,7 @@ class ProactiveAgentStep(BaseAgentStep):
         return self.context.response
 
     async def _execute(self, agent, events, *, record):
-        """Run one query with its skills, then validate the final record."""
+        """Run one query with its skills and validate a record only when enabled."""
         runtime = self.runtime
         agent_type = agent.agent_type
         is_time = agent_type == "time"
@@ -231,18 +307,20 @@ class ProactiveAgentStep(BaseAgentStep):
         }
         self.context.response.metadata["reme.agent_run"] = stats
         now = runtime.now()
-        paths = await asyncio.to_thread(
-            self._paths,
-            agent,
-            now,
-            receipt_paths=await runtime.receipt_record_paths(),
-        )
-        await record.prepare(paths["record_path"])
+        paths = {"task_path": runtime.task_path}
+        if record is not None:
+            paths = await asyncio.to_thread(
+                self._paths,
+                agent,
+                now,
+                receipt_paths=await runtime.receipt_record_paths(),
+            )
+            await record.prepare(paths["record_path"])
         task_content = await asyncio.to_thread(runtime.files.read, paths["task_path"])
         if not task_content.strip():
             raise ValueError("TASK.md must not be blank")
-        options = runtime.session_options(now=now)
-        query = runtime.build_query(events, paths, task_content, options["skills"], is_time=is_time)
+        options = self.round_options(paths, now=now)
+        query = self.build_query(events, paths, task_content, is_time=is_time)
         started = monotonic()
         label = f"Proactive agent={agent.agent_name} agent_type={agent_type}"
         session_id = turn_id = None
@@ -309,7 +387,7 @@ class ProactiveAgentStep(BaseAgentStep):
                     async with asyncio.timeout_at(deadline):
                         session_id = await runtime.ensure_session(options, new=True)
                         label += f" session={session_id}"
-                        self.logger.info(f"{label} result=started path={record.path}")
+                        self.logger.info(f"{label} result=started path={paths.get('record_path')}")
                         with runtime.live_turns.observe(agent.agent_name, session_id, query) as publish:
                             try:
                                 reply = await collect_reply(
@@ -317,8 +395,9 @@ class ProactiveAgentStep(BaseAgentStep):
                                     on_chunk=observe,
                                 )
                             finally:
-                                async with await get_path_lock(record.path):
-                                    await complete_in_thread(record.capture)
+                                if record is not None:
+                                    async with await get_path_lock(record.path):
+                                        await complete_in_thread(record.capture)
                         if reply["status"] != "completed" or stream_error is not None:
                             raise RuntimeError(
                                 stream_error or reply.get("error") or f"Proactive agent {reply['status']}",
@@ -326,11 +405,13 @@ class ProactiveAgentStep(BaseAgentStep):
                 except Exception as exc:
                     stats["model_status"] = "timeout" if isinstance(exc, TimeoutError) else "failed"
                     raise
-                async with await get_path_lock(record.path):
-                    reminder = await complete_in_thread(self._read_record, record, reply["result"], is_time=is_time)
+                reminder = None
+                if record is not None:
+                    async with await get_path_lock(record.path):
+                        reminder = await complete_in_thread(self._read_record, record, reply["result"], is_time=is_time)
                 self.logger.info(
                     f"{label} result=validated notifications={int(reminder is not None)} "
-                    f"elapsed={monotonic() - started:.2f}s path={paths['record_path']}",
+                    f"elapsed={monotonic() - started:.2f}s path={paths.get('record_path')}",
                 )
             except BaseException as exc:
                 outcome = "interrupted" if isinstance(exc, asyncio.CancelledError) else "failed"

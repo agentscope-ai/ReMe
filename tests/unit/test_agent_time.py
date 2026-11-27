@@ -10,7 +10,7 @@ import pytest
 
 from reme.core.context import RuntimeContext
 from reme.schema import Event, Response
-from reme.steps.proactive.loop import AgentManagerLoopStep
+from reme.steps.proactive.scheduler import AgentManagerLoopStep
 from .proactive_helpers import running_system, queue_event
 
 
@@ -38,7 +38,7 @@ async def test_full_time_queue_still_starts_its_consumer(tmp_path, monkeypatch):
         monkeypatch.setattr(loop, "run_job", called)
         await loop.tick_runtime(runtime, definition)
         await runtime.worker
-        called.assert_awaited_once_with(runtime.run_job, agent_name="clock")
+        called.assert_awaited_once_with("run_proactive_agent", agent_name="clock")
         assert runtime.schedule[1] == trigger
         batch = await runtime.inbox.claim()
         await runtime.inbox.ack(batch["token"])
@@ -117,16 +117,16 @@ async def test_failed_batch_does_not_grow_when_later_inputs_arrive(tmp_path, mon
         context,
         wrapper,
     ):
-        from .test_proactive_run import prepare_round, install_round, SKIP
+        from .test_proactive_agent import prepare_round, install_round, SKIP
 
         runtime, record = await prepare_round(manager, context, monkeypatch)
         await queue_event(manager)
         install_round(wrapper, runtime, record, monkeypatch, status="failed")
-        assert not (await context.jobs[runtime.run_job](agent_name="monitor")).success
+        assert not (await context.jobs["run_proactive_agent"](agent_name="monitor")).success
         await queue_event(manager, identifier="later")
         assert runtime.retry_items == ["event-1"]
         install_round(wrapper, runtime, record, monkeypatch, text=SKIP)
-        assert (await context.jobs[runtime.run_job](agent_name="monitor")).success
+        assert (await context.jobs["run_proactive_agent"](agent_name="monitor")).success
         assert await runtime.inbox.pending_ids() == {"later"}
 
 

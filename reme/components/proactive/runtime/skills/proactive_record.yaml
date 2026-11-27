@@ -4,38 +4,43 @@ description_zh: 完成后台任务的业务处理后，整理关键信息、检�
 content: |
   # Proactive records and reminders
 
-  After completing this run's work, organize its key information, check history, decide what to keep and whether to remind the user, and produce this run's Markdown record. The execution prompt supplies the task requirements, trigger type, current time, `Records directory`, and `Record path for this run`.
+  Use this skill after a background task has completed its analysis or execution. Check history, decide what to record and whether to remind the user, then save and verify a Markdown record. Follow the task requirements, trigger type and inputs in the execution prompt.
 
-  ## 1. Organize key information
-  - For a time trigger, organize the findings and deliverables from the work completed according to TASK.md and this occurrence's scheduled time.
-  - For an event trigger, organize the facts, progress, corrections and questions found by analyzing the new events and their source materials according to TASK.md.
+  ## 1. Extract key information
+
+  - For a time trigger, collect the findings and deliverables from the work required by TASK.md for this scheduled occurrence.
+  - For an event trigger, extract relevant facts, progress, corrections and questions from the analysis of this run's events and their source materials according to TASK.md.
+
   Keep the relevant times and sources, and distinguish facts from inferences and uncertainty. An agreed reminder time, a met reminder condition or a requirement to send this occurrence's results also counts as key information, even when the result is unchanged.
-  For an event trigger with no key information, reply only NO_KEY_INFORMATION and finish the run. A time trigger continues through the workflow and always produces a record.
+  For an event trigger with no key information, reply only `NO_KEY_INFORMATION` and finish the run. A time trigger continues through the workflow and always produces a record.
 
   ## 2. Search past records
-  Search for past records only in the `Records directory` shared by all tasks. Choose keywords or a regular expression based on the `key information`.
 
-  - See what has already been recorded and which reminders have already been written. Check records from the last {recent_history_hours} hours first. Apply the respective rules for avoiding duplicate records and reminders in step 3.
+  Search for past records only in `{daily_dir}`, shared by all tasks. Choose keywords or a regular expression based on the key information.
+
+  - Using {now} (time zone: {app_timezone}) as the reference time, check records from the last {recent_history_hours} hours first. See what has already been recorded and which reminders have already been written. Apply the respective rules for avoiding duplicate records and reminders in step 3.
   - When checking reminders that have already been written, read `reminder_priority` and `reminder_message` from the original record's YAML.
   - Put related records in time order to see how things have developed and how this run's information relates to earlier progress. You can draw inferences from the records. Label any inference you write down.
 
   Go to step 3 when you have found enough information, cannot find any relevant records, or have used the local search tool {max_local_search_calls} times.
 
-  ## 3. Record and remind
-  Write the body, the decision about whether to remind the user, and what to say in the file specified by `Record path for this run`.
+  ## 3. Decide what to record and whether to remind
 
   ### Body
+
   Record only new information that is relevant to the task and worth keeping, such as progress or a change in timing. Skip repeats and anything the user does not want to keep.
   Write the body in Markdown. Keep it brief and clear, include the necessary sources and links, and leave out sensitive information. If there is no new information worth keeping, leave the body empty.
-  For local file links in the body and reminder, use paths relative to the directory containing this run's record, for example `[xxx](xxx.md)`.
 
   ### Reminder
-  Use the `Task requirements` to decide which items warrant a reminder, then choose the priority. Do this even if the body is empty.
+
+  Use the task requirements in TASK.md to decide which items warrant a reminder, then choose the priority. Do this even if the body is empty.
+
   - Skip the reminder if its condition has not been met or the user does not want it.
   - If a reminder about the same development has already been written, skip it even if the user has yet to read it.
   - For scheduled reminders and reports, check for duplicates by scheduled time and write each occurrence only once. If the task requires sending every occurrence, send it as usual even if the result is unchanged.
 
-  At the top of the file, fill in the two YAML fields below between two lines containing `---`.
+  Decide the values of these two fields.
+
   - `reminder_priority`
     - If there is nothing to remind the user about, write `skip`.
     - For items that warrant a reminder, use the priority specified by the task. If the task gives no priority, choose the first one that applies in the order below.
@@ -46,12 +51,28 @@ content: |
   - `reminder_message`
     - For `P0`, `P1`, or `P2`, write one short sentence in plain language as if speaking directly to the user, covering only what warrants a reminder this run.
     - For `skip`, leave this empty or briefly say why.
-  - Leave out `delivered_at`, `read_at`, and `chat_message_ids`. The system maintains these fields.
+
+  ## 4. Save the record
+
+  Save the body and reminder fields to `{record_path}`. Start the file with YAML frontmatter, followed by the Markdown body. This example shows the format for a record without a reminder; use the values and body decided in step 3. The body may be empty.
+
+  ```markdown
+  ---
+  reminder_priority: skip
+  reminder_message: ""
+  ---
+
+  New information worth keeping, with sources.
+  ```
+
+  For local file links in the body and reminder, use paths relative to the directory containing this record, for example `[xxx](xxx.md)`.
+  Leave out `delivered_at`, `read_at`, and `chat_message_ids`. The system maintains these fields.
 
   After the round commits, the system puts a `P0`, `P1`, or `P2` reminder in the user's inbox. The user may not have seen it yet.
 
-  ## 4. Verify the saved record
-  After saving, reread the body and frontmatter. When the Python environment has PyYAML, run the following check with this run's record path as the first argument; fix any errors it reports.
+  ## 5. Reread and verify
+
+  After saving, reread the body and frontmatter, and check that the content, reminder decision and local links meet the requirements above. When the Python environment has PyYAML, run the following check with the saved file's path as the first argument; fix any errors it reports.
 
   ```python
   import sys
@@ -72,38 +93,43 @@ content: |
 content_zh: |
   # 主动记录与提醒
 
-  完成本轮业务后，整理关键信息、核对历史，分别决定哪些内容值得保留、哪些事项需要提醒，产出本轮 Markdown 记录。任务要求、触发类型、当前时间、`记录目录` 和 `本轮记录路径` 均由执行提示提供。
+  后台任务完成分析或执行后，使用本技能核对历史、整理记录并决定是否提醒用户，保存并校验 Markdown 记录。任务要求、触发类型和输入材料以执行提示为准。
 
-  ## 1. 整理关键信息
-  - 时间触发：从按 TASK.md 和本轮计划时间完成工作的结果中，整理需要保留的发现和任务要求交付的结果。
-  - 事件触发：从按 TASK.md 分析本轮新增事件及来源材料得到的结果中，整理相关事实、进展、更正和待讨论事项。
+  ## 1. 提炼关键信息
+
+  - 时间触发：整理按 TASK.md 和本轮计划时间完成工作的发现与交付结果。
+  - 事件触发：从按 TASK.md 分析本轮事件及来源材料的结果中，提炼相关事实、进展、更正和待讨论事项。
+
   保留必要的时间和来源，区分事实、推断和未确认信息。到了约定提醒时间、满足提醒条件，或任务要求本次发送结果，也算关键信息，即使业务结果没有变化。
-  事件触发没有关键信息时，只回复 NO_KEY_INFORMATION，结束本轮。时间触发继续后续步骤，每轮都写记录。
+  事件触发没有关键信息时，只回复 `NO_KEY_INFORMATION`，结束本轮。时间触发继续后续步骤，每轮都写记录。
 
   ## 2. 查询历史记录
-  只在所有任务共用的 `记录目录` 里查历史。根据 `关键信息` 选择关键词或正则。
 
-  - 看看哪些内容已经记过，哪些提醒已经写过。优先核对最近 {recent_history_hours} 小时内的记录。第 3 步按各自的规则去重。
+  只在所有任务共用的 `{daily_dir}` 中查询历史记录，根据关键信息选择关键词或正则。
+
+  - 以 {now}（时区：{app_timezone}）为基准，优先核对最近 {recent_history_hours} 小时内的记录，确认哪些内容和提醒已经写过。第 3 步按各自的规则去重。
   - 核对已写提醒时，从原记录的 YAML 读取 `reminder_priority` 和 `reminder_message`。
   - 把相关记录按时间串起来，看看事情是怎么发展的，以及本轮信息和之前的进展有什么关系。可以根据记录作推断，写下来时注明是推断。
 
   找到足够的信息、找不到相关记录，或已经用了 {max_local_search_calls} 次本地搜索工具，就进入第 3 步。
 
-  ## 3. 记录与提醒
-  把正文、是否提醒和要提醒的话，都写到 `本轮记录路径` 指定的文件里。
+  ## 3. 决定记录与提醒
 
   ### 正文
+
   只记录和任务有关、值得保留的新信息，比如事情有了新进展，或者时间有变。跳过重复或用户不想保留的内容。
   用 Markdown 简洁写清正文，保留必要的来源和链接，省略敏感信息。没有值得记录的新信息时，正文留空。
-  正文和提醒中的本地文件链接都使用相对路径，以本轮记录文件所在目录为基准，例如 `[xxx](xxx.md)`。
 
   ### 提醒
-  根据 `任务要求` 判断哪些事项需要提醒，再决定等级。正文留空时也一样。
+
+  根据 TASK.md 中的任务要求判断哪些事项需要提醒，再决定等级。正文留空时也一样。
+
   - 条件还没满足，或者用户不想收到，就跳过。
   - 同一进展的提醒写过就跳过，即使用户还没读。
   - 定时提醒和汇报按计划时间去重，同一次只写一次。任务要求每次都发送时，即使结果没变，也照常发送。
 
-  在文件开头填写下面两个 YAML 字段，用两行 `---` 包起来。
+  分别确定下面两个字段的值。
+
   - `reminder_priority`
     - 没有需要提醒的事项时，填 `skip`。
     - 对需要提醒的事项，使用任务指定的等级。没指定时，按下面的顺序选第一个符合的等级。
@@ -114,12 +140,28 @@ content_zh: |
   - `reminder_message`
     - 等级是 `P0`、`P1` 或 `P2` 时，像直接跟用户说话一样，用一句简短的大白话，只说本轮需要提醒的事。
     - 等级是 `skip` 时，可以留空，也可以简短说明原因。
-  - 不要写 `delivered_at`、`read_at` 或 `chat_message_ids`，系统会维护这些字段。
+
+  ## 4. 保存记录
+
+  将正文和提醒字段保存到 `{record_path}`。文件开头使用 YAML frontmatter，后面是 Markdown 正文。下面是无提醒时的格式示例，实际字段和正文使用第 3 步的判断结果，正文允许为空。
+
+  ```markdown
+  ---
+  reminder_priority: skip
+  reminder_message: ""
+  ---
+
+  值得保留的新信息及其来源。
+  ```
+
+  正文和提醒中的本地文件链接都使用相对路径，以该记录文件所在目录为基准，例如 `[xxx](xxx.md)`。
+  不要写 `delivered_at`、`read_at` 或 `chat_message_ids`，系统会维护这些字段。
 
   本轮提交后，系统会把 `P0`、`P1` 或 `P2` 提醒放进用户的收件箱。用户可能还没看到。
 
-  ## 4. 校验记录
-  保存后回读正文和文件头。如果当前 Python 环境有 PyYAML，将本轮记录路径作为第一个参数执行下面的校验，有报错就修正。
+  ## 5. 回读校验
+
+  保存后，回读正文和文件头，核对内容、提醒决策和本地链接是否符合上述要求。如果当前 Python 环境有 PyYAML，将刚保存的文件路径作为第一个参数执行下面的校验，有报错就修正。
 
   ```python
   import sys

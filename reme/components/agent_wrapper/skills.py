@@ -3,7 +3,9 @@
 from hashlib import sha256
 import os
 from pathlib import Path
-import shutil
+import re
+from stat import S_ISREG
+from uuid import uuid4
 
 from pydantic import TypeAdapter
 import yaml
@@ -29,7 +31,9 @@ class SkillScope:
         self.generated = generated
         self.sources: dict[str, Path] = {}
         self.temporary: set[str] = set()
-        self._owned: list[tuple[Path, int, int]] = []
+        self._generated: dict[Path, str] = {}
+        self._links: dict[Path, Path] = {}
+        self._locks: list[int] = []
         self._published: set[Path] = set()
         self.active = True
 
@@ -43,9 +47,57 @@ class SkillScope:
         """Directories passed directly to AgentScope's local loaders."""
         return [str(source) for source in self.sources.values()]
 
-    def _own(self, path: Path) -> None:
-        stat = path.lstat()
-        self._owned.append((path, stat.st_dev, stat.st_ino))
+    def _lock(self, name: str) -> None:
+        """Reserve a generated name until this process exits or the scope closes."""
+        files = WorkspaceFiles(self.generated.parent)
+        self.generated.mkdir(parents=True, exist_ok=True)
+        path = files.checked(self.generated / f".{name}.lock")
+        descriptor = os.open(path, os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        try:
+            if not S_ISREG(os.fstat(descriptor).st_mode):
+                raise ValueError("Skill lock must be a regular file")
+            if os.name == "nt":
+                import msvcrt
+
+                if not os.fstat(descriptor).st_size:
+                    os.write(descriptor, b"\0")
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BaseException as exc:
+            os.close(descriptor)
+            if isinstance(exc, OSError):
+                raise FileExistsError(f"Generated skill is already in use: {name}") from exc
+            raise
+        self._locks.append(descriptor)
+
+    def _check_generated(self, source: Path, token: str) -> bool:
+        """Preserve replacements and extra files instead of recursively deleting them."""
+        if not source.exists() and not source.is_symlink():
+            return False
+        files = WorkspaceFiles(self.generated.parent)
+        files.checked(source)
+        if (
+            not source.is_dir()
+            or {path.name for path in source.iterdir()} - {"SKILL.md", ".reme-generated"}
+            or files.read(source / ".reme-generated") != token
+        ):
+            raise FileExistsError(f"Generated skill was replaced during execution: {source}")
+        manifest = source / "SKILL.md"
+        if manifest.exists() or manifest.is_symlink():
+            files.checked(manifest)
+            if not S_ISREG(manifest.stat().st_mode):
+                raise FileExistsError(f"Generated skill was replaced during execution: {source}")
+        return True
+
+    def _remove_generated(self, source: Path, token: str) -> None:
+        if self._check_generated(source, token):
+            (source / "SKILL.md").unlink(missing_ok=True)
+            (source / ".reme-generated").unlink()
+            source.rmdir()
 
     def prepare(self) -> None:
         """Resolve references and exclusively create generated skill directories."""
@@ -63,11 +115,13 @@ class SkillScope:
                 for existing in (source, builtin):
                     if existing.exists() or existing.is_symlink():
                         raise FileExistsError(f"Skill name already exists: {existing}")
+                self._lock(spec.name)
                 files = WorkspaceFiles(self.generated.parent)
-                source = files.checked(self.generated / spec.name)
-                self.generated.mkdir(parents=True, exist_ok=True)
-                source.mkdir()  # Atomic reservation, including across processes.
-                self._own(source)
+                token = uuid4().hex
+                source = files.checked(self.generated / f"{spec.name}-{token}")
+                source.mkdir()
+                (source / ".reme-generated").write_text(token, encoding="utf-8")
+                self._generated[source] = token
                 header = yaml.safe_dump(
                     {"name": spec.name, "description": spec.description},
                     allow_unicode=True,
@@ -97,13 +151,25 @@ class SkillScope:
                 self._publish_builtin(root, source)
                 continue
             if target.is_symlink() and target.resolve() == source.resolve():
-                if name not in self.temporary or any(path == target for path, _, _ in self._owned):
+                if name not in self.temporary or target in self._links:
                     continue
+            if name in self.temporary and target.is_symlink():
+                previous = target.resolve()
+                token = previous.name.removeprefix(name + "-")
+                if (
+                    previous.parent == self.generated
+                    and previous.name == f"{name}-{token}"
+                    and re.fullmatch(r"[0-9a-f]{32}", token)
+                ):
+                    # The name lock proves the previous scope is no longer running.
+                    self._check_generated(previous, token)
+                    target.unlink()
+                    self._remove_generated(previous, token)
             if target.exists() or target.is_symlink():
                 raise FileExistsError(f"Skill name already exists: {target}")
             target.symlink_to(os.path.relpath(source.resolve(), target.parent), target_is_directory=True)
             if name in self.temporary:
-                self._own(target)
+                self._links[target] = source
         self._published.add(root)
         return True
 
@@ -137,18 +203,24 @@ class SkillScope:
         """Remove only resources created by this scope, in reverse order."""
         self.active = False
         errors = []
-        for path, device, inode in reversed(self._owned):
+        for path, source in reversed(self._links.items()):
             try:
-                stat = path.lstat()
-                if (stat.st_dev, stat.st_ino) != (device, inode):
+                if not path.exists() and not path.is_symlink():
+                    continue
+                if not path.is_symlink() or path.resolve() != source:
                     raise FileExistsError(f"Generated skill was replaced during execution: {path}")
-                if path.is_symlink():
-                    path.unlink()
-                else:
-                    shutil.rmtree(path)
-            except FileNotFoundError:
-                continue
+                path.unlink()
             except OSError as exc:
                 errors.append(exc)
+        for source, token in reversed(self._generated.items()):
+            try:
+                self._remove_generated(source, token)
+            except (OSError, ValueError) as exc:
+                errors.append(exc)
+        for descriptor in reversed(self._locks):
+            os.close(descriptor)
+        self._links.clear()
+        self._generated.clear()
+        self._locks.clear()
         if errors:
             raise ExceptionGroup("Could not clean generated skills", errors)

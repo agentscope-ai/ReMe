@@ -73,6 +73,9 @@ Studio 保存时提交完整原文，并将 `load_file` 返回的 `mtime` 作为
 Runtime 持有会话引用、执行锁、独立 Inbox 和 Outbox，Job 负责单轮执行和调度，Step 每次调用重新创建。
 共享的 AgentWrapper 和 App Server 仍由 Application 管理。
 
+使用 Claude Code 时，启动 `reme start config=proactive_cc`。该配置使用 Claude Code 原生默认提示词，
+通过追加方式注入 Runtime 的角色指令，包括 Remy 的 Chat 提示词。关闭提示词快照，使续聊使用当前追加的指令。
+
 ```bash
 # 终端一：启动服务
 reme start config=proactive
@@ -142,9 +145,14 @@ Harness 公共层负责增量扫描、渲染、发布、投递和取消，Codex 
 前台 ask_agent 负责外层流的 DONE；后台任务问答使用最新任务会话的临时只读 fork，不消费队列，也不修改任务主会话。
 
 Runtime 组件从 `components/proactive/runtime/skills/` 加载内置技能模板，通过 PromptHandler 选择语言；也可按名称引用项目技能。
-Chat 与后台 Runtime 分别配置自己的 skills 和工具。生成的 SKILL.md 限于本次调用使用，结束后清理。
+Chat 与 Proactive Runtime 分别配置自己的 skills 和工具。生成的 SKILL.md 限于本次调用使用，结束后清理。
 Wrapper 的 skills 使用 SkillSpec 列表：已有技能用 name，生成技能使用 name、description、content；原生会话协议保持不变。
+生成技能的名称由操作系统文件锁保护；进程异常退出后，下次调用会恢复遗留链接。
+执行 Job 由工作流固定。Runtime 定义不再包含 `run_job`，提醒循环不再接受 `process_job`；迁移旧配置时删除这些字段。
 公共提示词加载器位于 `reme/utils/prompt.py`，Runtime 初始化不再反查执行 Step。
+本轮 query 和输入模板位于 `reme/steps/proactive/agent.yaml`，通过 `jobs.run_proactive_agent.steps[0].prompt_dict`
+定制，使用 `query`、`record_instruction`、`event_input`、`time_input` 及对应的 `_zh` 键。
+Runtime 的 `prompt_dict` 用于角色和初始化文本。
 Notebook 自动写入限制由可信 Runtime 配置注入，在 manage_notebook 工具中检查。
 
 源码见 [组件](../../reme/components/proactive/)、[工作流](../../reme/steps/proactive/) 与 [配置](../../reme/config/proactive.yaml)。

@@ -258,10 +258,10 @@ async def test_packages_are_grouped_by_source_and_local_capture_time(tmp_path, m
     clock = Mock()
     clock.now.return_value = first
     monkeypatch.setattr(
-        "reme.steps.proactive.connector.base_connector.uuid4",
+        "reme.steps.proactive.connector.base.uuid4",
         Mock(side_effect=[SimpleNamespace(hex="a8f3c2" + "0" * 26), SimpleNamespace(hex="b9e4d3" + "0" * 26)]),
     )
-    monkeypatch.setattr("reme.steps.proactive.connector.base_connector.datetime", clock)
+    monkeypatch.setattr("reme.steps.proactive.connector.base.datetime", clock)
     step = PackageConnector(
         connector_job="screen_capture_cron",
         app_context=ApplicationContext(workspace_dir=str(tmp_path), timezone="Asia/Shanghai"),
@@ -360,10 +360,10 @@ async def test_identical_package_names_never_overwrite_a_published_package(tmp_p
     clock = Mock()
     clock.now.return_value = datetime(2026, 11, 15, 12, 30, 45, tzinfo=ZoneInfo("Asia/Shanghai"))
     monkeypatch.setattr(
-        "reme.steps.proactive.connector.base_connector.uuid4",
+        "reme.steps.proactive.connector.base.uuid4",
         Mock(return_value=SimpleNamespace(hex="a8f3c2" + "0" * 26)),
     )
-    monkeypatch.setattr("reme.steps.proactive.connector.base_connector.datetime", clock)
+    monkeypatch.setattr("reme.steps.proactive.connector.base.datetime", clock)
     step = PackageConnector(
         connector_job="screen_capture_cron",
         app_context=ApplicationContext(workspace_dir=str(tmp_path)),

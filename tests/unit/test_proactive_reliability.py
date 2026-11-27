@@ -10,7 +10,7 @@ import pytest
 from reme.core.context import RuntimeContext
 from reme.schema import Response
 from reme.steps.proactive.chat import ChatNotificationsLoopStep
-from reme.steps.proactive.api import AgentSessionStep, AgentViews
+from reme.steps.proactive.agent_api import AgentSessionStep, AgentViews
 from .proactive_helpers import running_system, emit_notification
 
 

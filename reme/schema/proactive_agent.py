@@ -122,7 +122,6 @@ class ProactiveRuntimeSettings(ClientModel):
 class ProactiveRuntimeDefaults(AgentRuntimeBinding):
     """Defaults shared by preset and dynamically created background Runtimes."""
 
-    run_job: Literal["run_proactive_agent"] = "run_proactive_agent"
     skills: list[SkillName] = Field(default_factory=lambda: ["proactive-record"])
     max_batch_events: int = Field(default=20, ge=1, strict=True)
     max_local_search_calls: int = Field(default=10, ge=1, strict=True)

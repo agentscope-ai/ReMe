@@ -20,7 +20,7 @@ content: |
   | --- | --- |
   | `action`, `agent_name` | `list` accepts only `action`. Every other action requires `agent_name`. New names should use short lowercase words joined by underscores, be unique ignoring case, and avoid the reserved name `Remy`. |
   | `task_description` | Creation only: nonblank TASK.md text containing the goal, necessary context, sources, decision criteria and reminder requirements. Omit it to use the generic task default. Later edits belong in the task document. |
-  | `skills` | Creation only: built-in or project skill names, defaulting to `["proactive-record"]`. Select `["proactive-record","manage-notebook"]` for Notebook follow-up. Fixed after creation; omit when restoring. |
+  | `skills` | Creation only: built-in or project skill names, defaulting to `["proactive-record"]`. Omit `proactive-record`, for example with `[]`, to run without daily record validation or record-based reminders. Select `["proactive-record","manage-notebook"]` for Notebook follow-up. Fixed after creation; omit when restoring. |
   | `job_tools` | Creation only: tools allowed by the AgentManager, empty by default. Notebook follow-up uses `["manage_notebook"]`; automatic-write restrictions come from trusted Runtime configuration. |
   | `enabled` | Boolean; defaults to `true` on creation or restoration. Use `false` to pause and `true` to resume. Task execution and collector controls are separate. |
   | `agent_type` | Required on creation and restoration: `event` or `time`. The type is fixed for the Runtime lifetime. |
@@ -89,7 +89,7 @@ content_zh: |
   | --- | --- |
   | `action`、`agent_name` | `list` 只传 `action`，其他操作必须传 `agent_name`。新名称用简短小写英文单词加下划线，忽略大小写保持唯一，避开保留名 `Remy`。 |
   | `task_description` | 仅创建时使用：非空的 TASK.md 正文，写清目标、必要背景、来源、判断标准和提醒要求。省略则使用通用任务要求，后续修改写入任务文档。 |
-  | `skills` | 仅创建时使用：内置或项目技能名，默认 `["proactive-record"]`。Notebook 跟进选择 `["proactive-record","manage-notebook"]`。创建后固定，恢复时省略。 |
+  | `skills` | 仅创建时使用：内置或项目技能名，默认 `["proactive-record"]`。不包含 `proactive-record`（例如传 `[]`）时，不校验每日记录，也不通过记录生成提醒。Notebook 跟进选择 `["proactive-record","manage-notebook"]`。创建后固定，恢复时省略。 |
   | `job_tools` | 仅创建时使用：AgentManager 允许的工具，默认空列表。Notebook 跟进使用 `["manage_notebook"]`，自动写入限制来自可信 Runtime 配置。 |
   | `enabled` | 布尔值，创建或恢复默认 `true`。`false` 暂停，`true` 恢复。任务执行和采集开关分别管理。 |
   | `agent_type` | 创建和恢复时必填：`event` 或 `time`，Runtime 存续期间固定。 |

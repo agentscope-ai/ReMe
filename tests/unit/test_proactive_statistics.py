@@ -9,7 +9,7 @@ import pytest
 from reme.schema import StreamChunk
 from reme.utils.counter import global_counter_get
 from .proactive_helpers import running_system, queue_event
-from .test_proactive_run import prepare_round, install_round, SKIP
+from .test_proactive_agent import prepare_round, install_round, SKIP
 
 
 @pytest.mark.parametrize("status", ["completed", "failed"])
@@ -51,7 +51,7 @@ async def test_round_statistics_and_counters_reflect_model_and_commit_outcomes(t
 
             monkeypatch.setattr(wrapper, "get_tool_calls", tool_calls)
         monkeypatch.setattr(wrapper, "reply_stream", stream)
-        response = await context.jobs[runtime.run_job](agent_name="monitor")
+        response = await context.jobs["run_proactive_agent"](agent_name="monitor")
         stats = response.metadata["reme.agent_run"]
         assert (
             response.success == (status == "completed")

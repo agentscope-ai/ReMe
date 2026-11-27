@@ -4,11 +4,13 @@
 # pylint: disable=too-many-lines
 
 import asyncio
+from datetime import datetime
 import json
 from pathlib import Path
 import socket
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
@@ -34,6 +36,7 @@ from reme.core.context import ApplicationContext
 from reme.components.agent_wrapper.codex_agent_wrapper import CodexAgentWrapper
 from reme.components.codex_app_server import SdkCodexAppServer
 from reme.components.job import BackgroundJob, StreamJob
+from reme.components.proactive import ChatAgentRuntime
 from reme.components.service.scoped_mcp import ScopedMCP
 from reme.enumeration import ChunkEnum, ComponentEnum
 from reme.schema import Response, TokenUsage
@@ -372,6 +375,48 @@ async def test_releasing_a_superseded_empty_session_keeps_other_threads(system):
     assert server._threads[current].pending is not None
     assert client.unsubscribed == [previous]
     assert not client.threads[previous].inputs and not client.threads[current].inputs
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("language", ["en", "zh"])
+async def test_wrapper_defaults_and_chat_role_reach_separate_native_channels(system, monkeypatch, language):
+    first, _, _, _ = system
+    context = first.app_context
+    context.app_config.language = language
+    context.app_config.timezone = "Asia/Shanghai"
+    now = datetime(2026, 11, 27, 12, tzinfo=ZoneInfo("Asia/Shanghai"))
+    monkeypatch.setattr(
+        "reme.components.agent_wrapper.base_agent_wrapper.datetime",
+        SimpleNamespace(now=now.astimezone),
+    )
+    async with CodexAgentWrapper(app_context=context) as wrapper:
+        chat = ChatAgentRuntime(name="Remy", app_context=context, agent_wrapper=wrapper)
+        role = chat.session_options()["system_prompt"]
+        await wrapper.create_session(system_prompt=role)
+        options = _Codex.instances[0].opened[0][2]
+        baseline = options["base_instructions"]
+        assert options["developer_instructions"] == role
+        assert "Remy" in role and str(chat.memory_path) in role
+        assert "Remy" not in baseline
+        assert baseline.count("Codex CLI") == 1
+        assert str(context.app_config.workspace_dir) in baseline
+        assert context.app_config.timezone in baseline and now.isoformat() in baseline
+        assert "{workspace_dir}" not in baseline and "{memory_path}" not in role
+        assert "exec_command" in baseline and "*** Update File:" in baseline
+        assert "exec_command" not in role
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("instructions", ["Custom baseline.", "", None])
+async def test_explicit_base_instructions_override_wrapper_defaults(system, instructions):
+    first, _, _, _ = system
+    first.kwargs["base_instructions"] = "Component baseline."
+    await first.create_session(system_prompt="Role instructions.")
+    await first.create_session(base_instructions=instructions, system_prompt="Role instructions.")
+    opened = _Codex.instances[0].opened
+    assert opened[0][2]["base_instructions"] == "Component baseline."
+    assert opened[1][2]["base_instructions"] == instructions
+    assert all(options["developer_instructions"] == "Role instructions." for _, _, options in opened)
 
 
 @pytest.mark.asyncio
@@ -1506,7 +1551,7 @@ async def test_generated_skills_refresh_once_and_survive_all_turns_in_a_run(syst
             assert (await first.reply(query, resume=session_id, **options))["status"] == "completed"
         assert sdk.skills_refreshes == [{"cwds": [str(first.cwd.resolve())], "forceReload": True}]
     assert not manifest.exists() and not manifest.parent.is_symlink()
-    assert not (first.workspace_path / "metadata/agent_skills/run-task").exists()
+    assert not list((first.workspace_path / "metadata/agent_skills").glob("run-task-*"))
 
 
 @pytest.mark.asyncio

@@ -19,13 +19,15 @@ _OFFLINE_JOBS = {
     "default": ("dream_cron", "proactive_refresh_cron", "optimize_index_cron"),
     "proactive": (
         "codex_dialogue_cron",
+        "claude_code_dialogue_cron",
         "screen_capture_cron",
         "finance_news_cron",
         "gold_quotes_cron",
         "oil_quotes_cron",
         "nasdaq_quotes_cron",
         "btc_quotes_cron",
-        "proactive_loop",
+        "agent_manager_loop",
+        "chat_notifications_loop",
     ),
 }
 

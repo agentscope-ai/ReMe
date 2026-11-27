@@ -6,7 +6,7 @@ from pathlib import Path
 
 import httpx
 
-from ..base_connector import BaseConnectorStep
+from ..base import BaseConnectorStep
 from .....utils.files.workspace_files import WorkspaceFiles
 from .....schema.resource_metadata import RESOURCE_METADATA_FILENAME
 

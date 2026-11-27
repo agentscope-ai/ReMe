@@ -44,8 +44,8 @@ class NotificationTurn:
 class ChatAgentRuntime(BaseAgentRuntime):
     """Own Remy resources without depending back on AgentManager."""
 
-    def __init__(self, initial_memory="", notification_config=None, enabled=True, run_job="run_chat_agent", **kwargs):
-        super().__init__(run_job=run_job, **kwargs)
+    def __init__(self, initial_memory="", notification_config=None, enabled=True, **kwargs):
+        super().__init__(**kwargs)
         if self.name != CHAT_AGENT_NAME:
             raise ValueError(f"The Chat Runtime must be named {CHAT_AGENT_NAME}")
         if type(enabled) is not bool:

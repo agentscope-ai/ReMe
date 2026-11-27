@@ -2,13 +2,86 @@
 
 # pylint: disable=missing-function-docstring,protected-access,redefined-outer-name
 
+from unittest.mock import AsyncMock
+
 import pytest
 
+from reme.constants import PROACTIVE_MESSAGE_ID_PREFIX
 from reme.core.context import RuntimeContext
 from reme.schema.agent_view import AgentInboxRequest, ListTaskRemindersRequest, AgentReminderRequest
-from reme.steps.proactive.api import AgentInboxStep, ListTaskRemindersStep, AgentReminderStep
+from reme.steps.proactive.agent_api import AgentInboxStep, ListTaskRemindersStep, AgentReminderStep
 from reme.steps.proactive.chat import ProcessChatNotificationsStep
 from .proactive_helpers import running_system, emit_notification, queue_event
+
+
+@pytest.mark.parametrize("agent_name", [None, "monitor"])
+@pytest.mark.asyncio
+async def test_reminder_pages_and_combined_detail_share_one_chat_outbox_read(tmp_path, monkeypatch, agent_name):
+    async with running_system(tmp_path) as (manager, context, _):
+        references = [await emit_notification(manager, context, suffix=number) for number in range(3)]
+        chat = context.components["agent_runtime"]["Remy"]
+        notifications = ProcessChatNotificationsStep(app_context=context, agent_runtime="Remy")
+        async with chat.notification_turn(
+            await chat.ensure_session({}),
+            "P1",
+            [reference.id for reference in references[:2]],
+            format_item=notifications.format_item,
+        ) as turn:
+            await chat.submit_reply(turn.id, "send", "Combined reminder")
+        delivery = (await chat.outbox.entries())[0]
+        message_id = PROACTIVE_MESSAGE_ID_PREFIX + delivery.message_id
+        entries = AsyncMock(wraps=chat.outbox.entries)
+        monkeypatch.setattr(chat.outbox, "entries", entries)
+        step_class = ListTaskRemindersStep if agent_name else AgentInboxStep
+        step = step_class(app_context=context, agent_runtime="Remy")
+        values = {"agent_name": agent_name} if agent_name else {}
+        page = (await step(**values, limit=1)).answer
+        assert page["total"] == 3 and len(page["items"]) == 1
+        assert entries.await_count == 1
+        entries.reset_mock()
+        full = (await step(**values)).answer
+        assert page["items"] == full["items"][:1] and entries.await_count == 1
+        for item in full["items"]:
+            expected = [message_id] if item["id"] in {ref.record_path for ref in references[:2]} else []
+            assert item["chat_message_ids"] == expected
+        entries.reset_mock()
+        detail = (await AgentReminderStep(app_context=context, agent_runtime="Remy")(message_id=message_id)).answer
+        assert {item["id"] for item in detail["items"]} == {ref.record_path for ref in references[:2]}
+        assert all(item["chat_message_ids"] == [message_id] for item in detail["items"])
+        assert entries.await_count == 1
+
+
+@pytest.mark.parametrize("missing_definition", [False, True])
+@pytest.mark.asyncio
+async def test_deleted_sender_reminders_remain_readable_without_starting_a_runtime(tmp_path, missing_definition):
+    async with running_system(tmp_path) as (manager, context, wrapper):
+        reference = await emit_notification(manager, context)
+        runtime = await manager.resolve("monitor")
+        await manager.delete("monitor")
+        if missing_definition:
+            runtime.config_path.unlink()
+        before = {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
+        response = await AgentReminderStep(app_context=context, agent_runtime="Remy")(
+            message_id=reference.record_path,
+        )
+        assert response.success and response.answer["message"] == "Verified result"
+        assert not manager.runtimes and not wrapper.turns
+        assert before == {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
+
+
+@pytest.mark.asyncio
+async def test_reminder_detail_rejects_a_delivery_saved_under_another_identity(tmp_path):
+    async with running_system(tmp_path) as (manager, context, _):
+        first = await emit_notification(manager, context)
+        second = await emit_notification(manager, context, suffix=1)
+        runtime = await manager.resolve("monitor")
+        deliveries = {row.notification.id: row for row in await runtime.outbox.entries()}
+        path = runtime.outbox.path(deliveries[first.id].id)
+        contents = runtime.outbox.path(deliveries[second.id].id).read_bytes()
+        path.write_bytes(contents)
+        with pytest.raises(ValueError, match="identity"):
+            await AgentReminderStep(app_context=context, agent_runtime="Remy")(message_id=first.record_path)
+        assert path.read_bytes() == contents
 
 
 @pytest.mark.asyncio

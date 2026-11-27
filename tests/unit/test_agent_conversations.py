@@ -9,7 +9,7 @@ import pytest
 
 from reme.core.context import RuntimeContext
 from reme.schema import SessionMessage, SessionSnapshot, SessionStatus, StreamChunk
-from reme.steps.proactive.api import AskAgentStep, AgentSessionStep, AgentViews
+from reme.steps.proactive.agent_api import AskAgentStep, AgentSessionStep, AgentViews
 from reme.steps.proactive.chat import ChatAgentStep
 from reme.steps.proactive.tools.manage_proactive_runtime import ManageProactiveRuntimeStep
 from .proactive_helpers import running_system, queue_event

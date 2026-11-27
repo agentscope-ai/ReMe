@@ -8,7 +8,7 @@ import pytest
 
 from reme.core.context import RuntimeContext
 from reme.schema.agent_view import TaskDocumentRequest
-from reme.steps.proactive.api import TaskDocumentStep
+from reme.steps.proactive.agent_api import TaskDocumentStep
 from .proactive_helpers import running_system as running_manager
 
 

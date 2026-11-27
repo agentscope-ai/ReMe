@@ -99,13 +99,16 @@ class CodexAgentWrapper(BaseAgentWrapper):
         from openai_codex.types import Personality, ThreadSource, ThreadStartSource
 
         config = dict(kwargs.get("config") or {})
+        base_instructions = (
+            kwargs["base_instructions"] if "base_instructions" in kwargs else self.get_base_instructions()
+        )
         if proxy_environment := self.command_proxy_environment:
             policy = dict(config.get("shell_environment_policy") or {})
             policy["set"] = {**policy.get("set", {}), **proxy_environment}
             config["shell_environment_policy"] = policy
         options = {
             "approval_mode": self._enum(ApprovalMode, kwargs.get("approval_mode"), ApprovalMode.deny_all),
-            "base_instructions": kwargs.get("base_instructions"),
+            "base_instructions": base_instructions,
             "config": config,
             "cwd": str(self.cwd),
             "developer_instructions": kwargs.get("system_prompt"),

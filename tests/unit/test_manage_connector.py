@@ -18,7 +18,7 @@ from reme.components.service import HttpService
 from reme.core.context import RuntimeContext
 from reme.schema.proactive_agent import ManageConnectorRequest
 from reme.steps.proactive.connector import BaseConnectorStep
-from reme.steps.proactive.connector.base_connector import connector_control_path, read_connector_control
+from reme.steps.proactive.connector.base import connector_control_path, read_connector_control
 from reme.steps.proactive.tools import ManageConnectorStep
 from .proactive_helpers import running_system
 

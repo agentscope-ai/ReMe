@@ -1,6 +1,6 @@
 """Invocation-scoped collection, resource publication and event delivery."""
 
-from .base_connector import BaseConnectorStep
+from .base import BaseConnectorStep
 from .screen_capture import ScreenCaptureStep
 from .harness import (
     BaseHarnessConnectorStep,

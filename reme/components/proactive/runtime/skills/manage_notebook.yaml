@@ -88,18 +88,16 @@ content: |
 
   ## Archive and restore
 
-  There is no `delete` operation. Closing a Todo archives it; reopening restores it. Archive or restore an Idea explicitly. IDs and links are retained. Closing linked Todos does not automatically archive their Idea.
+  There is no `delete` operation. Closing a Todo archives it; reopening restores it. Archive or restore an Idea explicitly. IDs and links are retained. Closing linked Todos does not automatically archive their Idea; check the other linked Todos before proposing to archive it.
 
   | Change | Complete parameters |
   | --- | --- |
   | Archive an Idea | `{"kind":"idea","action":"archive","id":"i001"}` |
   | Restore an Idea | `{"kind":"idea","action":"restore","id":"i001"}` |
 
-  ## Background updates and CLI
+  ## Background updates
 
-  For background events, find all related Todos and Ideas and read the full progress of affected Todos. Automatic writes may append, correct or remove progress on open Todos and set `status="in_progress"` when work has demonstrably started. Record only new facts or confirmed corrections and withdrawals. Send every other proposed change to Remy for the user's decision, with the existing entry, new evidence and suggested action.
-
-  Run `reme start config=proactive` in one terminal, then call `reme manage_notebook kind=todo action=list` or `reme manage_notebook kind=idea action=list` in another. Supply parameters as `key=value`.
+  For background events, find all related Todos and Ideas and read the full progress of affected Todos. Automatic writes may append, correct or remove progress on open Todos and set `status="in_progress"` when work has demonstrably started. Record only new facts or confirmed corrections and withdrawals; merge follow-up results for the same item into its existing progress entry. Prefer reusing suitable entries. For every other proposed change, use proactive-record to remind the user for a decision, with the existing entry when available, new evidence and suggested action.
 
 content_zh: |
   # 管理待办和想法
@@ -188,15 +186,13 @@ content_zh: |
 
   ## 归档与恢复
 
-  没有 `delete` 操作。Todo 关闭后归档，重开后恢复；Idea 显式归档或恢复。ID 和关联保留，关联 Todo 关闭不会自动归档 Idea。
+  没有 `delete` 操作。Todo 关闭后归档，重开后恢复；Idea 显式归档或恢复。ID 和关联保留，关联 Todo 关闭不会自动归档 Idea；建议归档 Idea 前，核对其他关联 Todo。
 
   | 修改 | 完整参数 |
   | --- | --- |
   | 归档 Idea | `{"kind":"idea","action":"archive","id":"i001"}` |
   | 恢复 Idea | `{"kind":"idea","action":"restore","id":"i001"}` |
 
-  ## 后台更新与 CLI
+  ## 后台更新
 
-  收到后台事件时，查找所有相关 Todo、Idea，读完相关 Todo 的全部进展。自动写入可追加、更正、删除未关闭 Todo 的进展，确认已开工时可设 `status="in_progress"`；只记录新增事实或已确认的更正、撤回。其他拟修改事项逐项交给 Remy 让主人决定，附已有条目、新依据和建议处理方式。
-
-  先在一个终端运行 `reme start config=proactive`，再在另一个终端调用 `reme manage_notebook kind=todo action=list` 或 `reme manage_notebook kind=idea action=list`，用 `key=value` 传参。
+  收到后台事件时，查找所有相关 Todo、Idea，读完相关 Todo 的全部进展。自动写入可追加、更正、删除未关闭 Todo 的进展，确认已开工时可设 `status="in_progress"`；只记录新增事实或已确认的更正、撤回，同一事项有后续结果时合并原进展。优先复用合适的已有条目。其他拟修改事项使用 proactive-record 技能提醒主人决定，附已有条目（如有）、新依据和建议处理方式。

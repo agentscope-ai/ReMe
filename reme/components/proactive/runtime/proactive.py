@@ -1,8 +1,8 @@
 """One event- or time-triggered Agent Runtime and its reliable commit boundary."""
 
 import asyncio
+from contextlib import nullcontext
 from datetime import timedelta, timezone
-from hashlib import sha256
 
 from .base import BaseAgentRuntime
 from ..inbox import EventInbox
@@ -31,14 +31,13 @@ class ProactiveAgentRuntime(BaseAgentRuntime):
         min_trigger_interval_seconds=0,
         max_batch_events=20,
         notify_window=None,
-        run_job="run_proactive_agent",
         initial_task=None,
         max_local_search_calls=10,
         recent_history_hours=24,
         **kwargs,
     ):
         kwargs.setdefault("skills", ["proactive-record"])
-        super().__init__(run_job=run_job, **kwargs)
+        super().__init__(**kwargs)
         if initial_task is not None and (not isinstance(initial_task, str) or not initial_task.strip()):
             raise ValueError("initial_task must not be blank")
         self.initial_task = initial_task
@@ -46,7 +45,6 @@ class ProactiveAgentRuntime(BaseAgentRuntime):
             **self.binding.model_dump(),
             agent_name=self.name,
             agent_type=agent_type,
-            run_job=run_job,
             enabled=enabled,
             schedule=schedule,
             min_trigger_interval_seconds=min_trigger_interval_seconds,
@@ -72,7 +70,7 @@ class ProactiveAgentRuntime(BaseAgentRuntime):
     def _check_open(self):
         super()._check_open()
         if self.retiring:
-            raise RuntimeError("Task Runtime is retiring")
+            raise RuntimeError("Proactive Runtime is retiring")
 
     @property
     def config_path(self):
@@ -106,7 +104,7 @@ class ProactiveAgentRuntime(BaseAgentRuntime):
         )
         self.outbox = NotificationOutbox(
             name=f"{self.name}_outbox",
-            directory=self.to_workspace_relative(self.directory / "outbox/notifications"),
+            directory=self.to_workspace_relative(NotificationOutbox.directory_for(self.directory)),
             target=self.notification_target,
             app_context=self.app_context,
         )
@@ -143,57 +141,6 @@ class ProactiveAgentRuntime(BaseAgentRuntime):
             raise ValueError("Task description must not be blank")
         await complete_in_thread(self.files.write, self.task_path, content, create_only=True)
 
-    def get_skills(self):
-        """Fill the record skill's limits from this Runtime's configuration."""
-        skills = super().get_skills()
-        for skill in skills:
-            if skill.get("content") and skill["name"].startswith("proactive-record-"):
-                skill["content"] = skill["content"].format(
-                    recent_history_hours=self.initial_config.recent_history_hours,
-                    max_local_search_calls=self.initial_config.max_local_search_calls,
-                )
-        return skills
-
-    def build_query(self, events, paths, task_content, skills, *, is_time):
-        """Render this round from the current task document and claimed inputs."""
-        sections = []
-        for number, event in enumerate(events, 1):
-            if is_time:
-                sections.append(self.prompt.prompt_format("scheduled_event_input", event_ts=event["event_ts"]))
-                continue
-            attachments = event["paths"]
-            sections.append(
-                self.prompt.prompt_format(
-                    "event_input",
-                    number=number,
-                    event_id=event["id"],
-                    event_ts=event["event_ts"],
-                    source=event["source"],
-                    description=event["description"],
-                    paths="\n".join(f"- {self.to_workspace_relative(self.files.path(path))}" for path in attachments),
-                    has_files=bool(attachments),
-                    no_files=not attachments,
-                ),
-            )
-        context = self.prompt.prompt_format(
-            "task_context",
-            event_batch="\n\n".join(sections),
-            is_time=is_time,
-            is_event=not is_time,
-            task_description=task_content,
-            daily_dir=self.to_workspace_relative(paths["daily_dir"]),
-            record_path=self.to_workspace_relative(paths["record_path"]),
-        )
-        query = self.prompt.prompt_format("task_query", task_context=context, is_time=is_time, is_event=not is_time)
-        return (
-            query
-            + "\n\n"
-            + self.prompt.prompt_format(
-                "use_skills",
-                skill_names=" ".join("$" + skill["name"] for skill in skills),
-            )
-        )
-
     def owns_record(self, relative):
         """Check that a source belongs to this Runtime's daily record namespace."""
         path = self.files.path(relative)
@@ -206,8 +153,7 @@ class ProactiveAgentRuntime(BaseAgentRuntime):
     def has_record_registration(self, path):
         """Reserve a record path even when its delivery file is damaged."""
         reference_id = NotificationRef.identity(self.to_workspace_relative(path))
-        identifier = "delivery-" + sha256(f"{reference_id}\0{self.notification_target.name}".encode()).hexdigest()
-        return self.outbox.path(identifier).exists()
+        return self.outbox.reference_path(reference_id).exists()
 
     async def receipt_record_paths(self):
         """Keep committed record names reserved after a file is moved."""
@@ -228,10 +174,13 @@ class ProactiveAgentRuntime(BaseAgentRuntime):
 
     async def commit_round(self, batch, reminder, session_id, record):
         """The durable input receipt precedes asynchronous reminder transport."""
+        if reminder is not None and record is None:
+            raise ValueError("A reminder requires a round record")
         reference = None
         delivery = None
-        async with await get_path_lock(record.path):
-            await asyncio.to_thread(record.check_version, record.path)
+        async with await get_path_lock(record.path) if record is not None else nullcontext():
+            if record is not None:
+                await asyncio.to_thread(record.check_version, record.path)
             if reminder is not None:
                 if not self.owns_record(reminder.id) or self.files.path(reminder.id) != record.path:
                     raise ValueError("Reminder does not identify this round's record")

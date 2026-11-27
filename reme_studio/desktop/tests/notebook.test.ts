@@ -296,7 +296,12 @@ test("Workspace modules share their default sidebar width and headings", async (
     connection: "connected",
     clientInfo: {
       ...clientInfo,
-      jobs: [...clientInfo.jobs, "todo", "idea", "list_workspace", "load_file"],
+      jobs: [
+        ...clientInfo.jobs,
+        "manage_notebook",
+        "list_workspace",
+        "load_file",
+      ],
     },
   };
   const notebook = render(createElement(Notebook, { state }));
@@ -329,6 +334,16 @@ test("Workspace modules share their default sidebar width and headings", async (
   }
   assert.doesNotMatch(knowledge, /YOUR SECOND MEMORY/);
   assert.match(notebook, /随记/);
+  assert.doesNotMatch(notebook, /服务未启用/);
+  const unavailable = render(
+    createElement(Notebook, {
+      state: {
+        ...state,
+        clientInfo: { ...clientInfo, jobs: ["todo", "idea"] },
+      },
+    }),
+  );
+  assert.match(unavailable, /服务未启用 manage_notebook/);
   assert.match(notebook, /关闭备注（选填）/);
   assert.match(notebook, /aria-label="调整侧栏宽度"/);
   const collapsed = render(createElement(Notebook, { state, collapsed: true }));

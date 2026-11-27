@@ -15,18 +15,31 @@ Start ReMe with `reme start config=proactive`. Collectors send observations to e
 
 Each run opens a fresh native session and reads `TASK.md`. Consecutive observations can be processed together. Each scheduled trigger gets its own run in queue order. The query retains the scheduled trigger's planned time; the system prompt supplies the actual start time. A trigger planned for 08:00 and processed at 08:07 shows both times.
 
-All domain Agents share the personal-assistant system prompt and its workspace, time zone and current-time context.
-Their query contains `TASK.md`, the trigger inputs, domain instructions and selected skills; the Harness runs it once.
+The AgentWrapper supplies backend instructions and environment context. Remy's role prompt belongs to Chat.
+The [execution Step](../../reme/steps/proactive/agent.py) assembles each background run from `TASK.md`, the trigger
+inputs and the selected skills, then calls the Harness once. Its bilingual query and input templates live in
+[`agent.yaml`](../../reme/steps/proactive/agent.yaml). The Runtime owns the stable capability binding, native sessions
+and reliable result commitment. The Step fills each round's time, paths and search budget into a fresh copy of
+the record skill, leaving cached templates unchanged.
 
-Every background Agent loads the shared `proactive-record` skill. Domain prompts describe the task work; the skill
-handles history, duplicate records and reminders, reminder priority and content, and Markdown output. Notebook also
-loads `manage-notebook`. Runtime management remains with Remy's `manage-proactive-runtime` skill.
+Customize execution prompts through `jobs.run_proactive_agent.steps[0].prompt_dict`, using `query`,
+`record_instruction`, `event_input` and `time_input` or their `_zh` variants. Runtime `prompt_dict` configures role
+and initialization text.
 
-The agent searches the shared `daily_dir` for earlier findings and reminders. It checks the latest `recent_history_hours` first (24 hours by default) and makes up to `max_local_search_calls` keyword or regex searches per run (10 by default). The search budget is a prompt instruction. If the agent exceeds it, ReMe logs one warning and lets the run finish. Diagnostics under `reme.agent_run` include tool calls, model status, and the run outcome. Failed rounds preserve written records and retain their inputs for retry. The retry delay starts at 5 seconds and increases to at most 5 minutes by default.
+Preset `TASK.md` text keeps task-specific work, output requirements and reminder conditions. The shared query appends
+`record_instruction` only when `proactive-record` is enabled; the skill supplies the record format and paths.
+
+Background Agents load the shared `proactive-record` skill by default. After completing the task work, they use it
+for history, duplicate records and reminders, reminder priority and content, and Markdown output. A task whose
+`skills` omit `proactive-record`, including `skills=[]`, can complete without a daily record and does not generate
+record-based reminders. Notebook also loads `manage-notebook`. Runtime management remains with Remy's
+`manage-proactive-runtime` skill.
+
+The record skill searches the shared `daily_dir` for earlier findings and reminders. It checks the latest `recent_history_hours` first (24 hours by default) and makes up to `max_local_search_calls` keyword or regex searches per run (10 by default). The search budget is a prompt instruction. If the agent exceeds it, ReMe logs one warning and lets the run finish. Diagnostics under `reme.agent_run` include tool calls, model status, and the run outcome. Failed rounds retain their inputs for retry. The retry delay starts at 5 seconds and increases to at most 5 minutes by default.
 
 ### One record per run
 
-The agent writes to `daily/YYYY-MM-DD/{agent_name}_HHMMSS.md` by default. A numeric suffix prevents same-second collisions. Observation runs with no key information can finish without a file by successfully replying `NO_KEY_INFORMATION`. A scheduled run always requires a record.
+With `proactive-record` enabled, the agent writes to `daily/YYYY-MM-DD/{agent_name}_HHMMSS.md` by default. A numeric suffix prevents same-second collisions. Observation runs with no key information can finish without a file by successfully replying `NO_KEY_INFORMATION`. Scheduled runs using the skill always require a record.
 
 The Markdown body contains new information and its sources. It may be empty. Local links are relative to the record's directory. The agent writes two frontmatter fields:
 
@@ -40,13 +53,20 @@ The task can specify its own delivery conditions and priority. The agent checks 
 
 ### Commit and delivery
 
+Without `proactive-record`, a successful model run commits its input receipt without validating a record or
+registering a reminder.
+
 The skill checks and corrects its output within the same execution. ReMe validates the saved file before committing
-the run. A validation failure retains the draft and inputs for a later task retry.
+the run. A model error, timeout, cancellation or validation failure removes this round's draft if it has not been
+changed externally, while preserving the inputs for a later task retry.
 
 ReMe holds the file lock while checking the record, acknowledging its inputs, and registering any reminder in the
-task outbox. A model error or timeout preserves inputs and the draft for retry. If acknowledgement fails before the receipt
-is durable, the Markdown stays in place and the inputs remain pending. Once the receipt is durable, ReMe can resume
-registration after a restart.
+task outbox. If acknowledgement fails before the receipt is durable, the same draft cleanup applies and the inputs
+remain pending. Once the receipt is durable, ReMe keeps the record and can resume registration after a restart.
+
+After an abrupt process exit, inputs without a durable receipt remain pending; committed reminders resume from
+their receipts and outbox state without repeating model execution. An abrupt exit cannot run draft cleanup, so
+an uncommitted draft may remain in the daily directory. A record file alone does not prove commitment or delivery.
 
 The workspace-relative record path is the reminder ID. The task outbox stores delivery facts. Remy persists notification references and processing receipts; its Chat outbox links native messages. Reminder text comes from the original daily record.
 Remy selects reminders by priority and delivery time within the configured limits and notification window. A Chat decision

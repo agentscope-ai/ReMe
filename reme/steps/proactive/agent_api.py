@@ -2,17 +2,16 @@
 
 import asyncio
 from contextlib import aclosing
-from hashlib import sha256
 from time import monotonic
 
 from .base import BaseAgentStep
-from .chat.chat import BaseChatAgentStep
+from .chat.agent import BaseChatAgentStep
+from ...components.proactive.outbox import NotificationOutbox
 from ...constants import CHAT_AGENT_NAME, PROACTIVE_MESSAGE_ID_PREFIX
 from ...core.registry import R
 from ...enumeration import ChunkEnum
 from ...schema import StreamChunk, SessionSnapshot, SessionStatus
 from ...schema.agent_inbox import NotificationRef
-from ...schema.agent_outbox import NotificationDelivery
 from ...schema.agent_view import (
     AgentView,
     AgentSessionView,
@@ -236,19 +235,25 @@ class AgentViews:
             for listener in listeners:
                 listener.listeners.discard(wake)
 
-    async def reminder(self, reference, *, receipt=None, delivery=None):
+    @staticmethod
+    def _chat_message_ids(deliveries):
+        values = {}
+        for delivery in deliveries:
+            if delivery.status != "aborted":
+                for identifier in delivery.notification_ids:
+                    values.setdefault(identifier, []).append(PROACTIVE_MESSAGE_ID_PREFIX + delivery.message_id)
+        return values
+
+    async def reminder(self, reference, *, receipt=None, delivery=None, chat_message_ids=None):
         """Join canonical content with sender delivery and receiver processing facts."""
         item = await self.chat.reminder_item(reference)
         if delivery is None:
-            identifier = "delivery-" + sha256(f"{reference.id}\0{self.chat.name}".encode()).hexdigest()
-            path = self.manager.files.checked(
-                self.manager.registry.directory
-                / reference.source_agent
-                / "outbox/notifications"
-                / f"{identifier}.json",
+            delivery = await NotificationOutbox.read_reference(
+                self.manager.files,
+                self.manager.registry.directory / reference.source_agent,
+                reference.id,
+                self.chat.name,
             )
-            value = await asyncio.to_thread(self.manager.files.read_json, path, None)
-            delivery = NotificationDelivery.model_validate(value) if value else None
         if receipt is None:
             receipt = await self.chat.inbox.processed(reference.id)
         item["read_at"] = receipt.consume_ts.isoformat() if receipt else None
@@ -257,11 +262,9 @@ class AgentViews:
             if delivery and delivery.delivered_at
             else reference.created_at.isoformat()
         )
-        item["chat_message_ids"] = [
-            PROACTIVE_MESSAGE_ID_PREFIX + row.message_id
-            for row in await self.chat.outbox.entries()
-            if reference.id in row.notification_ids and row.status != "aborted"
-        ]
+        if chat_message_ids is None:
+            chat_message_ids = self._chat_message_ids(await self.chat.outbox.entries())
+        item["chat_message_ids"] = chat_message_ids.get(reference.id, [])
         item.pop("notification_id", None)
         return item
 
@@ -280,13 +283,19 @@ class AgentViews:
         else:
             runtime = await self.manager.resolve(agent_name)
             deliveries = [(row.notification, row) for row in await runtime.outbox.entries()]
+        chat_message_ids = self._chat_message_ids(await self.chat.outbox.entries()) if deliveries else {}
         for reference, delivery in deliveries:
             try:
                 receipt = await self.chat.inbox.processed(reference.id)
                 status = "processed" if receipt else "processing" if reference.id in processing else "pending"
                 if state not in {"all", status}:
                     continue
-                item = await self.reminder(reference, receipt=receipt, delivery=delivery)
+                item = await self.reminder(
+                    reference,
+                    receipt=receipt,
+                    delivery=delivery,
+                    chat_message_ids=chat_message_ids,
+                )
                 rows.append({**item, "state": status})
             except (OSError, ValueError) as exc:
                 errors[reference.record_path] = str(exc)
@@ -299,12 +308,9 @@ class AgentViews:
         """Resolve a source path or delivered Chat message to retained references."""
         if identifier.startswith(PROACTIVE_MESSAGE_ID_PREFIX) and agent_name == CHAT_AGENT_NAME:
             native_id = identifier[len(PROACTIVE_MESSAGE_ID_PREFIX) :]
+            chat_deliveries = await self.chat.outbox.entries()
             delivery = next(
-                (
-                    row
-                    for row in await self.chat.outbox.entries()
-                    if row.message_id == native_id and row.status != "aborted"
-                ),
+                (row for row in chat_deliveries if row.message_id == native_id and row.status != "aborted"),
                 None,
             )
             if delivery is None:
@@ -312,22 +318,26 @@ class AgentViews:
             references = [await self.chat.inbox.reference(value) for value in delivery.notification_ids]
             if any(reference is None for reference in references):
                 raise ValueError("Chat reminder source reference is unavailable")
-            return {"id": identifier, "items": [await self.reminder(reference) for reference in references]}
+            chat_message_ids = self._chat_message_ids(chat_deliveries)
+            return {
+                "id": identifier,
+                "items": [
+                    await self.reminder(reference, chat_message_ids=chat_message_ids) for reference in references
+                ],
+            }
+        delivery = None
         if agent_name == CHAT_AGENT_NAME:
             reference = await self.chat.inbox.reference(NotificationRef.identity(identifier))
         else:
             runtime = await self.manager.resolve(agent_name)
-            reference = next(
-                (
-                    row.notification
-                    for row in await runtime.outbox.entries()
-                    if row.notification.record_path == identifier
-                ),
+            delivery = next(
+                (row for row in await runtime.outbox.entries() if row.notification.record_path == identifier),
                 None,
             )
+            reference = delivery.notification if delivery else None
         if reference is None:
             raise ValueError("Message not found in this mailbox")
-        return await self.reminder(reference)
+        return await self.reminder(reference, delivery=delivery)
 
 
 class _AgentViewStep(BaseAgentStep):
@@ -445,7 +455,7 @@ class AskAgentStep(_AgentViewStep):
 
         if request.agent_name == CHAT_AGENT_NAME:
             response = await self.run_job(
-                self.agent_runtime.run_job,
+                "run_chat_agent",
                 agent_name=request.agent_name,
                 query=request.query,
                 response=self.context.response,

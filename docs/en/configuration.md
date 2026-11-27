@@ -324,7 +324,7 @@ components:
 
 Rebuild the embedding index after changing the model or dimensions.
 
-Configure Remy and task Runtimes under `components.agent_runtime`; use `components.agent_manager.default` to select the managed background identities. Each Runtime owns its Inbox and Outbox. See [Proactive Runtime](./services.md#proactive-runtime).
+Configure Remy and Proactive Runtimes under `components.agent_runtime`; use `components.agent_manager.default` to select the managed background identities. Each Runtime owns its Inbox and Outbox. See [Proactive Runtime](./services.md#proactive-runtime).
 
 ## Service and Jobs
 

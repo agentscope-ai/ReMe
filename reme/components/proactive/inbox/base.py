@@ -381,6 +381,22 @@ class BaseInbox(BaseComponent):
             self._check_open()
             return deepcopy([receipt for _, receipt in self._history])
 
+    async def has_receipt(self, item_ids):
+        """Check commitment, including a receipt persisted before an acknowledgement error."""
+        identifiers = set(item_ids)
+        async with self.changed:
+            if not self.failed:
+                self._check_open()
+                return any(identifiers.intersection(receipt.item_ids) for _, receipt in self._history)
+
+            def persisted():
+                return any(
+                    identifiers.intersection(item["id"] for item in row["items"])
+                    for row in self.files.iter_jsonl(self._path("inbox_read.jsonl"))
+                )
+
+            return await asyncio.to_thread(persisted)
+
     async def retain(self, item_ids, *, release=False):
         """Protect unresolved handoff receipts from history compaction."""
         async with self.changed:
