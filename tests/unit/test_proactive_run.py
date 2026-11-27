@@ -6,9 +6,10 @@ import asyncio
 
 import pytest
 
-from reme.schema import StreamChunk
-from reme.steps.proactive.task.base import BaseProactiveAgentStep
-from reme.steps.proactive.task.initialize import initialize_task
+from reme.schema import Event, StreamChunk
+from reme.steps.proactive.agent import NotebookAgentStep
+from reme.steps.proactive.agent.base import BaseProactiveAgentStep
+from reme.steps.proactive.agent.initialize import initialize_task
 from .proactive_helpers import running_system, queue_event
 
 SKIP = '---\nreminder_priority: skip\nreminder_message: ""\n---\n'
@@ -33,19 +34,16 @@ def install_round(
     text=None,
     result="Finished",
     status="completed",
-    repair=None,
 ):
     calls = []
 
     async def generate(query, **options):
         calls.append((query, options))
-        assert any(spec.get("content") for spec in options["skills"])
         for spec in options["skills"]:
             if spec.get("content"):
                 assert (options["_skills"].sources[spec["name"]] / "SKILL.md").is_file()
-        current = text if len(calls) == 1 else repair
-        if current is not None:
-            runtime.files.write(record, current)
+        if text is not None:
+            runtime.files.write(record, text)
         yield StreamChunk(
             chunk_type="reply_end",
             status=status,
@@ -65,24 +63,42 @@ def install_round(
 
 
 @pytest.mark.parametrize(
-    "job,_backend",
+    "job,agent_type",
     [
-        ("run_memory_agent", "memory_agent_step"),
-        ("run_notebook_agent", "notebook_agent_step"),
-        ("run_finance_agent", "finance_agent_step"),
-        ("run_news_agent", "news_agent_step"),
+        ("run_memory_agent", "event"),
+        ("run_notebook_agent", "event"),
+        ("run_finance_agent", "event"),
+        ("run_news_agent", "event"),
+        ("run_memory_agent", "time"),
+        ("run_finance_agent", "time"),
+        ("run_news_agent", "time"),
     ],
 )
 @pytest.mark.parametrize("language", ["en", "zh"])
 @pytest.mark.asyncio
-async def test_domain_jobs_share_executor_and_select_their_own_skills(tmp_path, monkeypatch, job, _backend, language):
-    async with running_system(tmp_path, language=language, runtimes=[{"agent_name": "monitor", "run_job": job}]) as (
+async def test_domain_jobs_share_executor_and_select_their_own_skills(tmp_path, monkeypatch, job, agent_type, language):
+    definition = {"agent_type": agent_type, "agent_name": "monitor", "run_job": job}
+    if agent_type == "time":
+        definition["schedule"] = "0 8 * * *"
+    async with running_system(
+        tmp_path,
+        language=language,
+        runtimes=[definition],
+    ) as (
         manager,
         context,
         wrapper,
     ):
+        runtime = await manager.resolve("monitor")
+        if agent_type == "time":
+            trigger = runtime.next_trigger(await runtime.definition())
+            monkeypatch.setattr(runtime, "now", lambda: trigger)
+            await runtime.inbox.append(Event(id="time-1", event_ts=trigger, source="time", description="Scheduled"))
+        else:
+            await queue_event(manager)
         runtime, record = await prepare_round(manager, context, monkeypatch)
-        await queue_event(manager)
+        task = "Follow this project's {requirements}.\nReport completed experiments and pending decisions."
+        runtime.task_path.write_text(task)
         calls = install_round(
             wrapper,
             runtime,
@@ -102,12 +118,22 @@ async def test_domain_jobs_share_executor_and_select_their_own_skills(tmp_path, 
             and delivery.notification.record_path == record.relative_to(tmp_path).as_posix()
         )
         options = calls[0][1]
+        assert calls[0][0].count(task) == 1 and runtime.task_path.read_text() == task
         assert options["approval_mode"] == "deny_all" and "output_schema" not in options
-        assert len(options["skills"]) == (3 if job == "run_notebook_agent" else 1)
-        assert options["job_tools"] == (["manage_notebook"] if job == "run_notebook_agent" else [])
+        expected_skills = ["proactive-record"]
+        expected_tools = []
         if job == "run_notebook_agent":
-            assert options["sandbox"] == "read-only" and options["injected_job_kwargs"]["_automatic_notebook"]
-        assert not list(wrapper.project_skills_root.glob("proactive-record-*"))
+            expected_skills.append("manage-notebook")
+            expected_tools.append("manage_notebook")
+        assert [spec["name"].rsplit("-", 1)[0] for spec in options["skills"]] == expected_skills
+        assert options["job_tools"] == expected_tools
+        assert len(calls) == len(wrapper.created) == 1
+        assert all("$" + skill["name"] in calls[0][0] for skill in options["skills"])
+        assert str(tmp_path) in options["system_prompt"] and runtime.now().isoformat() in options["system_prompt"]
+        assert context.app_config.timezone in options["system_prompt"]
+        if job == "run_notebook_agent":
+            assert "sandbox" not in options and options["injected_job_kwargs"]["_automatic_notebook"]
+        assert all(not source.exists() for source in options["_skills"].sources.values())
 
 
 @pytest.mark.parametrize(
@@ -116,7 +142,11 @@ async def test_domain_jobs_share_executor_and_select_their_own_skills(tmp_path, 
 )
 @pytest.mark.asyncio
 async def test_event_skip_commits_without_creating_a_notification(tmp_path, monkeypatch, text, result):
-    async with running_system(tmp_path, runtimes=[{"agent_name": "monitor"}]) as (manager, context, wrapper):
+    async with running_system(tmp_path, runtimes=[{"agent_type": "event", "agent_name": "monitor"}]) as (
+        manager,
+        context,
+        wrapper,
+    ):
         runtime, record = await prepare_round(manager, context, monkeypatch)
         await queue_event(manager)
         install_round(wrapper, runtime, record, monkeypatch, text=text, result=result)
@@ -130,7 +160,11 @@ async def test_event_skip_commits_without_creating_a_notification(tmp_path, monk
 @pytest.mark.parametrize("draft", [None, SKIP, REMIND.format(priority="P1", body="\nEvidence\n")])
 @pytest.mark.asyncio
 async def test_model_failure_never_consumes_inputs_even_with_a_valid_draft(tmp_path, monkeypatch, draft):
-    async with running_system(tmp_path, runtimes=[{"agent_name": "monitor"}]) as (manager, context, wrapper):
+    async with running_system(tmp_path, runtimes=[{"agent_type": "event", "agent_name": "monitor"}]) as (
+        manager,
+        context,
+        wrapper,
+    ):
         runtime, record = await prepare_round(manager, context, monkeypatch)
         await queue_event(manager)
         install_round(wrapper, runtime, record, monkeypatch, text=draft, status="failed")
@@ -149,32 +183,60 @@ async def test_model_failure_never_consumes_inputs_even_with_a_valid_draft(tmp_p
     [
         "---\nreminder_priority: unknown\nreminder_message: Result\n---\nEvidence\n",
         '---\nreminder_priority: P1\nreminder_message: ""\n---\nEvidence\n',
+        "---\nreminder_priority: [P1\nreminder_message: Broken YAML\n---\nEvidence\n",
     ],
 )
 @pytest.mark.asyncio
-async def test_one_repair_uses_same_session_and_preserves_body(tmp_path, monkeypatch, invalid):
-    async with running_system(tmp_path, runtimes=[{"agent_name": "monitor"}]) as (manager, context, wrapper):
+async def test_invalid_record_keeps_inputs_and_draft_for_a_new_round_without_repair_query(
+    tmp_path,
+    monkeypatch,
+    invalid,
+):
+    async with running_system(tmp_path, runtimes=[{"agent_type": "event", "agent_name": "monitor"}]) as (
+        manager,
+        context,
+        wrapper,
+    ):
         runtime, record = await prepare_round(manager, context, monkeypatch)
         await queue_event(manager)
-        repaired = REMIND.format(priority="P1", body="\nEvidence\n")
-        calls = install_round(wrapper, runtime, record, monkeypatch, text=invalid, repair=repaired)
+        calls = install_round(wrapper, runtime, record, monkeypatch, text=invalid)
+        response = await context.jobs[runtime.run_job](agent_name="monitor")
+        assert not response.success
+        assert len(calls) == len(wrapper.created) == 1 and record.read_text() == invalid
+        assert await runtime.inbox.pending_ids() == {"event-1"}
+        assert not (await runtime.inbox.snapshot())["in_flight_count"] and not await runtime.outbox.entries()
+        assert response.metadata["reme.agent_run"]["model_status"] == "completed"
+        assert response.metadata["reme.agent_run"]["result"] == "failed"
+
+        retry_record = record.with_stem(record.stem + "_1")
+        valid = REMIND.format(priority="P1", body="\nEvidence\n")
+        calls = install_round(wrapper, runtime, retry_record, monkeypatch, text=valid)
         response = await context.jobs[runtime.run_job](agent_name="monitor")
         assert response.success, response.answer
-        assert len(calls) == 2 and calls[0][1] == calls[1][1] and len(wrapper.created) == 1
-        assert record.read_text() == repaired
+        assert len(calls) == 1 and len(wrapper.created) == 2
+        assert record.read_text() == invalid and retry_record.read_text() == valid
+        assert not await runtime.inbox.pending_ids() and len(await runtime.outbox.entries()) == 1
 
 
 @pytest.mark.parametrize("phase", ["session", "inference"])
 @pytest.mark.asyncio
 async def test_timeout_releases_claim_and_scoped_skills(tmp_path, monkeypatch, phase):
-    async with running_system(tmp_path, runtimes=[{"agent_name": "monitor"}]) as (manager, context, wrapper):
+    async with running_system(
+        tmp_path,
+        runtimes=[{"agent_type": "event", "agent_name": "monitor", "run_job": "run_notebook_agent"}],
+    ) as (manager, context, wrapper):
         runtime, _ = await prepare_round(manager, context, monkeypatch)
         await queue_event(manager)
+        sources = []
 
-        async def stall(**_):
+        async def stall(**options):
+            sources.extend(options["_skills"].sources.values())
+            assert len(sources) == 2 and all((source / "SKILL.md").is_file() for source in sources)
             await asyncio.Event().wait()
 
-        async def stream(*_, **__):
+        async def stream(*_, **options):
+            sources.extend(options["_skills"].sources.values())
+            assert len(sources) == 2 and all((source / "SKILL.md").is_file() for source in sources)
             await asyncio.Event().wait()
             yield
 
@@ -182,18 +244,22 @@ async def test_timeout_releases_claim_and_scoped_skills(tmp_path, monkeypatch, p
             monkeypatch.setattr(wrapper, "create_session", stall)
         else:
             monkeypatch.setattr(wrapper, "reply_stream", stream)
-        step = BaseProactiveAgentStep(app_context=context, timeout_seconds=0.03)
+        step = NotebookAgentStep(app_context=context, timeout_seconds=0.03)
         with pytest.raises(TimeoutError):
             await step(agent_name="monitor")
         assert (
             await runtime.inbox.pending_ids() == {"event-1"} and not (await runtime.inbox.snapshot())["in_flight_count"]
         )
-        assert not list(wrapper.project_skills_root.glob("proactive-record-*"))
+        assert sources and all(not source.exists() for source in sources)
 
 
 @pytest.mark.asyncio
 async def test_cancelled_round_does_not_wait_for_optional_native_statistics(tmp_path, monkeypatch):
-    async with running_system(tmp_path, runtimes=[{"agent_name": "monitor"}]) as (manager, context, wrapper):
+    async with running_system(tmp_path, runtimes=[{"agent_type": "event", "agent_name": "monitor"}]) as (
+        manager,
+        context,
+        wrapper,
+    ):
         runtime, _ = await prepare_round(manager, context, monkeypatch)
         await queue_event(manager)
         statistics_read = asyncio.Event()
@@ -214,13 +280,16 @@ async def test_cancelled_round_does_not_wait_for_optional_native_statistics(tmp_
         assert not statistics_read.is_set()
         assert await runtime.inbox.pending_ids() == {"event-1"}
         assert not (await runtime.inbox.snapshot())["in_flight_count"]
-        assert not list(wrapper.project_skills_root.glob("proactive-record-*"))
 
 
 @pytest.mark.parametrize("will_retry", [False, True])
 @pytest.mark.asyncio
 async def test_stream_errors_only_allow_commit_when_explicitly_retryable(tmp_path, monkeypatch, will_retry):
-    async with running_system(tmp_path, runtimes=[{"agent_name": "monitor"}]) as (manager, context, wrapper):
+    async with running_system(tmp_path, runtimes=[{"agent_type": "event", "agent_name": "monitor"}]) as (
+        manager,
+        context,
+        wrapper,
+    ):
         runtime, record = await prepare_round(manager, context, monkeypatch)
         await queue_event(manager)
         install_round(wrapper, runtime, record, monkeypatch, text=SKIP)
@@ -240,7 +309,11 @@ async def test_stream_errors_only_allow_commit_when_explicitly_retryable(tmp_pat
 
 @pytest.mark.asyncio
 async def test_record_change_after_validation_preserves_inputs(tmp_path, monkeypatch):
-    async with running_system(tmp_path, runtimes=[{"agent_name": "monitor"}]) as (manager, context, wrapper):
+    async with running_system(tmp_path, runtimes=[{"agent_type": "event", "agent_name": "monitor"}]) as (
+        manager,
+        context,
+        wrapper,
+    ):
         runtime, record = await prepare_round(manager, context, monkeypatch)
         await queue_event(manager)
         install_round(wrapper, runtime, record, monkeypatch, text=REMIND.format(priority="P1", body="\nEvidence\n"))

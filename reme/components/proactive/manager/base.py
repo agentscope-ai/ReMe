@@ -45,14 +45,14 @@ class BaseAgentManager(BaseComponent):
     async def append_events(self, agent_name, events):
         """Append to one receiver independently."""
 
-    async def deliver_events(self, task_names, events):
+    async def deliver_events(self, runtime_names, events):
         """Fan out independently and distinguish rejection from retryable failure."""
         results = await asyncio.gather(
-            *(self.append_events(name, events) for name in task_names),
+            *(self.append_events(name, events) for name in runtime_names),
             return_exceptions=True,
         )
         deliveries, rejected, errors = {}, {}, {}
-        for name, result in zip(task_names, results, strict=True):
+        for name, result in zip(runtime_names, results, strict=True):
             if isinstance(result, (TaskNotFoundError, TimeTriggeredTaskDeliveryError, InvalidInboxBatchError)):
                 rejected[name] = str(result)
             elif isinstance(result, asyncio.CancelledError):

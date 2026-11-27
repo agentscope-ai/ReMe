@@ -3,8 +3,8 @@
 import asyncio
 
 from .base import BaseAgentStep
-from .task.initialize import initialize_task
-from ...schema.proactive_agent import CRON_EVENT_SOURCE
+from .agent.initialize import initialize_task
+from ...schema.proactive_agent import TIME_EVENT_SOURCE
 from ...core.registry import R
 from ...schema import Event
 
@@ -28,23 +28,23 @@ class AgentManagerLoopStep(BaseAgentStep):
             self.agent_manager.changed.set()
 
     async def tick_runtime(self, runtime, definition):
-        """Recover handoffs, admit due cron input and start one eligible worker."""
+        """Recover handoffs, admit due schedule input and start one eligible worker."""
         await initialize_task(runtime, self.app_context)
         await runtime.recover_handoffs()
         if not definition.enabled or runtime.closed or runtime.retiring:
             runtime.next_trigger(definition)
             return
         now = runtime.now()
-        if definition.cron:
+        if definition.agent_type == "time":
             scheduled = runtime.scheduled(definition, now)
             if scheduled is not None:
                 try:
                     await runtime.inbox.append(
                         [
                             Event(
-                                id=f"cron-{runtime.name}-{int(scheduled.timestamp())}",
+                                id=f"time-{runtime.name}-{int(scheduled.timestamp())}",
                                 event_ts=scheduled,
-                                source=CRON_EVENT_SOURCE,
+                                source=TIME_EVENT_SOURCE,
                                 description=f"Scheduled trigger: {scheduled.isoformat()}",
                             ),
                         ],
@@ -63,7 +63,7 @@ class AgentManagerLoopStep(BaseAgentStep):
             return
         receipt = snapshot["receipt"]
         if (
-            definition.cron is None
+            definition.agent_type == "event"
             and receipt is not None
             and now.timestamp() - receipt.consume_ts.timestamp() < definition.min_trigger_interval_seconds
         ):

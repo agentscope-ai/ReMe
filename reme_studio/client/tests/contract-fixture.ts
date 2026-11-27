@@ -4,7 +4,7 @@ import type { AgentSnapshot } from "../src/wire.ts";
 export const contract = {
   "agent": {
     "enabled": true,
-    "cron": null,
+    "schedule": null,
     "min_trigger_interval_seconds": 0.0,
     "notify_window": null,
     "agent_name": "Remy",

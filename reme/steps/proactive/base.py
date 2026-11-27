@@ -1,7 +1,8 @@
 """Shared workflow dependencies, authorization and read-only task queries."""
 
 from pathlib import Path
-from uuid import uuid4
+from hashlib import sha256
+import re
 
 from ...components.proactive.manager import BaseAgentManager
 from ...components.proactive.runtime import BaseAgentRuntime
@@ -20,10 +21,10 @@ class BaseAgentStep(BaseStep):
 
     skill_names = ()
 
-    def get_skills(self, names=None):
-        """Load localized YAML definitions with invocation-owned native skill names."""
+    def get_skills(self, agent_name: str, names=None):
+        """Load localized skills with stable names scoped to their owning agent."""
         selected = self.kwargs.get("skills", self.skill_names) if names is None else names
-        available = {"manage-proactive-runtime", "manage-connector", "manage-notebook"}
+        available = {"manage-proactive-runtime", "manage-connector", "manage-notebook", "proactive-record"}
         if not isinstance(selected, (list, tuple)) or any(
             not isinstance(name, str) or name not in available for name in selected
         ):
@@ -38,10 +39,15 @@ class BaseAgentStep(BaseStep):
             prompt = PromptHandler(language=self.language).load_prompt_by_file(path)
             if not set(fields) <= prompt.data.keys() <= allowed:
                 raise ValueError(f"Skill YAML requires name, description and content: {path}")
-            spec = SkillSpec.model_validate({key: prompt.get_prompt(key) for key in fields})
-            if spec.name != name:
+            spec = {key: prompt.get_prompt(key) for key in fields}
+            if spec["name"] != name:
                 raise ValueError("Skill template identity does not match its filename")
-            values.append(spec.model_copy(update={"name": f"{spec.name}-{uuid4().hex[:12]}"}).model_dump())
+            # Namespace shared skill directories with a stable, portable owner identity.
+            identity = f"{name}-{agent_name.lower()}"
+            if re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", identity) is None:
+                identity = f"{name}-{sha256(agent_name.encode()).hexdigest()[:16]}"
+            spec["name"] = identity
+            values.append(SkillSpec.model_validate(spec).model_dump())
         return values
 
     async def query_reply(self, agent_name, query, *, on_chunk=None):

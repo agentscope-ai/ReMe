@@ -50,7 +50,11 @@ def mock_http(monkeypatch):
 
 @asynccontextmanager
 async def collector_runtime(tmp_path):
-    async with running_system(tmp_path, language="zh", runtimes=[{"agent_name": "proactive_fin"}]) as (
+    async with running_system(
+        tmp_path,
+        language="zh",
+        runtimes=[{"agent_type": "event", "agent_name": "proactive_fin"}],
+    ) as (
         manager,
         context,
         _,
@@ -103,7 +107,7 @@ async def test_new_instruments_publish_the_right_quote_and_timestamp(
     requests = mock_http(lambda _: httpx.Response(200, content=f'v_{ticker}="{payload}";'.encode("gb18030")))
 
     async with collector_runtime(tmp_path) as (context, inbox, _):
-        await TencentQuotesStep(connector_job="quotes_cron", instrument=instrument, app_context=context)()
+        await TencentQuotesStep(connector_job="quotes_time", instrument=instrument, app_context=context)()
         (event,) = (await inbox.claim())["items"]
         assert event["source"] == f"{instrument}_quotes"
         quote = MarketQuote.model_validate_json((tmp_path / event["paths"][1]).read_text())
@@ -133,20 +137,20 @@ async def test_failed_delivery_retries_original_package_before_collecting_again(
         append.return_value = {"deliveries": {}, "rejected": {}, "errors": {"proactive_fin": "queue full"}}
         append.side_effect = lambda **_: append.return_value
         with pytest.raises(RuntimeError, match="queue full"):
-            await TencentQuotesStep(connector_job="quotes_cron", instrument="gold", app_context=context)()
+            await TencentQuotesStep(connector_job="quotes_time", instrument="gold", app_context=context)()
         original = append.await_args.kwargs["events"][0]
         assert (await inbox.snapshot())["pending_count"] == 0
         (receipt,) = tmp_path.glob("resource/**/.delivery.json")
         assert WorkspaceFiles(tmp_path).read_json(receipt, {})["delivered_to"] == []
     async with collector_runtime(tmp_path) as (context, inbox, append):
         await TencentQuotesStep(
-            connector_job="quotes_cron",
+            connector_job="quotes_time",
             instrument="gold",
             app_context=context,
-            task_names=["another_task"],
+            runtime_names=["another_task"],
         )()
         assert append.await_args.kwargs["events"] == [original]
-        assert append.await_args.kwargs["task_names"] == ["proactive_fin"]
+        assert append.await_args.kwargs["runtime_names"] == ["proactive_fin"]
         assert (await inbox.snapshot())["pending_count"] == 1
     assert len(list(tmp_path.glob("resource/**/metadata.json"))) == 1
 
@@ -156,10 +160,10 @@ async def test_rejected_finance_target_gets_a_terminal_receipt(tmp_path, clock, 
     mock_http(lambda _: gold_response(clock))
     async with collector_runtime(tmp_path) as (context, inbox, append):
         step = TencentQuotesStep(
-            connector_job="quotes_cron",
+            connector_job="quotes_time",
             instrument="gold",
             app_context=context,
-            task_names=["proactive_fin", "missing"],
+            runtime_names=["proactive_fin", "missing"],
         )
         assert (await step()).success
         (receipt,) = tmp_path.glob("resource/**/.delivery.json")
@@ -185,7 +189,7 @@ async def test_successful_append_without_delivery_receipt_is_idempotent_after_re
     def fail_receipt(files, path, value):
         if path.name == ".delivery.json" and not [
             name
-            for name in value["task_names"]
+            for name in value["runtime_names"]
             if name not in value["delivered_to"] and name not in value.get("rejected", {})
         ]:
             raise OSError("receipt unavailable")
@@ -195,10 +199,10 @@ async def test_successful_append_without_delivery_receipt_is_idempotent_after_re
         with monkeypatch.context() as patch:
             patch.setattr(WorkspaceFiles, "write_json", fail_receipt)
             with pytest.raises(OSError, match="receipt unavailable"):
-                await TencentQuotesStep(connector_job="quotes_cron", instrument="gold", app_context=context)()
+                await TencentQuotesStep(connector_job="quotes_time", instrument="gold", app_context=context)()
         assert (await inbox.snapshot())["pending_count"] == 1
     async with collector_runtime(tmp_path) as (context, inbox, append):
-        await TencentQuotesStep(connector_job="quotes_cron", instrument="gold", app_context=context)()
+        await TencentQuotesStep(connector_job="quotes_time", instrument="gold", app_context=context)()
         append.assert_awaited_once()
         assert (await inbox.snapshot())["pending_count"] == 1
     assert len(list(tmp_path.glob("resource/**/metadata.json"))) == 1
@@ -210,7 +214,7 @@ async def test_concurrent_collectors_do_not_duplicate_quotes(tmp_path, clock, mo
     async with collector_runtime(tmp_path) as (context, inbox, append):
         await asyncio.gather(
             *(
-                TencentQuotesStep(connector_job="quotes_cron", instrument="gold", app_context=context)()
+                TencentQuotesStep(connector_job="quotes_time", instrument="gold", app_context=context)()
                 for _ in range(2)
             ),
         )
@@ -224,7 +228,7 @@ async def test_http_errors_retry_before_publishing(tmp_path, clock, mock_http, m
     requests = mock_http(lambda _: responses.pop(0))
     monkeypatch.setattr(TencentQuotesStep, "wait", lambda *_: None)
     async with collector_runtime(tmp_path) as (context, inbox, _):
-        await TencentQuotesStep(connector_job="quotes_cron", instrument="gold", app_context=context)()
+        await TencentQuotesStep(connector_job="quotes_time", instrument="gold", app_context=context)()
         assert (await inbox.snapshot())["pending_count"] == 1
     assert len(requests) == 2
 
@@ -234,7 +238,7 @@ async def test_scope_denial_precedes_history_reads_and_network(tmp_path, clock, 
     requests = mock_http(lambda _: gold_response(clock))
     async with collector_runtime(tmp_path) as (context, _, append):
         with pytest.raises(PermissionError):
-            await TencentQuotesStep(connector_job="quotes_cron", instrument="gold", app_context=context)(
+            await TencentQuotesStep(connector_job="quotes_time", instrument="gold", app_context=context)(
                 RuntimeContext(_allowed_paths=["resource"]),
             )
         append.assert_not_awaited()
@@ -247,7 +251,7 @@ async def test_gold_saves_only_changed_xau_quotes(tmp_path, clock, mock_http):
     price, quoted_at = "2420", original_time
     requests = mock_http(lambda _: gold_response(clock, price=price, quoted_at=quoted_at))
     async with collector_runtime(tmp_path) as (context, inbox, append):
-        assert (await TencentQuotesStep(connector_job="quotes_cron", instrument="gold", app_context=context)()).success
+        assert (await TencentQuotesStep(connector_job="quotes_time", instrument="gold", app_context=context)()).success
         event = (await inbox.claim())["items"][0]
         assert event["source"] == "gold_quotes"
         quote = MarketQuote.model_validate_json((tmp_path / event["paths"][1]).read_text())
@@ -259,19 +263,19 @@ async def test_gold_saves_only_changed_xau_quotes(tmp_path, clock, mock_http):
         clock.now.return_value += timedelta(minutes=5)
         quoted_at += timedelta(minutes=5)
         assert (
-            await TencentQuotesStep(connector_job="quotes_cron", instrument="gold", app_context=context)()
+            await TencentQuotesStep(connector_job="quotes_time", instrument="gold", app_context=context)()
         ).answer == {"skipped": "no_new_data"}
 
         clock.now.return_value += timedelta(minutes=5)
         price, quoted_at = "2430", original_time - timedelta(seconds=1)
         assert (
-            await TencentQuotesStep(connector_job="quotes_cron", instrument="gold", app_context=context)()
+            await TencentQuotesStep(connector_job="quotes_time", instrument="gold", app_context=context)()
         ).answer == {"skipped": "no_new_data"}
         assert append.await_count == 1
 
     async with collector_runtime(tmp_path) as (context, inbox, _):
         quoted_at = clock.now.return_value - timedelta(seconds=1)
-        assert (await TencentQuotesStep(connector_job="quotes_cron", instrument="gold", app_context=context)()).success
+        assert (await TencentQuotesStep(connector_job="quotes_time", instrument="gold", app_context=context)()).success
         assert (await inbox.snapshot())["pending_count"] == 2
 
     assert len(requests) == 4
@@ -295,7 +299,7 @@ async def test_invalid_gold_quotes_publish_nothing(tmp_path, clock, mock_http, k
     mock_http(respond)
     async with collector_runtime(tmp_path) as (context, inbox, append):
         with pytest.raises(ValueError):
-            await TencentQuotesStep(connector_job="quotes_cron", instrument="gold", app_context=context)()
+            await TencentQuotesStep(connector_job="quotes_time", instrument="gold", app_context=context)()
         append.assert_not_awaited()
         assert (await inbox.snapshot())["pending_count"] == 0
     assert not list(tmp_path.glob("resource/**/metadata.json"))
@@ -427,7 +431,7 @@ async def test_news_uses_existing_job_and_source_files_deduplicate_after_restart
         assert response.success
         event = (await inbox.claim())["items"][0]
         assert event["source"] == "finance_news"
-        assert append.await_args.kwargs["task_names"] == ["proactive_fin"]
+        assert append.await_args.kwargs["runtime_names"] == ["proactive_fin"]
         assert append.await_args.kwargs["events"][0].id == event["id"]
         _, markdown_path = event["paths"]
         markdown = tmp_path / markdown_path

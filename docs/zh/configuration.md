@@ -118,14 +118,21 @@ jobs:
     cron: "*/5 * * * *"
     init_steps:
       - backend: codex_dialogue_init_step
+        connector_job: codex_dialogue_cron
         codex_home: &codex_home ${CODEX_HOME:-~/.codex}
     steps:
       - backend: codex_dialogue_step
-        task_names: [proactive_memory, proactive_note]
+        connector_job: codex_dialogue_cron
+        runtime_names: [proactive_memory, proactive_note]
         codex_home: *codex_home
 ```
 
-在采集 Step 中设置 `task_names`。待投递批次恢复时沿用已保存的目标。
+在采集 Step 中设置 `runtime_names`。待投递批次恢复时沿用已保存的目标。
+
+Connector 的投递字段已由 `task_names` 改为 `runtime_names`，自定义配置和采集脚本需同步更新。
+使用已有工作区时，重启前还需将 Connector 控制文件（`{metadata_dir}/proactive/connectors/*.json`）、
+资源 `.delivery.json` 和 Harness `pending.json` 批次中的同名字段改为新名称，保留目标名单、事件 ID 和投递结果。
+旧字段不作为兼容别名。
 
 每次按应用时区到达定时时间时，只执行 `steps`。初始化和每次定时执行各自创建新的 Step 实例、运行上下文和执行记录；
 跨轮次进度通过工作区文件或 Component 保存，不依赖初始化的输出。等待调度不创建执行记录。

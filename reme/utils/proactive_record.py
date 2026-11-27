@@ -83,9 +83,3 @@ class RoundRecord:
         """Reject edits made before commit, including a file created after a skip."""
         if path != self.path or self._version(path) != self.written:
             raise RuntimeError(f"Agent output changed outside this round: {path}")
-
-    def read_body_for_repair(self) -> str | None:
-        """Keep a copy of the body when the original frontmatter is delimited."""
-        self.check_version(self.path)
-        header, body = _split_frontmatter(self.files.read(self.path))
-        return body if header is not None else None

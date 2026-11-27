@@ -24,9 +24,10 @@ class ProactiveAgentRuntime(BaseAgentRuntime):
 
     def __init__(
         self,
+        agent_type,
         notification_target="Remy",
         enabled=True,
-        cron=None,
+        schedule=None,
         min_trigger_interval_seconds=0,
         max_batch_events=20,
         notify_window=None,
@@ -36,9 +37,10 @@ class ProactiveAgentRuntime(BaseAgentRuntime):
         super().__init__(run_job=run_job, **kwargs)
         self.initial_config = ProactiveRuntimeConfig(
             agent_name=self.name,
+            agent_type=agent_type,
             run_job=run_job,
             enabled=enabled,
-            cron=cron,
+            schedule=schedule,
             min_trigger_interval_seconds=min_trigger_interval_seconds,
             max_batch_events=max_batch_events,
             notify_window=notify_window,
@@ -86,7 +88,7 @@ class ProactiveAgentRuntime(BaseAgentRuntime):
             definition = ProactiveRuntimeDefinition.model_validate(value)
             if definition.agent_name != self.name or definition.run_job != self.initial_config.run_job:
                 raise ValueError("Runtime wiring conflicts with its persisted definition")
-            if (definition.cron is None) != (self.initial_config.cron is None):
+            if definition.agent_type != self.initial_config.agent_type:
                 raise ValueError("Runtime trigger type conflicts with its persisted definition")
         self.inbox = EventInbox(
             name=f"{self.name}_inbox",
@@ -113,7 +115,7 @@ class ProactiveAgentRuntime(BaseAgentRuntime):
         definition = ProactiveRuntimeDefinition.model_validate(value)
         if definition.agent_name != self.name or definition.run_job != self.initial_config.run_job:
             raise ValueError("Task identity or execution Job changed")
-        if (definition.cron is None) != (self.initial_config.cron is None):
+        if definition.agent_type != self.initial_config.agent_type:
             raise ValueError("Task trigger type changed")
         if (definition.deleted_at is not None or self.retiring) and not include_deleted:
             from ..manager.base import TaskNotFoundError
@@ -147,7 +149,7 @@ class ProactiveAgentRuntime(BaseAgentRuntime):
     async def append(self, events):
         """Persist an idempotent batch, optionally waiting for pending capacity."""
         definition = await self.definition()
-        if definition.cron is not None:
+        if definition.agent_type != "event":
             from ..manager.base import TimeTriggeredTaskDeliveryError
 
             raise TimeTriggeredTaskDeliveryError(f"Time-triggered task cannot receive observations: {self.name}")
@@ -222,13 +224,13 @@ class ProactiveAgentRuntime(BaseAgentRuntime):
         self.live_turns.notify()
 
     def next_trigger(self, definition):
-        """Cache the next occurrence for the current enabled cron expression."""
-        if not definition.enabled or definition.cron is None:
+        """Cache the next occurrence for the current enabled schedule expression."""
+        if not definition.enabled or definition.agent_type != "time":
             self.schedule = None
             return None
-        key = (definition.cron, self.app_context.app_config.timezone if self.app_context else None)
+        key = (definition.schedule, self.app_context.app_config.timezone if self.app_context else None)
         if self.schedule is None or self.schedule[0] != key:
-            self.schedule = (key, self._next_cron_time(definition.cron, self.now()))
+            self.schedule = (key, self._next_cron_time(definition.schedule, self.now()))
         return self.schedule[1]
 
     def _next_cron_time(self, expression, now):
@@ -247,7 +249,7 @@ class ProactiveAgentRuntime(BaseAgentRuntime):
 
     def advance_schedule(self, definition, now):
         """Advance only after the planned Event has been durably accepted."""
-        self.schedule = (self.schedule[0], self._next_cron_time(definition.cron, now))
+        self.schedule = (self.schedule[0], self._next_cron_time(definition.schedule, now))
 
     def failed_round(self, error, retry_seconds=5):
         """Record an execution failure and capped exponential retry time."""

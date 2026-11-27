@@ -1,0 +1,15 @@
+default_task: Track ongoing projects, new progress, difficulties, and questions worth discussing. Read cited source material
+  and record only meaningful changes.
+default_task_zh: 帮我梳理目前在做的项目，跟进各个项目的进展和难点，整理需要进一步讨论的问题。
+task_query: |-
+  {task_context}
+
+  ## Follow projects and memory
+  Read the input and its source files and images; continue reading when incomplete. Connect facts to the projects and matters covered by the task.
+  Identify meaningful progress, difficulties, corrections and questions requiring the user's decision.
+task_query_zh: |-
+  {task_context}
+
+  ## 跟进项目与记忆
+  阅读本轮输入及其引用的文件、图片，材料没读全时继续读取，按任务要求关联到对应项目和事项。
+  找出有意义的进展、难点、更正及需要用户决定的问题。

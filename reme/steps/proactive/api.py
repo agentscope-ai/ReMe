@@ -7,7 +7,7 @@ from time import monotonic
 
 from .base import BaseAgentStep
 from .chat.chat import BaseChatAgentStep
-from .task.initialize import initialize_task
+from .agent.initialize import initialize_task
 from ...constants import CHAT_AGENT_NAME, PROACTIVE_MESSAGE_ID_PREFIX
 from ...core.registry import R
 from ...enumeration import ChunkEnum
@@ -61,7 +61,7 @@ class AgentViews:
         else:
             facts = await self.manager.status(name)
             config = facts["config"]
-            agent_type = "time" if config.get("cron") is not None else "event"
+            agent_type = config["agent_type"]
             running = facts["running"]
             document = {"task_path": facts["task_path"]}
         session, status, error = None, "idle", facts.get("error")
@@ -84,7 +84,7 @@ class AgentViews:
             agent_name=name,
             agent_type=agent_type,
             enabled=config.get("enabled", getattr(runtime, "enabled", True)),
-            cron=config.get("cron"),
+            schedule=config.get("schedule"),
             min_trigger_interval_seconds=config.get("min_trigger_interval_seconds", 0),
             notify_window=config.get("notify_window"),
             status=status,

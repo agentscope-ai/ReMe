@@ -11,7 +11,7 @@ from threading import Event as ThreadEvent
 from uuid import uuid4
 
 from ....schema.resource_metadata import RESOURCE_METADATA_FILENAME
-from ....schema.proactive_agent import validate_task_names
+from ....schema.proactive_agent import validate_runtime_names
 from ....schema.proactive_runtime import validate_agent_name
 from ....components.proactive.manager import BaseAgentManager
 from ....enumeration import ComponentEnum
@@ -49,44 +49,57 @@ def _read_connector_control(files, path, name):
     value = files.read_json(path, None)
     if value is None:
         return {"schema_version": 1, "connector_job": name, "enabled": True}
+    required = {"schema_version", "connector_job", "enabled", "updated_at"}
+    if not isinstance(value, dict) or not required <= value.keys() <= required | {"runtime_names"}:
+        raise ValueError("Invalid persistent Connector control state")
     if (
-        set(value) != {"schema_version", "connector_job", "enabled", "updated_at"}
+        type(value["schema_version"]) is not int
         or value["schema_version"] != 1
         or value["connector_job"] != name
         or type(value["enabled"]) is not bool
+        or not isinstance(value["updated_at"], str)
     ):
         raise ValueError("Invalid persistent Connector control state")
     stamp = datetime.fromisoformat(value["updated_at"])
     if stamp.tzinfo is None:
         raise ValueError("Connector control time must include a timezone")
+    if "runtime_names" in value:
+        validate_runtime_names(value["runtime_names"], allow_empty=True)
     return value
+
+
+async def read_connector_control(step, connector_job):
+    """Read a validated gate and optional recipient override from the workspace."""
+    files, path = connector_control_path(step, connector_job)
+    return await asyncio.to_thread(_read_connector_control, files, path, connector_job)
 
 
 async def connector_enabled(step, connector_job):
     """Read the durable collection gate; absent gates default to enabled."""
-    files, path = connector_control_path(step, connector_job)
-    return (await asyncio.to_thread(_read_connector_control, files, path, connector_job))["enabled"]
+    return (await read_connector_control(step, connector_job))["enabled"]
 
 
-async def set_connector_enabled(step, connector_job, enabled):
-    """Atomically update one configured workflow gate under its path lock."""
+async def update_connector_control(step, connector_job, **changes):
+    """Patch one control file without losing concurrent gate or recipient changes."""
+    if not changes or changes.keys() - {"enabled", "runtime_names"}:
+        raise ValueError("Connector control accepts enabled and runtime_names")
+    if "enabled" in changes and type(changes["enabled"]) is not bool:
+        raise ValueError("Connector enabled must be a boolean")
+    if "runtime_names" in changes:
+        changes["runtime_names"] = validate_runtime_names(changes["runtime_names"], allow_empty=True)
     files, path = connector_control_path(step, connector_job)
     async with await get_path_lock(path):
         previous = await asyncio.to_thread(_read_connector_control, files, path, connector_job)
-        changed = previous["enabled"] != enabled
+        changed = any(previous.get(key) != value for key, value in changes.items())
         config = step.app_context.app_config if step.app_context else ApplicationConfig()
         now = datetime.now(resolve_timezone(config.timezone))
+        current = {**previous, **changes, "updated_at": now.isoformat()}
         await complete_in_thread(
             files.write_json,
             path,
-            {
-                "schema_version": 1,
-                "connector_job": connector_job,
-                "enabled": enabled,
-                "updated_at": now.isoformat(),
-            },
+            current,
         )
-    return {"connector_job": connector_job, "enabled": enabled, "changed": changed}
+    return {**current, "changed": changed}
 
 
 def resource_event(workspace, directory, metadata, paths):
@@ -113,10 +126,19 @@ class BaseConnectorStep(BaseStep):
     _cancelled: ThreadEvent
     agent_manager = Ref(BaseAgentManager, ComponentEnum.AGENT_MANAGER)
 
-    def __init__(self, connector_job, task_names=None, **kwargs):
+    def __init__(self, connector_job, runtime_names=None, **kwargs):
         super().__init__(**kwargs)
-        self.task_names = None if task_names is None else validate_task_names(task_names)
+        self._configured_runtime_names = (
+            [] if runtime_names is None else validate_runtime_names(runtime_names, allow_empty=True)
+        )
+        self.runtime_names = self._configured_runtime_names
         self.connector_job = validate_agent_name(connector_job)
+
+    async def load_control(self):
+        """Capture recipients for one new collection batch; saved batches keep their own."""
+        control = await read_connector_control(self, self.connector_job)
+        self.runtime_names = control.get("runtime_names", self._configured_runtime_names)
+        return control["enabled"]
 
     def collect(self, directory: Path) -> list[dict]:
         """Write payloads into their final directory; raise if collection fails."""
@@ -144,16 +166,19 @@ class BaseConnectorStep(BaseStep):
         target, now = self.resource_target()
         root = target.parent.parent
         async with await get_path_lock(root):
-            if self.task_names:
+            if not await self.load_control():
+                self.context.response.answer = {"skipped": "paused", "connector_job": self.connector_job}
+                return self.context.response
+            if self.runtime_names:
                 self.require_paths(root, WorkspaceFiles(self.workspace_path).path(self.config_value("reme_agent_dir")))
-                if not await self.flush_deliveries(root):
-                    self.context.response.answer = {"skipped": "paused"}
-                    return self.context.response
+            if not await self.flush_deliveries(root):
+                self.context.response.answer = {"skipped": "paused"}
+                return self.context.response
             if not await connector_enabled(self, self.connector_job):
                 self.context.response.answer = {"skipped": "paused", "connector_job": self.connector_job}
                 return self.context.response
             response = await self._collect(target, now)
-            if self.task_names and self.context["resource"] is not None:
+            if self.runtime_names and self.context["resource"] is not None:
                 await self.deliver_resource(target / RESOURCE_METADATA_FILENAME)
             return response
 
@@ -221,7 +246,7 @@ class BaseConnectorStep(BaseStep):
             if cancelled.is_set() or (self.context.stop_event is not None and self.context.stop_event.is_set()):
                 raise RuntimeError("Resource collection stopped before publication")
             result = metadata.model_dump(mode="json", exclude_none=True)
-            if self.task_names:
+            if self.runtime_names:
                 self.prepare_delivery(target, metadata)
             store.write_json(target / RESOURCE_METADATA_FILENAME, result)
             published = True
@@ -239,7 +264,7 @@ class BaseConnectorStep(BaseStep):
             directory / ".delivery.json",
             {
                 "connector_job": self.connector_job,
-                "task_names": self.task_names,
+                "runtime_names": self.runtime_names,
                 "delivered_to": [],
                 "rejected": {},
                 "events": [event.model_dump(mode="json")],
@@ -250,12 +275,13 @@ class BaseConnectorStep(BaseStep):
         """Retry only unresolved recipients and persist each completed handoff."""
         if not await connector_enabled(self, self.connector_job):
             return False
-        targets = validate_task_names(batch["task_names"]) if batch["task_names"] else []
+        targets = validate_runtime_names(batch["runtime_names"]) if batch["runtime_names"] else []
         rejected = batch.setdefault("rejected", {})
         delivered = batch.setdefault("delivered_to", [])
         pending = [name for name in targets if name not in delivered and name not in rejected]
         if events and pending:
-            result = await self.agent_manager.deliver_events(task_names=pending, events=events)
+            self.require_paths(WorkspaceFiles(self.workspace_path).path(self.config_value("reme_agent_dir")))
+            result = await self.agent_manager.deliver_events(runtime_names=pending, events=events)
             delivered.extend(name for name in result["deliveries"] if name not in delivered)
             rejected.update(result["rejected"])
             if result["deliveries"] or result["rejected"]:
@@ -289,7 +315,7 @@ class BaseConnectorStep(BaseStep):
             return None
         if state.get("connector_job") != self.connector_job:
             raise ValueError("Resource delivery belongs to another Connector Job")
-        targets = validate_task_names(state["task_names"])
+        targets = validate_runtime_names(state["runtime_names"])
         if all(name in state["delivered_to"] or name in state.get("rejected", {}) for name in targets):
             return None
         metadata = ResourceMetadata.model_validate_json(await asyncio.to_thread(files.read, manifest))

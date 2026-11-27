@@ -9,7 +9,7 @@ from ..runtime.task import ProactiveAgentRuntime
 from ...agent_wrapper import BaseAgentWrapper
 from ....core.registry import R
 from ....schema.event import Event
-from ....schema.proactive_agent import CRON_EVENT_SOURCE, ProactiveRuntimeConfig, validate_task_names
+from ....schema.proactive_agent import TIME_EVENT_SOURCE, ProactiveRuntimeConfig, validate_runtime_names
 from ....utils.async_utils import complete_in_thread
 from ....utils.files.workspace_files import WorkspaceFiles
 
@@ -37,7 +37,7 @@ class LocalAgentManager(BaseAgentManager):
             if isinstance(notification_target, str)
             else notification_target
         )
-        self.static_names = validate_task_names(runtimes) if runtimes else []
+        self.static_names = validate_runtime_names(runtimes) if runtimes else []
         for index, name in enumerate(self.static_names):
             setattr(self, f"_static_{index}", self.bind(name, BaseAgentRuntime, optional=False))
         choices = set(ProactiveRuntimeConfig.model_fields["run_job"].annotation.__args__)
@@ -111,7 +111,7 @@ class LocalAgentManager(BaseAgentManager):
             self.runtimes[definition.agent_name] = runtime
         runtime = self.runtimes[definition.agent_name]
         initial = runtime.initial_config
-        if definition.run_job != initial.run_job or (definition.cron is None) != (initial.cron is None):
+        if definition.run_job != initial.run_job or definition.agent_type != initial.agent_type:
             raise ValueError("Persisted task definition conflicts with immutable Runtime wiring")
         if getattr(runtime, "retiring", False):
             raise TaskNotFoundError(f"Task is being deleted: {definition.agent_name}")
@@ -184,8 +184,8 @@ class LocalAgentManager(BaseAgentManager):
 
     async def append_events(self, agent_name, events):
         events = [Event.model_validate(value) for value in events]
-        if any(value.source == CRON_EVENT_SOURCE for value in events):
-            raise ValueError("cron is a reserved framework source")
+        if any(value.source == TIME_EVENT_SOURCE for value in events):
+            raise ValueError("time is a reserved framework source")
         async with self.lock:
             runtime = await self._resolve_locked(await self.definition(agent_name))
             identifiers = await runtime.append(events)

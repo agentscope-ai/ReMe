@@ -35,7 +35,12 @@ export default function TaskEditor({
   const [content, setContent] = useState("");
   const [document, setDocument] = useState<TaskDocument>();
   const [baseline, setBaseline] = useState(() => agent && taskSettings(agent));
-  const [settings, setSettings] = useState(() => taskSettingsDraft(baseline));
+  const [settings, setSettings] = useState(() =>
+    taskSettingsDraft(
+      baseline,
+      agent?.agent_type === "time" ? "time" : "event",
+    ),
+  );
   const [tab, setTab] = useState<(typeof tabs)[number][0]>("description");
   const [loading, setLoading] = useState(!create);
   const [retry, setRetry] = useState(0);
@@ -85,6 +90,7 @@ export default function TaskEditor({
         const result = await requestResource<{ agent_name: string }>({
           type: "task",
           action: "create",
+          agent_type: settings.trigger.type,
           agent_name: name,
           task_description: content,
           settings: toRuntimeSettings(settings),
@@ -158,7 +164,12 @@ export default function TaskEditor({
                 setSaved(false);
                 const value = taskSettings(agent);
                 setBaseline(value);
-                setSettings(taskSettingsDraft(value));
+                setSettings(
+                  taskSettingsDraft(
+                    value,
+                    agent.agent_type === "time" ? "time" : "event",
+                  ),
+                );
                 setRetry((value) => value + 1);
               }}
             >

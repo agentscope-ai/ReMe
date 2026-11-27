@@ -73,7 +73,7 @@ scheduling; each call creates fresh Steps. The Application owns the shared Agent
 reme start config=proactive
 # Terminal two
 reme manage_proactive_runtime action=list
-reme manage_proactive_runtime action=create agent_name=experiment_watch \
+reme manage_proactive_runtime action=create agent_type=event agent_name=experiment_watch \
   task_description='Follow experiment logs. Report errors and completion; record normal progress.'
 ```
 
@@ -83,11 +83,17 @@ YAML default into TASK.md. Explicit text is saved verbatim; an existing file is 
 Management responses expose settings under config and execution through running; list returns items/total.
 Client Agent views remain available through list_agents and the session endpoints.
 
-Omit cron or pass null for event triggers; an expression selects time triggers in the application timezone.
-Trigger type and run_job are immutable after creation. Notebook accepts only events. Update accepts enabled, cron,
+Creation requires `agent_type=event` or `agent_type=time`. Time-triggered tasks require a `schedule` Cron expression
+in the application timezone; event-triggered tasks have no schedule.
+Trigger type and run_job are immutable after creation. Notebook accepts only events. Update accepts enabled, schedule,
 min_trigger_interval_seconds and notify_window. Pause allows the current round to finish. Delete cancels execution and
 preserves files; restoring the same name retains its role and history. Use task_document action=read/save to edit TASK.md,
 and pass the read response's mtime as expected_mtime when saving.
+
+When upgrading an existing workspace, finish queued scheduled inputs before switching. In service Runtime settings and
+`{reme_agent_dir}/*/config.json`, replace `cron` with `schedule` and add `agent_type: time` when a schedule exists,
+otherwise `agent_type: event`. Keep task files and history. The old Runtime fields and `source="cron"` are no longer accepted;
+collection Jobs still use their own `cron` setting.
 
 components.agent_runtime.Remy.initial_memory creates `{reme_agent_dir}/Remy/MEMORY.md` only when absent.
 Remy's notification_config sets the P0 delay (0 seconds), P1 idle threshold (10 seconds) and P2 idle threshold (1800 seconds).
@@ -96,25 +102,31 @@ P0 can reach an active native foreground turn; P1/P2 wait for idle. The sender's
 ### Collection and Connector controls
 
 Connectors are workflows. Each collection Job publishes a complete resource package and metadata.json before delivering
-standard Events. Seven configured Jobs collect screens, Codex dialogue, finance news, gold, oil, Nasdaq and BTC every five
-minutes. Codex init_steps establish a baseline without importing old history. Source directories retain opaque cursors,
-attachments and pending delivery batches. BaseHarnessConnectorStep owns scanning, publication, handoff and cancellation;
-Codex supplies its format adapter. Other Harness providers are not implemented.
+standard Events. Eight configured Jobs collect screens, Codex and Claude Code dialogue, finance news, gold, oil, Nasdaq
+and BTC every five minutes. Dialogue init_steps establish a baseline without importing old history. Source directories
+retain opaque cursors, attachments and pending delivery batches. BaseHarnessConnectorStep owns scanning, publication, handoff and cancellation;
+Codex and Claude Code supply their native format adapters and share the same resource and response contracts.
 
-Use the manage-connector skill and manage_connector tool:
+Use the `manage_connector` MCP Job to manage preset collection Jobs:
 
-```bash
-reme manage_connector action=pause connector_job=screen_capture_cron
-reme manage_connector action=enable connector_job=screen_capture_cron
-reme manage_connector action=send task_names='["experiment_watch"]' \
-  events='[{"id":"log-001","event_ts":"2026-11-27T10:30:00+08:00","source":"experiment_log","description":"Log updated","paths":["resource/experiments/log-001.txt"]}]'
-```
+| Action | Parameters |
+| --- | --- |
+| List presets, download switches and recipients | `{"action":"list"}` |
+| Pause or resume downloads | `{"action":"pause","connector_job":"finance_news_cron"}` or `{"action":"enable","connector_job":"finance_news_cron"}` |
+| Replace recipients | `{"action":"update","connector_job":"finance_news_cron","runtime_names":["proactive_fin","market_watch"]}` |
 
-Save original files first. Event paths are workspace-relative; source=cron is framework-reserved.
-The response separates deliveries, permanent rejected recipients and retryable errors. Retry only errors with the same ID
-and content. Pause retains published packages and pending handoffs; resume retries frozen batches before collecting more.
-The gate lives at `{metadata_dir}/proactive/connectors/<connector_job>.json` and does not change Runtime enabled settings.
-Only configured, started collection Jobs in connector_jobs can be controlled. Change cadence or recipients in service config.
+Only existing event-triggered tasks can be selected as recipients. An empty target list keeps downloads without new
+handoffs. Changes persist at `{metadata_dir}/proactive/connectors/<connector_job>.json` and apply without restart to new
+batches; frozen batches retain their original recipients. Pause retains packages and pending handoffs. Download controls
+are independent of Runtime `enabled`. `list` reports `available` separately from the saved download switch; only configured,
+started Jobs in `connector_jobs` can be changed. Collection frequency remains in service configuration.
+
+For a new task, start with `manage-proactive-runtime`: scheduled work such as a daily briefing can fetch its own sources;
+event-triggered work needs an ongoing feed. Reuse a preset collector, or follow `manage-connector` to place a custom script
+beside TASK.md under `scripts/`, save source material to `resource_dir`, and send Events through HTTP
+`POST /manage_connector` with `action="send"`, `runtime_names` and `events`. Event paths are workspace-relative;
+`source="time"` is framework-reserved. Inspect `deliveries`, `rejected` and `errors` even after partial failure.
+Retry only `errors`, with unchanged event IDs and content, and retain the source cursor until every recipient is terminal.
 
 ### Reminder commits and recovery
 
@@ -227,7 +239,7 @@ the closure time and note.
 Active Todos are ordered by target date by default. Use `reme manage_notebook kind=todo action=list order=created` for newest creation
 time first, with older records that lack a creation time at the end. Studio offers both orders in the Todos view.
 
-The event-triggered `proactive_note` runtime receives the same new Codex dialogue as `proactive_memory`. It loads `manage-notebook`
+The event-triggered `proactive_note` runtime receives the same new Codex and Claude Code dialogue as `proactive_memory`. It loads `manage-notebook`
 to find related Todos and Ideas and read the full progress history before updating a Todo. It adds new progress, corrects
 or removes individual notes when the evidence changes, and can move a Todo to `in_progress`. Remy handles creation,
 closure, Idea updates, link changes, and other follow-up

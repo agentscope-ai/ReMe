@@ -39,7 +39,7 @@ export type AgentUpdate = {
 
 export type AgentView = {
   enabled: boolean;
-  cron: string | null;
+  schedule: string | null;
   min_trigger_interval_seconds: number;
   notify_window: NotificationWindow | null;
   agent_name: string;
@@ -95,7 +95,7 @@ export type NotificationWindow = {
 
 export type ProactiveRuntimeSettings = {
   enabled: boolean;
-  cron: string | null;
+  schedule: string | null;
   min_trigger_interval_seconds: number;
   notify_window: NotificationWindow | null;
 };

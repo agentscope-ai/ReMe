@@ -12,7 +12,10 @@ from .test_proactive_run import prepare_round, REMIND, SKIP
 @pytest.mark.parametrize("notify", [False, True])
 @pytest.mark.asyncio
 async def test_notebook_reads_full_history_updates_progress_and_hands_off_decisions(tmp_path, monkeypatch, notify):
-    async with running_system(tmp_path, runtimes=[{"agent_name": "notes", "run_job": "run_notebook_agent"}]) as (
+    async with running_system(
+        tmp_path,
+        runtimes=[{"agent_type": "event", "agent_name": "notes", "run_job": "run_notebook_agent"}],
+    ) as (
         manager,
         context,
         wrapper,
@@ -25,9 +28,13 @@ async def test_notebook_reads_full_history_updates_progress_and_hands_off_decisi
         await queue_event(manager, name="notes")
 
         async def generate(query, **options):
-            assert options["sandbox"] == "read-only" and options["job_tools"] == ["manage_notebook"]
-            assert options["skills"][0]["name"].startswith("manage-notebook-") and options["skills"][0]["content"]
-            assert len(options["skills"]) == 3 and all("$" + spec["name"] in query for spec in options["skills"][1:])
+            assert "sandbox" not in options
+            assert options["job_tools"] == ["manage_notebook"]
+            assert [spec["name"].rsplit("-", 1)[0] for spec in options["skills"]] == [
+                "proactive-record",
+                "manage-notebook",
+            ]
+            assert all(spec["content"] for spec in options["skills"]) and runtime.task_path.read_text() in query
             bound = options["injected_job_kwargs"]
             get = (await job(kind="todo", action="get", id=todo["id"], **bound)).answer
             assert [row["text"] for row in get["progress"]] == ["Package built", "Published to staging"]
@@ -99,11 +106,13 @@ async def test_notebook_reads_full_history_updates_progress_and_hands_off_decisi
 async def test_restore_preserves_notebook_role_and_event_only_contract(tmp_path):
     async with running_system(
         tmp_path,
-        runtimes=[{"agent_name": "notes", "run_job": "run_notebook_agent", "task_description": "Keep"}],
+        runtimes=[
+            {"agent_type": "event", "agent_name": "notes", "run_job": "run_notebook_agent", "task_description": "Keep"},
+        ],
     ) as (manager, _, _):
         await manager.delete("notes")
-        await manager.create({"agent_name": "notes"})
+        await manager.create({"agent_type": "event", "agent_name": "notes"})
         runtime = await manager.resolve("notes")
         assert runtime.run_job == "run_notebook_agent" and runtime.task_path.read_text() == "Keep"
         with pytest.raises(ValueError):
-            await manager.update("notes", {"cron": "0 8 * * *"})
+            await manager.update("notes", {"schedule": "0 8 * * *"})

@@ -1,4 +1,4 @@
-"""Task scheduling, cron queue pressure, cooldown and frozen retry batches."""
+"""Task scheduling, schedule queue pressure, cooldown and frozen retry batches."""
 
 # pylint: disable=missing-function-docstring,protected-access,redefined-outer-name
 
@@ -15,8 +15,11 @@ from .proactive_helpers import running_system, queue_event
 
 
 @pytest.mark.asyncio
-async def test_full_cron_queue_still_starts_its_consumer(tmp_path, monkeypatch):
-    async with running_system(tmp_path, runtimes=[{"agent_name": "clock", "cron": "0 * * * *"}]) as (
+async def test_full_time_queue_still_starts_its_consumer(tmp_path, monkeypatch):
+    async with running_system(
+        tmp_path,
+        runtimes=[{"agent_type": "time", "agent_name": "clock", "schedule": "0 * * * *"}],
+    ) as (
         manager,
         context,
         _,
@@ -27,7 +30,7 @@ async def test_full_cron_queue_still_starts_its_consumer(tmp_path, monkeypatch):
         trigger = runtime.next_trigger(definition)
         monkeypatch.setattr(runtime, "now", lambda: trigger)
         await runtime.inbox.append(
-            Event(id="old", event_ts=trigger - timedelta(hours=1), source="cron", description="Backlog"),
+            Event(id="old", event_ts=trigger - timedelta(hours=1), source="time", description="Backlog"),
         )
         called = AsyncMock(return_value=Response())
         loop = AgentManagerLoopStep(app_context=context)
@@ -41,13 +44,17 @@ async def test_full_cron_queue_still_starts_its_consumer(tmp_path, monkeypatch):
         await runtime.inbox.ack(batch["token"])
         await loop.tick_runtime(runtime, definition)
         await runtime.worker
-        assert (await runtime.inbox.read())["items"][0]["item"]["id"] == f"cron-clock-{int(trigger.timestamp())}"
+        assert (await runtime.inbox.read())["items"][0]["item"]["id"] == f"time-clock-{int(trigger.timestamp())}"
         assert runtime.schedule[1] > trigger
 
 
 @pytest.mark.asyncio
 async def test_pausing_does_not_cancel_current_lease_and_resuming_keeps_inputs(tmp_path, monkeypatch):
-    async with running_system(tmp_path, runtimes=[{"agent_name": "monitor"}]) as (manager, context, _):
+    async with running_system(tmp_path, runtimes=[{"agent_type": "event", "agent_name": "monitor"}]) as (
+        manager,
+        context,
+        _,
+    ):
         await queue_event(manager)
         runtime = await manager.resolve("monitor")
         entered, release = asyncio.Event(), asyncio.Event()
@@ -75,7 +82,10 @@ async def test_pausing_does_not_cancel_current_lease_and_resuming_keeps_inputs(t
 
 @pytest.mark.asyncio
 async def test_cooldown_uses_last_durable_receipt(tmp_path, monkeypatch):
-    async with running_system(tmp_path, runtimes=[{"agent_name": "monitor", "min_trigger_interval_seconds": 60}]) as (
+    async with running_system(
+        tmp_path,
+        runtimes=[{"agent_type": "event", "agent_name": "monitor", "min_trigger_interval_seconds": 60}],
+    ) as (
         manager,
         context,
         _,
@@ -102,7 +112,11 @@ async def test_cooldown_uses_last_durable_receipt(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_failed_batch_does_not_grow_when_later_inputs_arrive(tmp_path, monkeypatch):
-    async with running_system(tmp_path, runtimes=[{"agent_name": "monitor"}]) as (manager, context, wrapper):
+    async with running_system(tmp_path, runtimes=[{"agent_type": "event", "agent_name": "monitor"}]) as (
+        manager,
+        context,
+        wrapper,
+    ):
         from .test_proactive_run import prepare_round, install_round, SKIP
 
         runtime, record = await prepare_round(manager, context, monkeypatch)
@@ -118,7 +132,11 @@ async def test_failed_batch_does_not_grow_when_later_inputs_arrive(tmp_path, mon
 
 @pytest.mark.asyncio
 async def test_shutdown_joins_owned_task_workers(tmp_path, monkeypatch):
-    async with running_system(tmp_path, runtimes=[{"agent_name": "monitor"}]) as (manager, context, _):
+    async with running_system(tmp_path, runtimes=[{"agent_type": "event", "agent_name": "monitor"}]) as (
+        manager,
+        context,
+        _,
+    ):
         await queue_event(manager)
         entered = asyncio.Event()
 

@@ -61,7 +61,7 @@ test("main Chat and task workspaces expose their scoped pages and current conver
             {
               ...makeAgent("tech_news"),
               agent_type: "time",
-              cron: "0 8 * * *",
+              schedule: "0 8 * * *",
             },
             makeAgent("work"),
           ],

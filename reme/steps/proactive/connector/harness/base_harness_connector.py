@@ -1,13 +1,15 @@
 """Incremental Harness collection with provider-owned opaque cursors."""
 
 import asyncio
-from abc import abstractmethod
 from contextlib import suppress
 from datetime import datetime
+from itertools import groupby
+from pathlib import Path
 import os
 import shutil
 from threading import Event as ThreadEvent
 
+from .base_dialogue_index import BaseDialogueIndex
 from ..base_connector import BaseConnectorStep, resource_package_id, resource_event, connector_enabled
 from .....schema import ApplicationConfig, ResourceMetadata
 from .....schema.resource_metadata import RESOURCE_METADATA_FILENAME
@@ -20,20 +22,52 @@ from .....utils.timezone_utils import resolve_timezone
 class BaseHarnessConnectorStep(BaseConnectorStep):
     """Own baseline, bounded reading, publication, cancellation and progress handoff."""
 
+    index_class: type[BaseDialogueIndex]
+    source_root: Path
+
     def __init__(self, max_scan_bytes=32 * 1024 * 1024, **kwargs):
         super().__init__(**kwargs)
         if type(max_scan_bytes) is not int or max_scan_bytes < 1:
             raise ValueError("max_scan_bytes must be a positive integer")
         self.max_scan_bytes = max_scan_bytes
         self.cancelled = ThreadEvent()
+        self.description = self.get_prompt("description")
 
-    @abstractmethod
     def _index(self):
         """Return a source adapter with load, scan and commit over opaque cursors."""
+        files = WorkspaceFiles(self.workspace_path)
+        return self.index_class(
+            files,
+            files.path(self.config_value("resource_dir")) / self.source,
+            self.source_root,
+            self._check_stopped,
+        )
 
-    @abstractmethod
     def render_dialogue(self, messages, now):
-        """Render normalized source messages and attachments for the Agent."""
+        """Render localized headings while preserving message text and evidence references."""
+        role_keys = {None: "user", "commentary": "commentary", "final_answer": "final_answer"}
+        sections = [self.prompt_format("title", harness=self.get_prompt("harness"))]
+        for cwd, directory_messages in groupby(messages, key=lambda row: row["cwd"]):
+            sections.append(self.prompt_format("directory", cwd=cwd))
+            for session_id, session_messages in groupby(directory_messages, key=lambda row: row["session_id"]):
+                sections.append(self.prompt_format("session", session_id=session_id))
+                for turn_id, turn_messages in groupby(session_messages, key=lambda row: row["turn_id"]):
+                    sections.append(self.prompt_format("turn", turn_id=turn_id))
+                    for row in turn_messages:
+                        timestamp = datetime.fromisoformat(row["timestamp"]).astimezone(now.tzinfo)
+                        role = self.prompt_format(role_keys[row.get("phase")], harness=self.get_prompt("harness"))
+                        sections.append(
+                            self.prompt_format("message", role=role, timestamp=timestamp, message_id=row["message_id"]),
+                        )
+                        if row["content"]:
+                            sections.append(row["content"].rstrip("\n"))
+                        images = row.get("image_paths", ())
+                        for filename in images:
+                            number = Path(filename).stem.rsplit("-", 1)[-1]
+                            sections.append(self.prompt_format("image", number=number, filename=filename))
+                        if missing := row["image_attachments"] - len(images):
+                            sections.append(self.prompt_format("missing_images", count=missing))
+        return "\n\n".join(sections) + "\n"
 
     def _now(self):
         config = self.app_context.app_config if self.app_context else ApplicationConfig()
@@ -48,7 +82,7 @@ class BaseHarnessConnectorStep(BaseConnectorStep):
         directory = files.path(self.config_value("resource_dir"))
         if directory == self.workspace_path:
             raise ValueError("resource_dir must be a workspace subdirectory")
-        self.require_paths(directory, files.path(self.config_value("reme_agent_dir")))
+        self.require_paths(directory)
         return files.checked(directory / self.source)
 
     async def _offload(self, function, *args):
@@ -84,7 +118,7 @@ class BaseHarnessConnectorStep(BaseConnectorStep):
         scan = index.scan(state, self.max_scan_bytes, self.max_file_bytes())
         batch = {
             "id": resource_package_id(now),
-            "task_names": self.task_names,
+            "runtime_names": self.runtime_names,
             "delivered_to": [],
             "resource": None,
             **{key: scan[key] for key in ("updates", "message_ids", "next_path", "scanned_bytes", "errors")},
@@ -137,7 +171,7 @@ class BaseHarnessConnectorStep(BaseConnectorStep):
             return []
         metadata = ResourceMetadata.model_validate(resource["metadata"])
         if metadata.source != self.source:
-            raise ValueError("Unexpected Codex dialogue resource source")
+            raise ValueError("Unexpected Harness dialogue resource source")
         directory = index.files.path(resource["path"])
         manifest = directory / RESOURCE_METADATA_FILENAME
         paths = [manifest, *(directory / entry.path for entry in metadata.files)]
@@ -145,10 +179,10 @@ class BaseHarnessConnectorStep(BaseConnectorStep):
         for path in paths[1:]:
             path = index.files.checked(path)
             if not path.is_file() or not path.stat().st_size:
-                raise ValueError("Codex dialogue payload is missing or empty")
+                raise ValueError("Harness dialogue payload is missing or empty")
         saved = index.files.read_json(manifest, None)
         if saved is not None and saved != resource["metadata"]:
-            raise ValueError("Codex dialogue conflicts with its saved manifest")
+            raise ValueError("Harness dialogue conflicts with its saved manifest")
         self._check_stopped()
         if saved is None:
             index.files.write_json(manifest, resource["metadata"])
@@ -166,9 +200,11 @@ class BaseHarnessConnectorStep(BaseConnectorStep):
             self.context.response.answer = {"skipped": "paused"}
             return self.context.response
         async with await get_path_lock(self._authorize()):
-            if not await connector_enabled(self, self.connector_job):
+            if not await self.load_control():
                 self.context.response.answer = {"skipped": "paused"}
                 return self.context.response
+            if self.runtime_names:
+                self.require_paths(WorkspaceFiles(self.workspace_path).path(self.config_value("reme_agent_dir")))
             batch = await self._offload(self._prepare)
             events = await self._offload(self._publish, batch)
             index = self._index()

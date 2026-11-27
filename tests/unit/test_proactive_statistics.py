@@ -13,9 +13,14 @@ from .test_proactive_run import prepare_round, install_round, SKIP
 
 
 @pytest.mark.parametrize("status", ["completed", "failed"])
+@pytest.mark.parametrize("native", [False, True])
 @pytest.mark.asyncio
-async def test_round_statistics_and_counters_reflect_model_and_commit_outcomes(tmp_path, monkeypatch, status):
-    async with running_system(tmp_path, runtimes=[{"agent_name": "monitor"}]) as (manager, context, wrapper):
+async def test_round_statistics_and_counters_reflect_model_and_commit_outcomes(tmp_path, monkeypatch, status, native):
+    async with running_system(tmp_path, runtimes=[{"agent_type": "event", "agent_name": "monitor"}]) as (
+        manager,
+        context,
+        wrapper,
+    ):
         runtime, record = await prepare_round(manager, context, monkeypatch)
         await queue_event(manager)
         install_round(wrapper, runtime, record, monkeypatch, text=SKIP, status=status)
@@ -25,6 +30,7 @@ async def test_round_statistics_and_counters_reflect_model_and_commit_outcomes(t
             for event in ("start", "delta", "end"):
                 yield StreamChunk(
                     chunk_type="tool_call",
+                    turn_id="turn-1",
                     tool_call_id="lookup",
                     tool_call_name="webSearch",
                     event=event,
@@ -34,6 +40,16 @@ async def test_round_statistics_and_counters_reflect_model_and_commit_outcomes(t
             async for chunk in original(query, **options):
                 yield chunk
 
+        if native:
+
+            async def tool_calls(_session_id, turn_id):
+                assert turn_id == "turn-1"
+                return [
+                    {"id": "lookup", "name": "webSearch"},
+                    {"id": "local", "name": "commandExecution", "arguments": {"cmd": "rg facts daily"}},
+                ]
+
+            monkeypatch.setattr(wrapper, "get_tool_calls", tool_calls)
         monkeypatch.setattr(wrapper, "reply_stream", stream)
         response = await context.jobs[runtime.run_job](agent_name="monitor")
         stats = response.metadata["reme.agent_run"]
@@ -42,7 +58,10 @@ async def test_round_statistics_and_counters_reflect_model_and_commit_outcomes(t
             and stats["result"] == status
             and stats["model_status"] == status
         )
-        assert stats["tool_calls"] == stats["web_lookup_calls"] == 1 and stats["usage"] == {
+        assert stats["tool_calls"] == (2 if native else 1) and stats["web_lookup_calls"] == 1
+        assert stats["local_search_calls"] == int(native)
+        assert stats.get("tool_call_source") == ("native" if native else None)
+        assert stats["usage"] == {
             "input_tokens": 15,
             "output_tokens": 7,
             "total_tokens": 22,
@@ -54,7 +73,7 @@ async def test_round_statistics_and_counters_reflect_model_and_commit_outcomes(t
 
 @pytest.mark.asyncio
 async def test_exponential_backoff_is_capped_and_success_resets(tmp_path, monkeypatch):
-    async with running_system(tmp_path, runtimes=[{"agent_name": "monitor"}]) as (manager, _, _):
+    async with running_system(tmp_path, runtimes=[{"agent_type": "event", "agent_name": "monitor"}]) as (manager, _, _):
         runtime = await manager.resolve("monitor")
         now = runtime.now()
         monkeypatch.setattr(runtime, "now", lambda: now)

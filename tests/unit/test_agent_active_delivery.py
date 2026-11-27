@@ -74,7 +74,11 @@ async def test_urgent_delivery_can_reach_an_active_foreground_turn(tmp_path, mon
 @pytest.mark.parametrize("kind", ["service", "tool"])
 @pytest.mark.asyncio
 async def test_readonly_query_forks_latest_running_task_session_without_consuming_inputs(tmp_path, kind):
-    async with running_system(tmp_path, runtimes=[{"agent_name": "monitor"}]) as (manager, context, wrapper):
+    async with running_system(tmp_path, runtimes=[{"agent_type": "event", "agent_name": "monitor"}]) as (
+        manager,
+        context,
+        wrapper,
+    ):
         runtime = await manager.resolve("monitor")
         previous = await runtime.ensure_session({})
         entered, release = asyncio.Event(), asyncio.Event()

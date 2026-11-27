@@ -182,7 +182,7 @@ async def test_empty_collection_skips_publication_and_delivery(tmp_path):
         connector_job="screen_capture_cron",
         app_context=context,
         agent_manager=runtime,
-        task_names=["work"],
+        runtime_names=["work"],
     )
     step.collect = Mock(return_value=[])
     response = await step(invocation)
@@ -308,7 +308,7 @@ async def test_published_resource_recovers_delivery_before_collecting_again(tmp_
         connector_job="screen_capture_cron",
         app_context=context,
         agent_manager=manager,
-        task_names=["observer"],
+        runtime_names=["observer"],
     )
     with pytest.raises(ConnectionError, match="interrupted after publication"):
         await step()
@@ -339,7 +339,7 @@ async def test_damaged_delivery_does_not_block_a_new_package(tmp_path):
         connector_job="screen_capture_cron",
         app_context=ApplicationContext(workspace_dir=str(tmp_path)),
         agent_manager=manager,
-        task_names=["observer"],
+        runtime_names=["observer"],
     )
     with pytest.raises(ConnectionError):
         await step()
@@ -387,7 +387,7 @@ async def test_retryable_saved_delivery_failure_stops_collection_before_new_sour
         connector_job="screen_capture_cron",
         app_context=context,
         agent_manager=manager,
-        task_names=["observer"],
+        runtime_names=["observer"],
     )
     with pytest.raises(ConnectionError):
         await step()

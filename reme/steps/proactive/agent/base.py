@@ -2,8 +2,6 @@
 
 import asyncio
 from datetime import datetime
-from functools import partial
-from uuid import uuid4
 import json
 import math
 from pathlib import Path
@@ -12,12 +10,9 @@ import shlex
 from time import monotonic
 from urllib.parse import unquote, urlsplit
 
-import yaml
-from pydantic import ValidationError
-
 from ..base import BaseAgentStep, ActivityTracker
 from ....enumeration import ChunkEnum
-from ....schema import AgentActivity, SkillSpec, TokenUsage, collect_reply
+from ....schema import AgentActivity, TokenUsage, collect_reply
 from ....schema.proactive_runtime import AgentReminder
 from ....schema.proactive_agent import ProactiveRecordDecision
 from ....utils.async_utils import complete_in_thread, finish_cleanup
@@ -32,6 +27,9 @@ _NO_KEY_INFORMATION = "NO_KEY_INFORMATION"
 class BaseProactiveAgentStep(BaseAgentStep):
     """Process one round and record its results and reminder decision together."""
 
+    skill_names = ("proactive-record",)
+    job_tools = ()
+
     def __init__(self, timeout_seconds=1200, max_local_search_calls=10, recent_history_hours=24, **kwargs):
         super().__init__(**kwargs)
         if type(timeout_seconds) not in (int, float) or not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
@@ -45,7 +43,6 @@ class BaseProactiveAgentStep(BaseAgentStep):
                 raise ValueError(f"{name} must be a positive integer")
         self.max_local_search_calls = max_local_search_calls
         self.recent_history_hours = recent_history_hours
-        self._skill_context = {}
         self._timeout = None
         self.runtime = None
 
@@ -65,12 +62,24 @@ class BaseProactiveAgentStep(BaseAgentStep):
             record = manager.files.checked(day / f"{stem}_{collision}.md")
         return {"daily_dir": daily, "task_path": manager.task_path, "record_path": record}
 
-    def session_options(self, agent):
+    def session_options(self, agent, now):
         """Build tool bindings and permissions for an automatic run."""
+        skills = self.get_skills(agent.agent_name)
+        for skill in skills:
+            if skill["name"].startswith("proactive-record-"):
+                skill["content"] = skill["content"].format(
+                    recent_history_hours=self.recent_history_hours,
+                    max_local_search_calls=self.max_local_search_calls,
+                )
         options = {
-            "config": {"skills.include_instructions": False},
-            "job_tools": self.kwargs.get("job_tools") or [],
-            "system_prompt": self.prompt_format("system_prompt"),
+            "job_tools": list(self.kwargs.get("job_tools", self.job_tools) or []),
+            "skills": skills,
+            "system_prompt": self.prompt_format(
+                "system_prompt",
+                workspace_dir=self.workspace_path,
+                app_timezone=self.app_context.app_config.timezone or str(now.tzinfo),
+                now=now.isoformat(),
+            ),
             "injected_job_kwargs": {"_agent_name": agent.agent_name},
             "approval_mode": "deny_all",
         }
@@ -80,40 +89,12 @@ class BaseProactiveAgentStep(BaseAgentStep):
             options["effort"] = effort
         return options
 
-    def skill_templates(self):
-        """Select the dynamic instructions added by this domain workflow."""
-        return [("record_skill", "proactive-record", "task_skill_description")]
-
-    def _task_options(self, agent, content):
-        options = self.session_options(agent)
-        skills = self.get_skills()
-        names = []
-        for key, prefix, description in self.skill_templates():
-            spec = SkillSpec(
-                name=f"{prefix}-{uuid4().hex[:12]}",
-                description=self.prompt_format(description),
-                content=self.prompt_format(key, **self._skill_context),
-            )
-            skills.append(spec.model_dump(exclude_none=True))
-            names.append("$" + spec.name)
-        options["skills"] = skills
-        return options, content + "\n\n" + self.prompt_format("use_skills", skill_names=" ".join(names))
-
-    def _query(self, events, paths, now, task_content, *, is_cron):
+    def _query(self, events, paths, task_content, *, is_time):
         """Build the round prompt from the task snapshot and claimed events."""
         files = self.runtime.files
-        self._skill_context = {
-            "now": now.isoformat(),
-            "daily_dir": paths["daily_dir"].relative_to(files.workspace).as_posix(),
-            "record_path": paths["record_path"].relative_to(files.workspace).as_posix(),
-            "recent_history_hours": self.recent_history_hours,
-            "max_local_search_calls": self.max_local_search_calls,
-            "is_cron": is_cron,
-            "is_event": not is_cron,
-        }
         event_sections = []
         for number, event in enumerate(events, 1):
-            if is_cron:
+            if is_time:
                 event_sections.append(self.prompt_format("scheduled_event_input", event_ts=event["event_ts"]))
                 continue
             attachments = event["paths"]
@@ -132,21 +113,16 @@ class BaseProactiveAgentStep(BaseAgentStep):
                     no_files=not attachments,
                 ),
             )
-        return self.prompt_format(
-            "task_query",
-            workspace_dir=self.workspace_path,
-            app_timezone=self.app_context.app_config.timezone or str(now.tzinfo),
+        content = self.prompt_format(
+            "task_context",
             event_batch="\n\n".join(event_sections),
-            is_cron=is_cron,
-            is_event=not is_cron,
-            now=now.isoformat(),
-            max_local_search_calls=self.max_local_search_calls,
+            is_time=is_time,
+            is_event=not is_time,
             task_description=task_content,
-            recent_history_hours=self.recent_history_hours,
-            no_key_information=_NO_KEY_INFORMATION,
             daily_dir=paths["daily_dir"].relative_to(files.workspace).as_posix(),
             record_path=paths["record_path"].relative_to(files.workspace).as_posix(),
         )
+        return self.prompt_format("task_query", task_context=content, is_time=is_time, is_event=not is_time)
 
     @staticmethod
     def _lookup_type(call):
@@ -210,8 +186,7 @@ class BaseProactiveAgentStep(BaseAgentStep):
         record: RoundRecord,
         reply_text: str | None,
         *,
-        is_cron: bool,
-        original_body: str | None,
+        is_time: bool,
     ) -> AgentReminder | None:
         """Validate the round record or an explicit event skip."""
         path = record.path
@@ -220,12 +195,10 @@ class BaseProactiveAgentStep(BaseAgentStep):
         try:
             text = files.read(path)
         except FileNotFoundError:
-            if not is_cron and reply_text is not None and reply_text.strip() == _NO_KEY_INFORMATION:
+            if not is_time and reply_text is not None and reply_text.strip() == _NO_KEY_INFORMATION:
                 return None
             raise
         metadata, body = split_record(text)
-        if original_body is not None and body != original_body:
-            raise RuntimeError(f"Markdown body changed during repair: {path}")
         decision = ProactiveRecordDecision.parse(metadata)
         self._warn_local_links(path, body)
         reminder = decision.reminder(path.relative_to(files.workspace).as_posix())
@@ -257,7 +230,7 @@ class BaseProactiveAgentStep(BaseAgentStep):
                     self.context.response.answer = {"agent_name": agent.agent_name, "skipped": "disabled"}
                     return self.context.response
                 batch = await self.runtime.inbox.claim(
-                    limit=1 if agent.cron else agent.max_batch_events,
+                    limit=1 if agent.agent_type == "time" else agent.max_batch_events,
                     item_ids=self.runtime.retry_items,
                 )
                 if batch is None:
@@ -274,7 +247,7 @@ class BaseProactiveAgentStep(BaseAgentStep):
                     started_at=self.runtime.last_started_at,
                 )
                 try:
-                    if any((item["source"] == "cron") != (agent.cron is not None) for item in batch["items"]):
+                    if any((item["source"] == "time") != (agent.agent_type == "time") for item in batch["items"]):
                         raise ValueError("Inputs do not match the task trigger type")
                     reminder, session_id = await self._execute(agent, batch["items"], record=record)
                     self.context.response.answer = await finish_cleanup(
@@ -316,9 +289,9 @@ class BaseProactiveAgentStep(BaseAgentStep):
         return self.context.response
 
     async def _execute(self, agent, events, *, record):
-        """Run the workflow and allow one follow-up to repair the saved record."""
-        is_cron = agent.cron is not None
-        agent_type = "time" if is_cron else "event"
+        """Run one query with its skills, then validate the final record."""
+        agent_type = agent.agent_type
+        is_time = agent_type == "time"
         stats = {
             "agent_type": agent_type,
             "session_id": None,
@@ -342,20 +315,17 @@ class BaseProactiveAgentStep(BaseAgentStep):
         task_content = await asyncio.to_thread(manager.files.read, paths["task_path"])
         if not task_content.strip():
             raise ValueError("TASK.md must not be blank")
-        query = await asyncio.to_thread(
-            self._query,
-            events,
-            paths,
-            now,
-            task_content,
-            is_cron=is_cron,
+        options = self.session_options(agent, now)
+        query = await asyncio.to_thread(self._query, events, paths, task_content, is_time=is_time)
+        query += "\n\n" + self.prompt_format(
+            "use_skills",
+            skill_names=" ".join("$" + skill["name"] for skill in options["skills"]),
         )
-        options, query = self._task_options(agent, query)
         started = monotonic()
         label = f"Proactive agent={agent.agent_name} agent_type={agent_type}"
-        session_id = None
+        session_id = turn_id = None
+        usage = stream_error = None
         calls = {}
-        turn_ids, turn_usage, stream_errors = {}, {}, {}
         warned = False
         tracker = ActivityTracker(self.runtime.activity)
 
@@ -372,17 +342,17 @@ class BaseProactiveAgentStep(BaseAgentStep):
                 )
                 warned = True
 
-        async def observe(chunk, *, attempt, publish):
+        async def observe(chunk):
+            nonlocal turn_id, usage, stream_error
             if chunk.turn_id:
-                turn_ids[attempt] = chunk.turn_id
+                turn_id = chunk.turn_id
             kind, payload = chunk.chunk_type, chunk.chunk
             if kind == ChunkEnum.ERROR and chunk.metadata.get("will_retry") is not True:
-                stream_errors[attempt] = str(payload)
+                stream_error = str(payload)
             if kind in {ChunkEnum.TOOL_CALL, ChunkEnum.TOOL_RESULT}:
                 identifier = chunk.tool_call_id or chunk.block_id or chunk.message_id
-                key = (attempt, identifier)
-                if identifier and (chunk.tool_call_name or key in calls):
-                    call = calls.setdefault(key, {})
+                if identifier and (chunk.tool_call_name or identifier in calls):
+                    call = calls.setdefault(identifier, {})
                     call["name"] = chunk.tool_call_name or call.get("name")
                     if kind == ChunkEnum.TOOL_CALL or (
                         call["name"] == "commandExecution"
@@ -404,68 +374,38 @@ class BaseProactiveAgentStep(BaseAgentStep):
                     stats["model_status"] = payload.get("status", "failed")
                     payload = payload.get("usage")
                 if payload is not None:
-                    turn_usage[attempt] = TokenUsage.from_provider(payload)
+                    usage = TokenUsage.from_provider(payload).model_dump()
             if self.runtime.activity is not None:
                 self.runtime.activity = tracker.update(chunk)
                 self.runtime.activity = self.runtime.activity.model_copy(update={"session_id": session_id or ""})
             publish(chunk)
 
         deadline = self._timeout.when()
-        original_body = None
         async with manager.agent_wrapper.skill_scope(**options) as options:
             try:
-                for attempt in range(2):
-                    turn_ids[attempt] = None
-                    reply = None
-                    try:
-                        async with asyncio.timeout_at(deadline):
-                            if attempt:
-                                async with await get_path_lock(record.path):
-                                    original_body = await complete_in_thread(record.read_body_for_repair)
-                            else:
-                                session_id = await manager.ensure_session(options, new=True)
-                                label += f" session={session_id}"
-                                self.logger.info(f"{label} result=started path={record.path}")
-                            with manager.live_turns.observe(agent.agent_name, session_id, query) as publish:
-                                try:
-                                    reply = await collect_reply(
-                                        manager.agent_wrapper.reply_stream(query, resume=session_id, **options),
-                                        on_chunk=partial(observe, attempt=attempt, publish=publish),
-                                    )
-                                finally:
-                                    async with await get_path_lock(record.path):
-                                        await complete_in_thread(record.capture)
-                            if reply["status"] != "completed" or attempt in stream_errors:
-                                raise RuntimeError(
-                                    stream_errors.get(attempt)
-                                    or reply.get("error")
-                                    or f"Proactive agent {reply['status']}",
+                try:
+                    async with asyncio.timeout_at(deadline):
+                        session_id = await manager.ensure_session(options, new=True)
+                        label += f" session={session_id}"
+                        self.logger.info(f"{label} result=started path={record.path}")
+                        with manager.live_turns.observe(agent.agent_name, session_id, query) as publish:
+                            try:
+                                reply = await collect_reply(
+                                    manager.agent_wrapper.reply_stream(query, resume=session_id, **options),
+                                    on_chunk=observe,
                                 )
-                    except Exception as exc:
-                        stats["model_status"] = "timeout" if isinstance(exc, TimeoutError) else "failed"
-                        raise
-                    try:
-                        async with await get_path_lock(record.path):
-                            reminder = await complete_in_thread(
-                                self._read_record,
-                                record,
-                                reply["result"] if not attempt else None,
-                                is_cron=is_cron,
-                                original_body=original_body,
+                            finally:
+                                async with await get_path_lock(record.path):
+                                    await complete_in_thread(record.capture)
+                        if reply["status"] != "completed" or stream_error is not None:
+                            raise RuntimeError(
+                                stream_error or reply.get("error") or f"Proactive agent {reply['status']}",
                             )
-                    except Exception as validation_error:
-                        if attempt or not isinstance(validation_error, (yaml.YAMLError, ValidationError)):
-                            raise
-                        record_path = record.path.relative_to(manager.workspace_path).as_posix()
-                        query = self.prompt_format(
-                            "repair_record_query",
-                            record_path=record_path,
-                            error=str(validation_error)[:2000],
-                            yaml_check=self.prompt_format("record_yaml_check", record_path=shlex.quote(record_path)),
-                        )
-                        self.logger.info(f"{label} result=repairing_record path={record.path}")
-                    else:
-                        break
+                except Exception as exc:
+                    stats["model_status"] = "timeout" if isinstance(exc, TimeoutError) else "failed"
+                    raise
+                async with await get_path_lock(record.path):
+                    reminder = await complete_in_thread(self._read_record, record, reply["result"], is_time=is_time)
                 self.logger.info(
                     f"{label} result=validated notifications={int(reminder is not None)} "
                     f"elapsed={monotonic() - started:.2f}s path={paths['record_path']}",
@@ -484,27 +424,20 @@ class BaseProactiveAgentStep(BaseAgentStep):
                     and not asyncio.current_task().cancelling()
                     and asyncio.get_running_loop().time() < deadline
                 ):
-                    for attempt, turn_id in turn_ids.items():
-                        if turn_id is None and len(turn_ids) > 1:
-                            # An unfiltered native read would include both turns and count calls twice.
-                            continue
-                        try:
-                            async with asyncio.timeout_at(deadline):
-                                saved = await manager.agent_wrapper.get_tool_calls(session_id, turn_id)
-                            if saved is not None:
-                                for call in saved:
-                                    key = (attempt, call["id"])
-                                    previous = calls.get(key, {})
-                                    calls[key] = {
-                                        **previous,
-                                        **call,
-                                        "actions": call.get("actions") or previous.get("actions", []),
-                                    }
-                                stats["tool_call_source"] = "native"
-                        except Exception as exc:
-                            self.logger.warning(f"{label} could not read saved tool statistics: {exc}")
-                stats["session_id"] = session_id
-                if turn_usage:
-                    stats["usage"] = TokenUsage.combine(list(turn_usage.values())).model_dump()
+                    try:
+                        async with asyncio.timeout_at(deadline):
+                            saved = await manager.agent_wrapper.get_tool_calls(session_id, turn_id)
+                        if saved is not None:
+                            for call in saved:
+                                previous = calls.get(call["id"], {})
+                                calls[call["id"]] = {
+                                    **previous,
+                                    **call,
+                                    "actions": call.get("actions") or previous.get("actions", []),
+                                }
+                            stats["tool_call_source"] = "native"
+                    except Exception as exc:
+                        self.logger.warning(f"{label} could not read saved tool statistics: {exc}")
+                stats.update(session_id=session_id, usage=usage)
                 update_counts()
         return reminder, session_id

@@ -1,7 +1,7 @@
 """Manage background Runtime identities without owning their lifecycle."""
 
 from ..base import BaseAgentStep
-from ..task.initialize import initialize_task
+from ..agent.initialize import initialize_task
 from ....core.registry import R
 from ....schema.proactive_agent import ManageProactiveRuntimeRequest
 

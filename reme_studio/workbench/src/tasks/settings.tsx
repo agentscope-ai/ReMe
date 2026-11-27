@@ -3,7 +3,7 @@ import { type Language, translator } from "../../../client/src/i18n.ts";
 import { Switch } from "../ui.tsx";
 import {
   changeSchedulePreset,
-  cronAtTime,
+  scheduleAtTime,
   defaultTaskTrigger,
   parseScheduleTime,
   type ScheduleDraft,
@@ -25,7 +25,7 @@ function ScheduleFields({
   t: Translate;
 }) {
   const id = useId();
-  const { preset, cron } = value;
+  const { preset, schedule } = value;
   return (
     <div className="task-field">
       <label htmlFor={id}>{t("taskSchedule")}</label>
@@ -49,20 +49,25 @@ function ScheduleFields({
             type="time"
             aria-label={t("taskTime")}
             required
-            value={parseScheduleTime(cron)?.time ?? ""}
+            value={parseScheduleTime(schedule)?.time ?? ""}
             onChange={(event) =>
-              onChange({ preset, cron: cronAtTime(preset, event.target.value) })
+              onChange({
+                preset,
+                schedule: scheduleAtTime(preset, event.target.value),
+              })
             }
           />
         )}
       </div>
       {preset === "custom" && (
         <input
-          aria-label={t("taskCron")}
-          value={cron}
+          aria-label={t("taskScheduleExpression")}
+          value={schedule}
           required
           placeholder="0 8 * * *"
-          onChange={(event) => onChange({ preset, cron: event.target.value })}
+          onChange={(event) =>
+            onChange({ preset, schedule: event.target.value })
+          }
         />
       )}
       <small>

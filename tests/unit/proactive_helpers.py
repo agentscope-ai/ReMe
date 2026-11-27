@@ -10,7 +10,7 @@ from reme.components.proactive import ChatAgentRuntime, LocalAgentManager
 from reme.config import resolve_app_config
 from reme.core.context import ApplicationContext
 from reme.schema import SessionMessage, SessionSnapshot, SessionStatus, StreamChunk
-from reme.steps.proactive.task.initialize import initialize_task
+from reme.steps.proactive.agent.initialize import initialize_task
 
 
 class FakeWrapper(BaseAgentWrapper):
@@ -145,7 +145,7 @@ async def emit_notification(manager, _context, *, name="monitor", suffix=0, prio
     from reme.utils.proactive_record import RoundRecord
 
     if name not in manager.runtimes:
-        await manager.create({"agent_name": name})
+        await manager.create({"agent_type": "event", "agent_name": name})
     runtime = await manager.resolve(name)
     event = Event(id=f"event-{suffix}", event_ts=runtime.now(), source="test", description="Observed")
     await manager.append_events(name, [event])

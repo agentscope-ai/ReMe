@@ -112,19 +112,24 @@ def test_codex_dialogue_uses_application_timezone(tmp_path, monkeypatch, zone_na
 
 
 @asynccontextmanager
-async def runtime(tmp_path, *, work_cron=None):
+async def runtime(tmp_path, *, work_time=None):
     tasks = [
-        {"agent_name": "proactive_memory", "task_description": "跟踪项目进展和难点", "cron": work_cron},
-        {"agent_name": "proactive_note", "task_description": "跟进随记"},
+        {
+            "agent_type": ("time" if work_time is not None else "event"),
+            "agent_name": "proactive_memory",
+            "task_description": "跟踪项目进展和难点",
+            "schedule": work_time,
+        },
+        {"agent_type": "event", "agent_name": "proactive_note", "task_description": "跟进随记"},
     ]
     async with running_system(tmp_path / "workspace", language="zh", runtimes=tasks) as (agents, context, _):
         deliver = agents.deliver_events
         delivery = AsyncMock(side_effect=deliver)
 
-        async def capture_delivery(task_names, events):
+        async def capture_delivery(runtime_names, events):
             if events[0].source == "codex_dialogue":
-                return await delivery(task_names=task_names, events=events)
-            return await deliver(task_names, events)
+                return await delivery(runtime_names=runtime_names, events=events)
+            return await deliver(runtime_names, events)
 
         agents.deliver_events = capture_delivery
         yield context, {name: item.inbox for name, item in agents.runtimes.items()}, delivery
@@ -137,7 +142,7 @@ async def capture_screen(context, **kwargs):
             {
                 "backend": "screen_capture_step",
                 "connector_job": "screen_capture_cron",
-                "task_names": ["proactive_memory"],
+                "runtime_names": ["proactive_memory"],
                 **kwargs,
             },
         ],
@@ -151,7 +156,7 @@ def options(context, home, **kwargs):
         "app_context": context,
         "codex_home": home,
         "connector_job": "codex_dialogue_cron",
-        "task_names": ["proactive_memory"],
+        "runtime_names": ["proactive_memory"],
         **kwargs,
     }
 
@@ -165,7 +170,12 @@ def progress(context):
 
 
 def dialogue_index(context, home):
-    return CodexDialogueIndex(WorkspaceFiles(workspace(context)), progress(context).parent, home, lambda: None)
+    return CodexDialogueIndex(
+        WorkspaceFiles(workspace(context)),
+        progress(context).parent,
+        home / "sessions",
+        lambda: None,
+    )
 
 
 def messages(context):
@@ -274,7 +284,7 @@ async def test_mid_turn_inputs_keep_order_and_deliver_image_files(tmp_path, sour
         assert [row["message_id"] for row in messages(context)] == ["first", "step"]
         append(path, steer, last, record("AgentMessage", "done", "final", phase="final_answer"))
         response = await CodexDialogueStep(
-            **options(context, home, task_names=["proactive_memory", "proactive_note"]),
+            **options(context, home, runtime_names=["proactive_memory", "proactive_note"]),
         )()
         assert response.success and response.answer["dialogue_messages"] == 3
         events = (await inbox["proactive_note"].claim())["items"]
@@ -535,14 +545,46 @@ async def test_delivery_failure_reuses_frozen_batch_before_reading_further_chang
             await CodexDialogueStep(**options(context, home))()
         frozen = delivery.await_args.kwargs["events"]
         append(path, record("UserMessage", "later", "user-2"))
+        from reme.steps.proactive.connector.base_connector import update_connector_control
+
+        await update_connector_control(
+            CodexDialogueStep(**options(context, home)),
+            "codex_dialogue_cron",
+            runtime_names=["proactive_note"],
+        )
         delivery.side_effect = original
-        await CodexDialogueStep(**options(context, home, task_names=["proactive_note"]))()
+        await CodexDialogueStep(**options(context, home, runtime_names=["proactive_note"]))()
         assert devices.call_count == 0 and delivery.await_args.kwargs["events"] == frozen
-        assert delivery.await_args.kwargs["task_names"] == ["proactive_memory"]
+        assert delivery.await_args.kwargs["runtime_names"] == ["proactive_memory"]
         assert (await inbox["proactive_memory"].snapshot())["pending_count"] == 1
         assert [value["content"] for value in messages(context)] == ["retry me"]
         await CodexDialogueStep(**options(context, home))()
         assert sorted(value["content"] for value in messages(context)) == ["later", "retry me"]
+        assert delivery.await_args.kwargs["runtime_names"] == ["proactive_note"]
+
+
+@pytest.mark.asyncio
+async def test_codex_collection_without_targets_keeps_resources_and_advances_cursor(tmp_path, source):
+    from reme.steps.proactive.connector.base_connector import update_connector_control
+
+    home, path = source
+    async with runtime(tmp_path) as (context, inbox, delivery):
+        await CodexDialogueInitStep(**options(context, home))(RuntimeContext(_allowed_paths=["resource", "metadata"]))
+        await update_connector_control(
+            CodexDialogueStep(**options(context, home)),
+            "codex_dialogue_cron",
+            runtime_names=[],
+        )
+        append(path, record("UserMessage", "download only"))
+        result = await CodexDialogueStep(**options(context, home))(
+            RuntimeContext(_allowed_paths=["resource", "metadata"]),
+        )
+        assert result.success and result.answer["dialogue_messages"] == 1
+        assert [row["content"] for row in messages(context)] == ["download only"]
+        assert not dialogue_index(context, home).pending_path.exists() and not delivery.called
+        assert not await inbox["proactive_memory"].pending_ids()
+        assert not await inbox["proactive_note"].pending_ids()
+        assert (await CodexDialogueStep(**options(context, home))()).answer["dialogue_messages"] == 0
 
 
 @pytest.mark.asyncio
@@ -563,14 +605,16 @@ async def test_partial_delivery_retries_only_the_pending_recipient(tmp_path, sou
         with monkeypatch.context() as patch:
             patch.setattr(agents, "append_events", write)
             with pytest.raises(RuntimeError, match="inbox unavailable"):
-                await CodexDialogueStep(**options(context, home, task_names=["proactive_memory", "proactive_note"]))()
+                await CodexDialogueStep(
+                    **options(context, home, runtime_names=["proactive_memory", "proactive_note"]),
+                )()
         assert (await inbox["proactive_memory"].snapshot())["pending_count"] == 1
         first = delivery.await_args.kwargs["events"]
 
-        response = await CodexDialogueStep(**options(context, home, task_names=["proactive_memory"]))()
+        response = await CodexDialogueStep(**options(context, home, runtime_names=["proactive_memory"]))()
         assert response.success
         assert delivery.await_args.kwargs == {
-            "task_names": ["proactive_note"],
+            "runtime_names": ["proactive_note"],
             "events": first,
         }
         assert (await inbox["proactive_memory"].snapshot())["pending_count"] == 1
@@ -580,12 +624,12 @@ async def test_partial_delivery_retries_only_the_pending_recipient(tmp_path, sou
 @pytest.mark.asyncio
 async def test_collectors_finish_a_batch_when_one_target_is_time_triggered(tmp_path, source, devices):
     home, path = source
-    async with runtime(tmp_path, work_cron="0 * * * *") as (context, inbox, _):
+    async with runtime(tmp_path, work_time="0 * * * *") as (context, inbox, _):
         await CodexDialogueInitStep(**options(context, home))()
         targets = ["proactive_memory", "proactive_note"]
         for message in ("first", "later"):
             append(path, record("UserMessage", message, message))
-            result = await CodexDialogueStep(**options(context, home, task_names=targets))()
+            result = await CodexDialogueStep(**options(context, home, runtime_names=targets))()
             assert result.success and set(result.answer["rejected"]) == {"proactive_memory"}
             assert not dialogue_index(context, home).pending_path.exists()
         assert (await inbox["proactive_memory"].snapshot())["pending_count"] == 0
@@ -830,7 +874,7 @@ async def test_screenshot_delivery_failure_does_not_block_dialogue_progress(
         assert (await inbox["proactive_memory"].snapshot())["pending_count"] == 2
         devices.return_value = []
         devices.side_effect = None
-        retry = await capture_screen(context, task_names=["proactive_note"])
+        retry = await capture_screen(context, runtime_names=["proactive_note"])
         assert retry.success and retry.answer == {"skipped": "no_new_data"}
         assert (await inbox["proactive_memory"].snapshot())["pending_count"] == 3
         assert (await inbox["proactive_note"].snapshot())["pending_count"] == 0
@@ -973,7 +1017,7 @@ async def test_overlapping_collections_are_serialized(tmp_path, source, devices)
 
 
 @pytest.mark.asyncio
-async def test_cron_establishes_baseline_before_first_wait_and_delivers_only_new_dialogue(tmp_path, source):
+async def test_time_establishes_baseline_before_first_wait_and_delivers_only_new_dialogue(tmp_path, source):
     """The configured init and periodic chains retain the first activation baseline."""
     home, path = source
     async with runtime(tmp_path) as (context, inbox, delivery):

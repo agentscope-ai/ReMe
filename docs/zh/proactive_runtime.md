@@ -35,7 +35,7 @@ ReMe 的主动智能运行时（Proactive Runtime）把本地长期记忆用于�
 
 ![Proactive Runtime：从信息采集、事件收件箱到 Agent 执行、工作区文件和提醒发件箱](../figure/proactive-runtime.svg)
 
-图中从左到右是接收信息、处理一批输入和生成提醒；下方是这一轮会读取或更新的文件。两张图均按当前默认目录绘制：工作区根目录 `workspace_dir=.reme`，资源目录 `resource_dir=resource`，日记目录 `daily_dir=daily`，Agent 目录 `reme_agent_dir=reme_agents`；修改配置后，实际路径随之调整。Codex 对话和截图已有内置采集器，Claude Code 执行轨迹是通过事件接口扩展接入的示例。
+图中从左到右是接收信息、处理一批输入和生成提醒；下方是这一轮会读取或更新的文件。两张图均按当前默认目录绘制：工作区根目录 `workspace_dir=.reme`，资源目录 `resource_dir=resource`，日记目录 `daily_dir=daily`，Agent 目录 `reme_agent_dir=reme_agents`；修改配置后，实际路径随之调整。Codex、Claude Code 对话和截图已有内置采集器，完整工具执行轨迹可通过事件接口扩展接入。
 
 ### 数据采集：把新变化交给 Agent
 
@@ -47,7 +47,7 @@ Agent 需要先拿到资料，才能知道发生了什么。资料可以来自�
 
 Codex 采集进度由自身管理：`resource/codex_dialogue/progress.jsonl` 保存初始基线和后续已提交的读取位置，`resource/codex_dialogue/pending.json` 在批次未完成投递时保留。这些辅助状态供采集器恢复工作，不作为资料交给 Agent。截图通过独立的资源采集和事件投递 Steps 发布。
 
-外部程序也可以通过 `manage_connector(action="send")` 接入。把要分析的资料放进工作区，再提交目标任务名单 `task_names`、事件描述和文件路径，Agent 就能沿着这些路径读取原文。事件中的简要说明帮助它了解输入，完整依据仍然保留在来源文件里。
+外部程序也可以通过 `manage_connector(action="send")` 接入。把要分析的资料放进工作区，再提交目标 Runtime 名单 `runtime_names`、事件描述和文件路径，Agent 就能沿着这些路径读取原文。事件中的简要说明帮助它了解输入，完整依据仍然保留在来源文件里。
 
 ### 事件触发
 
@@ -59,13 +59,20 @@ Codex 采集进度由自身管理：`resource/codex_dialogue/progress.jsonl` 保
 
 ### 时间触发
 
-配置 `cron` 后，ReMe 按应用时区在到点时向任务的收件箱追加定时事件。要在新日志到达时检查异常、每天 18 点汇总进展，可以分别创建事件触发任务和时间触发任务。
+设置 `agent_type: time` 和 `schedule` 后，ReMe 按应用时区在到点时向任务的收件箱追加定时事件。要在新日志到达时检查异常、每天 18 点汇总进展，可以分别创建事件触发任务和时间触发任务。
 
-任务按入队顺序执行。连续观察可以合批，定时事件各自执行一轮。每轮 Prompt 的「本轮事件」展示所领输入。定时事件显示计划时间，背景中的「当前时间」显示本轮开始时的时间。例如 08:00 的触发排队到 08:07 才开始，两个时间分别显示 08:00 和 08:07。
+任务按入队顺序执行。连续观察可以合批，定时事件各自执行一轮。每轮 query 展示所领输入，定时事件保留计划时间；system prompt 中的当前时间是本轮开始时的时间。例如 08:00 的触发排队到 08:07 才开始，两个时间分别显示 08:00 和 08:07。
 
 ### Agent 执行
 
 使用 `reme start config=proactive` 启动。每轮领取一批观察事件或一次时间触发，新建原生会话，并读取非空的 `TASK.md`。观察轮从事件和附件找关键信息，时间触发轮按任务说明完成约定工作。
+
+各领域 Agent 共用个人助理 system prompt，并在其中提供工作区、时区和当前时间。每轮 query 包含 `TASK.md`、触发输入、
+领域处理要求和所选技能，由 Harness 执行一次。
+
+所有后台 Agent 默认加载共用的 `proactive-record` 技能。领域提示只描述本轮业务，技能统一处理历史检索、记录和提醒去重、
+提醒等级与内容，以及 Markdown 产出。Notebook 额外使用 `manage-notebook`；Runtime 管理由 Remy 的
+`manage-proactive-runtime` 技能负责。
 
 Agent 在所有任务共用的 `daily_dir` 中搜索历史记录，核对已有的进展和提醒。优先查 `recent_history_hours` 指定的最近时段，默认 24 小时。`max_local_search_calls` 控制 Prompt 中的本地关键词或正则搜索次数，默认 10 次。超出时每轮只记录一次告警，执行继续。响应的 `reme.agent_run` 记录工具调用、模型状态和执行结果。失败轮次保留输入，默认从 5 秒开始退避，最长 5 分钟。
 
@@ -84,7 +91,7 @@ Agent 在所有任务共用的 `daily_dir` 中搜索历史记录，核对已有�
 
 ### 提交与投递
 
-模型完成后若 YAML 文件头校验失败，Agent 可在同一会话中再试一次，直接修正原文件的文件头并保留正文。提交前，ReMe 会重新校验整个文件。
+技能在同一次执行中检查并修正输出。提交前，ReMe 会重新校验整个文件；校验失败时保留草稿和输入，等待后续任务重试。
 
 ReMe 持有文件写锁，核对记录、确认输入并把需要投递的提醒登记到任务发件箱。模型报错或超时时保留输入和草稿，等待重试。
 确认失败且回执尚未落盘时，Markdown 留在原处，输入继续等待重试。回执落盘后，重启可继续登记提醒。
@@ -156,7 +163,7 @@ Chat 通过 `manage-proactive-runtime` skill 按任务名称管理后台任务�
 
 你可能收到：“项目 A 的修改已完成，目前还缺一次验证；项目 B 的两种方案各有一个限制，需要你选一下方向。”之后可以继续问“把两种方案的依据列给我”，相关记录仍然可以查回。
 
-当前内置 Codex 对话采集和截图采集每五分钟独立执行，分别保存资源并投递给同一个 `proactive_memory` Agent。Codex 采集[新增对话和图片附件](./auto_resource.md#定时-codex-对话采集)，截图采集全部显示器。Claude Code 和更完整的工具执行轨迹需要额外接入；分析时要区分用户要求、尝试过的操作和已验证的结果。采集配置见[服务配置](./services.md#proactive-runtime)。
+Codex、Claude Code 对话和截图每五分钟独立采集。两路对话均投递给 `proactive_memory` 和 `proactive_note`，截图投递给 `proactive_memory`。对话采集包含新增用户输入、可见进度、最终回答及图片附件，启动时先建立基线，不导入旧历史。更完整的工具执行轨迹可通过事件接口扩展。分析时要区分用户要求、尝试过的操作和已验证的结果。配置与资源约定见[服务配置](./services.md#proactive-runtime)和[资料采集](./auto_resource.md#定时-claude-code-对话采集)。
 
 ### 实验与长任务监控：去做别的事，等关键结果
 
@@ -210,12 +217,12 @@ Agent 结合用户的关注范围和提醒条件，整理价格变化、相关�
 
 连续几周的记录还能帮助发现单次对话里不容易看出的情况，例如同一个难点持续存在，或投入方向已经偏离原定目标。保留下来的来源让每项判断都能回到具体记录中讨论。
 
-配置和接口见[服务与部署](./services.md#proactive-runtime)，内置任务见 [`proactive.yaml`](../../reme/config/proactive.yaml)，执行流程见 [Agent 实现与提示词](../../reme/steps/proactive/task/)。关于长期运行 Agent 的通用设计，也可以阅读 Anthropic 的 [Building always-on agents](https://claude.com/resources/articles/building-always-on-agents)。
+配置和接口见[服务与部署](./services.md#proactive-runtime)，内置任务见 [`proactive.yaml`](../../reme/config/proactive.yaml)，执行流程见 [Agent 实现与提示词](../../reme/steps/proactive/agent/)。关于长期运行 Agent 的通用设计，也可以阅读 Anthropic 的 [Building always-on agents](https://claude.com/resources/articles/building-always-on-agents)。
 
 
 ## 任务存储
 
-创建时用 `cron` 指定时间触发的日程，省略或设为 `null` 则使用事件触发。Agent 视图的 `agent_type` 分别为 `time` 和 `event`。
+创建时必须显式传 `agent_type: time` 或 `agent_type: event`。时间任务还必须提供 `schedule` Cron 表达式，事件任务没有日程。持久化配置和 Agent 视图使用相同的显式类型。
 时间触发任务可调整日程，已入队的输入会按原计划时间执行。每条定时事件单独执行一轮，连续入队的观察事件可以合批。
 观察冷却从上一轮成功回执计时。观察与定时输入属于不同的任务身份。
 

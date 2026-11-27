@@ -1,0 +1,3 @@
+description: New Claude Code user messages, progress and final answers. Progress alone does not establish completion.
+description_zh: 新增的 Claude Code 用户消息、进度和最终回答；进度本身不代表工作已经完成。
+harness: Claude Code

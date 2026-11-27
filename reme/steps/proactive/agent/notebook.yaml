@@ -1,15 +1,21 @@
 default_task: Follow Todo and Idea records, update evidence-backed progress on active Todos, and send decisions requiring
   the user to Remy.
 default_task_zh: 跟进 Todo 和 Idea，更新有依据的活动 Todo 状态和进展，把需要用户决定的事项交给 Remy。
-notebook_skill_description: Find related Notebook records and maintain evidence-backed progress within automatic tool permissions.
-notebook_skill_description_zh: 找齐相关 Notebook 条目，在自动工具权限内维护有依据的 Todo 进展。
-notebook_skill: |-
+task_query: |-
+  {task_context}
+
+  ## Follow Notebook records
+  Read the input materials, including referenced files and images, for evidence relevant to the task.
   Use the manage-notebook skill and manage_notebook tool. Search related Todos and Ideas across projects and pages, including their links. Read each affected Todo's full progress with kind=todo, action=get before updating.
   Add only new evidence. Merge later results into matching progress, correct errors, and remove explicitly withdrawn progress using the original progress_match. Set in_progress only when work has demonstrably started.
   Automatic execution may update active Todo progress and set in_progress. Creating, closing, reopening, changing content, projects, dates or links, and writing Ideas require the user's decision through Remy.
-  For each such decision, record the existing entry, new evidence and proposed change. Prefer suitable existing entries to unnecessary new ones. Closing a Todo does not automatically close its Idea; check all linked active Todos. Use the common record skill for history, recording and reminders.
-notebook_skill_zh: |-
+  For each such decision, record the existing entry, new evidence and proposed change. Prefer suitable existing entries to unnecessary new ones. Closing a Todo does not automatically close its Idea; check all linked active Todos.
+task_query_zh: |-
+  {task_context}
+
+  ## 跟进 Notebook
+  阅读本轮材料及其引用的文件、图片，找出与任务有关的依据。
   使用 manage-notebook 技能和 manage_notebook 工具，按项目、关键词和分页找齐相关 Todo、Idea 及其关联。更新 Todo 前，用 kind=todo、action=get 读完全部进展。
   只补新增事实。同一事项有后续结果时合并原进展；更正错误，使用原 progress_match 删除明确撤回的进展。有依据确认已经开工时才能设为 in_progress。
   自动执行只修改活动 Todo 的进展或将状态设为 in_progress。创建、关闭、重开、修改内容、项目、日期、来源关联及 Idea 写操作，逐项交给 Remy 让用户决定。
-  记录需要决定的已有条目、新依据和建议，优先复用合适的已有条目。关闭 Todo 不自动关闭 Idea，还要核对其他关联 Todo。历史、记录和提醒使用公共记录技能。
+  记录需要决定的已有条目、新依据和建议，优先复用合适的已有条目。关闭 Todo 不自动关闭 Idea，还要核对其他关联 Todo。

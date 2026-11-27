@@ -11,9 +11,16 @@ The [full illustrated guide is available in Chinese](../zh/proactive_runtime.md)
 
 ## How a task keeps running
 
-Start ReMe with `reme start config=proactive`. Collectors send observations to event-triggered tasks through `manage_connector(action="send", task_names=..., events=...)`. Time-triggered tasks run on a `cron` schedule. Use an event-triggered task to check new experiment logs and a separate time-triggered task to summarize progress every day at 18:00.
+Start ReMe with `reme start config=proactive`. Collectors send observations to event-triggered Runtimes through `manage_connector(action="send", runtime_names=..., events=...)`. Time-triggered tasks use an explicit `agent_type: time` and `schedule` expression. Use an event-triggered task to check new experiment logs and a separate time-triggered task to summarize progress every day at 18:00.
 
-Each run opens a fresh native session and reads `TASK.md`. Consecutive observations can be processed together. Each scheduled trigger gets its own run in queue order. The prompt shows both the planned time of a scheduled trigger in **Events for this run** and the actual start time in **Background**. A trigger planned for 08:00 and processed at 08:07 shows both times.
+Each run opens a fresh native session and reads `TASK.md`. Consecutive observations can be processed together. Each scheduled trigger gets its own run in queue order. The query retains the scheduled trigger's planned time; the system prompt supplies the actual start time. A trigger planned for 08:00 and processed at 08:07 shows both times.
+
+All domain Agents share the personal-assistant system prompt and its workspace, time zone and current-time context.
+Their query contains `TASK.md`, the trigger inputs, domain instructions and selected skills; the Harness runs it once.
+
+Every background Agent loads the shared `proactive-record` skill. Domain prompts describe the task work; the skill
+handles history, duplicate records and reminders, reminder priority and content, and Markdown output. Notebook also
+loads `manage-notebook`. Runtime management remains with Remy's `manage-proactive-runtime` skill.
 
 The agent searches the shared `daily_dir` for earlier findings and reminders. It checks the latest `recent_history_hours` first (24 hours by default) and makes up to `max_local_search_calls` keyword or regex searches per run (10 by default). The search budget is a prompt instruction. If the agent exceeds it, ReMe logs one warning and lets the run finish. Diagnostics under `reme.agent_run` include tool calls, model status, and the run outcome. Failed rounds preserve written records and retain their inputs for retry. The retry delay starts at 5 seconds and increases to at most 5 minutes by default.
 
@@ -33,8 +40,8 @@ The task can specify its own delivery conditions and priority. The agent checks 
 
 ### Commit and delivery
 
-If the YAML frontmatter fails validation after a completed turn, the agent gets one follow-up in the same session to
-fix it directly in the record and keep the existing body. ReMe validates the saved file before committing the run.
+The skill checks and corrects its output within the same execution. ReMe validates the saved file before committing
+the run. A validation failure retains the draft and inputs for a later task retry.
 
 ReMe holds the file lock while checking the record, acknowledging its inputs, and registering any reminder in the
 task outbox. A model error or timeout preserves inputs and the draft for retry. If acknowledgement fails before the receipt
@@ -60,10 +67,11 @@ User feedback can update the relevant task description or configuration for late
 ## Current work observations
 
 [`codex_dialogue_cron`](./auto_resource.md#scheduled-codex-dialogue-collection) collects new Codex dialogue and
-attachments. `screen_capture_cron` independently captures all displays. Both run every five minutes and send
-observations to the `proactive_memory` Agent. The dialogue Job first runs its
-`init_steps` at startup to establish the reading baseline without importing old history. Claude Code and fuller tool
-execution trajectories require additional connectors. Collected observations must distinguish requested work, attempted
+attachments. [`claude_code_dialogue_cron`](./auto_resource.md#scheduled-claude-code-dialogue-collection) collects
+Claude Code dialogue using the same resource and Event contracts. Both send to `proactive_memory` and `proactive_note`.
+`screen_capture_cron` independently captures all displays and sends to `proactive_memory`. All run every five minutes;
+dialogue `init_steps` establish a baseline without importing old history. Fuller tool execution trajectories require
+additional connectors. Collected observations must distinguish requested work, attempted
 actions, and verified results.
 
 See [Services and Deployment](./services.md#proactive-runtime) for configuration and interfaces.
@@ -71,7 +79,7 @@ See [Services and Deployment](./services.md#proactive-runtime) for configuration
 
 ## Task storage
 
-When creating a task, set `cron` for time-triggered execution or leave it unset or `null` for event-triggered execution. Agent views report the types as `agent_type=time` and `agent_type=event`.
+Creation requires `agent_type: time` or `agent_type: event`. A time-triggered task also requires a `schedule` Cron expression; an event-triggered task has no schedule. Persisted configuration and Agent views use the same explicit type.
 Time-triggered tasks can change their schedules. Events already in the queue keep their original planned time. The runtime processes each time trigger in its own round and can batch consecutive observations.
 The observation cooldown starts after the last successful receipt. Time-triggered and event-triggered inputs belong to separate task identities.
 

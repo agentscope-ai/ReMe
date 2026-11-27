@@ -19,7 +19,11 @@ from .proactive_helpers import running_system, queue_event
 @pytest.mark.parametrize("will_retry", [False, True])
 @pytest.mark.asyncio
 async def test_nonstream_execution_retains_provider_error_outcomes(tmp_path, monkeypatch, entrypoint, will_retry):
-    async with running_system(tmp_path, runtimes=[{"agent_name": "monitor"}]) as (manager, context, wrapper):
+    async with running_system(tmp_path, runtimes=[{"agent_type": "event", "agent_name": "monitor"}]) as (
+        manager,
+        context,
+        wrapper,
+    ):
         runtime = await manager.resolve("monitor")
         await runtime.ensure_session({})
         original = wrapper.reply_stream
@@ -54,7 +58,11 @@ async def test_conversation_preserves_outcome_metadata_inputs_and_one_transport(
     status,
     stream_error,
 ):
-    async with running_system(tmp_path, runtimes=[{"agent_name": "monitor"}]) as (manager, context, wrapper):
+    async with running_system(tmp_path, runtimes=[{"agent_type": "event", "agent_name": "monitor"}]) as (
+        manager,
+        context,
+        wrapper,
+    ):
         task = await manager.resolve("monitor")
         await queue_event(manager)
         if agent_name != "Remy":
@@ -116,7 +124,10 @@ async def test_conversation_preserves_outcome_metadata_inputs_and_one_transport(
 async def test_only_latest_task_turn_is_projected_without_mutating_native_history(tmp_path, agent_name, completed):
     async with running_system(
         tmp_path,
-        runtimes=[{"agent_name": "monitor"}, {"agent_name": "timer", "cron": "0 8 * * *"}],
+        runtimes=[
+            {"agent_type": "event", "agent_name": "monitor"},
+            {"agent_type": "time", "agent_name": "timer", "schedule": "0 8 * * *"},
+        ],
     ) as (manager, context, wrapper):
         runtime = (
             context.components["agent_runtime"]["Remy"] if agent_name == "Remy" else await manager.resolve(agent_name)
@@ -154,7 +165,11 @@ async def test_only_latest_task_turn_is_projected_without_mutating_native_histor
 
 @pytest.mark.asyncio
 async def test_subscriptions_replace_turn_and_session_and_release_listeners(tmp_path):
-    async with running_system(tmp_path, runtimes=[{"agent_name": "monitor"}]) as (manager, context, wrapper):
+    async with running_system(tmp_path, runtimes=[{"agent_type": "event", "agent_name": "monitor"}]) as (
+        manager,
+        context,
+        wrapper,
+    ):
         runtime = await manager.resolve("monitor")
         sid = await runtime.ensure_session({})
         snapshot = SessionSnapshot(
@@ -183,7 +198,10 @@ async def test_subscriptions_replace_turn_and_session_and_release_listeners(tmp_
 
 @pytest.mark.asyncio
 async def test_remy_subscription_survives_damaged_task_history_and_definition(tmp_path):
-    async with running_system(tmp_path, runtimes=[{"agent_name": "monitor"}, {"agent_name": "broken"}]) as (
+    async with running_system(
+        tmp_path,
+        runtimes=[{"agent_type": "event", "agent_name": "monitor"}, {"agent_type": "event", "agent_name": "broken"}],
+    ) as (
         manager,
         context,
         _,

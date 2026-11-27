@@ -18,8 +18,8 @@ class FinanceCollectorStep(BaseConnectorStep):
     files: WorkspaceFiles
     resource_root: Path
 
-    def __init__(self, task_names=None, max_retries=3, request_timeout=20, **kwargs):
-        super().__init__(task_names=["proactive_fin"] if task_names is None else task_names, **kwargs)
+    def __init__(self, runtime_names=None, max_retries=3, request_timeout=20, **kwargs):
+        super().__init__(runtime_names=["proactive_fin"] if runtime_names is None else runtime_names, **kwargs)
         if type(max_retries) is not int or max_retries < 1:
             raise ValueError("max_retries must be a positive integer")
         if type(request_timeout) not in (int, float) or not math.isfinite(request_timeout) or request_timeout <= 0:

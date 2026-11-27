@@ -1,17 +1,17 @@
 import type { ProactiveRuntimeSettings } from "../../../client/src/tasks.ts";
 
-const cronPresets = {
+const schedulePresets = {
   daily: "0 8 * * *",
   weekdays: "0 8 * * 1-5",
   hourly: "0 * * * *",
 };
 
 type ClockPreset = "daily" | "weekdays";
-export type SchedulePreset = keyof typeof cronPresets | "custom";
+export type SchedulePreset = keyof typeof schedulePresets | "custom";
 
 export type ScheduleDraft = {
   preset: SchedulePreset;
-  cron: string;
+  schedule: string;
 };
 
 export type TaskTrigger =
@@ -25,16 +25,16 @@ export type TaskSettingsDraft = Pick<
 
 const defaultSettings: ProactiveRuntimeSettings = {
   enabled: true,
-  cron: null,
+  schedule: null,
   min_trigger_interval_seconds: 0,
   notify_window: null,
 };
 
 export function parseScheduleTime(
-  cron: string,
+  schedule: string,
 ): { preset: ClockPreset; time: string } | undefined {
   const match = /^([0-5]?\d)\s+([01]?\d|2[0-3])\s+\*\s+\*\s+(\*|1-5)$/.exec(
-    cron.trim(),
+    schedule.trim(),
   );
   if (!match) return;
   const [, minute, hour, days] = match;
@@ -50,11 +50,11 @@ export function changeSchedulePreset(
 ): ScheduleDraft {
   return {
     preset,
-    cron: preset === "custom" ? schedule.cron : cronPresets[preset],
+    schedule: preset === "custom" ? schedule.schedule : schedulePresets[preset],
   };
 }
 
-export function cronAtTime(preset: ClockPreset, time: string): string {
+export function scheduleAtTime(preset: ClockPreset, time: string): string {
   if (!time) return "";
   const [hour, minute] = time.split(":");
   return `${Number(minute)} ${Number(hour)} * * ${preset === "daily" ? "*" : "1-5"}`;
@@ -63,14 +63,15 @@ export function cronAtTime(preset: ClockPreset, time: string): string {
 export function defaultTaskTrigger(type: TaskTrigger["type"]): TaskTrigger {
   return type === "event"
     ? { type, minIntervalSeconds: defaultSettings.min_trigger_interval_seconds }
-    : { type, schedule: { preset: "daily", cron: cronPresets.daily } };
+    : { type, schedule: { preset: "daily", schedule: schedulePresets.daily } };
 }
 
 export function taskSettingsDraft(
   settings: ProactiveRuntimeSettings = defaultSettings,
+  agentType: "event" | "time" = "event",
 ): TaskSettingsDraft {
-  const { cron, min_trigger_interval_seconds, ...shared } = settings;
-  if (cron === null)
+  const { schedule, min_trigger_interval_seconds, ...shared } = settings;
+  if (agentType === "event")
     return {
       ...shared,
       trigger: {
@@ -78,11 +79,16 @@ export function taskSettingsDraft(
         minIntervalSeconds: min_trigger_interval_seconds,
       },
     };
+  if (schedule === null)
+    throw new Error("Time-triggered tasks require a schedule");
   const preset =
-    cron.trim() === cronPresets.hourly
+    schedule.trim() === schedulePresets.hourly
       ? "hourly"
-      : (parseScheduleTime(cron)?.preset ?? "custom");
-  return { ...shared, trigger: { type: "time", schedule: { preset, cron } } };
+      : (parseScheduleTime(schedule)?.preset ?? "custom");
+  return {
+    ...shared,
+    trigger: { type: "time", schedule: { preset, schedule } },
+  };
 }
 
 export function toRuntimeSettings(
@@ -91,7 +97,7 @@ export function toRuntimeSettings(
 ): ProactiveRuntimeSettings {
   return {
     ...shared,
-    cron: trigger.type === "time" ? trigger.schedule.cron : null,
+    schedule: trigger.type === "time" ? trigger.schedule.schedule : null,
     min_trigger_interval_seconds:
       trigger.type === "event"
         ? trigger.minIntervalSeconds

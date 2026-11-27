@@ -78,7 +78,7 @@ Runtime 持有会话引用、执行锁、独立 Inbox 和 Outbox，Job 负责单
 reme start config=proactive
 # 终端二：查询或创建任务
 reme manage_proactive_runtime action=list
-reme manage_proactive_runtime action=create agent_name=experiment_watch \
+reme manage_proactive_runtime action=create agent_type=event agent_name=experiment_watch \
   task_description='跟进实验日志；异常和结束时提醒，正常进展只记录。'
 ```
 
@@ -88,10 +88,14 @@ reme manage_proactive_runtime action=create agent_name=experiment_watch \
 创建、状态和更新返回原始运行信息：运行设置在 `config`，`running` 表示正在执行；列表返回 `items/total`。
 客户端 Agent 视图仍由 `list_agents` 和会话接口提供。
 
-创建时省略或设置 `cron=null` 使用事件触发，设置表达式使用时间触发，按应用时区执行。
-创建后触发类型和 run_job 固定；Notebook 只支持事件触发。`update` 仅修改 enabled、cron、
+创建时必须传 `agent_type=event` 或 `agent_type=time`。时间任务必须设置 `schedule` Cron 表达式，按应用时区执行；事件任务没有日程。
+创建后触发类型和 run_job 固定；Notebook 只支持事件触发。`update` 仅修改 enabled、schedule、
 min_trigger_interval_seconds、notify_window。暂停让当前轮完成，删除取消执行并保留工作区文件；同名恢复沿用领域和历史。
 读取或修改任务要求使用 `task_document action=read/save agent_name=...`，保存必须提交读取返回的 `mtime` 作为 expected_mtime。
+
+升级已有工作区前，先处理完排队的定时输入。服务中的 Runtime 设置和 `{reme_agent_dir}/*/config.json` 需将
+`cron` 改为 `schedule`，有日程时增加 `agent_type: time`，否则增加 `agent_type: event`，保留任务文件和历史。
+旧 Runtime 字段和 `source="cron"` 不再接受；采集 Job 自身仍使用 `cron` 配置。
 
 Remy 的个人记忆通过 `components.agent_runtime.Remy.initial_memory` 创建到 `{reme_agent_dir}/Remy/MEMORY.md`，
 已有内容保留。`components.agent_runtime.Remy.notification_config` 控制 P0 延迟（默认 0 秒）、P1 空闲（10 秒）、P2 空闲（1800 秒）。
@@ -100,23 +104,28 @@ P0 可以进入正在执行的前台原生轮次；P1/P2 等待前台空闲。�
 ### 资料接入与采集控制
 
 Connector 是 workflow，采集 Job 先发布 `resource/<source>/<date>/<batch>/metadata.json` 及完整资料，再投递统一 Event。
-内置桌面截图、Codex 对话、财经新闻、黄金、原油、纳指和 BTC 七个采集 Job，默认每五分钟运行。
-Codex 的 init_steps 建立基线，不导入历史；增量游标、图片附件和未完成投递批次保存在对应资料源目录。
-Harness 基类负责增量扫描、发布、投递和取消，Codex 派生负责自身格式；其他 Harness 尚未实现。
+内置桌面截图、Codex 与 Claude Code 对话、财经新闻、黄金、原油、纳指和 BTC 八个采集 Job，默认每五分钟运行。
+对话采集的 init_steps 建立基线，不导入历史；增量游标、图片附件和未完成投递批次保存在对应资料源目录。
+Harness 公共层负责增量扫描、渲染、发布、投递和取消，Codex 与 Claude Code 适配器负责原生格式，输出相同的资源和响应结构。
 
-使用 `manage-connector` 技能和 `manage_connector` 工具控制已配置、已启动的采集 Job：
+通过 `manage_connector` MCP Job 管理预设采集 Job：
 
-```bash
-reme manage_connector action=pause connector_job=screen_capture_cron
-reme manage_connector action=enable connector_job=screen_capture_cron
-reme manage_connector action=send task_names='["experiment_watch"]' \
-  events='[{"id":"log-001","event_ts":"2026-11-27T10:30:00+08:00","source":"experiment_log","description":"实验日志更新","paths":["resource/experiments/log-001.txt"]}]'
-```
+| 操作 | 参数 |
+| --- | --- |
+| 查看预设、下载开关和目标 | `{"action":"list"}` |
+| 暂停或恢复下载 | `{"action":"pause","connector_job":"finance_news_cron"}` 或 `{"action":"enable","connector_job":"finance_news_cron"}` |
+| 替换投递目标 | `{"action":"update","connector_job":"finance_news_cron","runtime_names":["proactive_fin","market_watch"]}` |
 
-手动投递前先保存原始资料；paths 必须是工作区相对路径。框架保留 source=cron。
-返回 deliveries、rejected 和 errors；仅对 errors 重试相同 ID 与内容，冲突 ID 是永久拒绝。
-采集暂停保留已发布资料和待投递结果，不改变 Runtime 的 enabled；恢复后先重试冻结批次。
-控制文件保存在 `{metadata_dir}/proactive/connectors/<connector_job>.json`。调整频率或目标名单需要修改服务配置。
+目标必须是已有事件触发任务。空名单表示继续下载、不投递新资料。设置保存在
+`{metadata_dir}/proactive/connectors/<connector_job>.json`，无需重启，新名单从新批次生效，冻结批次沿用原名单。
+暂停保留资料和待投递批次，下载开关与 Runtime 的 `enabled` 独立。
+`list` 分别返回 `available` 和持久化下载开关，只有 `connector_jobs` 名单中已配置、已启动的 Job 才能修改；采集频率仍在服务配置中调整。
+
+新任务从 `manage-proactive-runtime` 开始：每日早报等时间任务到点自行取资料，事件任务需要持续的数据来源。
+优先复用预设采集器；自建时按 `manage-connector` 将脚本放到 TASK.md 同级的 `scripts/`，先把原始资料保存到
+`resource_dir`，再通过 HTTP `POST /manage_connector` 发送 `action="send"`、`runtime_names` 和 `events`。
+事件路径必须相对工作区，`source="time"` 由框架保留。
+部分失败时也要检查 `deliveries`、`rejected`、`errors`，只对 `errors` 中的目标用原 ID 和原内容重试，所有目标结束后才推进采集游标。
 
 ### 提醒提交与恢复
 
@@ -229,7 +238,7 @@ Todo 默认 `pending`（待开始），开始后可设为 `in_progress`（进行
 活跃待办默认按计划日期排序。用 `reme manage_notebook kind=todo action=list order=created` 可按创建时间倒序查看，旧待办缺少创建时间时排在末尾。
 Studio 的待办视图也可以切换这两种顺序。
 
-`proactive_note` 由事件触发，与 `proactive_memory` 接收同一份新增 Codex 对话。随记使用 `manage-notebook` 查找相关
+`proactive_note` 由事件触发，与 `proactive_memory` 接收同一份新增 Codex 和 Claude Code 对话。随记使用 `manage-notebook` 查找相关
 Todo 和 Idea，先读完 Todo 的进展，再按新依据追加、更正或撤回进展，也可以把已开工的 Todo 改为 `in_progress`。
 条目的新增、关闭、Idea 修改和关联变更交给 Remy。需要用户决定的事项逐条写入 Markdown，说明条目、新依据和下一步，再按统一流程投递。
 

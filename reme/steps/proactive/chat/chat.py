@@ -14,6 +14,7 @@ class BaseChatAgentStep(BaseAgentStep):
     """Prepare the formal Chat binding independently of a reminder fork's tools."""
 
     skill_names = ("manage-proactive-runtime", "manage-connector", "manage-notebook")
+    job_tools = ("manage_proactive_runtime", "manage_connector", "manage_notebook")
 
     def session_options(self):
         """Build the formal role binding independently of temporary fork tools."""
@@ -23,8 +24,8 @@ class BaseChatAgentStep(BaseAgentStep):
             raise ValueError("Remy's execution Job must be configured")
         binding = config.steps[0].model_dump()
         options = {
-            "job_tools": list(binding.get("job_tools") or []),
-            "skills": self.get_skills(binding.get("skills", self.skill_names)),
+            "job_tools": list(binding.get("job_tools", self.job_tools) or []),
+            "skills": self.get_skills(runtime.name, binding.get("skills", self.skill_names)),
             "system_prompt": self.prompt_format(
                 "system_prompt",
                 workspace_dir=self.workspace_path,

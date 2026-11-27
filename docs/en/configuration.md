@@ -114,14 +114,21 @@ jobs:
     cron: "*/5 * * * *"
     init_steps:
       - backend: codex_dialogue_init_step
+        connector_job: codex_dialogue_cron
         codex_home: &codex_home ${CODEX_HOME:-~/.codex}
     steps:
       - backend: codex_dialogue_step
-        task_names: [proactive_memory, proactive_note]
+        connector_job: codex_dialogue_cron
+        runtime_names: [proactive_memory, proactive_note]
         codex_home: *codex_home
 ```
 
-Set `task_names` on the collector Step. Pending deliveries retain the recipients saved with each batch.
+Set `runtime_names` on the collector Step. Pending deliveries retain the recipients saved with each batch.
+
+The Connector recipient field was renamed from `task_names` to `runtime_names`. Update custom configurations and
+collectors. Before restarting with an existing workspace, also rename this key in saved Connector control files
+(`{metadata_dir}/proactive/connectors/*.json`), resource `.delivery.json` files and Harness `pending.json` batches.
+Keep recipient lists, event IDs and delivery results intact. The old field is not an alias.
 
 Only `steps` run at each scheduled time, using the application's timezone. Initialization and each trigger get fresh
 Step instances and separate runtime contexts and execution records. Share durable progress through workspace files

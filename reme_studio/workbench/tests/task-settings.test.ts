@@ -3,7 +3,7 @@ import test from "node:test";
 import { changedTaskSettings } from "../../client/src/tasks.ts";
 import {
   changeSchedulePreset,
-  cronAtTime,
+  scheduleAtTime,
   defaultTaskTrigger,
   parseScheduleTime,
   taskSettingsDraft,
@@ -20,7 +20,7 @@ test("creating a task sends only the selected mode's settings", () => {
     }),
     {
       enabled: true,
-      cron: null,
+      schedule: null,
       min_trigger_interval_seconds: 12.5,
       notify_window: null,
     },
@@ -29,23 +29,23 @@ test("creating a task sends only the selected mode's settings", () => {
     ...draft,
     trigger: defaultTaskTrigger("time"),
   });
-  assert.equal(timed.cron, "0 8 * * *");
+  assert.equal(timed.schedule, "0 8 * * *");
   assert.equal(timed.min_trigger_interval_seconds, 0);
 });
 
 test("a timed task round-trips an existing schedule and unrelated settings", () => {
   const baseline = {
     enabled: true,
-    cron: "05  09 * * 1-5",
+    schedule: "05  09 * * 1-5",
     min_trigger_interval_seconds: 30,
     notify_window: { start: "22:00", end: "06:00" },
   };
-  const draft = taskSettingsDraft(baseline);
+  const draft = taskSettingsDraft(baseline, "time");
   assert.deepEqual(draft.trigger, {
     type: "time",
-    schedule: { preset: "weekdays", cron: baseline.cron },
+    schedule: { preset: "weekdays", schedule: baseline.schedule },
   });
-  assert.deepEqual(parseScheduleTime(baseline.cron), {
+  assert.deepEqual(parseScheduleTime(baseline.schedule), {
     preset: "weekdays",
     time: "09:05",
   });
@@ -54,17 +54,17 @@ test("a timed task round-trips an existing schedule and unrelated settings", () 
   assert.deepEqual(changedTaskSettings(baseline, updated), { enabled: false });
 });
 
-test("custom cron text stays editable even when it matches a preset", () => {
-  const hourly = { preset: "hourly", cron: "0 * * * *" } as const;
+test("custom schedule text stays editable even when it matches a preset", () => {
+  const hourly = { preset: "hourly", schedule: "0 * * * *" } as const;
   assert.deepEqual(changeSchedulePreset(hourly, "custom"), {
     preset: "custom",
-    cron: hourly.cron,
+    schedule: hourly.schedule,
   });
   assert.deepEqual(changeSchedulePreset(hourly, "weekdays"), {
     preset: "weekdays",
-    cron: "0 8 * * 1-5",
+    schedule: "0 8 * * 1-5",
   });
-  assert.equal(cronAtTime("weekdays", "09:05"), "5 9 * * 1-5");
-  assert.equal(cronAtTime("daily", ""), "");
+  assert.equal(scheduleAtTime("weekdays", "09:05"), "5 9 * * 1-5");
+  assert.equal(scheduleAtTime("daily", ""), "");
   assert.equal(parseScheduleTime("0 24 * * *"), undefined);
 });

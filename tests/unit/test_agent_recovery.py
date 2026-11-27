@@ -13,7 +13,11 @@ from .proactive_helpers import running_system, emit_notification
 
 @pytest.mark.asyncio
 async def test_committed_input_recovers_missing_sender_outbox_after_restart(tmp_path, monkeypatch):
-    async with running_system(tmp_path, runtimes=[{"agent_name": "monitor"}]) as (manager, context, _):
+    async with running_system(tmp_path, runtimes=[{"agent_type": "event", "agent_name": "monitor"}]) as (
+        manager,
+        context,
+        _,
+    ):
         runtime = await manager.resolve("monitor")
         monkeypatch.setattr(runtime.outbox, "prepare_reference", AsyncMock(side_effect=OSError("disk unavailable")))
         ref = await emit_notification(manager, context)

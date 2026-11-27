@@ -69,9 +69,9 @@ Permanent material should remain in user-controlled workspace paths.
 ## Scheduled Screen Capture
 
 `config=proactive` enables `screen_capture_cron` every five minutes in the application timezone, without a startup capture.
-It publishes screenshots to the `proactive_memory` task, independently of Codex dialogue collection. Set
-`jobs.screen_capture_cron.enabled=false` to disable it. To change recipients, set `task_names` on
-`screen_capture_step` and name the event-triggered tasks that should receive screenshots.
+It publishes screenshots to the `proactive_memory` Runtime, independently of Codex dialogue collection. Set
+`jobs.screen_capture_cron.enabled=false` to disable it. To change recipients, set `runtime_names` on
+`screen_capture_step` and name the event-triggered Runtimes that should receive screenshots.
 
 `ScreenCaptureStep` saves one original-size PNG per display and records the recipients before publishing
 `metadata.json`. The observation lists the workspace-relative PNG paths. If delivery is interrupted, the collector
@@ -120,6 +120,23 @@ records by project and ID through `todo` and `idea`.
 `pending.json` freezes an unfinished batch so delivery can be retried before reading further changes. These collector
 files are not included in event paths. Restarting resumes the saved progress without replaying delivered dialogue.
 An idle scan writes no new progress record; tool-only changes still advance offsets without producing dialogue events.
+
+## Scheduled Claude Code Dialogue Collection
+
+`claude_code_dialogue_cron` watches `${CLAUDE_CONFIG_DIR:-~/.claude}/projects/*/*.jsonl` every five minutes.
+Like Codex, its startup `init_steps` establish a baseline without importing old history. Both dialogue collectors
+use `runtime_names: [proactive_memory, proactive_note]` by default and support the same `manage_connector` controls.
+
+Claude Code combines API content blocks by message ID, retaining user prompts, visible progress and final answers.
+Tool results, thinking, synthetic input, compaction summaries, team and subagent records are excluded. A user's UUID
+anchors its turn; only an explicit `end_turn` marks an assistant answer as final. Unfinished blocks survive scans and
+restarts. Embedded images are copied into the package; unavailable images are counted without opening external paths.
+ReMe's default private Claude configuration under `mem_session_dir` is outside this watched source.
+
+Packages use `resource/claude_code_dialogue/YYYY-MM-DD/HHMMSS_<suffix>/` with the same manifest, Markdown hierarchy,
+JSONL message fields and image files as Codex. Events differ by `source` and resource paths. Both collectors return
+`event_ids`, `dialogue_messages`, `scanned_bytes` and `errors`, plus `rejected` when recipients reject delivery.
+Each source keeps its own `progress.jsonl` and `pending.json`; pending batches retain their original recipients and IDs.
 
 ## Scheduled Finance Collection
 

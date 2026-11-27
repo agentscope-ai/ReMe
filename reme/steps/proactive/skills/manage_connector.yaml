@@ -1,132 +1,206 @@
 name: manage-connector
-description: Use ReMe's manage_connector to deliver standard events or enable and pause configured collection Jobs.
-description_zh: 用 ReMe 的 manage_connector 投递标准事件，或开启、暂停已配置的资料采集 Job。
+description: Use ReMe's manage_connector MCP Job to list preset collectors, control downloads and delivery targets, and connect custom scripts through HTTP events.
+description_zh: 通过 ReMe 的 manage_connector MCP Job 查看预设采集器、控制下载和投递目标，并用 HTTP 事件接入自建采集脚本。
 content: |
-  # Manage source connections
+  # Manage connectors
 
-  First inspect the target tasks with `manage_proactive_runtime`. Deliver events only to existing event-triggered tasks;
-  time-triggered tasks fetch their own material. Enable or pause collection Jobs that are already configured and started.
-  These actions neither create collectors nor change the target Runtime's `enabled` setting.
+  Start with `manage-proactive-runtime` to create or identify the receiving event-triggered task. Use the `manage_connector` MCP Job to manage preset collectors. Custom collection scripts deliver data through HTTP `POST /manage_connector` with `action="send"`.
 
-  ```json
-  {"action":"pause","connector_job":"screen_capture_cron"}
-  {"action":"enable","connector_job":"screen_capture_cron"}
+  ## Preset collectors: MCP management
+
+  | Action | Parameters and meaning |
+  | --- | --- |
+  | `list` | Only `action`. Returns `items` and `total`; each item includes `connector_job`, `description`, `schedule`, `available`, `enabled` and `runtime_names`. `available` means the configured Job is enabled and started; `enabled` is its persistent download switch. |
+  | `pause`, `enable` | `action` and `connector_job` returned by `list`. Pause/resume downloading; do not change Runtime execution settings. The Job must be available. |
+  | `update` | `action`, `connector_job`, `runtime_names`. Replace the complete recipient list with existing event-triggered Runtime names, unique ignoring case. Read the list first to retain other subscribers. An empty list keeps downloads without new deliveries. |
+
+  The workspace retains the switch and recipient override across restart; changes apply without restarting ReMe. Without an override, recipients come from the service configuration. New lists apply to new batches; already saved delivery batches keep their original recipients and retry progress. Pausing preserves files and pending batches. Configure collection frequency and source details in the service configuration.
+
+  The following examples assume `finance_news_cron` currently delivers to `proactive_fin` and the new `market_watch` task already exists.
+
+  | Operation | Complete MCP parameters |
+  | --- | --- |
+  | Find preset sources and settings | `{"action":"list"}` |
+  | Pause downloads | `{"action":"pause","connector_job":"finance_news_cron"}` |
+  | Resume downloads | `{"action":"enable","connector_job":"finance_news_cron"}` |
+  | Add a recipient while retaining the original | `{"action":"update","connector_job":"finance_news_cron","runtime_names":["proactive_fin","market_watch"]}` |
+  | Remove a recipient | `{"action":"update","connector_job":"finance_news_cron","runtime_names":["proactive_fin"]}` |
+  | Download without new deliveries | `{"action":"update","connector_job":"finance_news_cron","runtime_names":[]}` |
+
+  ## Custom sources: save material, then deliver HTTP events
+
+  If no preset fits, put a collection script in `scripts/collect.py` beside the task's TASK.md, using the actual `task_path`. For example: `reme_agents/experiment_watch/scripts/collect.py`. Use the current service address; `POST /get_client_info` with `{}` supplies `workspace_dir` and `resource_dir`. Save original material under the resource directory and reference it in Events, as the preset CLS news collector does.
+
+  `send` accepts only `action`, nonempty `runtime_names` and nonempty `events`. Recipients must be existing event-triggered Runtimes; time-triggered Runtimes fetch their own data. Manual delivery saves no files and creates no resource package for you.
+
+  | Event field | Meaning |
+  | --- | --- |
+  | `id` | Optional nonempty ID, up to 128 characters; generated when omitted. Supply a stable ID for retries. Same ID and content are idempotent per recipient; changed content needs a new ID. |
+  | `event_ts` | Required observation timestamp with timezone; retain it on retries. |
+  | `source` | Required nonempty source name; `time` is reserved for the framework. |
+  | `description` | Required string summarizing the observation. |
+  | `paths` | Optional, default `[]`. Normalized workspace-relative paths to saved files; no absolute/home paths, backslashes or `..`. |
+  | `metadata` | Optional JSON object, default `{}`, for extra context. |
+
+  Each request below is an independent `POST /manage_connector` example. In the retry example, only `project_watch` failed in the first request; keep the exact original Events.
+
+  | Delivery | Complete HTTP body |
+  | --- | --- |
+  | Send one observation to several Runtimes | `{"action":"send","runtime_names":["experiment_watch","project_watch"],"events":[{"id":"log-001","event_ts":"2026-11-27T10:30:00+08:00","source":"experiment_log","description":"Log updated","paths":["resource/experiments/log-001.txt"],"metadata":{"experiment":"demo"}}]}` |
+  | Retry only a failed recipient | `{"action":"send","runtime_names":["project_watch"],"events":[{"id":"log-001","event_ts":"2026-11-27T10:30:00+08:00","source":"experiment_log","description":"Log updated","paths":["resource/experiments/log-001.txt"],"metadata":{"experiment":"demo"}}]}` |
+  | Send a batch of observations | `{"action":"send","runtime_names":["experiment_watch"],"events":[{"id":"log-002","event_ts":"2026-11-27T10:35:00+08:00","source":"experiment_log","description":"Training ended","paths":["resource/experiments/log-002.txt"]},{"id":"log-003","event_ts":"2026-11-27T10:40:00+08:00","source":"experiment_log","description":"Evaluation ended","paths":["resource/experiments/log-003.txt"]}]}` |
+  | Correct information with a new event | `{"action":"send","runtime_names":["experiment_watch"],"events":[{"id":"log-004","event_ts":"2026-11-27T10:45:00+08:00","source":"experiment_log","description":"The earlier run ended with an error","paths":["resource/experiments/log-004.txt"]}]}` |
+
+  ### Example: watch an experiment log
+
+  This script reads the existing UTF-8 log, then polls once per second for appended output. Save each new chunk under `resource_dir` and send its path to the receiving Runtime.
+
+  ```python
+  import sys
+  import time
+  from datetime import datetime
+  from pathlib import Path
+  from uuid import uuid4
+
+  import httpx
+
+  base, log_path, runtime_name = sys.argv[1:]
+  with httpx.Client(base_url=base, timeout=30) as client:
+      info = client.post("/get_client_info", json={}).raise_for_status().json()
+      if not info["success"]:
+          raise RuntimeError(info["answer"])
+      workspace = Path(info["answer"]["workspace_dir"])
+      folder = workspace / info["answer"]["resource_dir"] / "experiment_log"
+      folder.mkdir(parents=True, exist_ok=True)
+
+      with Path(log_path).open(encoding="utf-8") as log:
+          while True:
+              text = log.read()
+              if text:
+                  path = folder / f"{uuid4().hex}.log"
+                  path.write_text(text, encoding="utf-8")
+                  event = {
+                      "id": path.stem,
+                      "event_ts": datetime.now().astimezone().isoformat(),
+                      "source": "experiment_log",
+                      "description": "Log output added",
+                      "paths": [path.relative_to(workspace).as_posix()],
+                  }
+                  result = client.post("/manage_connector", json={
+                      "action": "send", "runtime_names": [runtime_name], "events": [event],
+                  }).raise_for_status().json()
+                  if not result["success"]:
+                      raise RuntimeError(result["answer"])
+                  print(result["answer"], flush=True)
+              time.sleep(1)
   ```
 
-  Use only the service's configured `connector_jobs` list. Pausing retains downloaded material and pending batches;
-  resuming continues delivery. Keep collectors used by other tasks running. To change sources, frequency or target tasks,
-  update the relevant service configuration and restart.
+  Run `python <script_path> <reme_service_url> <experiment_log_path> experiment_watch`. Keep the process running; stop it with Ctrl+C.
 
-  ## Connect observations and verify results
+  ## Verify results
 
-  1. Confirm the source and collection host, preferring an existing collector. Call the current service's
-     `POST /get_client_info` with body `{}` to check `workspace_dir` and `resource_dir`. Configure and start collection on
-     the actual host, and record how to run and stop it.
-  2. Save the complete original material in the workspace before posting a summary and file paths to `POST /manage_connector`.
-     Set `task_names` to the target task names and use normalized workspace-relative `paths`.
-     `source="cron"` is reserved for the framework.
+  Read all per-target results even when the overall response fails: `answer.deliveries` contains accepted event IDs, `answer.rejected` contains terminal rejection reasons, and `answer.errors` contains retryable errors. Retain original Events on retries; advance the source cursor only once every recipient has accepted or explicitly rejected the batch. Report rejections and persistent errors.
 
-  ```json
-  {
-    "action": "send",
-    "task_names": [
-      "experiment_watch"
-    ],
-    "events": [
-      {
-        "id": "experiment-log-snapshot-001",
-        "event_ts": "2026-11-22T10:30:00+08:00",
-        "source": "experiment_log",
-        "description": "The experiment log snapshot has been updated.",
-        "paths": [
-          "resource/experiments/snapshot-001.log"
-        ]
-      }
-    ]
-  }
-  ```
-
-  Verify delivery with real material. Check each target's event IDs in `answer.deliveries` and record the reasons in
-  `answer.rejected`, such as a deleted target, a time-triggered target or conflicting event IDs.
-  Retry only targets in `answer.errors`, with bounded retries and the same event IDs and content.
-  Advance the collection cursor only after every target has accepted delivery or explicitly rejected it.
-  Have the collection host report persistent failures.
-
-  Check consumption using the event counts, `last_completed_at` and `error` from `status`; then use `query` or daily records
-  to check the analysis. Reminders selected by the task enter the main conversation's inbox. When the actual reminder
-  condition occurs, verify the sending result. Tell the user what has been configured or verified and what remains to check.
-
-  ## CLI
-
-  Run `reme start config=proactive` in one terminal, then use another terminal for:
-
-  ```bash
-  reme manage_connector action=pause connector_job=screen_capture_cron
-  reme manage_connector action=enable connector_job=screen_capture_cron
-  ```
-
-  Manual `send` does not create a resource. Save the original files first, then deliver immutable event IDs, timestamps,
-  sources, summaries and workspace-relative paths. Retries must reuse the same IDs and content.
-  Create a new ID for changed content; do not overwrite a delivered event.
+  Use task `status` event counts, `last_completed_at` and `error` to check consumption; use `query` or daily records to check analysis. Verify actual sending when reminder conditions occur. State separately what is configured, running, accepted, processed and verified.
 
 content_zh: |
   # 管理资料接入
 
-  先用 manage_proactive_runtime 查看目标任务。事件只能投递给已有事件触发任务；时间触发任务自己取资料。
-  开启、暂停的是已配置且启动的采集 Job，不会创建采集器，也不会修改目标 Runtime 的 enabled。
+  先通过 `manage-proactive-runtime` 创建或找到接收资料的事件触发 Runtime。预设采集器用 `manage_connector` MCP Job 管理；自建采集脚本通过 HTTP `POST /manage_connector` 的 `action="send"` 投递数据。
 
-  ```json
-  {"action":"pause","connector_job":"screen_capture_cron"}
-  {"action":"enable","connector_job":"screen_capture_cron"}
+  ## 预设采集器：通过 MCP 管理
+
+  | 操作 | 参数和含义 |
+  | --- | --- |
+  | `list` | 只传 `action`。返回 `items`、`total`，每项含 `connector_job`、`description`、`schedule`、`available`、`enabled`、`runtime_names`。`available` 表示配置的 Job 已启用并启动，`enabled` 是持久化的下载开关。 |
+  | `pause`、`enable` | 传 `action` 和 `list` 返回的 `connector_job`，暂停/恢复下载，不修改 Runtime 执行开关。Job 必须可用。 |
+  | `update` | 传 `action`、`connector_job`、`runtime_names`，用完整名单替换目标。目标必须是已有事件触发 Runtime，忽略大小写不能重复。先读取原名单，保留其他订阅者；空名单表示继续下载，不投递新资料。 |
+
+  开关和目标覆盖名单保存在工作区，重启后保留，修改后不需要重启 ReMe。没有覆盖名单时使用服务配置的目标。新名单只影响新批次；已保存的待投递批次保留原名单和重试进度。暂停保留文件和待投递批次，采集频率、来源细节仍在服务配置中调整。
+
+  以下示例假定 `finance_news_cron` 原来投递给 `proactive_fin`，新 Runtime `market_watch` 已创建。
+
+  | 操作 | 完整 MCP 参数 |
+  | --- | --- |
+  | 查看预设来源和设置 | `{"action":"list"}` |
+  | 暂停下载 | `{"action":"pause","connector_job":"finance_news_cron"}` |
+  | 恢复下载 | `{"action":"enable","connector_job":"finance_news_cron"}` |
+  | 保留原目标并新增一个 | `{"action":"update","connector_job":"finance_news_cron","runtime_names":["proactive_fin","market_watch"]}` |
+  | 移除一个目标 | `{"action":"update","connector_job":"finance_news_cron","runtime_names":["proactive_fin"]}` |
+  | 只下载，不投递新资料 | `{"action":"update","connector_job":"finance_news_cron","runtime_names":[]}` |
+
+  ## 自建来源：先保存资料，再通过 HTTP 投递
+
+  没有合适的预设时，按实际 `task_path`，把采集脚本放在 TASK.md 同级的 `scripts/collect.py`，例如 `reme_agents/experiment_watch/scripts/collect.py`。使用当前服务地址，先用 `POST /get_client_info`（请求体 `{}`）取得 `workspace_dir`、`resource_dir`。参考预设财联社新闻采集：先把原始资料保存到资源目录，再通过 Event 引用文件。
+
+  `send` 只接受 `action`、非空的 `runtime_names` 和 `events`。目标必须是已有事件触发 Runtime，时间触发 Runtime 自己取资料。手动投递不会替你保存文件或创建 resource 包。
+
+  | Event 字段 | 含义 |
+  | --- | --- |
+  | `id` | 可选非空 ID，最长 128 字符，省略时自动生成。需要重试时显式给稳定 ID；同一目标下，同 ID 同内容幂等，内容变化换新 ID。 |
+  | `event_ts` | 必填，带时区的观察时间，重试保持原值。 |
+  | `source` | 必填非空来源名，`time` 由框架保留。 |
+  | `description` | 必填字符串，简述本次观察。 |
+  | `paths` | 可选，默认 `[]`，引用已保存文件的规范工作区相对路径，不含绝对/家目录路径、反斜杠或 `..`。 |
+  | `metadata` | 可选 JSON 对象，默认 `{}`，补充背景。 |
+
+  下表每行是独立的 `POST /manage_connector` 请求。重试示例假定第一行只有 `project_watch` 失败，必须原样复用原 Event。
+
+  | 投递 | 完整 HTTP 正文 |
+  | --- | --- |
+  | 一条观察发给多个 Runtime | `{"action":"send","runtime_names":["experiment_watch","project_watch"],"events":[{"id":"log-001","event_ts":"2026-11-27T10:30:00+08:00","source":"experiment_log","description":"日志已更新","paths":["resource/experiments/log-001.txt"],"metadata":{"experiment":"demo"}}]}` |
+  | 只重试失败目标 | `{"action":"send","runtime_names":["project_watch"],"events":[{"id":"log-001","event_ts":"2026-11-27T10:30:00+08:00","source":"experiment_log","description":"日志已更新","paths":["resource/experiments/log-001.txt"],"metadata":{"experiment":"demo"}}]}` |
+  | 批量投递观察 | `{"action":"send","runtime_names":["experiment_watch"],"events":[{"id":"log-002","event_ts":"2026-11-27T10:35:00+08:00","source":"experiment_log","description":"训练已结束","paths":["resource/experiments/log-002.txt"]},{"id":"log-003","event_ts":"2026-11-27T10:40:00+08:00","source":"experiment_log","description":"评估已结束","paths":["resource/experiments/log-003.txt"]}]}` |
+  | 用新事件更正信息 | `{"action":"send","runtime_names":["experiment_watch"],"events":[{"id":"log-004","event_ts":"2026-11-27T10:45:00+08:00","source":"experiment_log","description":"此前运行因错误退出","paths":["resource/experiments/log-004.txt"]}]}` |
+
+  ### 示例：观察实验日志
+
+  脚本先读取已有的 UTF-8 日志，随后每秒读取新增内容。将每段新增内容保存到 `resource_dir`，再把文件路径发送给接收 Runtime。
+
+  ```python
+  import sys
+  import time
+  from datetime import datetime
+  from pathlib import Path
+  from uuid import uuid4
+
+  import httpx
+
+  base, log_path, runtime_name = sys.argv[1:]
+  with httpx.Client(base_url=base, timeout=30) as client:
+      info = client.post("/get_client_info", json={}).raise_for_status().json()
+      if not info["success"]:
+          raise RuntimeError(info["answer"])
+      workspace = Path(info["answer"]["workspace_dir"])
+      folder = workspace / info["answer"]["resource_dir"] / "experiment_log"
+      folder.mkdir(parents=True, exist_ok=True)
+
+      with Path(log_path).open(encoding="utf-8") as log:
+          while True:
+              text = log.read()
+              if text:
+                  path = folder / f"{uuid4().hex}.log"
+                  path.write_text(text, encoding="utf-8")
+                  event = {
+                      "id": path.stem,
+                      "event_ts": datetime.now().astimezone().isoformat(),
+                      "source": "experiment_log",
+                      "description": "实验日志有新增输出",
+                      "paths": [path.relative_to(workspace).as_posix()],
+                  }
+                  result = client.post("/manage_connector", json={
+                      "action": "send", "runtime_names": [runtime_name], "events": [event],
+                  }).raise_for_status().json()
+                  if not result["success"]:
+                      raise RuntimeError(result["answer"])
+                  print(result["answer"], flush=True)
+              time.sleep(1)
   ```
 
-  仅使用服务配置的 connector_jobs 名单。暂停会保留已下载资料和待投递批次，恢复后继续投递。
-  不要关闭仍被其他任务共享的采集器。需要修改来源、频率或目标列表时，更新明确的服务配置并重启。
+  运行 `python <script_path> <reme_service_url> <experiment_log_path> experiment_watch`，保持进程运行，用 Ctrl+C 停止。
 
-  ## 接入观察并核对结果
+  ## 核对结果
 
-  1. 确认资料来源和采集宿主，优先复用现有采集器。用当前服务的 `POST /get_client_info`（请求体 `{}`）确认 `workspace_dir` 和
-     `resource_dir`。在实际宿主配置并启动采集，留下运行入口和停止方式。
-  2. 先将原始资料完整保存到工作区，再向 `POST /manage_connector` 投递简述和文件路径。`task_names` 填目标任务名单，`paths`
-     使用规范的工作区相对路径。
-     `source="cron"` 由框架保留。
+  整体响应失败时也看各目标结果：`answer.deliveries` 是已接收事件 ID，`answer.rejected` 是明确拒绝，`answer.errors` 是可重试错误。重试保持原事件不变；所有目标都接受或明确拒绝后，才推进采集游标。拒绝和持续失败都要报告。
 
-  ```json
-  {
-    "action": "send",
-    "task_names": [
-      "experiment_watch"
-    ],
-    "events": [
-      {
-        "id": "experiment-log-snapshot-001",
-        "event_ts": "2026-11-22T10:30:00+08:00",
-        "source": "experiment_log",
-        "description": "实验日志快照已更新。",
-        "paths": [
-          "resource/experiments/snapshot-001.log"
-        ]
-      }
-    ]
-  }
-  ```
-
-  用真实资料验证投递。核对 `answer.deliveries` 中各目标的事件 ID，并记录 `answer.rejected` 中的拒绝原因，例如目标已删除、属于时间触发，或事件
-  ID 冲突。
-  仅对 `answer.errors` 中的目标有限重试，复用原事件 ID 和内容。每个目标都完成投递或收到明确拒绝后推进采集游标。持续失败时让采集宿主报告错误。
-
-  用 `status` 的事件计数、`last_completed_at` 和 `error` 核对消费情况，再用 `query`
-  或每日记录核对分析。任务决定发送的提醒进入主对话的收件箱。实际提醒条件出现时核对发送结果。向用户汇报已经配置或验证到哪一步，以及还有哪一步待确认。
-
-
-  ## CLI
-
-  先在一个终端运行 `reme start config=proactive`，再在另一个终端运行：
-
-  ```bash
-  reme manage_connector action=pause connector_job=screen_capture_cron
-  reme manage_connector action=enable connector_job=screen_capture_cron
-  ```
-
-  手动 send 不生成 resource；先保存原始文件，再投递不可变的事件 ID、时间、来源、简述和工作区相对路径。
-  重试必须复用相同 ID 与内容。修改内容要创建新 ID，不能覆盖已投递事件。
+  用任务 `status` 的事件计数、`last_completed_at`、`error` 核对消费，用 `query` 或每日记录核对分析；提醒条件出现时核对实际发送。分清已配置、正在运行、事件已接收、已处理和已验证。

@@ -45,7 +45,11 @@ async def test_mailbox_reads_do_not_consume_or_rewrite_and_reflect_source_edits(
 
 @pytest.mark.asyncio
 async def test_task_queue_view_preserves_event_metadata_and_claims(tmp_path):
-    async with running_system(tmp_path, runtimes=[{"agent_name": "monitor"}]) as (manager, context, _):
+    async with running_system(tmp_path, runtimes=[{"agent_type": "event", "agent_name": "monitor"}]) as (
+        manager,
+        context,
+        _,
+    ):
         await queue_event(manager)
         runtime = await manager.resolve("monitor")
         step = AgentInboxStep(app_context=context, agent_runtime="Remy")

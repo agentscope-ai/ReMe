@@ -97,40 +97,38 @@ class RuntimeRegistry:
         return self.files.checked(self.directory_for(agent) / "TASK.md")
 
     @staticmethod
-    def _validate_trigger_type(current: ProactiveRuntimeConfig, candidate: ProactiveRuntimeConfig) -> None:
-        """Keep the trigger type fixed for a task's lifetime, including restoration."""
-        if (current.cron is None) != (candidate.cron is None):
-            raise ValueError("Task trigger type cannot change after creation")
-
-    @staticmethod
-    def _validate_cron(config: ProactiveRuntimeConfig, now: datetime) -> None:
+    def _validate_schedule(config: ProactiveRuntimeConfig, now: datetime) -> None:
         """Reject schedules without a next occurrence before publishing configuration."""
-        if config.cron is not None:
-            next_cron_time(config.cron, now)
+        if config.agent_type == "time":
+            next_cron_time(config.schedule, now)
 
     def create(self, config, now: datetime):
         """Restore the same identity without replacing its requirements or execution role."""
-        config = CreateProactiveRuntimeConfig.model_validate(config)
+        supplied = (
+            config.model_dump(exclude_unset=True) if isinstance(config, CreateProactiveRuntimeConfig) else dict(config)
+        )
+        name = validate_agent_name(supplied.get("agent_name"))
         agents = self.load(include_deleted=True)
-        previous = next((v for k, v in agents.items() if k.casefold() == config.agent_name.casefold()), None)
-        values = config.model_dump(exclude={"task_description"})
+        previous = next((v for k, v in agents.items() if k.casefold() == name.casefold()), None)
         if previous is None:
-            if config.agent_name.casefold() in self.configured_names():
+            if name.casefold() in self.configured_names():
                 raise ValueError("An unavailable definition already owns this name")
+            values = supplied
         else:
-            if previous.agent_name != config.agent_name or previous.deleted_at is None:
+            if previous.agent_name != name or previous.deleted_at is None:
                 raise ValueError("Task already exists")
-            if "run_job" in config.model_fields_set and config.run_job != previous.run_job:
+            if "run_job" in supplied and supplied["run_job"] != previous.run_job:
                 raise ValueError("Task execution Job cannot change on restore")
-            if "cron" in config.model_fields_set:
-                self._validate_trigger_type(previous, config)
+            if supplied.get("agent_type") != previous.agent_type:
+                raise ValueError("Task trigger type cannot change after creation")
             values = {
                 **previous.model_dump(exclude={"created_at", "deleted_at"}),
-                **config.model_dump(exclude_unset=True, exclude={"task_description"}),
-                "enabled": config.enabled,
+                **supplied,
+                "enabled": supplied.get("enabled", True),
             }
-        validated = ProactiveRuntimeConfig.model_validate(values)
-        self._validate_cron(validated, now)
+        config = CreateProactiveRuntimeConfig.model_validate(values)
+        validated = ProactiveRuntimeConfig.model_validate(config.model_dump(exclude={"task_description"}))
+        self._validate_schedule(validated, now)
         agent = ProactiveRuntimeDefinition(
             **validated.model_dump(),
             created_at=previous.created_at if previous else now,
@@ -145,13 +143,12 @@ class RuntimeRegistry:
 
     def update(self, agent_name, patch, now: datetime):
         """Only operational settings can be changed after creation."""
-        if not patch or set(patch) - {"enabled", "cron", "min_trigger_interval_seconds", "notify_window"}:
+        if not patch or set(patch) - {"enabled", "schedule", "min_trigger_interval_seconds", "notify_window"}:
             raise ValueError("Update requires supported runtime settings")
         agent = self.get(agent_name)
         candidate = ProactiveRuntimeDefinition.model_validate({**agent.model_dump(), **patch})
-        self._validate_trigger_type(agent, candidate)
-        if candidate.cron != agent.cron or candidate.enabled and not agent.enabled:
-            self._validate_cron(candidate, now)
+        if candidate.schedule != agent.schedule or candidate.enabled and not agent.enabled:
+            self._validate_schedule(candidate, now)
         self.save(candidate)
         return candidate
 

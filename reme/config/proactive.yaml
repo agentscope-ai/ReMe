@@ -47,18 +47,20 @@ jobs:
 
   screen_capture_cron:
     backend: cron
+    description: Collect desktop screenshots.
     enabled: true
     cron: '*/5 * * * *'
     steps:
     - backend: screen_capture_step
       similarity_threshold: 0.99
-      task_names:
+      runtime_names:
       - proactive_memory
       agent_manager: default
       connector_job: screen_capture_cron
 
   codex_dialogue_cron:
     backend: cron
+    description: Collect new Codex user messages, progress and final answers.
     cron: '*/5 * * * *'
     init_steps:
     - backend: codex_dialogue_init_step
@@ -67,7 +69,7 @@ jobs:
       connector_job: codex_dialogue_cron
     steps:
     - backend: codex_dialogue_step
-      task_names:
+      runtime_names:
       - proactive_memory
       - proactive_note
       codex_home: ${CODEX_HOME:-~/.codex}
@@ -75,12 +77,32 @@ jobs:
       connector_job: codex_dialogue_cron
     enabled: true
 
+  claude_code_dialogue_cron:
+    backend: cron
+    description: Collect new Claude Code user messages, progress and final answers.
+    cron: '*/5 * * * *'
+    init_steps:
+    - backend: claude_code_dialogue_init_step
+      claude_config_dir: ${CLAUDE_CONFIG_DIR:-~/.claude}
+      agent_manager: default
+      connector_job: claude_code_dialogue_cron
+    steps:
+    - backend: claude_code_dialogue_step
+      runtime_names:
+      - proactive_memory
+      - proactive_note
+      claude_config_dir: ${CLAUDE_CONFIG_DIR:-~/.claude}
+      agent_manager: default
+      connector_job: claude_code_dialogue_cron
+    enabled: true
+
   finance_news_cron:
     backend: cron
+    description: Download new CLS financial news.
     cron: '*/5 * * * *'
     steps:
     - backend: finance_news_step
-      task_names:
+      runtime_names:
       - proactive_fin
       agent_manager: default
       connector_job: finance_news_cron
@@ -88,11 +110,12 @@ jobs:
 
   gold_quotes_cron:
     backend: cron
+    description: Download spot gold quotes.
     cron: '*/5 * * * *'
     steps:
     - backend: tencent_quotes_step
       instrument: gold
-      task_names:
+      runtime_names:
       - proactive_fin
       agent_manager: default
       connector_job: gold_quotes_cron
@@ -100,11 +123,12 @@ jobs:
 
   oil_quotes_cron:
     backend: cron
+    description: Download WTI crude oil quotes.
     cron: '*/5 * * * *'
     steps:
     - backend: tencent_quotes_step
       instrument: oil
-      task_names:
+      runtime_names:
       - proactive_fin
       agent_manager: default
       connector_job: oil_quotes_cron
@@ -112,11 +136,12 @@ jobs:
 
   nasdaq_quotes_cron:
     backend: cron
+    description: Download Nasdaq Composite quotes.
     cron: '*/5 * * * *'
     steps:
     - backend: tencent_quotes_step
       instrument: nasdaq
-      task_names:
+      runtime_names:
       - proactive_fin
       agent_manager: default
       connector_job: nasdaq_quotes_cron
@@ -124,10 +149,11 @@ jobs:
 
   btc_quotes_cron:
     backend: cron
+    description: Download BTC/USDT quotes.
     cron: '*/5 * * * *'
     steps:
     - backend: btc_quotes_step
-      task_names:
+      runtime_names:
       - proactive_fin
       agent_manager: default
       connector_job: btc_quotes_cron
@@ -568,11 +594,6 @@ jobs:
     steps:
       - backend: chat_agent_step
         agent_runtime: Remy
-        job_tools: [manage_proactive_runtime, manage_connector, manage_notebook]
-        skills:
-          - manage-proactive-runtime
-          - manage-connector
-          - manage-notebook
 
   process_chat_notifications:
     backend: base
@@ -607,8 +628,6 @@ jobs:
         max_local_search_calls: 10
         recent_history_hours: 24
         sandbox: null
-        job_tools: []
-        skills: []
 
   run_notebook_agent:
     backend: base
@@ -617,9 +636,6 @@ jobs:
     steps:
       - <<: *task_execution
         backend: notebook_agent_step
-        job_tools: [manage_notebook]
-        skills:
-          - manage-notebook
 
   run_finance_agent:
     backend: base
@@ -674,12 +690,15 @@ jobs:
           description: 'Create only: explicit TASK.md text. Omit to render the selected domain default.'
         enabled:
           type: boolean
-        cron:
+        agent_type:
+          type: string
+          enum: [event, time]
+          description: Required on create. The trigger type is immutable for the Runtime's lifetime.
+        schedule:
           type:
           - string
           - 'null'
-          description: At creation, an expression selects time-triggered execution in the application timezone. Omission
-            or null selects event-triggered execution. A time-triggered task can update its expression.
+          description: Cron expression in the application timezone. Required for time-triggered tasks; null for event-triggered tasks.
         min_trigger_interval_seconds:
           type: number
           minimum: 0
@@ -720,22 +739,24 @@ jobs:
       agent_manager: default
   manage_connector:
     backend: base
-    description: Send standard Events to event-triggered tasks, or enable/pause one configured connector Job. Each
-      recipient is handled independently. Follow manage-connector.
+    description: List preset collection Jobs, enable/pause downloads, or update their event-triggered Runtime targets.
+      send accepts Events from custom collectors. Follow manage-connector.
     parameters:
       type: object
       additionalProperties: false
       properties:
-        task_names:
+        runtime_names:
           type: array
-          minItems: 1
+          minItems: 0
           uniqueItems: true
+          description: Update replaces the preset's target list; an empty list keeps downloads without delivery.
+            send requires at least one target.
           items:
             type: string
             minLength: 1
             maxLength: 80
             pattern: ^[\w-]+$
-            description: Name of an existing background task.
+            description: Name of an existing event-triggered Runtime.
         events:
           type: array
           minItems: 1
@@ -765,12 +786,14 @@ jobs:
         action:
           type: string
           enum:
+          - list
+          - update
           - send
           - enable
           - pause
         connector_job:
           type: string
-          description: 'Enable/pause only: configured connector Job name.'
+          description: 'Update/enable/pause only: preset connector Job name returned by list.'
       required:
       - action
     steps:
@@ -779,6 +802,7 @@ jobs:
       connector_jobs:
       - screen_capture_cron
       - codex_dialogue_cron
+      - claude_code_dialogue_cron
       - finance_news_cron
       - gold_quotes_cron
       - oil_quotes_cron
@@ -1085,6 +1109,7 @@ components:
         p2_idle_seconds: 1800
     proactive_memory:
       backend: proactive
+      agent_type: event
       agent_wrapper: default
       run_job: run_memory_agent
       notification_target: Remy
@@ -1092,6 +1117,7 @@ components:
       max_batch_events: 2
     proactive_note:
       backend: proactive
+      agent_type: event
       agent_wrapper: default
       run_job: run_notebook_agent
       notification_target: Remy
@@ -1099,6 +1125,7 @@ components:
       max_batch_events: 2
     proactive_fin:
       backend: proactive
+      agent_type: event
       agent_wrapper: default
       run_job: run_finance_agent
       notification_target: Remy
@@ -1107,11 +1134,12 @@ components:
       max_batch_events: 20
     proactive_news:
       backend: proactive
+      agent_type: time
       agent_wrapper: default
       run_job: run_news_agent
       notification_target: Remy
       enabled: true
-      cron: 0 8 * * *
+      schedule: 0 8 * * *
   agent_manager:
     default:
       backend: local

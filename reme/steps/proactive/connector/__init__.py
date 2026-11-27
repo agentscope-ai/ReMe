@@ -2,7 +2,13 @@
 
 from .base_connector import BaseConnectorStep
 from .screen_capture import ScreenCaptureStep
-from .harness import BaseHarnessConnectorStep, CodexDialogueStep, CodexDialogueInitStep
+from .harness import (
+    BaseHarnessConnectorStep,
+    CodexDialogueStep,
+    CodexDialogueInitStep,
+    ClaudeCodeDialogueStep,
+    ClaudeCodeDialogueInitStep,
+)
 from .finance import FinanceNewsStep, TencentQuotesStep, BtcQuotesStep
 
 __all__ = [
@@ -11,6 +17,8 @@ __all__ = [
     "ScreenCaptureStep",
     "CodexDialogueStep",
     "CodexDialogueInitStep",
+    "ClaudeCodeDialogueStep",
+    "ClaudeCodeDialogueInitStep",
     "FinanceNewsStep",
     "TencentQuotesStep",
     "BtcQuotesStep",

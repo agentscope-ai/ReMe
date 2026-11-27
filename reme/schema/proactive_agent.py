@@ -19,16 +19,16 @@ from .agent_message import ClientModel
 from .event import Event
 from .proactive_runtime import AgentName, AgentReminder, InboxPriority, validate_agent_name
 
-CRON_EVENT_SOURCE = "cron"
+TIME_EVENT_SOURCE = "time"
 
 
-def validate_task_names(names):
+def validate_runtime_names(names, *, allow_empty=False):
     """Validate recipient identities and preserve their configured order."""
-    if not isinstance(names, list) or not names:
-        raise ValueError("task_names must be a nonempty list")
+    if not isinstance(names, list) or not names and not allow_empty:
+        raise ValueError("runtime_names must be a list" if allow_empty else "runtime_names must be a nonempty list")
     targets = [validate_agent_name(name) for name in names]
     if len({name.casefold() for name in targets}) != len(targets):
-        raise ValueError("task_names must be unique")
+        raise ValueError("runtime_names must be unique")
     return targets
 
 
@@ -36,8 +36,8 @@ class ManageConnectorRequest(BaseModel):
     """Deliver explicit observations or control one configured collection Job."""
 
     model_config = ConfigDict(extra="forbid")
-    action: Literal["send", "enable", "pause"]
-    task_names: list[AgentName] | None = Field(default=None, min_length=1)
+    action: Literal["list", "update", "send", "enable", "pause"]
+    runtime_names: list[AgentName] | None = None
     events: list[Event] | None = Field(default=None, min_length=1)
     connector_job: AgentName | None = None
 
@@ -45,12 +45,19 @@ class ManageConnectorRequest(BaseModel):
     def validate_action(self):
         """Reject fields that do not belong to the selected operation."""
         supplied = self.model_fields_set - {"action"}
-        if self.action == "send":
-            if supplied != {"task_names", "events"} or not self.events:
-                raise ValueError("send requires only task_names and events")
-            validate_task_names(self.task_names)
-            if any(event.source == CRON_EVENT_SOURCE for event in self.events):
-                raise ValueError("cron is a reserved framework source")
+        if self.action == "list":
+            if supplied:
+                raise ValueError("list accepts only action")
+        elif self.action == "update":
+            if supplied != {"connector_job", "runtime_names"} or not self.connector_job:
+                raise ValueError("update requires only connector_job and runtime_names")
+            validate_runtime_names(self.runtime_names, allow_empty=True)
+        elif self.action == "send":
+            if supplied != {"runtime_names", "events"} or not self.events:
+                raise ValueError("send requires only runtime_names and events")
+            validate_runtime_names(self.runtime_names)
+            if any(event.source == TIME_EVENT_SOURCE for event in self.events):
+                raise ValueError("time is a reserved framework source")
         elif supplied != {"connector_job"} or not self.connector_job:
             raise ValueError("enable/pause require only connector_job")
         return self
@@ -80,7 +87,7 @@ class ProactiveRuntimeSettings(ClientModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     enabled: StrictBool = True
-    cron: str | None = None
+    schedule: str | None = None
     min_trigger_interval_seconds: float = Field(default=0, ge=0)
     notify_window: NotificationWindow | None = None
 
@@ -92,15 +99,15 @@ class ProactiveRuntimeSettings(ClientModel):
             raise ValueError("min_trigger_interval_seconds must be a number")
         return value
 
-    @field_validator("cron")
+    @field_validator("schedule")
     @classmethod
-    def validate_cron(cls, expression):
+    def validate_schedule(cls, expression):
         """Validate the optional schedule independently of observation processing."""
         if expression is not None:
             from croniter import croniter
 
             if not expression or not croniter.is_valid(expression):
-                raise ValueError("cron must be a valid expression")
+                raise ValueError("schedule must be a valid expression")
         return expression
 
 
@@ -108,6 +115,7 @@ class ProactiveRuntimeConfig(ProactiveRuntimeSettings):
     """A named task with internal batching limits; requirements live in TASK.md."""
 
     agent_name: AgentName
+    agent_type: Literal["event", "time"]
     max_batch_events: int = Field(default=20, ge=1, strict=True)
     run_job: Literal["run_memory_agent", "run_notebook_agent", "run_finance_agent", "run_news_agent"] = (
         "run_memory_agent"
@@ -122,10 +130,14 @@ class ProactiveRuntimeConfig(ProactiveRuntimeSettings):
         return value
 
     @model_validator(mode="after")
-    def validate_notebook_trigger(self):
-        """Run the Notebook step only on observed events."""
-        if self.run_job == "run_notebook_agent" and self.cron is not None:
-            raise ValueError("Notebook runs only on events and cannot have a cron schedule")
+    def validate_trigger(self):
+        """The explicit type owns scheduling and event admission policy."""
+        if self.agent_type == "time" and self.schedule is None:
+            raise ValueError("Time-triggered tasks require a schedule")
+        if self.agent_type == "event" and self.schedule is not None:
+            raise ValueError("Event-triggered tasks cannot have a schedule")
+        if self.run_job == "run_notebook_agent" and self.agent_type != "event":
+            raise ValueError("Notebook runs only on events")
         return self
 
 
@@ -189,6 +201,7 @@ class ManageProactiveRuntimeRequest(ProactiveRuntimeSettings):
 
     action: Literal["list", "create", "status", "update", "delete", "query"]
     agent_name: AgentName | None = None
+    agent_type: Literal["event", "time"] | None = None
     run_job: Literal["run_memory_agent", "run_notebook_agent", "run_finance_agent", "run_news_agent"] | None = None
     task_description: str | None = Field(default=None, min_length=1, max_length=100000)
     question: str | None = Field(default=None, min_length=1, max_length=100000)
@@ -204,12 +217,12 @@ class ManageProactiveRuntimeRequest(ProactiveRuntimeSettings):
     @model_validator(mode="after")
     def action_arguments(self):
         """Reject unused fields instead of silently ignoring misspecified calls."""
-        settings = {"enabled", "cron", "min_trigger_interval_seconds", "notify_window"}
+        settings = {"enabled", "schedule", "min_trigger_interval_seconds", "notify_window"}
         required, allowed = {
             "list": (set(), set()),
             "create": (
-                {"agent_name"},
-                settings | {"agent_name", "task_description", "run_job"},
+                {"agent_name", "agent_type"},
+                settings | {"agent_name", "agent_type", "task_description", "run_job"},
             ),
             "status": ({"agent_name"}, {"agent_name"}),
             "update": ({"agent_name"}, settings | {"agent_name"}),

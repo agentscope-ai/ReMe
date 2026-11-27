@@ -11,7 +11,7 @@ import {
 
 const settings: ProactiveRuntimeSettings = {
   enabled: false,
-  cron: "0 8 * * *",
+  schedule: "0 8 * * *",
   min_trigger_interval_seconds: 0,
   notify_window: null,
 };
@@ -28,6 +28,7 @@ test("task management forwards settings and document operations for a tmp task",
     {
       type: "task",
       action: "create",
+      agent_type: "time",
       agent_name: "tmp",
       task_description: "原样\n",
       settings,
@@ -53,6 +54,7 @@ test("task management forwards settings and document operations for a tmp task",
       job: "manage_proactive_runtime",
       body: {
         action: "create",
+        agent_type: "time",
         agent_name: "tmp",
         ...settings,
         task_description: "原样\n",
@@ -106,8 +108,8 @@ test("task IPC rejects unrelated identities, unsafe writes and retired operation
 
 test("settings edits only patch changed fields, preserving concurrent pause and notification changes", () => {
   assert.deepEqual(
-    changedTaskSettings(settings, { ...settings, cron: "0 9 * * *" }),
-    { cron: "0 9 * * *" },
+    changedTaskSettings(settings, { ...settings, schedule: "0 9 * * *" }),
+    { schedule: "0 9 * * *" },
   );
   assert.deepEqual(
     changedTaskSettings(

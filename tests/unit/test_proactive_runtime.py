@@ -53,6 +53,7 @@ async def test_distinct_owners_and_create_only_memory(tmp_path):
         chat = context.components["agent_runtime"]["Remy"]
         assert isinstance(chat, ChatAgentRuntime) and not manager.runtimes
         response = await ManageProactiveRuntimeStep(app_context=context)(
+            agent_type="event",
             action="create",
             agent_name="monitor",
             run_job="run_finance_agent",
@@ -76,7 +77,14 @@ async def test_distinct_owners_and_create_only_memory(tmp_path):
 async def test_delete_cancels_active_and_waiting_work_and_restore_preserves_role_and_files(tmp_path):
     async with running_system(
         tmp_path,
-        runtimes=[{"agent_name": "monitor", "run_job": "run_finance_agent", "task_description": "Keep this"}],
+        runtimes=[
+            {
+                "agent_type": "event",
+                "agent_name": "monitor",
+                "run_job": "run_finance_agent",
+                "task_description": "Keep this",
+            },
+        ],
     ) as (manager, _, wrapper):
         runtime = await manager.resolve("monitor")
         await queue_event(manager)
@@ -94,7 +102,7 @@ async def test_delete_cancels_active_and_waiting_work_and_restore_preserves_role
         await manager.delete("monitor")
         assert active.cancelled() and waiting.cancelled() and not runtime.is_started
         assert runtime.task_path.read_text() == "Keep this"
-        result = await manager.create({"agent_name": "monitor"})
+        result = await manager.create({"agent_type": "event", "agent_name": "monitor"})
         restored = await manager.resolve("monitor")
         assert result["restored"] and restored.run_job == "run_finance_agent"
         assert (await restored.inbox.snapshot())["pending_count"] == 1
@@ -103,13 +111,13 @@ async def test_delete_cancels_active_and_waiting_work_and_restore_preserves_role
 
 @pytest.mark.asyncio
 async def test_identity_and_trigger_contracts_and_disk_edits(tmp_path):
-    async with running_system(tmp_path, runtimes=[{"agent_name": "monitor"}]) as (manager, _, _):
-        for values in ({"run_job": "run_news_agent"}, {"cron": "0 8 * * *"}, {"max_batch_events": 4}):
+    async with running_system(tmp_path, runtimes=[{"agent_type": "event", "agent_name": "monitor"}]) as (manager, _, _):
+        for values in ({"run_job": "run_news_agent"}, {"schedule": "0 8 * * *"}, {"max_batch_events": 4}):
             with pytest.raises(ValueError):
                 await manager.update("monitor", values)
         for name in ("Remy", "MONITOR", "../outside", "CON"):
             with pytest.raises(ValueError):
-                await manager.create({"agent_name": name})
+                await manager.create({"agent_type": "event", "agent_name": name})
         path = (await manager.resolve("monitor")).config_path
         saved = json.loads(path.read_text())
         saved["enabled"] = False
@@ -141,20 +149,23 @@ async def test_chat_internal_job_preserves_one_service_response_and_formal_bindi
 @pytest.mark.asyncio
 async def test_task_document_defaults_are_created_without_model_calls(tmp_path):
     async with running_system(tmp_path) as (manager, context, wrapper):
-        await manager.create({"agent_name": "brief", "run_job": "run_news_agent", "cron": "0 8 * * *"})
+        await manager.create(
+            {"agent_type": "time", "agent_name": "brief", "run_job": "run_news_agent", "schedule": "0 8 * * *"},
+        )
         response = await TaskDocumentStep(app_context=context)(action="read", agent_name="brief")
         assert response.success and response.answer["content"] and response.answer["mtime"]
         assert not wrapper.turns
 
 
 @pytest.mark.parametrize("language", ["en", "zh"])
+@pytest.mark.parametrize("owner", ["notes", "实验观察", "a" * 80])
 @pytest.mark.asyncio
-async def test_yaml_skill_templates_are_scoped_per_invocation_and_do_not_rotate_chat(tmp_path, language):
+async def test_yaml_skill_templates_are_scoped_per_invocation_and_do_not_rotate_chat(tmp_path, language, owner):
     """The same template can be loaded concurrently without changing logical session bindings."""
     from pathlib import Path
     import yaml
     from reme.steps.proactive.chat import ChatAgentStep
-    from reme.steps.proactive.task import NotebookAgentStep
+    from reme.steps.proactive.agent import NotebookAgentStep
     from reme.steps.proactive import base
 
     folder = Path(base.__file__).with_name("skills")
@@ -162,6 +173,7 @@ async def test_yaml_skill_templates_are_scoped_per_invocation_and_do_not_rotate_
         "manage_proactive_runtime.yaml",
         "manage_connector.yaml",
         "manage_notebook.yaml",
+        "proactive_record.yaml",
     }
     for path in folder.glob("*.yaml"):
         assert set(yaml.safe_load(path.read_text())) == {
@@ -172,11 +184,17 @@ async def test_yaml_skill_templates_are_scoped_per_invocation_and_do_not_rotate_
             "content_zh",
         }
     async with running_system(tmp_path, language=language) as (_, context, wrapper):
-        first = ChatAgentStep(app_context=context, agent_runtime="Remy").get_skills()
-        second = NotebookAgentStep(app_context=context).get_skills()
-        assert len(first) == 3 and len(second) == 1
-        assert first[-1]["name"] != second[0]["name"] and first[-1]["content"] == second[0]["content"]
+        first = ChatAgentStep(app_context=context, agent_runtime="Remy").get_skills("Remy")
+        second = NotebookAgentStep(app_context=context).get_skills(owner)
+        assert len(first) == 3 and len(second) == 2
+        repeated = NotebookAgentStep(app_context=context).get_skills(owner)
+        for left, right in zip(second, repeated, strict=True):
+            assert left == right
+        assert first[-1]["content"] == second[-1]["content"]
         async with wrapper.skill_scope(skills=first) as foreground, wrapper.skill_scope(skills=second) as background:
+            with pytest.raises(FileExistsError):
+                async with wrapper.skill_scope(skills=repeated):
+                    pytest.fail("Concurrent scopes must not reuse the same agent's skill names")
             assert all(
                 (source / "SKILL.md").is_file()
                 for scope in [foreground, background]
@@ -238,15 +256,15 @@ async def test_application_orders_static_runtimes_and_manager_and_closes_dynamic
         assert set(manager.runtimes) == set(runtimes) - {"Remy"}
         assert all(manager.runtimes[name] is runtimes[name] for name in manager.static_names)
         assert all(runtime.inbox.is_started and runtime.outbox.is_started for runtime in runtimes.values())
-        await manager.create({"agent_name": "extra"})
+        await manager.create({"agent_type": "event", "agent_name": "extra"})
         dynamic = await manager.resolve("extra")
     assert not dynamic.is_started and all(not runtime.is_started for runtime in runtimes.values())
 
 
-@pytest.mark.parametrize("patch", [{"run_job": "run_news_agent"}, {"cron": "0 8 * * *"}])
+@pytest.mark.parametrize("patch", [{"run_job": "run_news_agent"}, {"agent_type": "time", "schedule": "0 8 * * *"}])
 @pytest.mark.asyncio
 async def test_discovery_rejects_changed_wiring_before_scheduling_or_accepting_inputs(tmp_path, patch):
-    async with running_system(tmp_path, runtimes=[{"agent_name": "monitor"}]) as (manager, _, _):
+    async with running_system(tmp_path, runtimes=[{"agent_type": "event", "agent_name": "monitor"}]) as (manager, _, _):
         runtime = await manager.resolve("monitor")
         value = json.loads(runtime.config_path.read_text())
         runtime.config_path.write_text(json.dumps({**value, **patch}))
@@ -259,6 +277,7 @@ async def test_discovery_rejects_changed_wiring_before_scheduling_or_accepting_i
 async def test_retired_static_runtime_rejects_already_resolved_query_calls(tmp_path):
     async with running_system(tmp_path) as (manager, context, wrapper):
         runtime = ProactiveAgentRuntime(
+            agent_type="event",
             name="monitor",
             agent_wrapper=wrapper,
             notification_target=context.components["agent_runtime"]["Remy"],
