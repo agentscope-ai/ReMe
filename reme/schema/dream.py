@@ -75,6 +75,14 @@ class DreamState(BaseModel):
             "restored, because the job cannot tell who removed them."
         ),
     )
+    failed_attempt_changed_paths: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Digest files that changed while a failed attempt ran, for units that then succeeded on retry, "
+            "other than the target the unit was integrated into. They still differ from the start of the run "
+            "and are not reverted, because the job cannot tell who changed them."
+        ),
+    )
     processed_paths: list[str] | None = Field(
         default=None,
         description=(

@@ -17,6 +17,7 @@ import frontmatter
 from ._base import frontmatter_target
 from ..base_step import BaseStep
 from ...core.registry import R
+from ...utils.files.write_ledger import WRITE_LEDGER_KWARG, record_write
 
 
 @R.register("frontmatter_update_step")
@@ -63,6 +64,7 @@ class FrontmatterUpdateStep(BaseStep):
                     post = frontmatter.loads(target.read_text(encoding="utf-8"))
                     post.metadata.update(metadata)
                     target.write_text(frontmatter.dumps(post), encoding="utf-8")
+                    record_write(self.context.get(WRITE_LEDGER_KWARG), target)
                     payload["updated"] = metadata
 
         if "error" in payload:

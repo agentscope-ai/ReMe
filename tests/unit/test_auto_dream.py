@@ -3,6 +3,7 @@
 # pylint: disable=protected-access
 
 import asyncio
+import inspect
 import json
 import tempfile
 from pathlib import Path
@@ -32,6 +33,7 @@ from reme.steps.evolve.dream.utils import (  # noqa: E501
     scan_day_files,
 )
 from reme.steps.file_io.frontmatter_update import FrontmatterUpdateStep
+from reme.steps.file_io.write import WriteStep
 
 _MALFORMED_EXTRACT_REPLY = (
     "units:\n- name: checkout\n  bucket: procedure\n"
@@ -64,6 +66,14 @@ class _Catalog(BaseFileCatalog):
 
     async def dump(self):
         self.dumps += 1
+
+
+async def _tool_write(workspace: Path, reply_kwargs: dict, path: str, content: str) -> None:
+    """Write through the real write tool with the step's injected kwargs, as an agent tool call does."""
+    context = RuntimeContext(path=path, content=content, **reply_kwargs.get("injected_job_kwargs", {}))
+    app_context = ApplicationContext(workspace_dir=str(workspace))
+    await WriteStep(app_context=app_context, file_store=_FileStore(workspace))(context)
+    assert context.response.success, context.response.answer
 
 
 class _FileStore(BaseFileStore):
@@ -134,6 +144,8 @@ class _SequenceAgent(BaseAgentWrapper):
         outcome = self.outcomes.pop(0)
         if callable(outcome):
             outcome = outcome()
+        if inspect.isawaitable(outcome):
+            outcome = await outcome
         if isinstance(outcome, Exception):
             raise outcome
         return {**self._reply_result(session_id="stub", result="", raw={}), **outcome}
@@ -565,14 +577,14 @@ async def test_integrate_invalid_receipt_recovers_one_changed_digest_file(tmp_pa
 
     unit = {"name": "unit", "bucket": "wiki", "summary": "summary", "paths": ["daily/a.md"]}
     state = DreamState(units=[unit])
-    target = tmp_path / "digest" / "wiki" / "unit.md"
+    (tmp_path / "digest" / "wiki").mkdir(parents=True)
 
-    def write_digest():
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text("integrated", encoding="utf-8")
+    async def write_digest():
+        await _tool_write(tmp_path, agent.requests[-1][1], "digest/wiki/unit.md", "integrated")
+        return {"result": "{}"}
 
-    step = DreamIntegrateStep()
-    step.agent_wrapper = _ReplyAgent(on_reply=write_digest)
+    agent = _SequenceAgent(write_digest)
+    step = DreamIntegrateStep(agent_wrapper=agent)
 
     await step._integrate_one(state, unit, 1, tmp_path, "digest")  # pylint: disable=protected-access
 
@@ -591,14 +603,14 @@ async def test_integrate_recovers_an_update_to_another_bucket(tmp_path):
 
     unit = {"name": "unit", "bucket": "wiki", "summary": "summary", "paths": ["daily/a.md"]}
     state = DreamState(units=[unit])
-    target = tmp_path / "digest" / "procedure" / "unit.md"
-    _touch(target, "existing procedure")
+    _touch(tmp_path / "digest" / "procedure" / "unit.md", "existing procedure")
 
-    def write_digest():
-        target.write_text("updated procedure", encoding="utf-8")
+    async def write_digest():
+        await _tool_write(tmp_path, agent.requests[-1][1], "digest/procedure/unit.md", "updated procedure")
+        return {"result": "{}"}
 
-    step = DreamIntegrateStep()
-    step.agent_wrapper = _ReplyAgent(on_reply=write_digest)
+    agent = _SequenceAgent(write_digest)
+    step = DreamIntegrateStep(agent_wrapper=agent)
 
     await step._integrate_one(state, unit, 1, tmp_path, "digest")  # pylint: disable=protected-access
 
@@ -725,8 +737,8 @@ async def test_integrate_keeps_added_changes_across_retry_recovery(tmp_path, mon
         _touch(tmp_path / second, "second")
         return RuntimeError("agent failed") if agent_error else {"result": "{}"}
 
-    def attempt_two():
-        _touch(tmp_path / first, "first with more evidence")
+    async def attempt_two():
+        await _tool_write(tmp_path, agent.requests[-1][1], first, "first with more evidence")
         return RuntimeError("agent failed") if agent_error else {"result": "{}"}
 
     agent = _SequenceAgent(attempt_one, attempt_two)
@@ -741,6 +753,8 @@ async def test_integrate_keeps_added_changes_across_retry_recovery(tmp_path, mon
     assert context.response.success is True
     assert context.response.metadata["dream"]["warnings"]
     assert context["changes"] == [{"change": "added", "path": path} for path in (first, second)]
+    # second.md came only from the failed first attempt, so it is listed for review.
+    assert context.response.metadata["dream"]["failed_attempt_changed_paths"] == [second]
 
 
 @pytest.mark.asyncio

@@ -140,6 +140,11 @@ def render_summary(state: DreamState) -> str:
             "- Changed during failed units, missing at end of run (review): "
             f"{', '.join(state.failed_unit_missing_paths)}",
         )
+    if state.failed_attempt_changed_paths:
+        lines.append(
+            "- Changed during failed attempts before a successful retry (review): "
+            f"{', '.join(state.failed_attempt_changed_paths)}",
+        )
     if state.warnings:
         lines.append(f"- Warnings: {'; '.join(state.warnings)}")
     if state.errors:

@@ -10,6 +10,7 @@ from .._evolve import agent_reply_result_text
 from ....core.registry import R
 from ....enumeration import DreamBucketEnum
 from ....schema import IntegrateOutcome
+from ....utils.files.write_ledger import WRITE_LEDGER_KWARG, open_write_ledger
 from .utils import llm_available, pack_paths, parse_structured_reply, state_from_context, store_state, workspace_dir
 
 _TOOLS = ("node_search", "read", "frontmatter_read", "write", "edit", "frontmatter_update")
@@ -132,6 +133,9 @@ class DreamIntegrateStep(BaseStep):
         flagged = [p for p in state.failed_unit_changed_paths if p in still_changed]
         state.failed_unit_changed_paths = [p for p in flagged if p in tree_after]
         state.failed_unit_missing_paths = [p for p in flagged if p not in tree_after]
+        state.failed_attempt_changed_paths = [
+            p for p in state.failed_attempt_changed_paths if p in still_changed and p not in flagged
+        ]
         self.context["changes"] = [
             {"change": "modified" if path in before else "added", "path": path}
             for path in _changed_digest_paths(before, after)
@@ -150,6 +154,11 @@ class DreamIntegrateStep(BaseStep):
             answer += (
                 f"; {len(state.failed_unit_missing_paths)} digest file(s) changed during failed units "
                 "are missing at the end of the run"
+            )
+        if state.failed_attempt_changed_paths:
+            answer += (
+                f"; {len(state.failed_attempt_changed_paths)} digest file(s) changed during failed attempts "
+                "before a successful retry"
             )
         return self._finish(state, not state.failed_units, answer)
 
@@ -170,8 +179,19 @@ class DreamIntegrateStep(BaseStep):
         """Integrate one unit; if it fails, report every digest file that changed while it ran."""
         tree_before = _snapshot_digest_tree(workspace, digest_dir)
         failures = len(state.failed_units)
-        await self._integrate_attempts(state, unit, index, workspace, digest_dir)
+        retried_changes = await self._integrate_attempts(state, unit, index, workspace, digest_dir)
         if len(state.failed_units) == failures:
+            if retried_changes:
+                # The unit succeeded on retry, but files the failed attempt touched are not
+                # part of its result; list them for review instead of dropping them silently.
+                _record_modified_paths(state, retried_changes)
+                for path in retried_changes:
+                    if path not in state.failed_attempt_changed_paths:
+                        state.failed_attempt_changed_paths.append(path)
+                self.logger.warning(
+                    f"[{self.name}] unit {index}/{len(state.units)} succeeded on retry; digest files changed "
+                    f"during the failed attempt were not reverted: {', '.join(retried_changes)}",
+                )
             return
         changed = _differing_paths(tree_before, _snapshot_digest_tree(workspace, digest_dir))
         # The job cannot tell whether the agent or the user wrote these files, so they
@@ -184,10 +204,22 @@ class DreamIntegrateStep(BaseStep):
         if changed:
             self.logger.warning(
                 f"[{self.name}] unit {index}/{len(state.units)} failed; digest files changed while it ran "
-                f"were left in place: {', '.join(changed)}",
+                f"were not reverted: {', '.join(changed)}",
             )
 
-    async def _integrate_attempts(self, state, unit: dict, index: int, workspace: Path, digest_dir: str) -> None:
+    async def _integrate_attempts(  # pylint: disable=too-many-return-statements
+        self,
+        state,
+        unit: dict,
+        index: int,
+        workspace: Path,
+        digest_dir: str,
+    ) -> list[str] | None:
+        """Integrate one unit in up to two agent attempts.
+
+        Returns None when the unit failed. Otherwise returns the digest files that changed
+        while an earlier attempt failed, other than the target the unit was integrated into.
+        """
         try:
             bucket = DreamBucketEnum(str(unit.get("bucket") or "")).value
         except ValueError:
@@ -201,56 +233,59 @@ class DreamIntegrateStep(BaseStep):
         # cannot be misclassified as a pre-existing cross-bucket UPDATE on attempt two.
         unit_before = _snapshot_digest(workspace, digest_dir)
         before = unit_before
+        failed_attempt_changes: list[str] = []
         for attempt in range(2):
+            attempt_tree = _snapshot_digest_tree(workspace, digest_dir)
+            # Recovery from file changes needs evidence: only paths written by this attempt's
+            # own job tools count, so a concurrent user save is never taken as the unit's result.
+            written: set[Path] = set()
             try:
-                result = await self.agent_wrapper.reply(
-                    self.prompt_format(
-                        "integrate_user_message",
-                        hint=state.hint or "(none)",
-                        unit_name=unit.get("name", ""),
-                        unit_bucket=bucket,
-                        unit_summary=unit.get("summary", ""),
-                        unit_paths_json=json.dumps(paths, ensure_ascii=False, indent=2),
-                        material_blob=pack_paths(workspace, paths),
-                    ),
-                    system_prompt=self.prompt_format(
-                        f"integrate_system_prompt_{bucket}",
-                        workspace_dir=str(workspace),
-                        digest_dir=digest_dir,
-                        bucket=bucket,
-                    ),
-                    job_tools=list(_TOOLS),
-                )
+                with open_write_ledger() as (ledger_id, written):
+                    result = await self.agent_wrapper.reply(
+                        self.prompt_format(
+                            "integrate_user_message",
+                            hint=state.hint or "(none)",
+                            unit_name=unit.get("name", ""),
+                            unit_bucket=bucket,
+                            unit_summary=unit.get("summary", ""),
+                            unit_paths_json=json.dumps(paths, ensure_ascii=False, indent=2),
+                            material_blob=pack_paths(workspace, paths),
+                        ),
+                        system_prompt=self.prompt_format(
+                            f"integrate_system_prompt_{bucket}",
+                            workspace_dir=str(workspace),
+                            digest_dir=digest_dir,
+                            bucket=bucket,
+                        ),
+                        job_tools=list(_TOOLS),
+                        injected_job_kwargs=self._injected_job_kwargs(ledger_id),
+                    )
                 raw_result = agent_reply_result_text(result)
             except Exception as e:  # noqa: BLE001
                 after = _snapshot_digest(workspace, digest_dir)
                 changed = _changed_digest_paths(before, after)
                 _record_modified_paths(state, changed)
                 created = len(changed) == 1 and changed[0] not in unit_before
-                if len(changed) == 1 and self._valid_target(
-                    workspace,
-                    digest_dir,
-                    bucket,
-                    changed[0],
-                    action="CREATE" if created else "UPDATED",
-                    existed_before=changed[0] in unit_before,
-                ):
+                if self._recoverable(workspace, digest_dir, bucket, changed, unit_before, written, index, state):
                     self._record_recovered(state, unit, bucket, paths, changed[0], created, e)
                     self.logger.warning(
                         f"[{self.name}] unit {index}/{len(state.units)} recovered from file change "
                         f"after agent error target_path={changed[0]} error={type(e).__name__}: {e}",
                     )
-                    return
+                    return [p for p in dict.fromkeys(failed_attempt_changes) if p != changed[0]]
                 if attempt == 0:
                     self.logger.warning(
                         f"[{self.name}] unit {index}/{len(state.units)} attempt 1 had no recoverable file change; "
                         f"retrying once: {type(e).__name__}: {e}",
                     )
+                    failed_attempt_changes.extend(
+                        _differing_paths(attempt_tree, _snapshot_digest_tree(workspace, digest_dir)),
+                    )
                     before = after
                     continue
                 self._record_failure(state, unit, paths, e)
                 self.logger.error(f"[{self.name}] unit {index}/{len(state.units)} failed: {type(e).__name__}: {e}")
-                return
+                return None
 
             try:
                 outcome = IntegrateOutcome.model_validate(parse_structured_reply(raw_result))
@@ -268,24 +303,20 @@ class DreamIntegrateStep(BaseStep):
                 changed = _changed_digest_paths(before, after)
                 _record_modified_paths(state, changed)
                 created = len(changed) == 1 and changed[0] not in unit_before
-                if len(changed) == 1 and self._valid_target(
-                    workspace,
-                    digest_dir,
-                    bucket,
-                    changed[0],
-                    action="CREATE" if created else "UPDATED",
-                    existed_before=changed[0] in unit_before,
-                ):
+                if self._recoverable(workspace, digest_dir, bucket, changed, unit_before, written, index, state):
                     self._record_recovered(state, unit, bucket, paths, changed[0], created, e)
                     self.logger.warning(
                         f"[{self.name}] unit {index}/{len(state.units)} accepted file change with invalid receipt "
                         f"target_path={changed[0]} error={type(e).__name__}: {e}",
                     )
-                    return
+                    return [p for p in dict.fromkeys(failed_attempt_changes) if p != changed[0]]
                 if attempt == 0:
                     self.logger.warning(
                         f"[{self.name}] unit {index}/{len(state.units)} attempt 1 returned an invalid receipt; "
                         "retrying once",
+                    )
+                    failed_attempt_changes.extend(
+                        _differing_paths(attempt_tree, _snapshot_digest_tree(workspace, digest_dir)),
                     )
                     before = after
                     continue
@@ -295,7 +326,7 @@ class DreamIntegrateStep(BaseStep):
                     f"[{self.name}] unit {index}/{len(state.units)} failed invalid receipt after retry: "
                     f"{type(e).__name__}: {e}",
                 )
-                return
+                return None
 
             after = _snapshot_digest(workspace, digest_dir)
             _record_modified_paths(state, _changed_digest_paths(unit_before, after))
@@ -312,7 +343,51 @@ class DreamIntegrateStep(BaseStep):
                 f"[{self.name}] unit {index}/{len(state.units)} done "
                 f"action={outcome.action} target_path={outcome.target_path}",
             )
-            return
+            return [p for p in dict.fromkeys(failed_attempt_changes) if p != outcome.target_path]
+        return None
+
+    def _injected_job_kwargs(self, ledger_id: str) -> dict:
+        """Add this attempt's ledger ID to the wrapper's configured tool constraints.
+
+        Call-time kwargs replace the wrapper's ``injected_job_kwargs`` wholesale, so passing
+        only the ledger ID would drop configured limits such as ``_allowed_paths``. Copy them
+        so the shared configuration is never mutated across attempts.
+        """
+        configured = (getattr(self.agent_wrapper, "kwargs", None) or {}).get("injected_job_kwargs")
+        return {**(configured or {}), WRITE_LEDGER_KWARG: ledger_id}
+
+    def _recoverable(  # pylint: disable=too-many-arguments
+        self,
+        workspace: Path,
+        digest_dir: str,
+        bucket: str,
+        changed: list[str],
+        unit_before: dict[str, tuple[int, int]],
+        written: set[Path],
+        index: int,
+        state,
+    ) -> bool:
+        """Return whether an attempt's single digest change can stand in for its missing receipt."""
+        if len(changed) != 1:
+            return False
+        path = changed[0]
+        existed_before = path in unit_before
+        if not self._valid_target(
+            workspace,
+            digest_dir,
+            bucket,
+            path,
+            action="UPDATED" if existed_before else "CREATE",
+            existed_before=existed_before,
+        ):
+            return False
+        if (workspace / path).resolve() not in written:
+            self.logger.warning(
+                f"[{self.name}] unit {index}/{len(state.units)} not recovering from {path}: "
+                "it was not written by this attempt's job tools",
+            )
+            return False
+        return True
 
     def _finish(self, state, success: bool, answer: str):
         assert self.context is not None
