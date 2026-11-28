@@ -5,7 +5,6 @@ import type { StudioState } from "../../../client/src/protocol.ts";
 import type { ConnectorRequest } from "../../../client/src/connectors.ts";
 import { translator, errorText } from "../../../client/src/i18n.ts";
 import { formatDate, useResource } from "../resources.ts";
-import { sourceIcon, displayAgentName } from "./flow.ts";
 import { Facts, TraceDetails } from "./details.tsx";
 import { parseScheduleTime } from "../tasks/settings-draft.ts";
 
@@ -33,9 +32,7 @@ export default function SourceEditor({
   );
   const [name, setName] = useState(source?.name ?? "");
   const [url, setUrl] = useState("");
-  const [emoji, setEmoji] = useState(
-    icon ?? sourceIcon(source ?? { source_id: "", trigger_type: "event" }),
-  );
+  const [emoji, setEmoji] = useState(icon ?? "");
   const [targets, setTargets] = useState(source?.runtime_names ?? []);
   const [enabled, setEnabled] = useState(source?.enabled ?? true);
   const [busy, setBusy] = useState(false);
@@ -96,8 +93,7 @@ export default function SourceEditor({
     : source?.schedule === "0 * * * *"
       ? t("taskHourly")
       : t("taskCustomSchedule");
-  const initialIcon =
-    icon ?? sourceIcon(source ?? { source_id: "", trigger_type: "event" });
+  const initialIcon = icon ?? "";
   return (
     <form className="flow-source-form" onSubmit={(event) => void save(event)}>
       {source?.available === false && (
@@ -183,7 +179,7 @@ export default function SourceEditor({
                     type="button"
                     onClick={() => onTask(agent.agent_name)}
                   >
-                    <span>⏰ {displayAgentName(agent.agent_name, t)}</span>
+                    <span>⏰ {agent.agent_name}</span>
                     <ArrowUpRight size={14} />
                   </button>
                 ))}
@@ -244,7 +240,7 @@ export default function SourceEditor({
                       )
                     }
                   />
-                  {displayAgentName(agent.agent_name, t)}
+                  {agent.agent_name}
                 </label>
               ))}
             {source && !targets.length && (

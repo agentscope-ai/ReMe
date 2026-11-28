@@ -12,7 +12,7 @@ import { useHost } from "../host.ts";
 import { formatDate, useResource } from "../resources.ts";
 import MarkdownText from "../markdown.tsx";
 import { splitReminderSource } from "../message-body.tsx";
-import { displayAgentName, sourceIcon } from "./flow.ts";
+import { sourceIcon } from "./flow.ts";
 
 type Fact = [string, ReactNode];
 type Linked = (paths: string[]) => ReactNode;
@@ -65,20 +65,23 @@ function Sources({
   ];
   return unique.length ? (
     <div className="flow-detail-sources">
-      {unique.map((source) => (
-        <span key={source.source_id}>
-          <span aria-hidden>{sourceIcon(source)}</span>
-          {label(source)}
-          {showType && (
-            <small
-              className="flow-type"
-              data-time={source.trigger_type === "time"}
-            >
-              {source.trigger_type}
-            </small>
-          )}
-        </span>
-      ))}
+      {unique.map((source) => {
+        const Icon = sourceIcon(source);
+        return (
+          <span key={source.source_id}>
+            <Icon size={14} strokeWidth={1.6} aria-hidden />
+            {label(source)}
+            {showType && (
+              <small
+                className="flow-type"
+                data-time={source.trigger_type === "time"}
+              >
+                {source.trigger_type}
+              </small>
+            )}
+          </span>
+        );
+      })}
     </div>
   ) : null;
 }
@@ -237,10 +240,7 @@ export function EventDetail({
         </span>
         <span>{date(item.received_at, state)}</span>
         <span>
-          {displayAgentName(
-            item.notification?.source_agent ?? item.agent_name,
-            t,
-          )}
+          {item.notification?.source_agent ?? item.agent_name}
           {item.notification && " → Remy"}
         </span>
       </div>

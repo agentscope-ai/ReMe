@@ -8,7 +8,7 @@ from typing import Literal
 from urllib.parse import urlsplit, urlunsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
 from ..components.asr.dashscope_asr import DEFAULT_DASHSCOPE_ASR_MODEL
 from ..components.service.cli_service import prepare_start_config
@@ -19,6 +19,7 @@ from ..utils.env_utils import load_env
 
 SECRET_FIELDS = ("api_key", "dashscope_api_key")
 _MODEL_OVERRIDES = ("model", "review_model", "memories.extract_model", "memories.consolidation_model")
+_HARNESS_PRESETS = {"codex": "proactive", "claude_code": "proactive_cc"}
 
 
 class Settings(BaseModel):
@@ -29,7 +30,7 @@ class Settings(BaseModel):
     workspace_dir: str | None = Field(default=None, max_length=4096)
     timezone: str | None = Field(default=None, max_length=128)
     language: str = Field(default="zh", max_length=32)
-    harness: Literal["codex"] | None = None
+    harness: Literal["codex", "claude_code"] | None = None
     base_url: str | None = Field(default=None, max_length=2048)
     model: str | None = Field(default=None, max_length=256)
     effort: Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"] | None = None
@@ -90,6 +91,13 @@ class Settings(BaseModel):
         """Remove whitespace copied alongside a credential."""
         return value.strip() if isinstance(value, str) else value
 
+    @model_validator(mode="after")
+    def supported_effort(self):
+        """Validate the effort against the selected execution backend."""
+        if self.harness == "claude_code" and self.effort in {"none", "minimal"}:
+            raise ValueError("Claude Code effort must be low, medium, high, xhigh or max")
+        return self
+
     def private_values(self) -> dict:
         """Serialize plaintext only for encryption and the private child pipe."""
         values = self.model_dump(mode="json", exclude=set(SECRET_FIELDS))
@@ -107,7 +115,7 @@ class Settings(BaseModel):
     def missing_fields(self) -> list[str]:
         """Return the effective values required by the enabled features."""
         required = ["workspace_dir"]
-        if self.harness == "codex":
+        if self.harness in _HARNESS_PRESETS:
             required.extend(("base_url", "model", "api_key"))
         if self.asr_enabled or self.tts_enabled:
             required.extend(("speech_base_url", "dashscope_api_key"))
@@ -138,6 +146,17 @@ def _public_url(value: str | None) -> str | None:
     return urlunsplit((url.scheme, url.netloc.rsplit("@", 1)[-1], url.path, "", ""))
 
 
+def _managed_harness(config: dict) -> str | None:
+    components = config.get("components", {})
+    wrapper = components.get("agent_wrapper", {}).get("default", {})
+    if wrapper.get("backend") == "claude_code":
+        return "claude_code"
+    server = components.get("codex_app_server", {}).get(wrapper.get("app_server", "default"), {})
+    if wrapper.get("backend") == "codex" and server.get("backend") == "sdk" and server.get("auth_mode") != "oauth":
+        return "codex"
+    return None
+
+
 def _initial_settings(config: dict) -> Settings:
     typed = ApplicationConfig.model_validate(config)
     components = config.get("components", {})
@@ -145,7 +164,7 @@ def _initial_settings(config: dict) -> Settings:
     server = components.get("codex_app_server", {}).get(wrapper.get("app_server", "default"), {})
     speech = {kind: components.get(kind, {}).get("default", {}) for kind in ("asr", "tts")}
     asr, tts = speech.values()
-    editable = wrapper.get("backend") == "codex" and server.get("auth_mode") != "oauth"
+    harness = _managed_harness(config)
     provider = server
     if wrapper.get("backend") == "agentscope":
         llm = components.get("as_llm", {}).get(wrapper.get("as_llm", "default"), {})
@@ -170,10 +189,10 @@ def _initial_settings(config: dict) -> Settings:
         workspace_dir=typed.workspace_dir,
         timezone=typed.timezone,
         language=typed.language,
-        harness="codex" if editable else None,
+        harness=harness,
         base_url=_public_url(provider.get("base_url")),
         model=llm.get("model") if wrapper.get("backend") == "agentscope" else wrapper.get("model"),
-        effort=wrapper.get("effort") if editable else None,
+        effort=wrapper.get("effort") if harness else None,
         api_key=provider.get("api_key"),
         dashscope_api_key=key,
         asr_enabled=bool(key and asr.get("backend") == "dashscope" and "asr" in jobs and jobs["asr"].enabled),
@@ -197,7 +216,7 @@ def resolve_worker_config(arguments: dict, settings: Settings | None):
         variables = {
             "DASHSCOPE_API_KEY": settings.dashscope_api_key.get_secret_value() if settings.dashscope_api_key else "",
         }
-        if settings.harness == "codex":
+        if settings.harness in _HARNESS_PRESETS:
             variables.update(
                 LLM_API_KEY=settings.api_key.get_secret_value() if settings.api_key else "",
                 LLM_BASE_URL=settings.base_url or "",
@@ -206,6 +225,9 @@ def resolve_worker_config(arguments: dict, settings: Settings | None):
         for key, value in variables.items():
             os.environ[key] = value
         environment.update(variables)
+    switchable = arguments.get("config") in _HARNESS_PRESETS.values()
+    if switchable and settings is not None and settings.harness:
+        arguments = {**arguments, "config": _HARNESS_PRESETS[settings.harness]}
     config = prepare_start_config(arguments)
     settings = settings or _initial_settings(config)
     if settings.workspace_dir:
@@ -221,12 +243,10 @@ def resolve_worker_config(arguments: dict, settings: Settings | None):
     components = config.get("components", {})
     wrapper = components.get("agent_wrapper", {}).get("default", {})
     server = components.get("codex_app_server", {}).get(wrapper.get("app_server", "default"), {})
-    editable = (
-        wrapper.get("backend") == "codex" and server.get("backend") == "sdk" and server.get("auth_mode") != "oauth"
-    )
-    if settings.harness and not editable:
+    harness = _managed_harness(config)
+    if settings.harness != harness:
         raise ValueError("This ReMe configuration does not use the selected Harness")
-    if editable:
+    if harness == "codex":
         server.update(
             base_url=settings.base_url or "",
             api_key=settings.api_key.get_secret_value() if settings.api_key else "",
@@ -248,10 +268,15 @@ def resolve_worker_config(arguments: dict, settings: Settings | None):
         if catalog and all(item.get("slug") != settings.model for item in catalog.get("models", [])):
             server.pop("model_catalog")
     elif wrapper.get("backend") == "claude_code":
-        wrapper.update(model=settings.model, api_key=settings.api_key.get_secret_value() if settings.api_key else "")
+        wrapper.update(
+            model=settings.model,
+            effort=settings.effort,
+            api_key=settings.api_key.get_secret_value() if settings.api_key else "",
+        )
         relay = components.get("anthropic_relay", {}).get(wrapper.get("anthropic_relay", "default"), {})
         if relay:
             relay["base_url"] = settings.base_url or ""
+            wrapper.pop("base_url", None)
         else:
             wrapper["base_url"] = settings.base_url or ""
     elif wrapper.get("backend") == "agentscope":
@@ -291,8 +316,9 @@ def resolve_worker_config(arguments: dict, settings: Settings | None):
         step["api_key"] = settings.dashscope_api_key.get_secret_value() if settings.dashscope_api_key else ""
     view = {
         **settings.public_values(),
-        "model_editable": editable,
-        "available_harnesses": ["codex"] if editable else [],
+        "harness": harness,
+        "model_editable": harness is not None,
+        "available_harnesses": list(_HARNESS_PRESETS) if switchable and harness else [harness] if harness else [],
         "dashscope_editable": any(speech_available.values()) or bool(search),
         "asr_available": speech_available["asr"],
         "tts_available": speech_available["tts"],

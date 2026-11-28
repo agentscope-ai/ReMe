@@ -20,14 +20,21 @@ export type TaskTrigger =
 
 export type TaskSettingsDraft = Pick<
   ProactiveRuntimeSettings,
-  "enabled" | "notify_window"
+  "enabled" | "notify_windows"
 > & { trigger: TaskTrigger };
+
+export function defaultNotifyWindows(): ProactiveRuntimeSettings["notify_windows"] {
+  return [
+    { start: "09:00", end: "12:00" },
+    { start: "14:00", end: "23:00" },
+  ];
+}
 
 const defaultSettings: ProactiveRuntimeSettings = {
   enabled: true,
   schedule: null,
   min_trigger_interval_seconds: 0,
-  notify_window: null,
+  notify_windows: defaultNotifyWindows(),
 };
 
 export function parseScheduleTime(
@@ -70,7 +77,12 @@ export function taskSettingsDraft(
   settings: ProactiveRuntimeSettings = defaultSettings,
   agentType: "event" | "time" = "event",
 ): TaskSettingsDraft {
-  const { schedule, min_trigger_interval_seconds, ...shared } = settings;
+  const { schedule, min_trigger_interval_seconds, enabled, notify_windows } =
+    settings;
+  const shared = {
+    enabled,
+    notify_windows: notify_windows.map((window) => ({ ...window })),
+  };
   if (agentType === "event")
     return {
       ...shared,

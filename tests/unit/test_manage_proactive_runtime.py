@@ -145,10 +145,14 @@ async def test_trigger_type_is_fixed_after_creation_and_on_restore(tmp_path, sch
         updated = (await tool(action="update", agent_name=name, **changes)).answer
         assert updated["config"]["schedule"] == changes.get("schedule")
         assert updated["config"]["min_trigger_interval_seconds"] == 60
-        await tool(action="update", agent_name=name, notify_window={"start": "09:00", "end": "18:00"})
-        assert (await runtime.definition(name)).notify_window.start == "09:00"
-        cleared = (await tool(action="update", agent_name=name, notify_window=None)).answer
-        assert cleared["config"]["notify_window"] is None
+        await tool(
+            action="update",
+            agent_name=name,
+            notify_windows=[{"start": "09:00", "end": "12:00"}, {"start": "14:00", "end": "23:00"}],
+        )
+        assert (await runtime.definition(name)).notify_windows[0].start == "09:00"
+        cleared = (await tool(action="update", agent_name=name, notify_windows=[])).answer
+        assert cleared["config"]["notify_windows"] == []
 
         await tool(action="delete", agent_name=name)
         deleted = path.read_bytes()

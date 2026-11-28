@@ -321,19 +321,21 @@ test("Workspace modules share their default sidebar width and headings", async (
   for (const [html, eyebrow] of [
     [notebook, "NOTES &amp; TO-DOS"],
     [knowledge, "KNOWLEDGE &amp; HISTORY"],
-    [remy, "AT YOUR SIDE"],
+    [remy, null],
     [settings, "YOUR SPACE"],
   ]) {
     assert.match(html, /--sidebar-width:256px/);
     assert.match(html, /class="module-sidebar-heading"/);
-    assert.ok(
-      html.includes(
-        `<span class="eyebrow" aria-hidden="true">${eyebrow}</span>`,
-      ),
-    );
+    if (eyebrow)
+      assert.ok(
+        html.includes(
+          `<span class="eyebrow" aria-hidden="true">${eyebrow}</span>`,
+        ),
+      );
   }
   assert.doesNotMatch(knowledge, /YOUR SECOND MEMORY/);
   assert.match(notebook, /随记/);
+  assert.match(notebook, /class="timeline-pane" data-variant="todo"/);
   assert.doesNotMatch(notebook, /服务未启用/);
   const unavailable = render(
     createElement(Notebook, {

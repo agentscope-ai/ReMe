@@ -6,7 +6,16 @@ export const contract = {
     "enabled": true,
     "schedule": null,
     "min_trigger_interval_seconds": 0.0,
-    "notify_window": null,
+    "notify_windows": [
+      {
+        "start": "09:00",
+        "end": "12:00"
+      },
+      {
+        "start": "14:00",
+        "end": "23:00"
+      }
+    ],
     "agent_name": "Remy",
     "agent_type": "chat",
     "status": "idle",

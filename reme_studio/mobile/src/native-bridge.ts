@@ -42,7 +42,6 @@ declare global {
       right: number,
       bottom: number,
       left: number,
-      backGesture: number,
       keyboard: boolean,
     ) => void;
   }
@@ -234,19 +233,11 @@ export const openNativeRecorder = android ? openAndroidRecorder : undefined;
 if (android) {
   const root = document.documentElement;
   root.dataset.androidInsets = "pending";
-  window.remeSetWindowInsets = (
-    top,
-    right,
-    bottom,
-    left,
-    backGesture,
-    keyboard,
-  ) => {
+  window.remeSetWindowInsets = (top, right, bottom, left, keyboard) => {
     root.style.setProperty("--mobile-safe-top", `${top}px`);
     root.style.setProperty("--mobile-safe-right", `${right}px`);
     root.style.setProperty("--mobile-safe-bottom", `${bottom}px`);
     root.style.setProperty("--mobile-safe-left", `${left}px`);
-    root.style.setProperty("--mobile-back-gesture", `${backGesture}px`);
     root.dataset.keyboard = String(keyboard);
     root.dataset.androidInsets = "ready";
   };

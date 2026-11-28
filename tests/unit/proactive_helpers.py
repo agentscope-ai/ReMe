@@ -139,7 +139,7 @@ async def running_system(tmp_path, *, language="en", initial_memory="", runtimes
         try:
             for value in runtimes or []:
                 if value["agent_name"] not in manager.runtimes:
-                    await manager.create(value)
+                    await manager.create({"notify_windows": [], **value})
             yield manager, context, wrapper
         finally:
             for job in reversed(list(context.jobs.values())):
@@ -161,7 +161,8 @@ async def emit_notification(manager, _context, *, name="monitor", suffix=0, prio
     from reme.utils.proactive_record import RoundRecord
 
     if name not in manager.runtimes:
-        await manager.create({"agent_type": "event", "agent_name": name})
+        # Delivery tests opt out of wall-clock restrictions unless they create a configured task first.
+        await manager.create({"agent_type": "event", "agent_name": name, "notify_windows": []})
     runtime = await manager.resolve(name)
     event = Event(id=f"event-{suffix}", event_ts=runtime.now(), source="test", description="Observed")
     await manager.append_events(name, [event])

@@ -4,10 +4,22 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { Maximize2, Menu, Minus, Moon, PanelLeft, Sun, X } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  ChevronRight,
+  Maximize2,
+  Minus,
+  Moon,
+  PanelLeft,
+  Sun,
+  X,
+} from "lucide-react";
 import { errorText, translator } from "../../client/src/i18n.ts";
 import type { StudioAction, Settings } from "../../client/src/protocol.ts";
 import { useHost } from "./host.ts";
+import { useNavigation } from "./navigation.tsx";
+import MobileTitlebar from "./mobile/titlebar.tsx";
 
 export type Breadcrumb = {
   label: string;
@@ -20,9 +32,7 @@ export const WorkspaceLayout = createContext<{
   settings: Pick<Settings, "language" | "theme">;
   platform?: string;
   setSidebarCollapsed: (collapsed: boolean) => void;
-  mobileSidebar?: HTMLDivElement | null;
-  openNavigation?: () => void;
-  navigationOpen?: boolean;
+  mobile?: boolean;
 } | null>(null);
 
 export const githubUrl = "https://github.com/agentscope-ai/ReMe";
@@ -35,25 +45,36 @@ function subscribeToColorScheme(onChange: () => void) {
   return () => preference.removeEventListener("change", onChange);
 }
 
-export default function WorkspaceTitlebar({
+export type TitlebarProps = NonNullable<
+  React.ContextType<typeof WorkspaceLayout>
+> & {
+  path: readonly Breadcrumb[];
+  sidebar?: string;
+  collapsed?: boolean;
+  children?: ReactNode;
+  status?: ReactNode;
+};
+
+export default function WorkspaceTitlebar(props: TitlebarProps) {
+  return props.mobile ? (
+    <MobileTitlebar {...props} />
+  ) : (
+    <DesktopTitlebar {...props} />
+  );
+}
+
+function DesktopTitlebar({
   path,
   sidebar,
   collapsed = true,
   settings,
   platform,
   setSidebarCollapsed,
-  openNavigation,
-  navigationOpen,
   children,
   status,
-}: NonNullable<React.ContextType<typeof WorkspaceLayout>> & {
-  path: readonly Breadcrumb[];
-  sidebar?: string;
-  collapsed?: boolean;
-  children?: ReactNode;
-  status?: ReactNode;
-}) {
+}: TitlebarProps) {
   const { action, desktop } = useHost();
+  const navigation = useNavigation();
   const { language, theme } = settings;
   const t = translator(language);
   const isChinese = language === "zh";
@@ -84,25 +105,35 @@ export default function WorkspaceTitlebar({
   const languageLabel = t("switchLanguage", {
     language: t(isChinese ? "english" : "chinese"),
   });
-  if (openNavigation) {
-    const current = path.at(-1)?.label;
-    return (
-      <header className="workspace-titlebar mobile-titlebar">
-        <button
-          type="button"
-          aria-label={t("navigation")}
-          aria-controls="mobile-navigation"
-          aria-expanded={navigationOpen}
-          onClick={openNavigation}
-        >
-          <Menu size={22} aria-hidden />
-        </button>
-        {current !== t("conversationTab") && <span>{current}</span>}
-        {status}
-        {children}
-      </header>
-    );
-  }
+  const issue = error ?? navigation?.error;
+  const historyControls = (
+    <div
+      className="workspace-history"
+      role="group"
+      aria-label={t("navigationHistory")}
+    >
+      <button
+        type="button"
+        className="titlebar-button"
+        aria-label={t("goBack")}
+        title={t("goBack")}
+        disabled={!navigation?.canBack}
+        onClick={navigation?.back}
+      >
+        <ArrowLeft size={17} aria-hidden />
+      </button>
+      <button
+        type="button"
+        className="titlebar-button"
+        aria-label={t("goForward")}
+        title={t("goForward")}
+        disabled={!navigation?.canForward}
+        onClick={navigation?.forward}
+      >
+        <ArrowRight size={17} aria-hidden />
+      </button>
+    </div>
+  );
   return (
     <header
       className="workspace-titlebar"
@@ -114,41 +145,23 @@ export default function WorkspaceTitlebar({
       }}
     >
       <div className="workspace-titlebar-side">
-        {sidebar && (
-          <button
-            type="button"
-            className="titlebar-button"
-            aria-label={toggleLabel}
-            aria-expanded={!collapsed}
-            aria-controls={sidebar}
-            title={platform ? `${toggleLabel} (${shortcut})` : toggleLabel}
-            aria-keyshortcuts={
-              platform
-                ? platform === "darwin"
-                  ? "Meta+Shift+S"
-                  : "Control+Shift+S"
-                : undefined
-            }
-            onClick={() => setSidebarCollapsed(!collapsed)}
-          >
-            <PanelLeft size={17} aria-hidden />
-          </button>
-        )}
-        <span className="workspace-brand" hidden={collapsed}>
-          ReMe Studio
-        </span>
+        <span className="workspace-brand">ReMe Studio</span>
       </div>
       <nav className="workspace-breadcrumb" aria-label={t("workspacePath")}>
         <ol>
+          <li className="workspace-root">
+            <span>{t("workspaceTab")}</span>
+          </li>
           {path.map(({ label, title, onSelect, revealSidebar }, index) => {
             const current = index === path.length - 1;
             return (
               <li key={index}>
-                {index > 0 && (
-                  <span className="path-divider" aria-hidden>
-                    /
-                  </span>
-                )}
+                <ChevronRight
+                  className="path-divider"
+                  size={15}
+                  strokeWidth={1.5}
+                  aria-hidden
+                />
                 {(onSelect || revealSidebar) && !current ? (
                   <button
                     type="button"
@@ -180,6 +193,27 @@ export default function WorkspaceTitlebar({
         {status}
       </nav>
       <div className="workspace-titlebar-actions">
+        {historyControls}
+        {sidebar && (
+          <button
+            type="button"
+            className="titlebar-button"
+            aria-label={toggleLabel}
+            aria-expanded={!collapsed}
+            aria-controls={sidebar}
+            title={platform ? `${toggleLabel} (${shortcut})` : toggleLabel}
+            aria-keyshortcuts={
+              platform
+                ? platform === "darwin"
+                  ? "Meta+Shift+S"
+                  : "Control+Shift+S"
+                : undefined
+            }
+            onClick={() => setSidebarCollapsed(!collapsed)}
+          >
+            <PanelLeft size={17} aria-hidden />
+          </button>
+        )}
         {children}
         <button
           type="button"
@@ -253,9 +287,9 @@ export default function WorkspaceTitlebar({
           </div>
         )}
       </div>
-      {error !== null && (
+      {issue != null && (
         <div className="titlebar-error action-error" role="alert">
-          {errorText(error, language)}
+          {errorText(issue, language)}
         </div>
       )}
     </header>

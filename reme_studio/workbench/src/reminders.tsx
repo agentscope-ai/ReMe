@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { CheckCheck } from "lucide-react";
 import type { StudioState } from "../../client/src/protocol.ts";
 import { errorText, translator } from "../../client/src/i18n.ts";
 import { useHost } from "./host.ts";
@@ -9,19 +8,12 @@ import ResourcePane, {
 } from "./resource-pane.tsx";
 import { TimelineBadge } from "./timeline.tsx";
 import { watchReadReceipt } from "./read-receipt.ts";
+import { useNavigationState } from "./navigation.tsx";
 
-export default function Reminders({
-  state,
-  canMarkAllRead,
-  onMarkAllRead,
-}: {
-  state: StudioState;
-  canMarkAllRead: boolean;
-  onMarkAllRead: () => void;
-}) {
+export default function Reminders({ state }: { state: StudioState }) {
   const { action } = useHost();
   const t = translator(state.settings.language);
-  const [selected, setSelected] = useState("");
+  const [selected, setSelected] = useNavigationState("remy", "reminder", "");
   const [error, setError] = useState<unknown>(null);
   const message = state.reminders.find((item) => item.id === selected);
   const read = state.readMessageIds.includes(selected);
@@ -82,16 +74,6 @@ export default function Reminders({
             target: { kind: "message", id: item.id },
           };
         })}
-        controls={
-          <button
-            className="subtle"
-            disabled={!canMarkAllRead}
-            onClick={onMarkAllRead}
-          >
-            <CheckCheck size={15} />
-            {t("markAllRead")}
-          </button>
-        }
       >
         {message && (
           <ResourceMessage

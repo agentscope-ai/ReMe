@@ -80,9 +80,22 @@ async def _test_model(config: dict) -> None:
     """Test the configured provider with the same wrapper in a temporary workspace."""
     components = config["components"]
     wrapper = components["agent_wrapper"]["default"]
-    server_name = wrapper.get("app_server", "default")
-    server = components["codex_app_server"][server_name]
     with TemporaryDirectory(prefix="reme-model-test-") as workspace:
+        test_components = {
+            "agent_wrapper": {"default": {**wrapper, "project_path": workspace, "cwd": workspace, "skills": []}},
+        }
+        if wrapper["backend"] == "codex":
+            server_name = wrapper.get("app_server", "default")
+            server = components["codex_app_server"][server_name]
+            test_components["codex_app_server"] = {
+                server_name: {**server, "cwd": workspace, "codex_home": ".codex"},
+            }
+        elif wrapper["backend"] == "claude_code":
+            test_components["agent_wrapper"]["default"].update(tools=[], mcp_servers={}, setting_sources=[])
+            if relay_name := wrapper.get("anthropic_relay"):
+                test_components["anthropic_relay"] = {relay_name: components["anthropic_relay"][relay_name]}
+        else:
+            raise ValueError("This ReMe configuration does not use a managed model provider")
         app = Application(
             **{
                 **config,
@@ -91,12 +104,11 @@ async def _test_model(config: dict) -> None:
                 "log_to_console": False,
                 "log_to_file": False,
                 "jobs": {},
-                "components": {
-                    "agent_wrapper": {
-                        "default": {**wrapper, "project_path": workspace, "cwd": workspace, "skills": []},
-                    },
-                    "codex_app_server": {server_name: {**server, "cwd": workspace, "codex_home": ".codex"}},
+                "environment": {
+                    **config.get("environment", {}),
+                    "CLAUDE_CONFIG_DIR": str(Path(workspace) / "claude_config"),
                 },
+                "components": test_components,
             },
         )
         async with app:
@@ -126,7 +138,7 @@ def main() -> None:
             _report(result, view=view)
         elif request["mode"] == "test":
             if not view["model_editable"]:
-                raise ValueError("This ReMe configuration does not use a managed Codex provider")
+                raise ValueError("This ReMe configuration does not use a managed model provider")
             if any(field in view["missing_fields"] for field in ("base_url", "api_key", "model")):
                 raise ValueError("Complete the model settings before testing the connection")
             asyncio.run(_test_model(config))

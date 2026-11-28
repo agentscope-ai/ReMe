@@ -57,6 +57,33 @@
   justify-content: space-between;
   gap: 16px;
 }
+.task-notify-windows {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.task-notify-window {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}
+.task-notify-window > .task-field {
+  flex: 1;
+}
+.task-notify-window > .icon-button {
+  flex-shrink: 0;
+  min-height: 38px;
+}
+.task-add-window {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 6px;
+  padding: 6px 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
 .task-hint,
 .task-field small {
   color: var(--muted);
@@ -90,11 +117,6 @@
 }
 .task-editor-error button {
   flex-shrink: 0;
-}
-.task-settings-section + .task-settings-section {
-  margin-top: 28px;
-  padding-top: 28px;
-  border-top: 1px solid var(--line);
 }
 .task-editor > .task-hint {
   margin-top: 18px;

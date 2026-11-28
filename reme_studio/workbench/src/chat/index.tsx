@@ -40,6 +40,8 @@ import {
   Square,
 } from "lucide-react";
 import { WorkspaceLayout } from "../workspace-titlebar.tsx";
+import { useHoldToTalk } from "../mobile/hold-to-talk.ts";
+import RecordingField from "../mobile/recording-field.tsx";
 
 const speechIcons = {
   idle: Headphones,
@@ -65,8 +67,8 @@ export default function Chat({
   clearDialogOpen: boolean;
   onClearDialogChange: (open: boolean) => void;
 }) {
-  const { action, openRecorder } = useHost();
-  const mobile = Boolean(useContext(WorkspaceLayout)?.openNavigation);
+  const { action } = useHost();
+  const mobile = Boolean(useContext(WorkspaceLayout)?.mobile);
   const language = state.settings.language;
   const t = translator(language);
   const isRemy = (state.selectedAgentName ?? "Remy") === "Remy";
@@ -122,16 +124,25 @@ export default function Chat({
   const input = useRef<HTMLTextAreaElement | null>(null);
   const queryRef = useRef(query);
   queryRef.current = query;
+  const streaming = Boolean(state.pending?.streaming);
+  const busy = clearing || streaming || (isRemy && state.status === "active");
+  const ready =
+    state.connection === "connected" &&
+    state.status !== "error" &&
+    (isRemy || Boolean(state.sessionId));
   const capture = useCapture(
     { ...state, chatVisible: state.chatVisible && active },
-    (text) => {
+    (text, sendOnRelease) => {
       const value = queryRef.current;
       const from = input.current?.selectionStart ?? value.length;
       const to = input.current?.selectionEnd ?? from;
       const composed = value.slice(0, from) + text + value.slice(to);
       queryRef.current = composed;
       setQuery(composed);
-      if (state.settings.voiceAutoSend) void send(composed);
+      const sendImmediately =
+        (sendOnRelease || state.settings.voiceAutoSend) && !busy && ready;
+      if (sendImmediately) void send(composed);
+      if (sendImmediately && sendOnRelease) return;
       requestAnimationFrame(() => {
         input.current?.focus();
         input.current?.setSelectionRange(
@@ -142,6 +153,24 @@ export default function Chat({
     },
     setError,
   );
+  const recordingField = mobile && capture.sendOnRelease ? capture.phase : null;
+  const holdEnabled = Boolean(
+    mobile &&
+    active &&
+    !busy &&
+    ready &&
+    !query &&
+    !capture.phase &&
+    state.speech.ready &&
+    state.speech.asr,
+  );
+  const hold = useHoldToTalk({
+    enabled: holdEnabled,
+    scope: JSON.stringify([active, state.sessionId, state.settings.endpoint]),
+    start: () => capture.start(true),
+    finish: capture.finish,
+    cancel: capture.cancel,
+  });
   const voice = state.speech.playback;
   const displayedError =
     error ?? (state.speech.error ? deserializeError(state.speech.error) : null);
@@ -161,12 +190,6 @@ export default function Chat({
     .join("\n");
   const readIds = useRef(new Set<string>());
   readIds.current = new Set(state.readMessageIds);
-  const streaming = Boolean(state.pending?.streaming);
-  const busy = clearing || streaming || (isRemy && state.status === "active");
-  const ready =
-    state.connection === "connected" &&
-    state.status !== "error" &&
-    (isRemy || Boolean(state.sessionId));
   const clearDisabled = clearing || !canClearContext;
   const commands = isRemy
     ? [
@@ -247,8 +270,9 @@ export default function Chat({
   }, [state.messages.length, state.sessionId, historyStart, following]);
   const focusSession = isRemy ? state.sessionId : null;
   useEffect(() => {
-    if (state.chatVisible && active && !clearing) input.current?.focus();
-  }, [state.chatVisible, active, focusSession, clearing]);
+    if (!mobile && state.chatVisible && active && !clearing)
+      input.current?.focus();
+  }, [mobile, state.chatVisible, active, focusSession, clearing]);
   useEffect(() => {
     if (active && isRemy && clearDialogOpen) clearDialog.current?.showModal();
   }, [active, isRemy, clearDialogOpen]);
@@ -393,7 +417,7 @@ export default function Chat({
       )}
       {home && (
         <div className="empty-chat">
-          <h2>{t("welcomeTitle")}</h2>
+          <h2>{t(mobile ? "mobileWelcomeTitle" : "welcomeTitle")}</h2>
           <p>{t("welcomeHint")}</p>
           {state.connection !== "connected" && (
             <p className="start-hint">
@@ -654,7 +678,7 @@ export default function Chat({
             {t("speechNoInput")}
           </div>
         )}
-        {(capture.phase || voice) && (
+        {!capture.sendOnRelease && (capture.phase || voice) && (
           <div className="voice-status" role="status">
             <span>
               {capture.phase
@@ -722,11 +746,22 @@ export default function Chat({
           </div>
         )}
         <form
+          data-recording={Boolean(recordingField)}
           onSubmit={(event) => {
             event.preventDefault();
             submit();
           }}
         >
+          {recordingField && (
+            <RecordingField
+              phase={recordingField}
+              canceling={hold.canceling}
+              seconds={capture.seconds}
+              level={capture.level}
+              language={language}
+              onCancel={capture.cancel}
+            />
+          )}
           {matchingCommands.length > 0 && (
             <div
               className="chat-command-menu"
@@ -753,16 +788,24 @@ export default function Chat({
             </div>
           )}
           <textarea
+            {...hold.handlers}
             ref={input}
             value={query}
+            readOnly={Boolean(recordingField)}
             onChange={(event) => setQuery(event.target.value)}
-            onPointerDown={() => void action({ type: "interaction" })}
+            onPointerDown={(event) => {
+              void action({ type: "interaction" });
+              hold.handlers.onPointerDown(event);
+            }}
+            data-hold-to-talk={holdEnabled}
             placeholder={
               busy
                 ? t("draftWhileBusy")
-                : isRemy
-                  ? t("agentMessagePlaceholder", { name: agentName })
-                  : t("taskQueryPlaceholder")
+                : mobile && state.speech.asr
+                  ? t("mobileMessagePlaceholder")
+                  : isRemy
+                    ? t("agentMessagePlaceholder", { name: agentName })
+                    : t("taskQueryPlaceholder")
             }
             aria-label={t("message")}
             aria-controls={selectedCommand && `${composerId}-commands`}
@@ -770,7 +813,7 @@ export default function Chat({
               selectedCommand && commandId(selectedCommand.name)
             }
             aria-autocomplete={isRemy ? "list" : undefined}
-            rows={2}
+            rows={mobile ? 1 : 2}
             maxLength={100000}
             onKeyDown={(event) => {
               void action({ type: "interaction" });
@@ -814,7 +857,7 @@ export default function Chat({
             aria-label={t(
               capture.phase === "recording"
                 ? "finishRecording"
-                : openRecorder
+                : mobile
                   ? "startRecording"
                   : "holdToSpeak",
             )}
@@ -822,7 +865,7 @@ export default function Chat({
             title={t(
               !state.speech.asr
                 ? "speechAsrUnavailable"
-                : openRecorder
+                : mobile
                   ? "startRecording"
                   : "voiceShortcut",
             )}
@@ -833,16 +876,16 @@ export default function Chat({
               capture.phase === "transcribing"
             }
             onPointerDown={(event) => {
-              if (openRecorder || event.button !== 0) return;
+              if (mobile || event.button !== 0) return;
               event.preventDefault();
               event.currentTarget.setPointerCapture(event.pointerId);
               capture.start();
             }}
-            onPointerUp={openRecorder ? undefined : capture.finish}
-            onPointerCancel={openRecorder ? undefined : capture.cancel}
-            onLostPointerCapture={openRecorder ? undefined : capture.finish}
+            onPointerUp={mobile ? undefined : capture.finish}
+            onPointerCancel={mobile ? undefined : capture.cancel}
+            onLostPointerCapture={mobile ? undefined : capture.finish}
             onClick={(event) => {
-              if (openRecorder || event.detail === 0) capture.toggle();
+              if (mobile || event.detail === 0) capture.toggle();
             }}
           >
             <svg
@@ -878,6 +921,11 @@ export default function Chat({
             </button>
           )}
         </form>
+        {mobile && state.speech.asr && (
+          <p className="mobile-composer-hint">
+            {t(busy ? "draftWhileBusy" : "mobileComposerHint")}
+          </p>
+        )}
         <div className="composer-meta">
           <span className="composer-location">
             <span

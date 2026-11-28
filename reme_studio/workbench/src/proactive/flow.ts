@@ -1,76 +1,98 @@
+import {
+  Bitcoin,
+  Clock,
+  Code,
+  Droplet,
+  Gem,
+  MessageSquare,
+  Monitor,
+  Newspaper,
+  Plug,
+  TrendingUp,
+  type LucideIcon,
+} from "lucide-react";
 import type {
   ConnectorView,
+  OverviewInboxItem,
+  OverviewReminder,
   OverviewTransition,
   ProactiveOverview,
 } from "../../../client/src/wire.ts";
-import type { translator } from "../../../client/src/i18n.ts";
 
-export function displayAgentName(
-  name: string,
-  t: ReturnType<typeof translator>,
-): string {
-  const names = {
-    proactive_memory: "flowProject",
-    proactive_note: "flowNotes",
-    proactive_fin: "flowMarkets",
-    proactive_news: "flowBriefing",
-  } as const;
-  return name in names ? t(names[name as keyof typeof names]) : name;
+export type Flight = {
+  action: OverviewTransition;
+  edge: FlowEdge;
+  expires: number;
+  delay: number;
+};
+
+type FlowEdge = `source:${string}` | "claim" | "deliver" | "remind";
+
+export const relayTiming = {
+  depart: 320,
+  arrive: 1280,
+  receive: 600,
+  duration: 2200,
+} as const;
+
+export function transferOrigin(edge: FlowEdge): 0 | 1 | 2 | 3 {
+  if (edge.startsWith("source:")) return 0;
+  return edge === "claim" ? 1 : edge === "deliver" ? 2 : 3;
+}
+
+/** Match receipts by their durable IDs, rather than highlighting unrelated rows. */
+export function matchesTransition(
+  action: OverviewTransition,
+  item: OverviewInboxItem | OverviewReminder,
+): boolean {
+  if ("session_id" in item) return action.message_id === item.id;
+  if (
+    (action.delivery_id && action.delivery_id === item.delivery?.id) ||
+    (action.message_id && item.chat_message_ids.includes(action.message_id))
+  )
+    return true;
+  if (
+    action.agent_name &&
+    item.agent_name !== "Remy" &&
+    action.agent_name !== item.agent_name
+  )
+    return false;
+  if (action.type === "event_admitted" || action.type === "input_claimed")
+    return action.event_ids.some((id) => item.event_ids.includes(id));
+  return [action.run_id, ...action.run_ids].some(
+    (id) => id != null && item.run_ids.includes(id),
+  );
 }
 
 export function filterAgents<
   T extends { agent_name: string; agent_type: string },
->(
-  agents: T[],
-  query: string,
-  type: string,
-  label: (name: string) => string,
-): T[] {
+>(agents: T[], query: string, type: string): T[] {
   const needle = query.trim().toLocaleLowerCase();
   return agents.filter(
     (agent) =>
       (type === "all" || agent.agent_type === type) &&
-      `${agent.agent_name} ${label(agent.agent_name)}`
-        .toLocaleLowerCase()
-        .includes(needle),
+      agent.agent_name.toLocaleLowerCase().includes(needle),
   );
-}
-
-/** Rounded source branches join separate event and time rails. */
-export function sourceRoute(
-  from: FlowPoint,
-  to: FlowPoint,
-  railX: number,
-): string {
-  const direction = Math.sign(to.y - from.y);
-  const radius = Math.min(
-    9,
-    Math.abs(to.y - from.y) / 2,
-    (railX - from.x) / 2,
-    (to.x - railX) / 2,
-  );
-  if (!direction || radius <= 0) return `M${from.x},${from.y} L${to.x},${to.y}`;
-  return `M${from.x},${from.y} H${railX - radius} Q${railX},${from.y} ${railX},${from.y + direction * radius} V${to.y - direction * radius} Q${railX},${to.y} ${railX + radius},${to.y} H${to.x}`;
 }
 
 export function sourceIcon(
   source: Pick<ConnectorView, "source_id" | "trigger_type">,
-): string {
-  if (source.trigger_type === "time") return "⏰";
+): LucideIcon {
+  if (source.trigger_type === "time") return Clock;
   const id = source.source_id;
-  if (id.includes("screen")) return "🖥️";
-  if (id.includes("codex")) return "💬";
-  if (id.includes("claude")) return "🧩";
-  if (id.includes("news")) return "📰";
-  if (id.includes("gold_quotes")) return "🥇";
-  if (id.includes("oil_quotes")) return "🛢️";
-  if (id.includes("btc_quotes")) return "🪙";
-  if (id.includes("quotes")) return "📈";
-  return "🔌";
+  if (id.includes("screen")) return Monitor;
+  if (id.includes("codex")) return MessageSquare;
+  if (id.includes("claude")) return Code;
+  if (id.includes("news")) return Newspaper;
+  if (id.includes("gold_quotes")) return Gem;
+  if (id.includes("oil_quotes")) return Droplet;
+  if (id.includes("btc_quotes")) return Bitcoin;
+  if (id.includes("quotes")) return TrendingUp;
+  return Plug;
 }
 
-/** Only confirmed backend actions produce motion; activity is never inferred as a file read. */
-export function flowEdge(action: OverviewTransition): string | null {
+/** Only confirmed transfers animate the five-stage pipeline. */
+export function flowEdge(action: OverviewTransition): FlowEdge | null {
   switch (action.type) {
     case "event_admitted":
       return action.source_id ? `source:${action.source_id}` : null;
@@ -82,10 +104,6 @@ export function flowEdge(action: OverviewTransition): string | null {
       return "deliver";
     case "reminder_sent":
       return "remind";
-    case "record_committed":
-      return "write";
-    case "workspace_read":
-      return "read";
     default:
       return null;
   }
@@ -105,19 +123,4 @@ export function isTimeAction(
         agent.agent_name === action.agent_name && agent.agent_type === "time",
     )
   );
-}
-
-export type FlowPoint = { x: number; y: number };
-export function curve(
-  from: FlowPoint,
-  to: FlowPoint,
-  vertical = false,
-): string {
-  const bend = Math.max(
-    24,
-    Math.abs(vertical ? to.y - from.y : to.x - from.x) * 0.5,
-  );
-  return vertical
-    ? `M${from.x},${from.y} C${from.x},${from.y + bend} ${to.x},${to.y - bend} ${to.x},${to.y}`
-    : `M${from.x},${from.y} C${from.x + bend},${from.y} ${to.x - bend},${to.y} ${to.x},${to.y}`;
 }

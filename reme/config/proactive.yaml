@@ -695,22 +695,25 @@ jobs:
           type: number
           minimum: 0
           description: Minimum interval before processing observations, in seconds.
-        notify_window:
-          type:
-          - object
-          - 'null'
-          description: Time window for automatic Chat processing and sending.
-          properties:
-            start:
-              type: string
-              pattern: ^(?:[01][0-9]|2[0-3]):[0-5][0-9]$
-            end:
-              type: string
-              pattern: ^(?:[01][0-9]|2[0-3]):[0-5][0-9]$
-          required:
-          - start
-          - end
-          additionalProperties: false
+        notify_windows:
+          type: array
+          description: Application-local periods for automatic Chat processing and sending. Any matching period allows reminders; an empty list is unrestricted. Defaults to 09:00-12:00 and 14:00-23:00.
+          default:
+          - {start: '09:00', end: '12:00'}
+          - {start: '14:00', end: '23:00'}
+          items:
+            type: object
+            properties:
+              start:
+                type: string
+                pattern: ^(?:[01][0-9]|2[0-3]):[0-5][0-9]$
+              end:
+                type: string
+                pattern: ^(?:[01][0-9]|2[0-3]):[0-5][0-9]$
+            required:
+            - start
+            - end
+            additionalProperties: false
         question:
           type: string
           minLength: 1

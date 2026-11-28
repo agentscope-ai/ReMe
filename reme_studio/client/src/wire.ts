@@ -41,7 +41,7 @@ export type AgentView = {
   enabled: boolean;
   schedule: string | null;
   min_trigger_interval_seconds: number;
-  notify_window: NotificationWindow | null;
+  notify_windows: Array<NotificationWindow>;
   agent_name: string;
   agent_type: "chat" | "event" | "time";
   status: "active" | "idle" | "not_loaded" | "error";
@@ -155,7 +155,7 @@ export type OverviewAgent = {
   enabled: boolean;
   schedule: string | null;
   min_trigger_interval_seconds: number;
-  notify_window: NotificationWindow | null;
+  notify_windows: Array<NotificationWindow>;
   agent_name: string;
   agent_type: "chat" | "event" | "time";
   status: "active" | "idle" | "not_loaded" | "error";
@@ -303,7 +303,7 @@ export type ProactiveRuntimeSettings = {
   enabled: boolean;
   schedule: string | null;
   min_trigger_interval_seconds: number;
-  notify_window: NotificationWindow | null;
+  notify_windows: Array<NotificationWindow>;
 };
 
 export type SSEConnectorBinding = {

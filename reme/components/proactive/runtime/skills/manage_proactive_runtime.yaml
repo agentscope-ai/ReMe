@@ -26,14 +26,14 @@ content: |
   | `agent_type` | Required on creation and restoration: `event` or `time`. The type is fixed for the Runtime lifetime. |
   | `schedule` | Cron expression in the application timezone. Required for a new `time` task; omitted or `null` for `event`. A time-triggered task can update its expression; restoration retains an omitted schedule. |
   | `min_trigger_interval_seconds` | Nonnegative number; defaults to `0`. Minimum interval between event-processing runs, measured from the last successful completion. Use `0` to remove the interval; collector frequency is configured separately. |
-  | `notify_window` | Application-local `{start,end}` in HH:MM, or `null` for no limit. Controls automatic Chat reminder processing/sending, not task execution or collection. Supports overnight windows; equal endpoints mean all day, otherwise start is inclusive and end exclusive. |
+  | `notify_windows` | List of application-local `{start,end}` periods in HH:MM. Defaults to `09:00–12:00` and `14:00–23:00`; `[]` means no limit. Any matching period permits reminders. Controls automatic Chat reminder processing/sending, not task execution or collection. Supports overnight windows; equal endpoints mean all day, otherwise start is inclusive and end exclusive. |
   | `question` | Nonblank question for `query` only. Queries use a read-only branch of the latest task session; if no session exists, check status and TASK.md instead. |
 
   Put the material time range and whether to report every occurrence in TASK.md. A task keeps its trigger type; create separate tasks if both are needed.
 
   ## Complete request examples
 
-  Each row is an independent request to `manage_proactive_runtime`. `update` accepts only `enabled`, `schedule`, `min_trigger_interval_seconds` and `notify_window`, with at least one supplied; omitted settings retain their values.
+  Each row is an independent request to `manage_proactive_runtime`. `update` accepts only `enabled`, `schedule`, `min_trigger_interval_seconds` and `notify_windows`, with at least one supplied; omitted settings retain their values.
 
   | Operation | Complete parameters |
   | --- | --- |
@@ -49,8 +49,8 @@ content: |
   | Change a time-triggered schedule | `{"action":"update","agent_name":"ai_briefing","schedule":"0 9 * * *"}` |
   | Set or change the processing interval | `{"action":"update","agent_name":"experiment_watch","min_trigger_interval_seconds":60}` |
   | Remove the processing interval | `{"action":"update","agent_name":"experiment_watch","min_trigger_interval_seconds":0}` |
-  | Set or change reminder hours | `{"action":"update","agent_name":"experiment_watch","notify_window":{"start":"09:00","end":"18:00"}}` |
-  | Remove reminder-hour restrictions | `{"action":"update","agent_name":"experiment_watch","notify_window":null}` |
+  | Set or change reminder hours | `{"action":"update","agent_name":"experiment_watch","notify_windows":[{"start":"09:00","end":"12:00"},{"start":"14:00","end":"23:00"}]}` |
+  | Remove reminder-hour restrictions | `{"action":"update","agent_name":"experiment_watch","notify_windows":[]}` |
   | Delete a task and retain its files | `{"action":"delete","agent_name":"experiment_watch"}` |
   | Restore a deleted task under the same name | `{"action":"create","agent_type":"event","agent_name":"experiment_watch"}` |
 
@@ -95,14 +95,14 @@ content_zh: |
   | `agent_type` | 创建和恢复时必填：`event` 或 `time`，Runtime 存续期间固定。 |
   | `schedule` | 使用应用时区的 Cron 表达式。新建 `time` 任务必填，`event` 任务省略或传 `null`。时间任务可修改表达式，恢复时省略则沿用原日程。 |
   | `min_trigger_interval_seconds` | 非负数，默认 `0`。事件处理轮次的最短间隔，从上次成功完成时计；传 `0` 取消间隔。采集频率单独配置。 |
-  | `notify_window` | 应用本地时间的 `{start,end}`，格式 HH:MM；`null` 表示不限时段。只控制主对话自动处理和发送提醒，不控制任务执行或采集。可跨午夜；起止相同表示全天，否则含起点、不含终点。 |
+  | `notify_windows` | 应用本地时间的 `{start,end}` 时段列表，格式 HH:MM；默认 `09:00–12:00`、`14:00–23:00`，`[]` 表示不限时段，命中任一时段即可提醒。只控制主对话自动处理和发送提醒，不控制任务执行或采集。可跨午夜；起止相同表示全天，否则含起点、不含终点。 |
   | `question` | 仅 `query` 使用的非空问题。通过最新任务会话的只读分支询问；尚无会话时，查看状态和 TASK.md。 |
 
   资料时间范围、是否每轮汇报写在 TASK.md。任务触发类型固定，两种触发都需要时分别建任务。
 
   ## 完整请求示例
 
-  每行都是独立的 `manage_proactive_runtime` 请求。`update` 只接受 `enabled`、`schedule`、`min_trigger_interval_seconds`、`notify_window`，至少传一个，未传的设置保留。
+  每行都是独立的 `manage_proactive_runtime` 请求。`update` 只接受 `enabled`、`schedule`、`min_trigger_interval_seconds`、`notify_windows`，至少传一个，未传的设置保留。
 
   | 操作 | 完整参数 |
   | --- | --- |
@@ -118,8 +118,8 @@ content_zh: |
   | 修改时间触发日程 | `{"action":"update","agent_name":"ai_briefing","schedule":"0 9 * * *"}` |
   | 设置或修改处理间隔 | `{"action":"update","agent_name":"experiment_watch","min_trigger_interval_seconds":60}` |
   | 取消处理间隔 | `{"action":"update","agent_name":"experiment_watch","min_trigger_interval_seconds":0}` |
-  | 设置或修改提醒时段 | `{"action":"update","agent_name":"experiment_watch","notify_window":{"start":"09:00","end":"18:00"}}` |
-  | 取消提醒时段限制 | `{"action":"update","agent_name":"experiment_watch","notify_window":null}` |
+  | 设置或修改提醒时段 | `{"action":"update","agent_name":"experiment_watch","notify_windows":[{"start":"09:00","end":"12:00"},{"start":"14:00","end":"23:00"}]}` |
+  | 取消提醒时段限制 | `{"action":"update","agent_name":"experiment_watch","notify_windows":[]}` |
   | 删除任务并保留文件 | `{"action":"delete","agent_name":"experiment_watch"}` |
   | 同名恢复已删除任务 | `{"action":"create","agent_type":"event","agent_name":"experiment_watch"}` |
 

@@ -167,6 +167,13 @@ test("graph details keep prose primary, provenance collapsed and mailbox heading
     controls: createElement("button", {}, "筛选"),
   };
   assert.match(render(ResourcePane, mailbox), /<h1>收件箱<\/h1>/);
+  for (const view of ["inbox", "outbox", "reminders"])
+    assert.ok(
+      render(ResourcePane, { ...mailbox, view }).includes(
+        `data-variant="${view}"`,
+      ),
+      `${view} uses its own palette in the shared timeline`,
+    );
   const embedded = render(ResourcePane, { ...mailbox, embedded: true });
   assert.doesNotMatch(embedded, /<h1>/);
   assert.match(embedded, /筛选/);

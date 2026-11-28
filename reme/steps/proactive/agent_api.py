@@ -86,7 +86,7 @@ class AgentViews:
             enabled=config.get("enabled", getattr(runtime, "enabled", True)),
             schedule=config.get("schedule"),
             min_trigger_interval_seconds=config.get("min_trigger_interval_seconds", 0),
-            notify_window=config.get("notify_window"),
+            notify_windows=config.get("notify_windows", []),
             status=status,
             session_id=session.session_id if session else None,
             directory=runtime.to_workspace_relative(runtime.directory),

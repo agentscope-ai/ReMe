@@ -1,4 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import {
   Check,
@@ -7,6 +13,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import "./context-menu.css";
+import { WorkspaceLayout } from "./workspace-titlebar.tsx";
+import { useMobileContentMotion } from "./mobile/motion.ts";
 
 export interface MenuItem {
   id: string;
@@ -35,13 +43,51 @@ export default function ContextMenu({
   onClose: () => void;
 }) {
   const inline = position === undefined;
+  const mobile = Boolean(useContext(WorkspaceLayout)?.mobile);
   const x = position?.x ?? 0;
   const y = position?.y ?? 0;
   const root = useRef<HTMLDivElement>(null);
+  const exit = useRef<Animation | null>(null);
   const trigger = useRef<HTMLElement | null>(null);
   const close = useRef(onClose);
   close.current = onClose;
   const [path, setPath] = useState<string[]>([]);
+  useMobileContentMotion(root, JSON.stringify(path), mobile && open);
+  const dismiss = () => {
+    if (exit.current) return;
+    const element = root.current;
+    if (
+      !mobile ||
+      inline ||
+      !element ||
+      matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
+      close.current();
+      return;
+    }
+    element.inert = true;
+    const animation = element.animate(
+      [
+        { opacity: getComputedStyle(element).opacity, scale: 1 },
+        { opacity: 0, scale: 0.98 },
+      ],
+      { duration: 140, easing: "ease-out", fill: "forwards" },
+    );
+    exit.current = animation;
+    void animation.finished.then(
+      () => {
+        if (exit.current === animation) close.current();
+      },
+      () => {},
+    );
+  };
+  useEffect(() => {
+    if (root.current) root.current.inert = false;
+    return () => {
+      exit.current?.cancel();
+      exit.current = null;
+    };
+  }, [x, y, open]);
   const [viewport, setViewport] = useState(0);
   let page = items;
   let title = "";
@@ -86,9 +132,9 @@ export default function ContextMenu({
         !root.current?.contains(target) &&
         !(inline && source?.contains(target))
       )
-        close.current();
+        dismiss();
     };
-    const dismiss = () => close.current();
+    const blur = () => dismiss();
     const resize = () => setViewport((value) => value + 1);
     const view = window.visualViewport;
     // Dismiss inline menus at click time so rows stay in place while targeting them.
@@ -96,7 +142,7 @@ export default function ContextMenu({
     document.addEventListener(outsideEvent, outside, inline);
     if (inline) document.addEventListener("contextmenu", outside, true);
     if (!inline) {
-      window.addEventListener("blur", dismiss);
+      window.addEventListener("blur", blur);
       window.addEventListener("resize", resize);
       view?.addEventListener("resize", resize);
       view?.addEventListener("scroll", resize);
@@ -105,7 +151,7 @@ export default function ContextMenu({
       document.removeEventListener(outsideEvent, outside, inline);
       if (inline) document.removeEventListener("contextmenu", outside, true);
       if (!inline) {
-        window.removeEventListener("blur", dismiss);
+        window.removeEventListener("blur", blur);
         window.removeEventListener("resize", resize);
         view?.removeEventListener("resize", resize);
         view?.removeEventListener("scroll", resize);
@@ -133,7 +179,7 @@ export default function ContextMenu({
         if (event.key === "Escape" || event.key === "ArrowLeft") {
           event.preventDefault();
           if (path.length) setPath(path.slice(0, -1));
-          else onClose();
+          else dismiss();
         } else if (event.key === "ArrowRight") {
           const button = document.activeElement;
           if (
@@ -166,7 +212,7 @@ export default function ContextMenu({
                   buttons.length;
           buttons[index]?.focus();
           buttons[index]?.scrollIntoView({ block: "nearest" });
-        } else if (event.key === "Tab") onClose();
+        } else if (event.key === "Tab") dismiss();
       }}
     >
       {path.length > 0 && (
@@ -190,7 +236,7 @@ export default function ContextMenu({
           onClick={() => {
             if (item.children) setPath([...path, item.id]);
             else {
-              if (!inline) onClose();
+              if (!inline) dismiss();
               item.select?.();
             }
           }}

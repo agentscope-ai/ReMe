@@ -8,12 +8,23 @@ export const reasoningEfforts = [
   "max",
 ] as const;
 export type ReasoningEffort = (typeof reasoningEfforts)[number];
+export type Harness = "codex" | "claude_code";
+
+export function harnessEfforts(
+  harness: Harness | null,
+): readonly ReasoningEffort[] {
+  return harness === "claude_code"
+    ? reasoningEfforts.filter(
+        (effort) => effort !== "none" && effort !== "minimal",
+      )
+    : reasoningEfforts;
+}
 
 export interface BackendValues {
   workspace_dir: string | null;
   timezone: string | null;
   language: string;
-  harness: "codex" | null;
+  harness: Harness | null;
   base_url: string | null;
   model: string | null;
   effort: ReasoningEffort | null;
@@ -29,7 +40,7 @@ export interface BackendSettings extends BackendValues {
   initialized: boolean;
   settings_error: string | null;
   model_editable: boolean;
-  available_harnesses: "codex"[];
+  available_harnesses: Harness[];
   api_key_set: boolean;
   dashscope_api_key_set: boolean;
   dashscope_editable: boolean;

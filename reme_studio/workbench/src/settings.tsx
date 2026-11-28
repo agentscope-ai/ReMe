@@ -1,11 +1,12 @@
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import {
   Cable,
-  Server,
+  FolderOpen,
+  Cpu,
+  AudioLines,
   Palette,
   Sparkles,
   Bell,
-  AudioLines,
   Info,
   Globe,
   ArrowUpRight,
@@ -13,6 +14,8 @@ import {
   Sun,
   Moon,
   Check,
+  Download,
+  ChevronRight,
 } from "lucide-react";
 import type { StudioState, StudioAction } from "../../client/src/protocol.ts";
 import { sleepDurations } from "../../client/src/protocol.ts";
@@ -21,19 +24,29 @@ import { useHost } from "./host.ts";
 import { Switch } from "./ui.tsx";
 import VoiceSettings from "./speech/settings.tsx";
 import SplitPane, { SidebarHeading } from "./split-pane.tsx";
-import { githubUrl } from "./workspace-titlebar.tsx";
-import BackendSettingsPanel from "./backend-settings.tsx";
+import { githubUrl, WorkspaceLayout } from "./workspace-titlebar.tsx";
+import BackendSettingsPanel, {
+  type BackendSettingsSection,
+} from "./backend-settings.tsx";
 import type { NavigationGuard } from "../../client/src/backend.ts";
+import { useNavigationState } from "./navigation.tsx";
 
 const sections = [
-  ["general", Cable, "generalHint"],
-  ["backendSettings", Server, "backendHint"],
   ["appearance", Palette, "appearanceHint"],
-  ["remy", Sparkles, "remyHint"],
+  ["connectionSettings", Cable, "connectionSettingsHint"],
+  ["workspaceSettings", FolderOpen, "workspaceSettingsHint"],
+  ["modelSettings", Cpu, "modelSettingsHint"],
+  ["speechSettings", AudioLines, "speechSettingsHint"],
+  ["desktopCompanion", Sparkles, "remyHint"],
   ["notificationSettings", Bell, "notificationSettingsHint"],
-  ["speechSettings", AudioLines, "voiceInputHint"],
   ["about", Info, "aboutHint"],
 ] as const;
+
+const backendSections: Partial<Record<string, BackendSettingsSection>> = {
+  workspaceSettings: "workspace",
+  modelSettings: "model",
+  speechSettings: "speech",
+};
 
 export default function Settings({
   state,
@@ -61,8 +74,13 @@ export default function Settings({
   onNavigate?: () => void;
 }) {
   const { action, desktop: desktopControls } = useHost();
+  const mobile = useContext(WorkspaceLayout)?.mobile;
   const t = translator(state.settings.language);
-  const [section, setSection] = useState<string>("general");
+  const [section, setSection] = useNavigationState(
+    "settings",
+    "section",
+    mobile ? "overview" : "appearance",
+  );
   const [endpoint, setEndpoint] = useState(state.settings.endpoint);
   const [scale, setScale] = useState(state.settings.scale);
   const [error, setError] = useState<unknown>(null);
@@ -85,12 +103,15 @@ export default function Settings({
       setSaving(false);
     }
   };
-  const items = sections.filter(([id]) => desktop || id !== "remy");
-  const current = items.find(([id]) => id === section)!;
+  const items = sections.filter(([id]) => desktop || id !== "desktopCompanion");
+  const current = items.find(([id]) => id === section) ?? items[0];
+  const selected = current[0];
+  const overview = mobile && section === "overview";
+  const backendSection = backendSections[selected];
   const issue =
     error !== null
       ? errorText(error, state.settings.language)
-      : section === "general" && state.connection !== "connected"
+      : selected === "connectionSettings" && state.connection !== "connected"
         ? state.connectionError
         : "";
   return (
@@ -100,14 +121,37 @@ export default function Settings({
         path={[
           {
             label: t("settings"),
-            onSelect: () => navigate(() => setSection("general")),
+            onSelect: () =>
+              navigate(() => setSection(mobile ? "overview" : "appearance")),
           },
-          { label: current[0] === "remy" ? "Remy" : t(current[0]) },
+          ...(!overview
+            ? [
+                {
+                  label: t(
+                    mobile && selected === "about"
+                      ? "versionAndUpdates"
+                      : selected,
+                  ),
+                },
+              ]
+            : []),
         ]}
         language={state.settings.language}
         collapsed={collapsed}
+        mobileView={overview ? "navigation" : "content"}
         sidebar={
           <>
+            {overview && (
+              <div className="mobile-settings-brand">
+                <span className="mobile-remy-mark" aria-hidden />
+                <div>
+                  <strong>ReMe Studio</strong>
+                  <small>
+                    {t("versionLabel")} {version}
+                  </small>
+                </div>
+              </div>
+            )}
             <SidebarHeading eyebrow="YOUR SPACE" title={t("settings")} />
             <nav className="settings-nav" aria-label={t("desktopSettings")}>
               {items.map(([id, Icon]) => (
@@ -115,16 +159,29 @@ export default function Settings({
                   key={id}
                   type="button"
                   className="settings-nav-item"
-                  aria-current={section === id ? "page" : undefined}
+                  aria-current={selected === id ? "page" : undefined}
                   onClick={() => {
-                    navigate(() => {
+                    const next = () => {
                       setSection(id);
                       onNavigate?.();
-                    });
+                    };
+                    if (backendSection && backendSections[id]) next();
+                    else navigate(next);
                   }}
                 >
-                  <Icon size={16} aria-hidden />
-                  {id === "remy" ? "Remy" : t(id)}
+                  {mobile && id === "about" ? (
+                    <Download size={18} aria-hidden />
+                  ) : (
+                    <Icon size={16} aria-hidden />
+                  )}
+                  {t(mobile && id === "about" ? "versionAndUpdates" : id)}
+                  {mobile && (
+                    <ChevronRight
+                      className="settings-nav-chevron"
+                      size={15}
+                      aria-hidden
+                    />
+                  )}
                 </button>
               ))}
             </nav>
@@ -133,11 +190,15 @@ export default function Settings({
       >
         <div className="settings-detail">
           <div className="settings-detail-inner">
-            {section !== "about" && (
+            {selected !== "about" && (
               <span className="eyebrow">PREFERENCES</span>
             )}
-            <h2>{current[0] === "remy" ? "Remy" : t(current[0])}</h2>
-            {section !== "about" && (
+            <h2>
+              {t(
+                mobile && selected === "about" ? "versionAndUpdates" : selected,
+              )}
+            </h2>
+            {selected !== "about" && (
               <p className="page-description">{t(current[2])}</p>
             )}
             {issue && (
@@ -145,79 +206,117 @@ export default function Settings({
                 {issue}
               </div>
             )}
-            {section === "general" && (
-              <>
-                <div className="setting-group">
-                  <div className="setting-row">
-                    <div>
-                      <h3>{t("serviceConnection")}</h3>
-                      <p>ReMe HTTP / SSE</p>
-                    </div>
-                    <span className="status-pill">
-                      <i
-                        className={`connection-dot ${state.connection === "connected" ? "online" : ""}`}
-                      />
-                      {t(
-                        state.connection === "connected"
-                          ? "connected"
-                          : "reconnecting",
-                      )}
-                    </span>
-                  </div>
-                  {editableEndpoint && (
-                    <form
-                      className="setting-endpoint"
-                      onSubmit={(event) => {
-                        event.preventDefault();
-                        void run({ type: "settings.update", endpoint });
-                      }}
-                    >
-                      <label htmlFor="service-endpoint">{t("endpoint")}</label>
-                      <div className="endpoint-row">
-                        <input
-                          id="service-endpoint"
-                          aria-label={t("endpoint")}
-                          value={endpoint}
-                          onChange={(event) => setEndpoint(event.target.value)}
-                          inputMode="url"
-                          autoCapitalize="none"
-                          autoCorrect="off"
-                          spellCheck={false}
-                        />
-                        <button
-                          className="primary"
-                          disabled={saving || Boolean(state.pending?.streaming)}
-                        >
-                          {t("connect")}
-                        </button>
-                      </div>
-                    </form>
-                  )}
-                </div>
-                <div className="setting-group">
-                  <div className="setting-row">
-                    <div>
-                      <h3>{t("workspaceLocation")}</h3>
-                      <p className="workspace-path">
-                        {state.clientInfo?.workspace_dir ?? "—"}
-                      </p>
-                    </div>
-                    <Cable size={18} />
-                  </div>
-                </div>
-                <p className="settings-note">{t("shortcutHint")}</p>
-              </>
-            )}
-            {section === "backendSettings" && (
+            {backendSection && (
               <BackendSettingsPanel
                 key={state.settings.endpoint}
                 language={state.settings.language}
                 active={open}
                 registerGuard={registerGuard}
+                section={backendSection}
+                onSectionChange={(value) =>
+                  setSection(
+                    value === "workspace"
+                      ? "workspaceSettings"
+                      : value === "model"
+                        ? "modelSettings"
+                        : "speechSettings",
+                  )
+                }
+                speechPreferences={(disabled) => (
+                  <VoiceSettings state={state} run={run} disabled={disabled} />
+                )}
               />
             )}
-            {section === "appearance" && (
+            {selected === "connectionSettings" && (
+              <div className="setting-group">
+                <div className="setting-row">
+                  <div>
+                    <h3>{t("serviceConnection")}</h3>
+                    <p>ReMe HTTP / SSE</p>
+                  </div>
+                  <span className="status-pill">
+                    <i
+                      className={`connection-dot ${state.connection === "connected" ? "online" : ""}`}
+                    />
+                    {t(
+                      state.connection === "connected"
+                        ? "connected"
+                        : "reconnecting",
+                    )}
+                  </span>
+                </div>
+                {!editableEndpoint && (
+                  <div className="setting-row">
+                    <div>
+                      <h3>{t("endpoint")}</h3>
+                      <p className="workspace-path">
+                        {state.settings.endpoint}
+                      </p>
+                    </div>
+                  </div>
+                )}
+                {editableEndpoint && (
+                  <form
+                    className="setting-endpoint"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      navigate(
+                        () => void run({ type: "settings.update", endpoint }),
+                      );
+                    }}
+                  >
+                    <label htmlFor="service-endpoint">{t("endpoint")}</label>
+                    <div className="endpoint-row">
+                      <input
+                        id="service-endpoint"
+                        type="url"
+                        required
+                        aria-label={t("endpoint")}
+                        value={endpoint}
+                        onChange={(event) => setEndpoint(event.target.value)}
+                        inputMode="url"
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        spellCheck={false}
+                      />
+                      <button
+                        className="primary"
+                        aria-label={t("connectService")}
+                        disabled={saving || Boolean(state.pending?.streaming)}
+                      >
+                        {t("connect")}
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </div>
+            )}
+            {selected === "appearance" && (
               <>
+                <div className="setting-group">
+                  <div className="setting-row">
+                    <div>
+                      <h3>{t("interfaceLanguage")}</h3>
+                      <p>
+                        {t("chinese")} / {t("english")}
+                      </p>
+                    </div>
+                    <select
+                      aria-label={t("interfaceLanguage")}
+                      value={state.settings.language}
+                      disabled={saving}
+                      onChange={(event) =>
+                        void run({
+                          type: "settings.update",
+                          language: event.target.value as "zh" | "en",
+                        })
+                      }
+                    >
+                      <option value="zh">{t("chinese")}</option>
+                      <option value="en">{t("english")}</option>
+                    </select>
+                  </div>
+                </div>
                 <div className="setting-group appearance-group">
                   <h3>{t("theme")}</h3>
                   <div
@@ -269,8 +368,8 @@ export default function Settings({
                     })}
                   </div>
                 </div>
-                <div className="setting-group">
-                  {windowTransparency && (
+                {windowTransparency && (
+                  <div className="setting-group">
                     <div className="setting-row">
                       <div>
                         <h3>{t("transparentBackground")}</h3>
@@ -288,33 +387,12 @@ export default function Settings({
                         }
                       />
                     </div>
-                  )}
-                  <div className="setting-row">
-                    <div>
-                      <h3>{t("interfaceLanguage")}</h3>
-                      <p>
-                        {t("chinese")} / {t("english")}
-                      </p>
-                    </div>
-                    <select
-                      aria-label={t("language")}
-                      value={state.settings.language}
-                      disabled={saving}
-                      onChange={(event) =>
-                        void run({
-                          type: "settings.update",
-                          language: event.target.value as "zh" | "en",
-                        })
-                      }
-                    >
-                      <option value="zh">{t("chinese")}</option>
-                      <option value="en">{t("english")}</option>
-                    </select>
                   </div>
-                </div>
+                )}
+                <p className="settings-note">{t("shortcutHint")}</p>
               </>
             )}
-            {section === "remy" && desktopControls && (
+            {selected === "desktopCompanion" && desktopControls && (
               <>
                 <div className="pet-preview">
                   <img src={desktopControls.companionAvatar} alt="Remy" />
@@ -420,7 +498,7 @@ export default function Settings({
                 </button>
               </>
             )}
-            {section === "notificationSettings" && (
+            {selected === "notificationSettings" && (
               <div className="setting-group">
                 <div className="setting-row">
                   <div>
@@ -455,12 +533,7 @@ export default function Settings({
                 </div>
               </div>
             )}
-            {section === "speechSettings" && (
-              <div className="setting-group voice-group">
-                <VoiceSettings state={state} run={run} />
-              </div>
-            )}
-            {section === "about" && (
+            {selected === "about" && (
               <div className="about-content">
                 <div className="about-profile">
                   <span className="about-mark remy-mark" aria-hidden />
@@ -475,6 +548,21 @@ export default function Settings({
                   </div>
                 </div>
                 <div className="about-links">
+                  {mobile && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void run({
+                          type: "link.open",
+                          url: `${githubUrl}/releases`,
+                        })
+                      }
+                    >
+                      <Download size={18} aria-hidden />
+                      {t("viewReleases")}
+                      <ArrowUpRight size={12} aria-hidden />
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() =>

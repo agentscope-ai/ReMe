@@ -71,6 +71,13 @@ scheduling; each call creates fresh Steps. The Application owns the shared Agent
 For Claude Code, start `reme start config=proactive_cc`. This preset uses Claude Code's native system prompt and appends
 each Runtime's role instructions, including Remy's Chat prompt. Prompt snapshots are disabled so resumed calls use the
 current appended instructions.
+Both `proactive` and `proactive_cc` use `LLM_API_KEY`, `LLM_BASE_URL`, and `REME_MODEL_NAME`.
+Claude Code requires an Anthropic-compatible endpoint; its preset defaults to
+`https://dashscope.aliyuncs.com/apps/anthropic`. Codex uses the Responses API. Environment variables initialize a new
+instance; saved server settings take precedence afterward.
+In either preset, select Codex or Claude Code under **Settings → Model**, test the connection, then save and restart.
+Chat and proactive tasks share the selected model. Switching execution backends starts a new conversation and retains
+existing session files.
 
 ```bash
 # Terminal one
@@ -95,13 +102,19 @@ Client Agent views remain available through list_agents and the session endpoint
 Creation requires `agent_type=event` or `agent_type=time`. Time-triggered tasks require a `schedule` Cron expression
 in the application timezone; event-triggered tasks have no schedule.
 Trigger type, skills and tool bindings are immutable after creation. Update accepts enabled, schedule,
-min_trigger_interval_seconds and notify_window. Pause allows the current round to finish. Delete cancels execution and
+min_trigger_interval_seconds and notify_windows. Pause allows the current round to finish. Delete cancels execution and
 preserves files; restoring the same name retains its bindings and history. Use task_document action=read/save to edit TASK.md,
 and pass the read response's mtime as expected_mtime when saving.
 
+`notify_windows` is a list of `{start,end}` periods in HH:MM, using the application timezone. The default is
+`[{"start":"09:00","end":"12:00"},{"start":"14:00","end":"23:00"}]`. Any matching period permits reminders;
+`[]` removes time restrictions. Starts are inclusive and ends exclusive. Overnight periods are supported; equal endpoints
+mean all day. This controls reminder processing and sending, independently of task execution. Existing task config.json
+files must use the same list field.
+
 components.agent_runtime.Remy.initial_memory creates `{reme_agent_dir}/Remy/MEMORY.md` only when absent.
 Remy's notification_config sets the P0 delay (0 seconds), P1 idle threshold (10 seconds) and P2 idle threshold (1800 seconds).
-P0 can reach an active native foreground turn; P1/P2 wait for idle. The sender's enabled and notify_window settings also apply.
+P0 can reach an active native foreground turn; P1/P2 wait for idle. The sender's enabled and notify_windows settings also apply.
 
 ### Collection and Connector controls
 

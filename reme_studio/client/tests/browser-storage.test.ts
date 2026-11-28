@@ -65,7 +65,7 @@ test("browser tabs save only their own settings and receipt changes", async (t) 
   });
 });
 
-test("mobile saves a custom service address and web stays on its configured address", async (t) => {
+test("saved service addresses override web and mobile defaults after restart", async (t) => {
   useLocalStorage(t);
   const initial = "http://127.0.0.1:2333";
   const remote = "http://192.0.2.10:2444";
@@ -76,7 +76,7 @@ test("mobile saves a custom service address and web stays on its configured addr
   await mobile.flush();
 
   const web = new BrowserStorage("https://studio.example.test");
-  assert.equal(web.settings.endpoint, "https://studio.example.test");
+  assert.equal(web.settings.endpoint, remote);
   web.settings.theme = "dark";
   web.changed();
   await web.flush();
@@ -84,4 +84,17 @@ test("mobile saves a custom service address and web stays on its configured addr
   const restarted = new BrowserStorage();
   assert.equal(restarted.settings.endpoint, remote);
   assert.equal(restarted.settings.theme, "dark");
+});
+
+test("web starts on its site default and persists an edited service address", async (t) => {
+  useLocalStorage(t);
+  const site = "https://studio.example.test";
+  const web = new BrowserStorage(site);
+  assert.equal(web.settings.endpoint, site);
+  web.settings.endpoint = "https://reme.example.test";
+  web.changed();
+  await web.flush();
+
+  const restarted = new BrowserStorage(site);
+  assert.equal(restarted.settings.endpoint, "https://reme.example.test");
 });

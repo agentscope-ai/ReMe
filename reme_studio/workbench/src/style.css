@@ -430,21 +430,6 @@ button {
   padding: 12px 16px 13px;
   flex-shrink: 0;
 }
-.voice-settings {
-  margin: 14px 0 4px;
-  padding: 12px 0 0;
-  border: 0;
-  border-top: 1px solid var(--line);
-  min-width: 0;
-}
-.voice-settings legend {
-  padding: 0 8px 0 0;
-  font-size: var(--text-caption);
-  font-weight: var(--weight-strong);
-}
-.voice-settings .quiet-row {
-  gap: 16px;
-}
 .voice-status {
   display: flex;
   align-items: center;

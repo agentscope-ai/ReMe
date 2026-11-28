@@ -16,11 +16,7 @@ async def notifications_allowed(manager, items):
             definition = await manager.definition(item["from_agent_name"])
         except ValueError:
             return False
-        if (
-            not definition.enabled
-            or definition.notify_window is not None
-            and not definition.notify_window.allows(manager.now())
-        ):
+        if not definition.enabled or not definition.allows_notifications(manager.now()):
             return False
     return True
 

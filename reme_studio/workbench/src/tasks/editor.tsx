@@ -4,7 +4,6 @@ import type { AgentView, StudioState } from "../../../client/src/protocol.ts";
 import {
   changedTaskSettings,
   taskSettings,
-  type TaskDocument,
 } from "../../../client/src/tasks.ts";
 import { useResource } from "../resources.ts";
 import { taskSettingsDraft, toRuntimeSettings } from "./settings-draft.ts";
@@ -29,7 +28,6 @@ export default function TaskEditor({
   const create = !agentName;
   const [name, setName] = useState("");
   const [content, setContent] = useState("");
-  const [document, setDocument] = useState<TaskDocument>();
   const [baseline, setBaseline] = useState(() => agent && taskSettings(agent));
   const [settings, setSettings] = useState(() =>
     taskSettingsDraft(
@@ -37,13 +35,9 @@ export default function TaskEditor({
       agent ? (agent.agent_type === "time" ? "time" : "event") : initialTrigger,
     ),
   );
-  const [loading, setLoading] = useState(!create);
-  const [retry, setRetry] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
-  const [saved, setSaved] = useState<
-    "description" | "settings" | "create" | null
-  >(null);
+  const [saved, setSaved] = useState<"settings" | "create" | null>(null);
   const live = useRef(false);
   useEffect(() => {
     live.current = true;
@@ -51,33 +45,7 @@ export default function TaskEditor({
       live.current = false;
     };
   }, []);
-  useEffect(() => {
-    if (!agentName) return;
-    let current = true;
-    setLoading(true);
-    setError(null);
-    void requestResource<TaskDocument>({
-      type: "task",
-      action: "read",
-      agent_name: agentName,
-    })
-      .then((text) => {
-        if (current) {
-          setDocument(text);
-          setContent(text.content);
-        }
-      })
-      .catch((reason) => {
-        if (current) setError(reason);
-      })
-      .finally(() => {
-        if (current) setLoading(false);
-      });
-    return () => {
-      current = false;
-    };
-  }, [agentName, retry]);
-  const save = async (section: "description" | "settings" | "create") => {
+  const save = async (section: "settings" | "create") => {
     if (busy) return;
     setBusy(true);
     setError(null);
@@ -93,20 +61,6 @@ export default function TaskEditor({
           settings: toRuntimeSettings(settings),
         });
         if (live.current) onCreated(result.agent_name);
-      } else if (section === "description" && document) {
-        const result = await requestResource<
-          Pick<TaskDocument, "mtime" | "path">
-        >({
-          type: "task",
-          action: "save",
-          agent_name: agentName,
-          content,
-          expected_mtime: document.mtime,
-        });
-        if (live.current) {
-          setDocument({ ...document, ...result, content });
-          setSaved(section);
-        }
       } else if (section === "settings" && baseline) {
         const updated = toRuntimeSettings(settings, baseline);
         const changes = changedTaskSettings(baseline, updated);
@@ -156,18 +110,14 @@ export default function TaskEditor({
       }}
     />
   );
-  const footer = (section: "description" | "settings" | "create") => (
+  const footer = (section: "settings" | "create") => (
     <footer>
       <span role="status">{saved === section ? t("taskSaved") : ""}</span>
       <button
         className="primary"
         disabled={
           busy ||
-          (section === "create"
-            ? !name.trim() || !content.trim()
-            : section === "description"
-              ? !document || !content.trim() || content === document.content
-              : !baseline)
+          (section === "create" ? !name.trim() || !content.trim() : !baseline)
         }
       >
         {t(
@@ -175,9 +125,7 @@ export default function TaskEditor({
             ? "taskSaving"
             : section === "create"
               ? "taskCreate"
-              : section === "description"
-                ? "flowSaveDescription"
-                : "flowSaveSettings",
+              : "flowSaveSettings",
         )}
       </button>
     </footer>
@@ -203,7 +151,6 @@ export default function TaskEditor({
                     agent.agent_type === "time" ? "time" : "event",
                   ),
                 );
-                setRetry((value) => value + 1);
               }}
             >
               {t("taskReload")}
@@ -211,9 +158,7 @@ export default function TaskEditor({
           )}
         </div>
       )}
-      {loading ? (
-        <p className="task-hint">{t("documentLoading")}</p>
-      ) : create ? (
+      {create ? (
         <form
           onSubmit={(event) => {
             event.preventDefault();
@@ -238,28 +183,15 @@ export default function TaskEditor({
           {footer("create")}
         </form>
       ) : (
-        <>
-          <form
-            className="task-settings-section"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void save("description");
-            }}
-          >
-            <fieldset disabled={busy}>{description}</fieldset>
-            {footer("description")}
-          </form>
-          <form
-            className="task-settings-section"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void save("settings");
-            }}
-          >
-            <fieldset disabled={busy}>{fields}</fieldset>
-            {footer("settings")}
-          </form>
-        </>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void save("settings");
+          }}
+        >
+          <fieldset disabled={busy}>{fields}</fieldset>
+          {footer("settings")}
+        </form>
       )}
       {agent?.status === "active" && (
         <p className="task-hint">

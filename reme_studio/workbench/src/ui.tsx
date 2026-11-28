@@ -33,7 +33,7 @@ export function Disclosure({
   children: ReactNode;
 }) {
   const id = useId();
-  const mobile = Boolean(useContext(WorkspaceLayout)?.openNavigation);
+  const mobile = Boolean(useContext(WorkspaceLayout)?.mobile);
   return (
     <div className={className}>
       <div className="disclosure-heading">

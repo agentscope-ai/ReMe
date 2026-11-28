@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { ArrowUpRight } from "lucide-react";
 import type { StudioState } from "../../client/src/protocol.ts";
 import { errorText, translator } from "../../client/src/i18n.ts";
 import { useHost } from "./host.ts";
@@ -9,12 +8,10 @@ import DocumentPreview from "./knowledge/DocumentPreview.tsx";
 export default function AgentDocument({
   state,
   path,
-  onEdit,
   agentName = state.selectedAgentName,
 }: {
   state: StudioState;
   path: string;
-  onEdit?: () => void;
   agentName?: string;
 }) {
   const requestResource = useResource();
@@ -42,23 +39,6 @@ export default function AgentDocument({
   }, [path, completed]);
   return (
     <div className="agent-document document-pane">
-      <div className="agent-document-toolbar">
-        <span>{path}</span>
-        {onEdit && (
-          <button className="subtle" onClick={onEdit}>
-            {t("taskEdit")}
-          </button>
-        )}
-        <button
-          className="subtle"
-          onClick={() =>
-            void action({ type: "document.open", path }).catch(setError)
-          }
-        >
-          {t("openInKnowledge")}
-          <ArrowUpRight size={14} />
-        </button>
-      </div>
       {error != null ? (
         <p className="action-error" role="alert">
           {errorText(error, state.settings.language)}

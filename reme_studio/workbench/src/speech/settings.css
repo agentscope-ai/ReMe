@@ -1,0 +1,154 @@
+.backend-settings[data-speech-page="true"]
+  .backend-section[data-settings-section="speech"] {
+  border: 0;
+  padding: 0;
+  gap: 18px;
+}
+.backend-settings[data-speech-page="true"]
+  .backend-section[data-settings-section="speech"]
+  > legend {
+  padding: 0;
+  margin-bottom: 10px;
+  font-size: var(--text-heading);
+}
+.speech-services {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.speech-service {
+  display: grid;
+  gap: 18px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.speech-service-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.speech-service-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.speech-service-heading > div {
+  flex: 1;
+  min-width: 0;
+}
+.speech-service h3,
+.speech-connection h3 {
+  margin: 0;
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+}
+.speech-service-heading p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: var(--text-caption);
+  line-height: 1.6;
+}
+.speech-service-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+  gap: 14px;
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+.speech-connection {
+  display: grid;
+  gap: 14px;
+  margin-top: 4px;
+}
+.speech-connection-options {
+  display: grid;
+  gap: 16px;
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+.backend-settings .speech-reset {
+  justify-self: start;
+  padding: 0;
+  font-size: var(--text-caption);
+}
+.voice-preferences {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.speech-preferences-note {
+  color: var(--muted);
+  font-size: var(--text-caption);
+}
+.speech-preference-group {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.speech-preference-group h4 {
+  margin: 0 0 3px;
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+}
+.speech-preference-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  min-height: 48px;
+  font-size: var(--text-ui);
+}
+.backend-settings .speech-preference-group .settings-note {
+  line-height: 1.7;
+}
+.speech-recording-help {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.speech-recording-help h5 {
+  margin: 0 0 8px;
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
+}
+.speech-auto-options {
+  margin: 0 0 14px 10px;
+  padding-inline-start: 16px;
+  border-inline-start: 2px solid var(--line);
+}
+.speech-volume {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 12px;
+  margin: 18px 0 12px;
+  font-size: var(--text-ui);
+}
+.speech-volume output {
+  color: var(--muted);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+}
+.speech-volume input {
+  grid-column: 1 / -1;
+  width: 100%;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.speech-volume input:disabled {
+  opacity: 0.4;
+}
+@media (max-width: 640px) {
+  .speech-service,
+  .speech-preference-group {
+    padding: 15px;
+  }
+}

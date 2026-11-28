@@ -6,7 +6,7 @@ import { useHost } from "../host.ts";
 import Chat from "../chat/index.tsx";
 import AgentResources from "../agent-resources.tsx";
 import TaskEditor from "../tasks/editor.tsx";
-import { displayAgentName, filterAgents } from "./flow.ts";
+import { filterAgents } from "./flow.ts";
 
 export const taskViews = [
   ["overview", "flowTaskOverview"],
@@ -86,7 +86,6 @@ export function TaskPanel({
             key={`${agent.agent_name}:${view}`}
             state={state}
             agentName={agent.agent_name}
-            agentLabel={(name) => displayAgentName(name, t)}
             active={state.activePage === "tasks"}
             embedded
             inbox={view === "inbox"}
@@ -123,9 +122,7 @@ export function TaskPicker({
   const t = translator(state.settings.language);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
-  const matches = filterAgents(agents, query, filter, (name) =>
-    displayAgentName(name, t),
-  );
+  const matches = filterAgents(agents, query, filter);
   return (
     <div className="flow-task-picker">
       <label className="flow-picker-search">
@@ -166,7 +163,7 @@ export function TaskPicker({
           onClick={() => onSelect(agent.agent_name)}
         >
           <span>
-            <strong>{displayAgentName(agent.agent_name, t)}</strong>
+            <strong>{agent.agent_name}</strong>
           </span>
           <span className="flow-type" data-time={agent.agent_type === "time"}>
             {t(

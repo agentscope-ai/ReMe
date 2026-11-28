@@ -10,7 +10,11 @@ from ..outbox import NotificationOutbox
 from ..overview_events import notify_overview
 from ....core.registry import R
 from ....schema.agent_inbox import NotificationRef
-from ....schema.proactive_agent import ProactiveRuntimeConfig, ProactiveRuntimeDefinition
+from ....schema.proactive_agent import (
+    ProactiveRuntimeConfig,
+    ProactiveRuntimeDefinition,
+    default_notification_windows,
+)
 from ....utils.async_utils import complete_in_thread
 from ....utils.cron_utils import next_cron_time
 from ....utils.files.path_lock import get_path_lock
@@ -33,7 +37,7 @@ class ProactiveAgentRuntime(BaseAgentRuntime):
         schedule=None,
         min_trigger_interval_seconds=0,
         max_batch_events=20,
-        notify_window=None,
+        notify_windows=None,
         initial_task=None,
         max_local_search_calls=10,
         recent_history_hours=24,
@@ -52,7 +56,7 @@ class ProactiveAgentRuntime(BaseAgentRuntime):
             schedule=schedule,
             min_trigger_interval_seconds=min_trigger_interval_seconds,
             max_batch_events=max_batch_events,
-            notify_window=notify_window,
+            notify_windows=default_notification_windows() if notify_windows is None else notify_windows,
             max_local_search_calls=max_local_search_calls,
             recent_history_hours=recent_history_hours,
         )

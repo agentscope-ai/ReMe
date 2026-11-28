@@ -22,6 +22,7 @@ import ResourcePane, {
   resourceDetail,
 } from "./resource-pane.tsx";
 import { DetailHeading, TimelineBadge } from "./timeline.tsx";
+import { useNavigationState } from "./navigation.tsx";
 
 type ListedResource =
   InputEvent | (TaskReminder & { state: InputEvent["state"] });
@@ -33,7 +34,7 @@ export default function AgentResources({
   agentName = state.selectedAgentName ?? "Remy",
   active = state.activePage === (agentName === "Remy" ? "remy" : "tasks"),
   embedded = false,
-  agentLabel = (name: string) => name,
+  showRefresh = true,
 }: {
   state: StudioState;
   inbox: boolean;
@@ -41,14 +42,28 @@ export default function AgentResources({
   agentName?: string;
   active?: boolean;
   embedded?: boolean;
-  agentLabel?: (name: string) => string;
+  showRefresh?: boolean;
 }) {
   const requestResource = useResource();
   const { action } = useHost();
   const t = translator(state.settings.language);
-  const [offset, setOffset] = useState(0);
-  const [filter, setFilter] = useState<EventState>("all");
-  const [selected, setSelected] = useState("");
+  const navigationPage = embedded || agentName !== "Remy" ? "tasks" : "remy";
+  const navigationKey = `${agentName}:${inbox ? "inbox" : "outbox"}`;
+  const [offset, setOffset] = useNavigationState(
+    navigationPage,
+    `${navigationKey}:offset`,
+    0,
+  );
+  const [filter, setFilter] = useNavigationState<EventState>(
+    navigationPage,
+    `${navigationKey}:filter`,
+    "all",
+  );
+  const [selected, setSelected] = useNavigationState(
+    navigationPage,
+    `${navigationKey}:selected`,
+    "",
+  );
   const [focusedMail, setFocusedMail] = useState<TaskReminder>();
   const [readError, setReadError] = useState<unknown>(null);
   const [readAttempt, setReadAttempt] = useState(0);
@@ -209,13 +224,15 @@ export default function AgentResources({
                 ))}
               </select>
             </label>
-            <button
-              className="icon-button"
-              onClick={refresh}
-              aria-label={t(inbox ? "refreshInbox" : "refreshOutbox")}
-            >
-              <RefreshCw size={14} className={loading ? "spinning" : ""} />
-            </button>
+            {showRefresh && (
+              <button
+                className="icon-button"
+                onClick={refresh}
+                aria-label={t(inbox ? "refreshInbox" : "refreshOutbox")}
+              >
+                <RefreshCw size={14} className={loading ? "spinning" : ""} />
+              </button>
+            )}
           </>
         }
         pagination={
@@ -269,7 +286,9 @@ export default function AgentResources({
             metadata: (
               <>
                 {(!embedded || value.from_agent_name !== agentName) && (
-                  <span>{agentLabel(value.from_agent_name)}</span>
+                  <span className="resource-sender">
+                    {value.from_agent_name}
+                  </span>
                 )}
                 {badge}
               </>
@@ -357,7 +376,7 @@ export default function AgentResources({
               sender={
                 embedded && item.from_agent_name === agentName
                   ? ""
-                  : agentLabel(item.from_agent_name)
+                  : item.from_agent_name
               }
               message={{
                 id: item.id,

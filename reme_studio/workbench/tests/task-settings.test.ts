@@ -22,7 +22,10 @@ test("creating a task sends only the selected mode's settings", () => {
       enabled: true,
       schedule: null,
       min_trigger_interval_seconds: 12.5,
-      notify_window: null,
+      notify_windows: [
+        { start: "09:00", end: "12:00" },
+        { start: "14:00", end: "23:00" },
+      ],
     },
   );
   const timed = toRuntimeSettings({
@@ -38,7 +41,7 @@ test("a timed task round-trips an existing schedule and unrelated settings", () 
     enabled: true,
     schedule: "05  09 * * 1-5",
     min_trigger_interval_seconds: 30,
-    notify_window: { start: "22:00", end: "06:00" },
+    notify_windows: [{ start: "22:00", end: "06:00" }],
   };
   const draft = taskSettingsDraft(baseline, "time");
   assert.deepEqual(draft.trigger, {
@@ -67,4 +70,28 @@ test("custom schedule text stays editable even when it matches a preset", () => 
   assert.equal(scheduleAtTime("weekdays", "09:05"), "5 9 * * 1-5");
   assert.equal(scheduleAtTime("daily", ""), "");
   assert.equal(parseScheduleTime("0 24 * * *"), undefined);
+});
+
+test("notification periods are isolated between drafts and edits only patch the list", () => {
+  const first = taskSettingsDraft();
+  const second = taskSettingsDraft();
+  first.notify_windows[0].start = "10:00";
+  assert.equal(second.notify_windows[0].start, "09:00");
+  assert.equal(taskSettingsDraft().notify_windows[0].start, "09:00");
+  const baseline = toRuntimeSettings(second);
+  const periods = [...second.notify_windows, { start: "23:30", end: "01:00" }];
+  assert.deepEqual(
+    changedTaskSettings(
+      baseline,
+      toRuntimeSettings({ ...second, notify_windows: periods }),
+    ),
+    { notify_windows: periods },
+  );
+  assert.deepEqual(
+    changedTaskSettings(
+      baseline,
+      toRuntimeSettings({ ...second, notify_windows: [] }),
+    ),
+    { notify_windows: [] },
+  );
 });

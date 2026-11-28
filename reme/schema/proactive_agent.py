@@ -57,6 +57,11 @@ class NotificationWindow(BaseModel):
         return current >= self.start or current < self.end
 
 
+def default_notification_windows() -> list[NotificationWindow]:
+    """Give each task its own morning and afternoon reminder periods."""
+    return [NotificationWindow(start="09:00", end="12:00"), NotificationWindow(start="14:00", end="23:00")]
+
+
 class ProactiveRuntimeSettings(ClientModel):
     """One set of editable settings shared by task definitions and client views."""
 
@@ -65,7 +70,11 @@ class ProactiveRuntimeSettings(ClientModel):
     enabled: StrictBool = True
     schedule: str | None = None
     min_trigger_interval_seconds: float = Field(default=0, ge=0)
-    notify_window: NotificationWindow | None = None
+    notify_windows: list[NotificationWindow] = Field(default_factory=default_notification_windows)
+
+    def allows_notifications(self, now: datetime) -> bool:
+        """An empty list is unrestricted; otherwise any matching period permits delivery."""
+        return not self.notify_windows or any(window.allows(now) for window in self.notify_windows)
 
     @field_validator("min_trigger_interval_seconds", mode="before")
     @classmethod
@@ -205,7 +214,7 @@ class ManageProactiveRuntimeRequest(ProactiveRuntimeSettings):
     @model_validator(mode="after")
     def action_arguments(self):
         """Reject unused fields instead of silently ignoring misspecified calls."""
-        settings = {"enabled", "schedule", "min_trigger_interval_seconds", "notify_window"}
+        settings = {"enabled", "schedule", "min_trigger_interval_seconds", "notify_windows"}
         required, allowed = {
             "list": (set(), set()),
             "create": (

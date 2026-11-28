@@ -132,7 +132,7 @@ class RuntimeRegistry:
 
     def update(self, agent_name, patch, now: datetime):
         """Only operational settings can be changed after creation."""
-        if not patch or set(patch) - {"enabled", "schedule", "min_trigger_interval_seconds", "notify_window"}:
+        if not patch or set(patch) - {"enabled", "schedule", "min_trigger_interval_seconds", "notify_windows"}:
             raise ValueError("Update requires supported runtime settings")
         agent = self.get(agent_name)
         candidate = ProactiveRuntimeDefinition.model_validate({**agent.model_dump(), **patch})

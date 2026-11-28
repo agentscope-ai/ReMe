@@ -1,21 +1,24 @@
-import { useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import {
-  Activity,
+  useContext,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import {
   ArrowUpRight,
   Bell,
-  Boxes,
   Check,
   ChevronDown,
-  ChevronRight,
+  ChevronUp,
   FileText,
   FolderOpen,
   Inbox,
   Plus,
   Radio,
   Send,
-  Waves,
   Ellipsis,
-  Search,
   Pause,
   Play,
   X,
@@ -36,10 +39,19 @@ import {
   plainText,
 } from "../resources.ts";
 import SourceEditor from "./source-editor.tsx";
-import FlowLinks, { type Flight } from "./links.tsx";
-import { flowEdge, sourceIcon, displayAgentName as agentName } from "./flow.ts";
+import FlowStageHeader from "./stage-header.tsx";
+import FlowTransfers from "./transfers.tsx";
+import MobileFlowTransfers from "../mobile/flow-transfers.tsx";
+import FlowRelay from "./relay.tsx";
+import {
+  flowEdge,
+  matchesTransition,
+  relayTiming,
+  sourceIcon,
+  type Flight,
+} from "./flow.ts";
 import FlowDrawer from "./drawer.tsx";
-import { Facts, AgentDetail, EventDetail, ReminderDetail } from "./details.tsx";
+import { AgentDetail, EventDetail, ReminderDetail } from "./details.tsx";
 import {
   TaskPanel,
   TaskPicker,
@@ -49,6 +61,7 @@ import {
 import TaskEditor from "../tasks/editor.tsx";
 import AgentResources from "../agent-resources.tsx";
 import WorkspaceTitlebar, { WorkspaceLayout } from "../workspace-titlebar.tsx";
+import { useNavigationState } from "../navigation.tsx";
 import ContextMenu, {
   type MenuItem,
   type MenuPosition,
@@ -65,8 +78,6 @@ type Selection =
   | { type: "tasks" }
   | { type: "create"; trigger: "event" | "time" }
   | { type: "mail"; agentName: string; outbox: boolean }
-  | { type: "files"; title: string; paths: string[] }
-  | { type: "info" }
   | { type: "reminder"; item: OverviewReminder };
 function phase(agent: OverviewAgent, t: T): string {
   const phases = {
@@ -113,7 +124,13 @@ function clock(
       })
     : "—";
 }
-export default function ProactiveOverview({ state }: { state: StudioState }) {
+export default function ProactiveOverview({
+  state,
+  embedded = false,
+}: {
+  state: StudioState;
+  embedded?: boolean;
+}) {
   const t = translator(state.settings.language);
   const language = state.settings.language;
   const host = useHost();
@@ -122,15 +139,19 @@ export default function ProactiveOverview({ state }: { state: StudioState }) {
   const active = state.activePage === "tasks";
   const packet = state.proactive;
   const overview = packet?.overview;
-  const stage = useRef<HTMLDivElement>(null);
-  const nodes = useRef(new Map<string, HTMLElement>());
-  const bind = (key: string) => (element: HTMLDivElement | null) => {
-    if (element) nodes.current.set(key, element);
-    else nodes.current.delete(key);
-  };
-  const [selection, setSelection] = useState<Selection | null>(null);
-  const [focus, setFocus] = useState("");
-  const [focusSources, setFocusSources] = useState<string[]>([]);
+  const panelsId = useId();
+  const [collapsed, setCollapsed] = useState(Boolean(layout?.mobile));
+  const [selection, setSelection] = useNavigationState<Selection | null>(
+    "tasks",
+    "selection",
+    null,
+  );
+  const [focus, setFocus] = useNavigationState("tasks", "focus", "");
+  const [focusSources, setFocusSources] = useNavigationState<string[]>(
+    "tasks",
+    "sources",
+    [],
+  );
   const [menu, setMenu] = useState<{
     position: MenuPosition;
     items: MenuItem[];
@@ -139,7 +160,6 @@ export default function ProactiveOverview({ state }: { state: StudioState }) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   useEffect(() => {
     if (!active) {
-      setSelection(null);
       setMenu(null);
     }
   }, [active]);
@@ -163,8 +183,6 @@ export default function ProactiveOverview({ state }: { state: StudioState }) {
       view: state.focusTarget.kind === "mail" ? "outbox" : "chat",
     });
   }, [active, state.focusRequest, state.focusTarget, state.selectedAgentName]);
-  const [expanded, setExpanded] = useState(true);
-  const [motion, setMotion] = useState(true);
   const [reduced, setReduced] = useState(
     () =>
       typeof matchMedia === "function" &&
@@ -233,9 +251,7 @@ export default function ProactiveOverview({ state }: { state: StudioState }) {
           );
         return true;
       }) ?? [];
-    const enabled = Boolean(
-      active && packet?.live && motion && !reduced && visible,
-    );
+    const enabled = Boolean(active && packet?.live && !reduced && visible);
     const resumed = enabled && !playback.current.enabled;
     playback.current.enabled = enabled;
     if (!enabled || resumed) {
@@ -246,7 +262,14 @@ export default function ProactiveOverview({ state }: { state: StudioState }) {
       const edge = flowEdge(action);
       const delay = Math.min(index * 140, 700);
       return edge
-        ? [{ action, edge, delay, expires: Date.now() + delay + 1450 }]
+        ? [
+            {
+              action,
+              edge,
+              delay,
+              expires: Date.now() + delay + relayTiming.duration,
+            },
+          ]
         : [];
     });
     if (actions.length)
@@ -256,7 +279,7 @@ export default function ProactiveOverview({ state }: { state: StudioState }) {
           ...actions,
         ].slice(-12),
       );
-  }, [packet?.sequence, packet?.live, motion, reduced, visible, active]);
+  }, [packet?.sequence, packet?.live, reduced, visible, active]);
   useEffect(() => {
     if (!flights.length) return;
     const timer = setTimeout(
@@ -273,8 +296,10 @@ export default function ProactiveOverview({ state }: { state: StudioState }) {
   }, [flights]);
   const agents =
     overview?.agents.filter((agent) => agent.agent_type !== "chat") ?? [];
-  const icon = (source: Pick<ConnectorView, "source_id" | "trigger_type">) =>
-    icons[source.source_id] || sourceIcon(source);
+  const icon = (source: Pick<ConnectorView, "source_id" | "trigger_type">) => {
+    const Icon = sourceIcon(source);
+    return icons[source.source_id] || <Icon size={17} strokeWidth={1.6} />;
+  };
   const open = (path: string) => {
     if (
       [state.clientInfo?.resource_dir, state.clientInfo?.daily_dir].includes(
@@ -359,11 +384,7 @@ export default function ProactiveOverview({ state }: { state: StudioState }) {
     const name = overview?.sources.find(
       (item) => item.source_id === source.source_id,
     )?.runtime_names[0];
-    return name
-      ? agentName(name, t)
-      : source.name === "time"
-        ? t("flowTimeType")
-        : agentName(source.name, t);
+    return name ?? (source.name === "time" ? t("flowTimeType") : source.name);
   };
   const selectEvent = (item: OverviewInboxItem) => {
     const name = item.notification?.source_agent ?? item.agent_name;
@@ -374,6 +395,10 @@ export default function ProactiveOverview({ state }: { state: StudioState }) {
   const activeCount = agents.filter(
     (agent) => agent.active_run || agent.status === "active",
   ).length;
+  const pendingDeliveryCount = agents.reduce(
+    (count, agent) => count + agent.pending_delivery_count,
+    0,
+  );
   const sourceActive = (source: ConnectorView) =>
     focusSources.length
       ? focusSources.includes(source.source_id)
@@ -389,7 +414,7 @@ export default function ProactiveOverview({ state }: { state: StudioState }) {
         );
   const focused = Boolean(focus || focusSources.length);
   const focusLabel = focus
-    ? agentName(focus, t)
+    ? focus
     : overview?.sources
         .filter((source) => focusSources.includes(source.source_id))
         .map(sourceName)
@@ -406,41 +431,19 @@ export default function ProactiveOverview({ state }: { state: StudioState }) {
       title={`${connectionLabel} · ${t("flowUpdated", { time: clock(packet?.asOf ?? null, language) })}`}
     >
       <i aria-hidden />
+      {layout?.mobile && <span>{connectionLabel}</span>}
     </span>
   );
-  const viewMenu = (
+  const foldControl = (
     <button
-      className="titlebar-button"
       type="button"
-      aria-label={t("flowViewSettings")}
-      aria-haspopup="menu"
-      aria-expanded={Boolean(menu)}
-      onClick={(event) =>
-        showMenu(event.currentTarget, [
-          {
-            id: "motion",
-            label: t("flowMotion"),
-            icon: Waves,
-            checked: motion && !reduced,
-            disabled: reduced,
-            select: () => setMotion((value) => !value),
-          },
-          {
-            id: "find",
-            label: t("taskSearch"),
-            icon: Search,
-            select: () => setSelection({ type: "tasks" }),
-          },
-          {
-            id: "info",
-            label: t("flowRuntimeInfo"),
-            icon: Activity,
-            select: () => setSelection({ type: "info" }),
-          },
-        ])
-      }
+      className="flow-fold-control"
+      aria-expanded={!collapsed}
+      aria-controls={panelsId}
+      onClick={() => setCollapsed((value) => !value)}
     >
-      <Ellipsis size={18} />
+      {collapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+      {t(collapsed ? "flowExpandPanels" : "flowCollapsePanels")}
     </button>
   );
   const unsupported =
@@ -454,7 +457,7 @@ export default function ProactiveOverview({ state }: { state: StudioState }) {
           ? "flowProcessing"
           : "flowHandled",
     );
-  const inboxRows = (items: OverviewInboxItem[], empty: string) =>
+  const inboxRows = (items: OverviewInboxItem[], empty: string, step: 1 | 3) =>
     items.length ? (
       <div className="flow-entries">
         {items.map((item) => (
@@ -467,6 +470,12 @@ export default function ProactiveOverview({ state }: { state: StudioState }) {
             )}
             onClick={() => selectEvent(item)}
           >
+            <FlowRelay
+              step={step}
+              flights={flights.filter((flight) =>
+                matchesTransition(flight.action, item),
+              )}
+            />
             <div className="flow-entry-meta">
               <time title={formatDate(item.received_at, language)}>
                 {item.received_at
@@ -477,15 +486,16 @@ export default function ProactiveOverview({ state }: { state: StudioState }) {
                 {stateLabel(item.state)}
               </span>
             </div>
-            <p>
-              {item.event?.description ??
-                `${agentName(item.notification?.source_agent ?? item.agent_name, t)} · ${t("flowRecordReady")}`}
-            </p>
+            <div className="flow-entry-content">
+              <p>
+                {item.event?.description ??
+                  `${item.notification?.source_agent ?? item.agent_name} · ${t("flowRecordReady")}`}
+              </p>
+            </div>
             <div className="flow-entry-source">
               <span>
-                {item.source_refs
-                  .map((ref) => `${icon(ref)} ${sourceName(ref)}`)
-                  .join(" · ") || t("flowUnknownSource")}
+                {item.source_refs.map(sourceName).join(" · ") ||
+                  t("flowUnknownSource")}
               </span>
               {item.source_refs.length > 0 && (
                 <span
@@ -500,10 +510,7 @@ export default function ProactiveOverview({ state }: { state: StudioState }) {
                 </span>
               )}
               <small>
-                {agentName(
-                  item.notification?.source_agent ?? item.agent_name,
-                  t,
-                )}
+                {item.notification?.source_agent ?? item.agent_name}
               </small>
             </div>
           </button>
@@ -516,20 +523,20 @@ export default function ProactiveOverview({ state }: { state: StudioState }) {
       </div>
     );
   return (
-    <div className="proactive-overview">
-      {layout ? (
+    <div className="proactive-overview" data-embedded={embedded || undefined}>
+      {layout && !embedded ? (
         <WorkspaceTitlebar
           {...layout}
           path={[{ label: t("proactiveAi") }]}
           status={status}
         >
-          {viewMenu}
+          {overview && foldControl}
         </WorkspaceTitlebar>
       ) : (
         <header className="flow-page-title">
-          <h1>{t("proactiveAi")}</h1>
+          <h1>{t(embedded ? "proactiveOverview" : "proactiveAi")}</h1>
           {status}
-          {viewMenu}
+          {overview && foldControl}
         </header>
       )}
       {overview && !packet?.live && (
@@ -543,6 +550,11 @@ export default function ProactiveOverview({ state }: { state: StudioState }) {
           {errorText(issue ?? packet?.error, language)}
         </p>
       )}
+      {Object.entries(overview?.errors ?? {}).map(([owner, error]) => (
+        <p className="action-error" role="alert" key={owner}>
+          <strong>{owner}</strong> {error}
+        </p>
+      ))}
       {!overview ? (
         <div className="flow-loading">
           <Radio size={25} />
@@ -562,9 +574,13 @@ export default function ProactiveOverview({ state }: { state: StudioState }) {
             </button>
           )}
           <div
+            id={panelsId}
             className="flow-stage"
-            ref={stage}
+            role="group"
+            aria-label={t("flowTimeline")}
             data-live={packet?.live}
+            data-collapsed={collapsed}
+            data-animate={active && packet?.live && visible && !reduced}
             onClick={(event) => {
               if (
                 !(event.target as HTMLElement).closest(
@@ -577,191 +593,164 @@ export default function ProactiveOverview({ state }: { state: StudioState }) {
               if (event.key === "Escape") clearFocus();
             }}
           >
-            <FlowLinks
-              stage={stage}
-              nodes={nodes}
-              overview={overview}
-              flights={flights}
-              labels={{ read: t("flowRead"), write: t("flowWrite") }}
-              activeSources={
-                focused
-                  ? overview.sources
-                      .filter(sourceActive)
-                      .map((source) => source.source_id)
-                  : undefined
-              }
-            />
-            <div className="flow-sources" ref={bind("sources")}>
-              <div className="flow-column-label">
-                <Radio size={14} />
-                <h2>{t("flowSources")}</h2>
-                <span>{overview.sources.length}</span>
-                <button
-                  type="button"
-                  className="flow-node-action"
-                  disabled={!packet?.live}
-                  aria-label={t("flowAddSource")}
-                  title={t("flowAddSource")}
-                  onClick={() => setSelection({ type: "source" })}
-                >
-                  <Plus size={15} />
-                </button>
-              </div>
-              <div className="flow-source-list" ref={bind("source-list")}>
-                {overview.sources.map((source) => (
-                  <div
-                    ref={bind(`source:${source.source_id}`)}
-                    key={source.source_id}
-                    className="flow-source"
-                    data-time={source.trigger_type === "time"}
-                    data-dim={!sourceActive(source)}
-                    data-enabled={source.enabled !== false}
-                    data-arriving={flights.some(
-                      (flight) => flight.edge === `source:${source.source_id}`,
-                    )}
+            <div className="flow-node flow-sources">
+              <FlowStageHeader
+                step={0}
+                count={overview.sources.length}
+                subtitle={t("flowSourcesHint")}
+                language={language}
+                flights={flights}
+                action={
+                  <button
+                    type="button"
+                    className="flow-node-action"
+                    disabled={!packet?.live}
+                    aria-label={t("flowAddSource")}
+                    title={t("flowAddSource")}
+                    onClick={() => setSelection({ type: "source" })}
                   >
-                    <button
-                      type="button"
-                      title={`${source.name} · ${t("flowCollectedAt")} ${formatDate(source.last_collected_at, language)}`}
-                      onClick={() => {
-                        setFocus("");
-                        setFocusSources([source.source_id]);
-                        setSelection({ type: "source", source });
-                      }}
-                    >
-                      <span className="flow-source-icon" aria-hidden>
-                        {icon(source)}
-                      </span>
-                      <span className="flow-source-body">
-                        <strong>{sourceName(source)}</strong>
-                        <span>
-                          <span
-                            className="flow-type"
-                            data-time={source.trigger_type === "time"}
-                          >
-                            {source.trigger_type}
-                          </span>
-                          <i
-                            className="flow-source-dot"
-                            data-error={Boolean(
-                              source.last_error ||
-                              (source.connected === false && source.enabled),
-                            )}
-                            data-paused={
-                              source.enabled !== true ||
-                              source.available !== true
-                            }
-                          />
-                        </span>
-                      </span>
-                    </button>
-                  </div>
-                ))}
-                {!overview.sources.length && (
-                  <p className="flow-hint">{t("flowNoSources")}</p>
-                )}
-              </div>
-            </div>
-            <div
-              className="flow-node flow-inbox"
-              ref={bind("inbox")}
-              data-receiving={flights.some((flight) =>
-                flight.edge.startsWith("source:"),
-              )}
-            >
-              <div className="flow-node-heading">
-                <span className="flow-node-icon">
-                  <Inbox size={18} />
-                </span>
-                <div>
-                  <span className="flow-step">02 / INPUT</span>
-                  <h2>{t("flowEventInbox")}</h2>
-                </div>
-                <span className="flow-node-total">
-                  {overview.event_inbox.waiting_count}
-                </span>
-              </div>
-              <p className="flow-node-subtitle">
-                {t("flowRecentInputs")}
-                <span>
-                  {overview.event_inbox.processing_count} {t("flowProcessing")}
-                </span>
-              </p>
-              {inboxRows(overview.event_inbox.items, t("flowNoEvents"))}
-              <button
-                className="flow-node-footer"
-                disabled={!agents.length}
-                onClick={() =>
-                  focus ? onInbox(focus) : setSelection({ type: "queues" })
+                    <Plus size={15} />
+                  </button>
                 }
+              />
+              <div
+                className="flow-panel-body"
+                inert={collapsed}
+                aria-hidden={collapsed}
               >
-                {t("flowViewAll")}
-                <ArrowUpRight size={13} />
-              </button>
-            </div>
-            <div
-              className="flow-node flow-runtime"
-              ref={bind("runtime")}
-              data-receiving={flights.some(
-                (flight) => flight.edge === "claim" || flight.edge === "read",
-              )}
-            >
-              <div className="flow-node-heading">
-                <span className="flow-node-icon">
-                  <Boxes size={18} />
-                </span>
-                <div>
-                  <span className="flow-step">03 / PROCESS</span>
-                  <h2>{t("flowRuntime")}</h2>
+                <div className="flow-source-list">
+                  {overview.sources.map((source) => (
+                    <div
+                      key={source.source_id}
+                      className="flow-source"
+                      data-time={source.trigger_type === "time"}
+                      data-dim={!sourceActive(source)}
+                      data-enabled={source.enabled !== false}
+                    >
+                      <FlowRelay
+                        step={0}
+                        flights={flights.filter(
+                          (flight) =>
+                            flight.edge === `source:${source.source_id}`,
+                        )}
+                      />
+                      <button
+                        type="button"
+                        title={`${source.name} · ${t("flowCollectedAt")} ${formatDate(source.last_collected_at, language)}`}
+                        onClick={() => {
+                          setFocus("");
+                          setFocusSources([source.source_id]);
+                          setSelection({ type: "source", source });
+                        }}
+                      >
+                        <span className="flow-source-icon" aria-hidden>
+                          {icon(source)}
+                        </span>
+                        <span className="flow-source-body">
+                          <strong>{sourceName(source)}</strong>
+                          <span>
+                            <span
+                              className="flow-type"
+                              data-time={source.trigger_type === "time"}
+                            >
+                              {source.trigger_type}
+                            </span>
+                            <i
+                              className="flow-source-dot"
+                              data-error={Boolean(
+                                source.last_error ||
+                                (source.connected === false && source.enabled),
+                              )}
+                              data-paused={
+                                source.enabled !== true ||
+                                source.available !== true
+                              }
+                            />
+                          </span>
+                        </span>
+                      </button>
+                    </div>
+                  ))}
+                  {!overview.sources.length && (
+                    <p className="flow-hint">{t("flowNoSources")}</p>
+                  )}
                 </div>
-                <span className="flow-runtime-count">{agents.length}</span>
+              </div>
+            </div>
+            <div className="flow-node flow-inbox">
+              <FlowStageHeader
+                step={1}
+                count={overview.event_inbox.waiting_count}
+                language={language}
+                flights={flights}
+                subtitle={
+                  <>
+                    {t("flowRecentInputs")}
+                    {overview.event_inbox.processing_count > 0 && (
+                      <span>
+                        {overview.event_inbox.processing_count}{" "}
+                        {t("flowProcessing")}
+                      </span>
+                    )}
+                  </>
+                }
+              />
+              <div
+                className="flow-panel-body"
+                inert={collapsed}
+                aria-hidden={collapsed}
+              >
+                {inboxRows(overview.event_inbox.items, t("flowNoEvents"), 1)}
                 <button
-                  type="button"
-                  className="flow-node-action"
-                  aria-label={t("taskSearch")}
-                  title={t("taskSearch")}
-                  onClick={() => setSelection({ type: "tasks" })}
-                >
-                  <Search size={14} />
-                </button>
-                <button
-                  type="button"
-                  className="flow-node-action"
-                  aria-label={t("taskCreate")}
-                  title={t("taskCreate")}
-                  disabled={!packet?.live}
+                  className="flow-node-footer"
+                  disabled={!agents.length}
                   onClick={() =>
-                    setSelection({ type: "create", trigger: "event" })
+                    focus ? onInbox(focus) : setSelection({ type: "queues" })
                   }
                 >
-                  <Plus size={15} />
+                  {t("flowViewAll")}
+                  <ArrowUpRight size={13} />
                 </button>
               </div>
-              <div className="flow-runtime-summary">
-                <span
-                  className="flow-active-count"
-                  data-working={Boolean(activeCount && packet?.live)}
-                >
-                  <i />
-                  {activeCount
-                    ? `${activeCount} ${t("agentRunning")}`
-                    : t("agentIdle")}
-                </span>
-                <button
-                  type="button"
-                  className="icon-button"
-                  aria-label={t(expanded ? "flowHideAgents" : "flowShowAgents")}
-                  aria-expanded={expanded}
-                  onClick={() => setExpanded((value) => !value)}
-                >
-                  {expanded ? (
-                    <ChevronDown size={16} />
-                  ) : (
-                    <ChevronRight size={16} />
-                  )}
-                </button>
-              </div>
-              {expanded && (
+            </div>
+            <div className="flow-node flow-runtime">
+              <FlowStageHeader
+                step={2}
+                count={agents.length}
+                language={language}
+                flights={flights}
+                working={Boolean(packet?.live && activeCount)}
+                action={
+                  <button
+                    type="button"
+                    className="flow-node-action"
+                    aria-label={t("taskCreate")}
+                    title={t("taskCreate")}
+                    disabled={!packet?.live}
+                    onClick={() =>
+                      setSelection({ type: "create", trigger: "event" })
+                    }
+                  >
+                    <Plus size={15} />
+                  </button>
+                }
+                subtitle={
+                  <span
+                    className="flow-active-count"
+                    data-working={Boolean(activeCount && packet?.live)}
+                  >
+                    <i />
+                    {activeCount
+                      ? `${activeCount} ${t("agentRunning")}`
+                      : t("agentIdle")}
+                  </span>
+                }
+              />
+              <div
+                className="flow-panel-body"
+                inert={collapsed}
+                aria-hidden={collapsed}
+              >
                 <div className="flow-agent-list">
                   {agents.map((agent) => (
                     <div
@@ -769,21 +758,27 @@ export default function ProactiveOverview({ state }: { state: StudioState }) {
                       key={agent.agent_name}
                       data-dim={!agentActive(agent.agent_name)}
                     >
-                      <button
-                        type="button"
-                        className="flow-agent"
-                        data-working={Boolean(packet?.live && agent.active_run)}
-                        data-error={Boolean(agent.error)}
-                        data-focused={focus === agent.agent_name}
-                        data-recent={flights.some(
+                      <FlowRelay
+                        step={2}
+                        flights={flights.filter(
                           (flight) =>
                             flight.action.agent_name === agent.agent_name,
                         )}
+                      />
+                      <button
+                        type="button"
+                        className="flow-agent"
+                        data-working={Boolean(
+                          packet?.live &&
+                          (agent.active_run || agent.status === "active"),
+                        )}
+                        data-error={Boolean(agent.error)}
+                        data-focused={focus === agent.agent_name}
                         onClick={() => focusAgent(agent)}
                       >
-                        <span className="flow-agent-dot" />
+                        <span className="flow-agent-dot" aria-hidden />
                         <span>
-                          <strong>{agentName(agent.agent_name, t)}</strong>
+                          <strong>{agent.agent_name}</strong>
                           <small>
                             {packet?.live ? phase(agent, t) : t("flowOffline")}
                           </small>
@@ -799,7 +794,7 @@ export default function ProactiveOverview({ state }: { state: StudioState }) {
                         type="button"
                         className="flow-agent-menu"
                         aria-label={t("taskMenu", {
-                          name: agentName(agent.agent_name, t),
+                          name: agent.agent_name,
                         })}
                         aria-haspopup="menu"
                         onClick={(event) =>
@@ -839,183 +834,115 @@ export default function ProactiveOverview({ state }: { state: StudioState }) {
                     </div>
                   ))}
                 </div>
-              )}
-              <div className="flow-runtime-deliveries">
-                <span>
-                  <Send size={13} />
-                  {t("flowAwaitingDelivery")}
-                </span>
-                <strong>
-                  {agents.reduce(
-                    (count, agent) => count + agent.pending_delivery_count,
-                    0,
-                  )}
-                </strong>
+                {pendingDeliveryCount > 0 && (
+                  <div className="flow-runtime-deliveries">
+                    <span>
+                      <Send size={13} />
+                      {t("flowAwaitingDelivery")}
+                    </span>
+                    <strong>{pendingDeliveryCount}</strong>
+                  </div>
+                )}
+                <button
+                  className="flow-node-footer"
+                  disabled={!agents.length}
+                  onClick={() => setSelection({ type: "tasks" })}
+                >
+                  <span>{t("flowAllAgents")}</span>
+                  <ArrowUpRight size={13} />
+                </button>
               </div>
-              <button
-                className="flow-node-footer"
-                disabled={!agents.length}
-                onClick={() => setSelection({ type: "tasks" })}
+            </div>
+            <div className="flow-node flow-remy">
+              <FlowStageHeader
+                step={3}
+                count={overview.remy_inbox.waiting_count}
+                subtitle={t("flowRemyHint")}
+                language={language}
+                flights={flights}
+              />
+              <div
+                className="flow-panel-body"
+                inert={collapsed}
+                aria-hidden={collapsed}
               >
-                <span>{t("flowAllAgents")}</span>
-                <ArrowUpRight size={13} />
-              </button>
-            </div>
-            <div
-              className="flow-node flow-remy"
-              ref={bind("remy")}
-              data-receiving={flights.some(
-                (flight) => flight.edge === "deliver",
-              )}
-            >
-              <div className="flow-node-heading">
-                <span className="flow-node-icon">
-                  <Send size={18} />
-                </span>
-                <div>
-                  <span className="flow-step">04 / HANDOFF</span>
-                  <h2>{t("flowRemyInbox")}</h2>
-                </div>
-                <span className="flow-node-total">
-                  {overview.remy_inbox.waiting_count}
-                </span>
+                {inboxRows(
+                  overview.remy_inbox.items,
+                  t("flowNoNotifications"),
+                  3,
+                )}
+                <button
+                  className="flow-node-footer"
+                  onClick={() => onInbox("Remy")}
+                >
+                  {t("flowViewAll")}
+                  <ArrowUpRight size={13} />
+                </button>
               </div>
-              <p className="flow-node-subtitle">{t("flowRemyHint")}</p>
-              {inboxRows(overview.remy_inbox.items, t("flowNoNotifications"))}
-              <button
-                className="flow-node-footer"
-                onClick={() => onInbox("Remy")}
+            </div>
+            <div className="flow-node flow-reminders">
+              <FlowStageHeader
+                step={4}
+                count={overview.reminders.length}
+                subtitle={t("flowRemindersHint")}
+                language={language}
+                flights={flights}
+              />
+              <div
+                className="flow-panel-body"
+                inert={collapsed}
+                aria-hidden={collapsed}
               >
-                {t("flowViewAll")}
-                <ArrowUpRight size={13} />
-              </button>
-            </div>
-            <div
-              className="flow-node flow-reminders"
-              ref={bind("reminders")}
-              data-receiving={flights.some(
-                (flight) => flight.edge === "remind",
-              )}
-            >
-              <div className="flow-node-heading">
-                <span className="flow-node-icon">
-                  <Bell size={18} />
-                </span>
-                <div>
-                  <span className="flow-step">05 / NOTIFY</span>
-                  <h2>{t("flowReminders")}</h2>
-                </div>
-                <span className="flow-node-total">
-                  {overview.reminders.length}
-                </span>
-              </div>
-              <p className="flow-node-subtitle">{t("flowRemindersHint")}</p>
-              {overview.reminders.length ? (
-                <div className="flow-entries">
-                  {overview.reminders.map((item) => (
-                    <button
-                      className="flow-entry"
-                      type="button"
-                      key={item.id}
-                      onClick={() => setSelection({ type: "reminder", item })}
-                    >
-                      <div className="flow-entry-meta">
-                        <time>{clock(item.delivered_at, language)}</time>
-                        <span className="flow-state" data-state="sent">
-                          <Check size={10} />
-                          {t("flowSent")}
-                        </span>
-                      </div>
-                      <p>{plainText(item.summary)}</p>
-                      <div className="flow-entry-source">
-                        {item.source_refs.map((ref) => (
-                          <span key={ref.source_id}>
-                            {icon(ref)} {sourceName(ref)}
+                {overview.reminders.length ? (
+                  <div className="flow-entries">
+                    {overview.reminders.map((item) => (
+                      <button
+                        className="flow-entry flow-reminder"
+                        type="button"
+                        key={item.id}
+                        onClick={() => setSelection({ type: "reminder", item })}
+                      >
+                        <FlowRelay
+                          step={4}
+                          flights={flights.filter((flight) =>
+                            matchesTransition(flight.action, item),
+                          )}
+                        />
+                        <div className="flow-entry-meta">
+                          <time>{clock(item.delivered_at, language)}</time>
+                          <span className="flow-state" data-state="sent">
+                            <Check size={10} />
+                            {t("flowSent")}
                           </span>
-                        ))}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <div className="flow-empty">
-                  <Bell size={23} />
-                  <p>{t("flowNoReminders")}</p>
-                </div>
-              )}
-            </div>
-            <div
-              className="flow-workspace"
-              ref={bind("workspace")}
-              data-receiving={flights.some((flight) => flight.edge === "write")}
-            >
-              <header>
-                <span className="flow-node-icon">
-                  <FolderOpen size={17} />
-                </span>
-                <h2>{t("flowWorkspace")}</h2>
-                <span>{t("flowWorkspaceHint")}</span>
-              </header>
-              <div className="flow-workspace-columns">
-                {(
-                  [
-                    [["resource"], "flowResources", FolderOpen],
-                    [["task", "memory"], "flowTasks", FileText],
-                    [["record"], "flowRecords", Activity],
-                  ] as const
-                ).map(([roles, label, Icon]) => {
-                  const files = overview.workspace.filter(
-                    (file) =>
-                      (roles as readonly string[]).includes(file.role) &&
-                      (!focus ||
-                        !file.agent_name ||
-                        file.agent_name === "Remy" ||
-                        file.agent_name === focus),
-                  );
-                  return (
-                    <section key={label}>
-                      <h3>
-                        <Icon size={15} />
-                        {t(label)}
-                        <button
-                          type="button"
-                          className="flow-file-count"
-                          aria-label={`${t("flowViewAll")} · ${t(label)}`}
-                          onClick={() =>
-                            setSelection({
-                              type: "files",
-                              title: t(label),
-                              paths: files.map((file) => file.path),
-                            })
-                          }
-                        >
-                          {files.length}
-                          <ArrowUpRight size={11} />
-                        </button>
-                      </h3>
-                      {files.slice(0, 3).map((file) => (
-                        <button
-                          key={file.id}
-                          className="flow-file"
-                          type="button"
-                          title={file.path}
-                          onClick={() => open(file.path)}
-                        >
-                          <span>
-                            {file.agent_name
-                              ? `${agentName(file.agent_name, t)} / `
-                              : ""}
-                            {file.path.split("/").at(-1)}
-                          </span>
-                          <ArrowUpRight size={12} />
-                        </button>
-                      ))}
-                      {!files.length && <p>{t("flowNoFiles")}</p>}
-                    </section>
-                  );
-                })}
+                        </div>
+                        <div className="flow-entry-content">
+                          <p>{plainText(item.summary)}</p>
+                        </div>
+                        <div className="flow-entry-source">
+                          {item.source_refs.map((ref) => (
+                            <span key={ref.source_id}>{sourceName(ref)}</span>
+                          ))}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flow-empty">
+                    <Bell size={23} />
+                    <p>{t("flowNoReminders")}</p>
+                  </div>
+                )}
               </div>
             </div>
+            {layout?.mobile ? (
+              <MobileFlowTransfers flights={flights} overview={overview} />
+            ) : (
+              <FlowTransfers
+                flights={flights}
+                overview={overview}
+                live={Boolean(packet?.live)}
+              />
+            )}
           </div>
         </div>
       )}
@@ -1039,31 +966,26 @@ export default function ProactiveOverview({ state }: { state: StudioState }) {
                 : selection.type === "queues"
                   ? t("flowEventInbox")
                   : selection.type === "agent"
-                    ? agentName(selection.agentName, t)
+                    ? selection.agentName
                     : selection.type === "create"
                       ? t("taskCreate")
                       : selection.type === "tasks"
                         ? t("flowAllAgents")
-                        : selection.type === "files"
-                          ? selection.title
-                          : selection.type === "mail"
-                            ? t("flowRemyInbox")
-                            : selection.type === "info"
-                              ? t("flowRuntimeInfo")
-                              : selection.type === "event"
-                                ? t(
-                                    selection.item.event
-                                      ? "flowEventInbox"
-                                      : "flowRemyInbox",
-                                  )
-                                : t("flowReminders")
+                        : selection.type === "mail"
+                          ? t("flowRemyInbox")
+                          : selection.type === "event"
+                            ? t(
+                                selection.item.event
+                                  ? "flowEventInbox"
+                                  : "flowRemyInbox",
+                              )
+                            : t("flowReminders")
           }
           onClose={() => setSelection(null)}
         >
           {selection.type === "tasks" && (
             <TaskPicker state={state} agents={agents} onSelect={openTask} />
           )}
-          {selection.type === "files" && linked(selection.paths)}
           {selection.type === "create" && (
             <TaskEditor
               state={state}
@@ -1075,27 +997,10 @@ export default function ProactiveOverview({ state }: { state: StudioState }) {
             <AgentResources
               state={state}
               agentName={selection.agentName}
-              agentLabel={(name) => agentName(name, t)}
               active={active}
               embedded
               inbox={!selection.outbox}
             />
-          )}
-          {selection.type === "info" && (
-            <>
-              <Facts
-                values={[
-                  [t("flowStatus"), connectionLabel],
-                  [t("flowLastUpdated"), formatDate(packet?.asOf, language)],
-                ]}
-              />
-              {overview &&
-                Object.entries(overview.errors).map(([owner, error]) => (
-                  <p className="action-error" key={owner}>
-                    <strong>{owner}</strong> {error}
-                  </p>
-                ))}
-            </>
           )}
           {selection.type === "directory" && (
             <DirectoryDetail
@@ -1118,7 +1023,7 @@ export default function ProactiveOverview({ state }: { state: StudioState }) {
                   }}
                 >
                   <span>
-                    {agentName(agent.agent_name, t)}
+                    {agent.agent_name}
                     <small>
                       {t("flowPending")} {counts?.waiting_count ?? 0} ·{" "}
                       {t("flowProcessing")} {counts?.processing_count ?? 0}
@@ -1134,7 +1039,9 @@ export default function ProactiveOverview({ state }: { state: StudioState }) {
               state={state}
               source={selection.source}
               agents={agents}
-              icon={selection.source ? icon(selection.source) : undefined}
+              icon={
+                selection.source ? icons[selection.source.source_id] : undefined
+              }
               onSave={(id, value) => {
                 const next = { ...icons };
                 if (value) next[id] = value;

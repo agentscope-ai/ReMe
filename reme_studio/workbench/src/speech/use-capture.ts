@@ -12,13 +12,14 @@ interface Capture {
   phase: "starting" | "recording" | "transcribing";
   bound: boolean;
   held: boolean;
+  sendOnRelease: boolean;
   heldModifier?: "Meta" | "Control";
   timer?: ReturnType<typeof setTimeout>;
 }
 
 export function useCapture(
   state: StudioState,
-  insert: (text: string) => void,
+  insert: (text: string, sendOnRelease: boolean) => void,
   fail: (error: unknown) => void,
 ) {
   const { action, transcribe, openRecorder: nativeRecorder } = useHost();
@@ -66,7 +67,8 @@ export function useCapture(
       });
       if (active.current !== capture) return;
       if (result.error) throw deserializeError(result.error);
-      if (result.text.trim()) latest.current.insert(result.text);
+      if (result.text.trim())
+        latest.current.insert(result.text, capture.sendOnRelease);
       else setNotice(true);
     } catch (error) {
       if (
@@ -82,6 +84,7 @@ export function useCapture(
   const start = async (
     held = false,
     heldModifier?: Capture["heldModifier"],
+    sendOnRelease = false,
   ) => {
     if (active.current || !latest.current.state.chatVisible) return;
     if (
@@ -100,6 +103,7 @@ export function useCapture(
       bound: false,
       held,
       heldModifier,
+      sendOnRelease,
     };
     active.current = capture;
     setSeconds(0);
@@ -205,10 +209,17 @@ export function useCapture(
       if (!nativeRecorder || active.current?.phase !== "starting") cancel();
     };
     window.addEventListener("blur", blur);
+    const back = (event: Event) => {
+      if (event.defaultPrevented || !active.current) return;
+      event.preventDefault();
+      cancel();
+    };
+    window.addEventListener("reme-mobile-back", back);
     return () => {
       window.removeEventListener("keydown", key);
       window.removeEventListener("keyup", release);
       window.removeEventListener("blur", blur);
+      window.removeEventListener("reme-mobile-back", back);
     };
   }, []);
   return {
@@ -216,7 +227,9 @@ export function useCapture(
     seconds,
     level,
     notice,
-    start: () => void start(),
+    sendOnRelease: Boolean(active.current?.sendOnRelease),
+    start: (sendOnRelease = false) =>
+      void start(false, undefined, sendOnRelease),
     finish: () => void finish(),
     cancel,
     toggle: () => (active.current ? void finish() : void start()),

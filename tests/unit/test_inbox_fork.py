@@ -99,7 +99,10 @@ async def test_changed_context_prevents_stale_delivery_and_consumption(tmp_path,
             else:
                 now = manager.now()
                 hour = (now.hour + 1) % 24
-                await manager.update("monitor", {"notify_window": {"start": f"{hour:02}:00", "end": f"{hour:02}:01"}})
+                await manager.update(
+                    "monitor",
+                    {"notify_windows": [{"start": f"{hour:02}:00", "end": f"{hour:02}:01"}]},
+                )
             return await SubmitChatReplyStep(app_context=context, agent_runtime="Remy")(
                 action=action,
                 **({"content": "Stale"} if action == "send" else {}),

@@ -12,7 +12,7 @@ export function taskSettings(status: AgentView): ProactiveRuntimeSettings {
     enabled: status.enabled,
     schedule: status.schedule,
     min_trigger_interval_seconds: status.min_trigger_interval_seconds,
-    notify_window: status.notify_window,
+    notify_windows: status.notify_windows,
   };
 }
 
@@ -86,7 +86,7 @@ export function taskPayload(request: TaskRequest): {
       "enabled",
       "schedule",
       "min_trigger_interval_seconds",
-      "notify_window",
+      "notify_windows",
     ] as const;
     if (
       Object.keys(settings).some(

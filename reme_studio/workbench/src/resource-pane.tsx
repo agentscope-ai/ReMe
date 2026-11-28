@@ -97,6 +97,7 @@ export default function ResourcePane({
       )}
       <TimelinePane
         name="resources"
+        variant={view}
         language={language}
         listKey={listKey}
         detailKey={selected}

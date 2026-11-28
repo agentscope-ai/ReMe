@@ -75,6 +75,11 @@ Runtime 持有会话引用、执行锁、独立 Inbox 和 Outbox，Job 负责单
 
 使用 Claude Code 时，启动 `reme start config=proactive_cc`。该配置使用 Claude Code 原生默认提示词，
 通过追加方式注入 Runtime 的角色指令，包括 Remy 的 Chat 提示词。关闭提示词快照，使续聊使用当前追加的指令。
+`proactive` 和 `proactive_cc` 共用 `LLM_API_KEY`、`LLM_BASE_URL`、`REME_MODEL_NAME`。
+Claude Code 的地址需要支持 Anthropic API，预设默认使用 `https://dashscope.aliyuncs.com/apps/anthropic`；
+Codex 使用 Responses API。环境变量用于首次导入，之后使用服务端保存的配置。
+这两种预设可在 Studio「设置 → 模型」选择 Codex 或 Claude Code，测试连接后保存并重启。
+Chat 和主动任务共用所选模型。切换执行后端会开始新的会话，原有会话文件保留。
 
 ```bash
 # 终端一：启动服务
@@ -96,12 +101,17 @@ Runtime 只在 TASK.md 不存在时写入初始文本，每轮执行读取当前
 
 创建时必须传 `agent_type=event` 或 `agent_type=time`。时间任务必须设置 `schedule` Cron 表达式，按应用时区执行；事件任务没有日程。
 创建后触发类型、skills 和工具绑定固定。`update` 仅修改 enabled、schedule、
-min_trigger_interval_seconds、notify_window。暂停让当前轮完成，删除取消执行并保留工作区文件；同名恢复沿用工具绑定和历史。
+min_trigger_interval_seconds、notify_windows。暂停让当前轮完成，删除取消执行并保留工作区文件；同名恢复沿用工具绑定和历史。
 读取或修改任务要求使用 `task_document action=read/save agent_name=...`，保存必须提交读取返回的 `mtime` 作为 expected_mtime。
+
+`notify_windows` 使用应用时区的 `{start,end}` 时段列表，格式 HH:MM，默认
+`[{"start":"09:00","end":"12:00"},{"start":"14:00","end":"23:00"}]`。命中任一时段即可提醒，`[]` 表示不限时段。
+含起点、不含终点，可跨午夜，起止相同表示全天。只控制提醒处理和发送，不改变任务执行时间。
+已有任务的 config.json 需要使用此列表字段。
 
 Remy 的个人记忆通过 `components.agent_runtime.Remy.initial_memory` 创建到 `{reme_agent_dir}/Remy/MEMORY.md`，
 已有内容保留。`components.agent_runtime.Remy.notification_config` 控制 P0 延迟（默认 0 秒）、P1 空闲（10 秒）、P2 空闲（1800 秒）。
-P0 可以进入正在执行的前台原生轮次；P1/P2 等待前台空闲。发送方 enabled 和 notify_window 仍限制提醒资格。
+P0 可以进入正在执行的前台原生轮次；P1/P2 等待前台空闲。发送方 enabled 和 notify_windows 仍限制提醒资格。
 
 ### 资料接入与采集控制
 

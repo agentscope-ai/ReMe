@@ -7,10 +7,7 @@ import {
 } from "react";
 import * as Tabs from "@radix-ui/react-tabs";
 import {
-  ArrowLeft,
   BookOpen,
-  ChevronRight,
-  MessageCircle,
   Sparkles,
   Leaf,
   Settings as SettingsIcon,
@@ -20,9 +17,9 @@ import type { StudioState, StudioPage } from "../../client/src/protocol.ts";
 import { WORKBENCH_PAGES } from "../../client/src/protocol.ts";
 import { useHost } from "./host.ts";
 import { useSpeechPlayback } from "./speech/playback.ts";
-import { useMobileDrawerGesture } from "./mobile-gesture.ts";
+import { MobileBackNavigation, MobileTabBar } from "./mobile/navigation.tsx";
 import AgentWorkspace from "./agent-workspace.tsx";
-import ProactiveOverview from "./proactive/index.tsx";
+import Tasks from "./tasks/index.tsx";
 import Settings from "./settings.tsx";
 import BackendSetup from "./backend-setup.tsx";
 import { BackendAccess } from "./backend-access.tsx";
@@ -30,6 +27,7 @@ import type { NavigationGuard } from "../../client/src/backend.ts";
 import Knowledge from "./knowledge/index.tsx";
 import Notebook from "./notebook/index.tsx";
 import { WorkspaceLayout } from "./workspace-titlebar.tsx";
+import { NavigationProvider } from "./navigation.tsx";
 
 export default function Workbench({
   state,
@@ -47,7 +45,7 @@ export default function Workbench({
   mobile?: boolean;
 }) {
   const { action, onCommand } = useHost();
-  const desktop = platform !== undefined;
+  const desktop = !mobile && platform !== undefined;
   const t = translator(state.settings.language);
   const [setupBlocking, setSetupBlocking] = useState(true);
   const [backendAccess, setBackendAccess] = useState<{
@@ -62,6 +60,7 @@ export default function Workbench({
   const [collapsed, setCollapsed] = useState<
     Partial<Record<StudioPage, boolean>>
   >(() => {
+    if (mobile) return {};
     try {
       return Object.fromEntries(
         WORKBENCH_PAGES.flatMap((page) => {
@@ -74,40 +73,22 @@ export default function Workbench({
     }
   });
   const [compact, setCompact] = useState(false);
-  const [mobileMenu, setMobileMenu] = useState<"primary" | "secondary" | null>(
-    null,
-  );
-  const [mobileSidebar, setMobileSidebar] = useState<HTMLDivElement | null>(
-    null,
-  );
-  const mobileRoot = useRef<HTMLDivElement>(null);
-  const mobileDrawer = useRef<HTMLElement>(null);
-  const mobileMenuOpen = mobileMenu !== null;
-  const setMobileMenuOpen = useCallback((open: boolean) => {
-    setMobileMenu(open ? "primary" : null);
-  }, []);
-  useMobileDrawerGesture(
-    mobileRoot,
-    mobileDrawer,
-    mobileMenuOpen,
-    setMobileMenuOpen,
-  );
   useEffect(() => {
+    if (mobile) return;
     const viewport = window.matchMedia("(max-width: 640px)");
     const update = () => setCompact(viewport.matches);
     update();
     viewport.addEventListener("change", update);
     return () => viewport.removeEventListener("change", update);
-  }, []);
+  }, [mobile]);
   const sidebarCollapsed = (page: StudioPage) =>
-    mobile ? state.activePage !== page : (collapsed[page] ?? compact);
+    mobile && state.activePage !== page
+      ? true
+      : (collapsed[page] ?? (mobile || compact));
   const setSidebarCollapsed = useCallback(
     (value: boolean, page = state.activePage) => {
-      if (mobile) {
-        setMobileMenu(value ? null : "secondary");
-        return;
-      }
       setCollapsed((current) => ({ ...current, [page]: value }));
+      if (mobile) return;
       try {
         localStorage.setItem(`sidebar:${page}:collapsed`, String(value));
       } catch {
@@ -122,46 +103,7 @@ export default function Workbench({
       setSidebarCollapsed(true);
   };
   useEffect(() => {
-    if (mobileMenu === null) return;
-    const back = (event: Event) => {
-      event.preventDefault();
-      setMobileMenu(mobileMenu === "secondary" ? "primary" : null);
-    };
-    window.addEventListener("reme-mobile-back", back);
-    const escape = (event: KeyboardEvent) => {
-      if (
-        event.key === "Escape" &&
-        !event.defaultPrevented &&
-        !document.querySelector("dialog[open]")
-      )
-        back(event);
-    };
-    window.addEventListener("keydown", escape);
-    return () => {
-      window.removeEventListener("reme-mobile-back", back);
-      window.removeEventListener("keydown", escape);
-    };
-  }, [mobileMenu]);
-  const previousMenu = useRef(mobileMenu);
-  useEffect(() => {
-    const root = mobileRoot.current;
-    if (root && previousMenu.current !== mobileMenu) {
-      const selector =
-        mobileMenu === "secondary"
-          ? ".mobile-menu-back"
-          : mobileMenu === "primary"
-            ? '.mobile-modules [aria-current="page"]'
-            : ".mobile-titlebar button";
-      for (const element of root.querySelectorAll<HTMLElement>(selector)) {
-        if (!element.getClientRects().length) continue;
-        element.focus({ preventScroll: true });
-        break;
-      }
-    }
-    previousMenu.current = mobileMenu;
-  }, [mobileMenu]);
-  useEffect(() => {
-    if (!platform || state.activePage === "tasks") return;
+    if (!platform) return;
     const toggle = (event: KeyboardEvent) => {
       if (
         event.defaultPrevented ||
@@ -185,9 +127,9 @@ export default function Workbench({
     return () => window.removeEventListener("keydown", toggle);
   }, [platform, activeSidebarCollapsed, setSidebarCollapsed, state.activePage]);
   useEffect(() => {
-    if (state.documentTarget && !compact)
+    if (!mobile && state.documentTarget && !compact)
       setCollapsed((value) => ({ ...value, knowledge: false }));
-  }, [state.documentTarget, compact]);
+  }, [state.documentTarget, compact, mobile]);
   const lastPage = useRef<Exclude<StudioPage, "settings">>("remy");
   const settingsOpen = state.activePage === "settings";
   useEffect(() => {
@@ -215,7 +157,7 @@ export default function Workbench({
   );
   const content = (
     <Tabs.Root
-      inert={mobileMenu !== null || setupBlocking}
+      inert={setupBlocking}
       orientation="vertical"
       value={state.activePage}
       onValueChange={(value) => select(value as StudioPage)}
@@ -300,7 +242,12 @@ export default function Workbench({
           />
         </Tabs.Content>
         <Tabs.Content value="tasks" forceMount className="workspace-page">
-          <ProactiveOverview key={scope} state={state} />
+          <Tasks
+            key={scope}
+            state={state}
+            collapsed={sidebarCollapsed("tasks")}
+            onNavigate={closeCompactSidebar}
+          />
         </Tabs.Content>
         <Tabs.Content value="notebook" forceMount className="workspace-page">
           <Notebook
@@ -332,117 +279,32 @@ export default function Workbench({
           desktop={desktop}
           windowTransparency={platform === "darwin"}
           open={settingsOpen}
-          editableEndpoint={desktop || mobile}
+          editableEndpoint
           navigate={navigate}
           registerGuard={registerGuard}
           collapsed={sidebarCollapsed("settings")}
           onNavigate={closeCompactSidebar}
         />
       </div>
+      {mobile && <MobileTabBar state={state} onSelect={select} />}
     </Tabs.Root>
   );
-  const modules = [
-    ["remy", "Remy", MessageCircle],
-    ["tasks", t("proactiveAi"), Sparkles],
-    ["notebook", t("notebook"), Leaf],
-    ["knowledge", t("memory"), BookOpen],
-    ["settings", t("settings"), SettingsIcon],
-  ] as const;
   const layout = (
     <WorkspaceLayout.Provider
       value={{
         settings: state.settings,
         platform,
         setSidebarCollapsed,
-        mobileSidebar,
-        openNavigation: mobile ? () => setMobileMenu("primary") : undefined,
-        navigationOpen: mobileMenuOpen,
+        mobile,
       }}
     >
       <BackendSetup
         key={state.settings.endpoint}
         state={state}
-        editableEndpoint={desktop || mobile}
+        editableEndpoint
         onBlockingChange={setSetupBlocking}
       />
-      {mobile ? (
-        <div
-          ref={mobileRoot}
-          className="mobile-workbench"
-          data-menu={mobileMenu ?? undefined}
-        >
-          <aside
-            ref={mobileDrawer}
-            id="mobile-navigation"
-            className="mobile-drawer"
-            inert={!mobileMenuOpen || setupBlocking}
-            aria-label={t("navigation")}
-          >
-            <div
-              className="mobile-menu-panel mobile-menu-primary"
-              inert={mobileMenu !== "primary"}
-            >
-              <div className="mobile-brand">
-                <span aria-hidden>R</span>
-                <strong>ReMe</strong>
-              </div>
-              <nav className="mobile-modules" aria-label={t("navigation")}>
-                {modules.map(([page, label, Icon]) => (
-                  <button
-                    key={page}
-                    type="button"
-                    data-module={page}
-                    aria-current={
-                      state.activePage === page ? "page" : undefined
-                    }
-                    onClick={() => {
-                      select(page);
-                      setMobileMenu(page === "tasks" ? null : "secondary");
-                    }}
-                  >
-                    <span className="mobile-module-icon">
-                      <Icon size={19} aria-hidden />
-                    </span>
-                    <span>{label}</span>
-                    <span className="mobile-module-status" aria-hidden>
-                      {page === "remy" && state.unread > 0 && (
-                        <i className="mobile-unread" />
-                      )}
-                      {page !== "tasks" && (
-                        <ChevronRight size={15} aria-hidden />
-                      )}
-                    </span>
-                  </button>
-                ))}
-              </nav>
-            </div>
-            <div
-              className="mobile-menu-panel mobile-menu-secondary"
-              inert={mobileMenu !== "secondary"}
-            >
-              <button
-                className="mobile-menu-back"
-                type="button"
-                onClick={() => setMobileMenu("primary")}
-              >
-                <ArrowLeft size={18} aria-hidden />
-                {t("workspaceTab")}
-              </button>
-              <div ref={setMobileSidebar} className="mobile-sidebar-host" />
-            </div>
-          </aside>
-          {content}
-          <button
-            className="mobile-drawer-dismiss"
-            type="button"
-            inert={!mobileMenuOpen}
-            aria-label={t("hideSidebar")}
-            onClick={() => setMobileMenu(null)}
-          />
-        </div>
-      ) : (
-        content
-      )}
+      {mobile ? <div className="mobile-workbench">{content}</div> : content}
     </WorkspaceLayout.Provider>
   );
   const endpoint = state.settings.endpoint;
@@ -454,7 +316,15 @@ export default function Workbench({
         setToken: (token) => setBackendAccess({ endpoint, token }),
       }}
     >
-      {layout}
+      <NavigationProvider
+        key={scope}
+        page={state.activePage}
+        onSelect={(page) => action({ type: "page.select", page })}
+        navigate={navigate}
+      >
+        {layout}
+        {mobile && <MobileBackNavigation />}
+      </NavigationProvider>
     </BackendAccess.Provider>
   );
 }
