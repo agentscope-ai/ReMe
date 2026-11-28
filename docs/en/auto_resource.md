@@ -69,9 +69,9 @@ Permanent material should remain in user-controlled workspace paths.
 ## Scheduled Screen Capture
 
 `config=proactive` enables `screen_capture_cron` every five minutes in the application timezone, without a startup capture.
-It publishes screenshots to the `proactive_memory` task, independently of Codex dialogue collection. Set
-`jobs.screen_capture_cron.enabled=false` to disable it. To change recipients, set `task_names` on
-`screen_capture_step` and name the event-triggered tasks that should receive screenshots.
+It publishes screenshots to the `proactive_memory` Runtime, independently of Codex dialogue collection. Set
+`jobs.screen_capture_cron.enabled=false` to disable it. To change recipients, set `runtime_names` on
+`screen_capture_step` and name the event-triggered Runtimes that should receive screenshots.
 
 `ScreenCaptureStep` saves one original-size PNG per display and records the recipients before publishing
 `metadata.json`. The observation lists the workspace-relative PNG paths. If delivery is interrupted, the collector
@@ -110,14 +110,33 @@ minutes and delivers them as `codex_dialogue` events. Reasoning, tool calls and 
 own sessions are excluded.
 
 Dialogue packages live under `resource/codex_dialogue/YYYY-MM-DD/HHMMSS_<suffix>/`. Events give agents `dialogue.md`
-and paths to its image attachments. The Markdown shows the project, session, turn and message IDs, and lists each
-user message, progress update and final answer in order. A follow-up in an active turn has its own message ID under
-the same turn. Images are linked next to their messages. Like other Proactive runtimes, Notebook reads the dialogue and
-images from the event's links, then checks existing records by project and ID through `todo` and `idea`.
+and paths to its image attachments. The Markdown follows a working directory → session → turn → message hierarchy.
+The path appears below the working directory heading; session and turn IDs appear below their corresponding headings.
+Each message heading identifies the user, Codex progress or Codex final answer, followed by labeled time and message ID
+fields, then the original text and image links. A follow-up in an active turn has its own message section under the same
+turn. Like other Proactive runtimes, Notebook reads the dialogue and images from the event's links, then checks existing
+records by project and ID through `todo` and `idea`.
 `resource/codex_dialogue/progress.jsonl` retains committed reading offsets and message IDs.
 `pending.json` freezes an unfinished batch so delivery can be retried before reading further changes. These collector
 files are not included in event paths. Restarting resumes the saved progress without replaying delivered dialogue.
 An idle scan writes no new progress record; tool-only changes still advance offsets without producing dialogue events.
+
+## Scheduled Claude Code Dialogue Collection
+
+`claude_code_dialogue_cron` watches `${CLAUDE_CONFIG_DIR:-~/.claude}/projects/*/*.jsonl` every five minutes.
+Like Codex, its startup `init_steps` establish a baseline without importing old history. Both dialogue collectors
+use `runtime_names: [proactive_memory, proactive_note]` by default and support the same `manage_connector` controls.
+
+Claude Code combines API content blocks by message ID, retaining user prompts, visible progress and final answers.
+Tool results, thinking, synthetic input, compaction summaries, team and subagent records are excluded. A user's UUID
+anchors its turn; only an explicit `end_turn` marks an assistant answer as final. Unfinished blocks survive scans and
+restarts. Embedded images are copied into the package; unavailable images are counted without opening external paths.
+ReMe's default private Claude configuration under `mem_session_dir` is outside this watched source.
+
+Packages use `resource/claude_code_dialogue/YYYY-MM-DD/HHMMSS_<suffix>/` with the same manifest, Markdown hierarchy,
+JSONL message fields and image files as Codex. Events differ by `source` and resource paths. Both collectors return
+`event_ids`, `dialogue_messages`, `scanned_bytes` and `errors`, plus `rejected` when recipients reject delivery.
+Each source keeps its own `progress.jsonl` and `pending.json`; pending batches retain their original recipients and IDs.
 
 ## Scheduled Finance Collection
 
@@ -139,7 +158,7 @@ Quote records preserve provider and collection times. CLS looks back up to 24 ho
 Pending deliveries are retried from published packages.
 
 Start the service with `reme start config=proactive`. In another terminal, run
-`reme manage_proactive_agent action=status agent_name=finance` to find the task's `TASK.md`.
+`reme manage_proactive_runtime action=status agent_name=proactive_fin` to find the task's `TASK.md`.
 Disable a collector at startup with `jobs.<job_name>.enabled=false`.
 
 ## Image Resources

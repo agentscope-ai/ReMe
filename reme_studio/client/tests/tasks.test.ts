@@ -11,9 +11,9 @@ import {
 
 const settings: ProactiveRuntimeSettings = {
   enabled: false,
-  cron: "0 8 * * *",
+  schedule: "0 8 * * *",
   min_trigger_interval_seconds: 0,
-  notify_window: null,
+  notify_windows: [],
 };
 
 test("task management forwards settings and document operations for a tmp task", async () => {
@@ -28,6 +28,7 @@ test("task management forwards settings and document operations for a tmp task",
     {
       type: "task",
       action: "create",
+      agent_type: "time",
       agent_name: "tmp",
       task_description: "原样\n",
       settings,
@@ -36,7 +37,7 @@ test("task management forwards settings and document operations for a tmp task",
       type: "task",
       action: "update",
       agent_name: "tmp",
-      settings: { enabled: false, notify_window: null },
+      settings: { enabled: false, notify_windows: [] },
     },
     { type: "task", action: "read", agent_name: "tmp" },
     {
@@ -50,21 +51,22 @@ test("task management forwards settings and document operations for a tmp task",
     await requestWorkspace(client, request, new AbortController().signal);
   assert.deepEqual(calls, [
     {
-      job: "manage_proactive_agent",
+      job: "manage_proactive_runtime",
       body: {
         action: "create",
+        agent_type: "time",
         agent_name: "tmp",
         ...settings,
         task_description: "原样\n",
       },
     },
     {
-      job: "manage_proactive_agent",
+      job: "manage_proactive_runtime",
       body: {
         action: "update",
         agent_name: "tmp",
         enabled: false,
-        notify_window: null,
+        notify_windows: [],
       },
     },
     { job: "task_document", body: { action: "read", agent_name: "tmp" } },
@@ -106,15 +108,21 @@ test("task IPC rejects unrelated identities, unsafe writes and retired operation
 
 test("settings edits only patch changed fields, preserving concurrent pause and notification changes", () => {
   assert.deepEqual(
-    changedTaskSettings(settings, { ...settings, cron: "0 9 * * *" }),
-    { cron: "0 9 * * *" },
+    changedTaskSettings(settings, { ...settings, schedule: "0 9 * * *" }),
+    { schedule: "0 9 * * *" },
   );
   assert.deepEqual(
     changedTaskSettings(
-      { ...settings, notify_window: { start: "09:00", end: "18:00" } },
+      {
+        ...settings,
+        notify_windows: [
+          { start: "09:00", end: "12:00" },
+          { start: "14:00", end: "23:00" },
+        ],
+      },
       settings,
     ),
-    { notify_window: null },
+    { notify_windows: [] },
   );
   assert.deepEqual(changedTaskSettings(settings, { ...settings }), {});
 });

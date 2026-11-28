@@ -9,7 +9,7 @@ description: 交代一次，持续跟进。了解 ReMe 如何接收新信息、�
 
 如果能把要求交代给一个 Agent，让它记住背景，持续看后续进展，遇到值得关注的变化再来告诉你，就能省下不少来回检查的时间。
 
-ReMe 的主动智能运行时（Proactive Runtime）把本地长期记忆用于这些持续任务。它支持事件触发和时间触发，通过 `AgentWrapper` 调用 Codex 等 Agent Runtime 执行，将结果保存在工作区，并按需通过 Remy 提醒用户。每项持续任务对应一个具名 Runtime。应用的 Proactive Manager 从工作区加载它们、路由事件，并通过 Remy 投递提醒。
+ReMe 的主动智能运行时（Proactive Runtime）把本地长期记忆用于这些持续任务。它支持事件触发和时间触发，通过 `AgentWrapper` 调用 Codex 等 Agent Runtime 执行，将结果保存在工作区，并按需通过 Remy 提醒用户。每项持续任务对应一个具名 Runtime。AgentManager 从工作区加载并管理后台 Runtime，各 Runtime 通过自己的 Outbox 把提醒交给 Remy。
 
 ## 为什么需要持续跟进
 
@@ -35,7 +35,7 @@ ReMe 的主动智能运行时（Proactive Runtime）把本地长期记忆用于�
 
 ![Proactive Runtime：从信息采集、事件收件箱到 Agent 执行、工作区文件和提醒发件箱](../figure/proactive-runtime.svg)
 
-图中从左到右是接收信息、处理一批输入和生成提醒；下方是这一轮会读取或更新的文件。两张图均按当前默认目录绘制：工作区根目录 `workspace_dir=.reme`，资源目录 `resource_dir=resource`，日记目录 `daily_dir=daily`，Agent 目录 `reme_agent_dir=reme_agents`；修改配置后，实际路径随之调整。Codex 对话和截图已有内置采集器，Claude Code 执行轨迹是通过事件接口扩展接入的示例。
+图中从左到右是接收信息、处理一批输入和生成提醒；下方是这一轮会读取或更新的文件。两张图均按当前默认目录绘制：工作区根目录 `workspace_dir=.reme`，资源目录 `resource_dir=resource`，日记目录 `daily_dir=daily`，Agent 目录 `reme_agent_dir=reme_agents`；修改配置后，实际路径随之调整。Codex、Claude Code 对话和截图已有内置采集器，完整工具执行轨迹可通过事件接口扩展接入。
 
 ### 数据采集：把新变化交给 Agent
 
@@ -47,7 +47,7 @@ Agent 需要先拿到资料，才能知道发生了什么。资料可以来自�
 
 Codex 采集进度由自身管理：`resource/codex_dialogue/progress.jsonl` 保存初始基线和后续已提交的读取位置，`resource/codex_dialogue/pending.json` 在批次未完成投递时保留。这些辅助状态供采集器恢复工作，不作为资料交给 Agent。截图通过独立的资源采集和事件投递 Steps 发布。
 
-外部程序也可以通过 `append_task_events` 接入。把要分析的资料放进工作区，再提交目标任务名单 `task_names`、事件描述和文件路径，Agent 就能沿着这些路径读取原文。事件中的简要说明帮助它了解输入，完整依据仍然保留在来源文件里。
+外部程序也可以通过 `manage_connector(action="send")` 接入。把要分析的资料放进工作区，再提交目标 Runtime 名单 `runtime_names`、事件描述和文件路径，Agent 就能沿着这些路径读取原文。事件中的简要说明帮助它了解输入，完整依据仍然保留在来源文件里。
 
 ### 事件触发
 
@@ -55,41 +55,60 @@ Codex 采集进度由自身管理：`resource/codex_dialogue/progress.jsonl` 保
 
 每个任务有自己的收件箱。同一个 Agent 一次处理一批事件；执行期间到达的新信息留给后续轮次，不同任务则可以各自推进。事件 ID 用于识别重复投递，避免同一批资料因为重试被反复加入。
 
-只有一轮成功完成并保存结果后，这批事件才会被记为已处理。执行失败时，已写入的记录和待重试的输入都会保留。
+只有一轮成功完成并保存结果后，这批事件才会被记为已处理。提交前失败时，系统清理本轮未被外部修改的草稿，保留输入等待重试。
 
 ### 时间触发
 
-配置 `cron` 后，ReMe 按应用时区在到点时向任务的收件箱追加定时事件。要在新日志到达时检查异常、每天 18 点汇总进展，可以分别创建事件触发任务和时间触发任务。
+设置 `agent_type: time` 和 `schedule` 后，ReMe 按应用时区在到点时向任务的收件箱追加定时事件。要在新日志到达时检查异常、每天 18 点汇总进展，可以分别创建事件触发任务和时间触发任务。
 
-任务按入队顺序执行。连续观察可以合批，定时事件各自执行一轮。每轮 Prompt 的「本轮事件」展示所领输入。定时事件显示计划时间，背景中的「当前时间」显示本轮开始时的时间。例如 08:00 的触发排队到 08:07 才开始，两个时间分别显示 08:00 和 08:07。
+输入按事件时间领取，时间相同时按事件 ID 排序。观察事件可以合批，定时事件各自执行一轮。每轮 query 展示所领输入，定时事件保留计划时间；记录技能填入本轮实际开始时间。例如 08:00 的触发排队到 08:07 才开始，两处分别提供 08:00 和 08:07。
 
 ### Agent 执行
 
 使用 `reme start config=proactive` 启动。每轮领取一批观察事件或一次时间触发，新建原生会话，并读取非空的 `TASK.md`。观察轮从事件和附件找关键信息，时间触发轮按任务说明完成约定工作。
 
+AgentWrapper 提供对应后端的基础指令和运行环境；Remy 的角色提示用于 Chat。
+[执行 Step](../../reme/steps/proactive/agent.py) 根据 `TASK.md`、触发输入和所选技能组装每轮后台任务，由 Harness 执行一次。
+本轮 query 和输入展示的中英文模板位于相邻的 [`agent.yaml`](../../reme/steps/proactive/agent.yaml)。Runtime 管理稳定的能力绑定、
+原生会话和可靠提交；Step 将本轮时间、路径和搜索预算填入记录技能的独立副本，保持缓存模板不变。
+
+执行提示通过 `jobs.run_proactive_agent.steps[0].prompt_dict` 定制，使用 `query`、`record_instruction`、`event_input`、`time_input`
+及对应的 `_zh` 键。Runtime 的 `prompt_dict` 用于角色和初始化文本。
+
+预设 `TASK.md` 只写业务、结果要求和提醒条件。启用 `proactive-record` 时，统一 query 追加 `record_instruction`；记录格式和路径由技能提供。
+
+后台 Agent 默认加载共用的 `proactive-record` 技能，先完成本轮业务，再由技能处理历史检索、记录和提醒去重、
+提醒等级与内容，以及 Markdown 产出。任务的 `skills` 不包含 `proactive-record`（包括 `skills=[]`）时，可以不写每日记录正常完成，也不通过记录生成提醒。Notebook 额外使用 `manage-notebook`；Runtime 管理由 Remy 的
+`manage-proactive-runtime` 技能负责。
+
 Agent 在所有任务共用的 `daily_dir` 中搜索历史记录，核对已有的进展和提醒。优先查 `recent_history_hours` 指定的最近时段，默认 24 小时。`max_local_search_calls` 控制 Prompt 中的本地关键词或正则搜索次数，默认 10 次。超出时每轮只记录一次告警，执行继续。响应的 `reme.agent_run` 记录工具调用、模型状态和执行结果。失败轮次保留输入，默认从 5 秒开始退避，最长 5 分钟。
 
 ### 本轮记录
 
-每轮记录默认写到 `daily/YYYY-MM-DD/{agent_name}_HHMMSS.md`。同一秒重名时追加 `_1`、`_2` 等后缀。观察轮没有关键信息时，可以在模型成功结束并只回复 `NO_KEY_INFORMATION` 的情况下省略文件。时间触发轮都要写记录。
+启用 `proactive-record` 时，每轮记录默认写到 `daily/YYYY-MM-DD/{agent_name}_HHMMSS.md`。同一秒重名时追加 `_1`、`_2` 等后缀。观察轮没有关键信息时，可以在模型成功结束并只回复 `NO_KEY_INFORMATION` 的情况下省略文件。使用该技能的时间触发轮都要写记录。
 
 正文只写值得留下的新进展、依据和来源，也可以留空。文件中的本地链接以当前记录所在目录为基准。Agent 在 frontmatter 写两个字段：
 
 - `reminder_priority` 为 `P0`、`P1`、`P2` 或 `skip`。约定时间已到、条件满足或需要立即处理时用 `P0`，重要进展用 `P1`，有用的新发现用 `P2`。
 - `reminder_message` 保存要提醒的话或任务要求交付的结果。等级为 `skip` 时可以留空，也可以简短说明原因。
 
-文件头前允许有空行。投递只读取这两个字段。主动随记也直接写同样格式的 Markdown，并加载 `manage-todos-ideas` 技能及 `todo`、`idea` 工具。
+文件头前允许有空行。投递只读取这两个字段。主动随记也直接写同样格式的 Markdown，并加载 `manage-notebook` 技能及 `manage_notebook` 工具（kind=todo/idea）。
 
 任务可以指定自己的提醒条件和等级。Agent 会查历史，核对已记录的信息和已写过的提醒。
 
 ### 提交与投递
 
-模型完成后若 YAML 文件头校验失败，Agent 可在同一会话中再试一次，直接修正原文件的文件头并保留正文。提交前，ReMe 会重新校验整个文件。
+未启用 `proactive-record` 时，模型正常完成后确认输入，无需记录校验，也不登记提醒。
 
-ReMe 持有文件写锁，核对记录、确认输入并把需要投递的提醒登记到任务发件箱。模型报错或超时时，完整且通过校验的记录仍可提交。
-确认失败且回执尚未落盘时，Markdown 留在原处，输入继续等待重试。回执落盘后，重启可继续登记提醒。
+技能在同一次执行中检查并修正输出。提交前，ReMe 会重新校验整个文件；模型报错、超时、取消或校验失败时，清理本轮未被外部修改的草稿，保留输入等待后续任务重试。
 
-提醒 ID 使用记录的工作区相对路径。任务发件箱保存 `delivered_at`、`read_at` 和关联的 Chat 消息 ID。Remy 收件箱读取同一份登记，
+ReMe 持有文件写锁，核对记录、确认输入并把需要投递的提醒登记到任务发件箱。
+确认失败且回执尚未落盘时，同样清理本轮草稿，输入继续等待重试。回执落盘后保留记录，重启可继续登记提醒。
+
+进程突然退出后，没有持久化回执的输入仍待处理；已提交提醒根据回执和发件箱状态继续投递，无需再次调用模型。
+突然退出无法执行草稿清理，因此每日目录中可能留下未提交草稿。文件存在本身不能证明本轮已提交或提醒已投递。
+
+提醒 ID 使用记录的工作区相对路径。任务发件箱保存交付事实，Remy 收件箱保存通知引用及处理回执，Chat 发件箱关联原生消息；
 正文仍从原始每日记录读取。Remy 在通知窗口及配置的条数和字节上限内按优先级和投递时间选择提醒。提交决定前会在文件写锁内重新核对提醒，
 源文件的编辑可以使旧决定失效。
 
@@ -97,11 +116,11 @@ ReMe 持有文件写锁，核对记录、确认输入并把需要投递的提醒
 
 ## Remy 对话与提醒 {#chat-and-reminders}
 
-Proactive Manager 通过 Remy 把各个 Runtime 的提醒接入同一个对话。Remy 使用工作区中的个人记忆持续理解用户的偏好和反馈。
+各个 Runtime 通过 Outbox 把提醒交给 Remy，接入同一个对话。Remy 使用工作区中的个人记忆持续理解用户的偏好和反馈。
 
 你在同一个对话中交办事情，后台任务各自跟进；有需要关注的结果时，再结合当前对话决定怎样告诉你。收到提醒后，你可以直接继续追问。
 
-![Remy 对话与提醒：Proactive Manager 协调多个 Runtime、收件箱和提醒分支](../figure/chat-reminders.svg)
+![Remy 对话与提醒：多个 Runtime、收件箱和提醒分支](../figure/chat-reminders.svg)
 
 ### 主对话：交办、追问和调整要求
 
@@ -109,7 +128,7 @@ Chat Agent 是用户的对话入口。你可以说“创建一个每天早上的
 
 每个 Agent 使用稳定的 `agent_name`，主对话名为 `Remy`。创建后台任务时选择时间触发或事件触发，类型在创建后固定。新建任务用 1–3 个简单的小写英文单词命名，多个单词以下划线连接。
 
-Chat 通过 `manage-proactive-agent` skill 按任务名称管理后台任务。任务管理覆盖创建、列表、状态查询、执行设置调整、删除和进展问答；创建时将 `task_description` 原样写入尚不存在的 `TASK.md`；创建、列表和状态查询都返回 `task_path`，用 `task_document action=read/save` 读取和保存该文件。保存时把读取返回的 `mtime` 传为 `expected_mtime`。运行设置通过配置更新。暂停或恢复通过修改任务的启用状态完成。
+Chat 通过 `manage-proactive-runtime` skill 按任务名称管理后台任务。任务管理覆盖创建、列表、状态查询、执行设置调整、删除和进展问答；创建时将 `task_description` 原样写入尚不存在的 `TASK.md`；创建、列表和状态查询都返回 `task_path`，用 `task_document action=read/save` 读取和保存该文件。保存时把读取返回的 `mtime` 传为 `expected_mtime`。运行设置通过配置更新。暂停或恢复通过修改任务的启用状态完成。
 
 例如，“以后每天九点运行”会调整日程；“以后只在失败时提醒”会更新任务要求。后续执行据此继续。
 
@@ -132,9 +151,9 @@ Chat 通过 `manage-proactive-agent` skill 按任务名称管理后台任务。�
 
 处理时，系统从当前 Chat 会话创建临时只读分支，并把选中的收件箱条目放进提示词，包括任务名、投递时间、消息正文和源记录路径。分支先结合当前对话筛选条目，再按需读取有价值的源记录，不展开记录里的链接。等级已经由上游确定，分支不重新分级，也不添加原提醒中没有的行动要求或紧急性。当前对话明确要求到时或满足条件时提醒的，按要求执行。
 
-例如，后台任务刚写好“实验已经结束”，而你已经在主对话里讨论过实验结果，这条提醒就可以跳过。如果仍然值得告知，分支通过 `submit_chat_reminder` 把选定内容加入主对话；没有需要关注的内容时保持安静。
+例如，后台任务刚写好“实验已经结束”，而你已经在主对话里讨论过实验结果，这条提醒就可以跳过。如果仍然值得告知，分支通过 `submit_chat_reply` 把选定内容加入主对话；没有需要关注的内容时保持安静。
 
-这个分支使用后端的只读模式，分析过程留在分支中。发送提醒或明确提交空内容保持安静，都会由框架将这批输入标记为已处理。静默决定也会在源记录中确认提醒已处理。主对话只接收选中的提醒内容；如果判断期间用户又发来消息或切换了会话，框架会让提醒结合最新对话重新判断。
+这个分支使用后端的只读模式，分析过程留在分支中。通过 `submit_chat_reply` 发送提醒或提交 `action=skip` 保持安静，都会由框架将这批输入标记为已处理。处理收据保存在 Remy 的 Inbox 中，不改写源记录。主对话只接收选中的提醒内容；如果判断期间用户又发来消息或切换了会话，框架会让提醒结合最新对话重新判断。
 
 ### 用户反馈：让后续跟进更合适
 
@@ -156,13 +175,13 @@ Chat 通过 `manage-proactive-agent` skill 按任务名称管理后台任务。�
 
 你可能收到：“项目 A 的修改已完成，目前还缺一次验证；项目 B 的两种方案各有一个限制，需要你选一下方向。”之后可以继续问“把两种方案的依据列给我”，相关记录仍然可以查回。
 
-当前内置 Codex 对话采集和截图采集每五分钟独立执行，分别保存资源并投递给同一个 `proactive_memory` Agent。Codex 采集[新增对话和图片附件](./auto_resource.md#定时-codex-对话采集)，截图采集全部显示器。Claude Code 和更完整的工具执行轨迹需要额外接入；分析时要区分用户要求、尝试过的操作和已验证的结果。采集配置见[服务配置](./services.md#proactive-runtime)。
+Codex、Claude Code 对话和截图每五分钟独立采集。两路对话均投递给 `proactive_memory` 和 `proactive_note`，截图投递给 `proactive_memory`。对话采集包含新增用户输入、可见进度、最终回答及图片附件，启动时先建立基线，不导入旧历史。更完整的工具执行轨迹可通过事件接口扩展。分析时要区分用户要求、尝试过的操作和已验证的结果。配置与资源约定见[服务配置](./services.md#proactive-runtime)和[资料采集](./auto_resource.md#定时-claude-code-对话采集)。
 
 ### 实验与长任务监控：去做别的事，等关键结果
 
 > “跟进这次训练。异常退出、指标满足约定条件，或者任务结束时告诉我，正常运行只留记录。”
 
-给实验接一个采集程序，将新增日志、指标和进程状态保存到工作区，通过 `append_task_events` 交给监控 Agent。Agent 结合之前的阶段记录，跟踪当前进度、最近结果和需要继续核实的问题。
+给实验接一个采集程序，将新增日志、指标和进程状态保存到工作区，通过 `manage_connector(action="send")` 交给监控 Agent。Agent 结合之前的阶段记录，跟踪当前进度、最近结果和需要继续核实的问题。
 
 提醒可以概括关键变化：“这次训练因显存不足退出了，可以先检查批量大小。”最后一段日志、检查点和结果路径保存在对应日记中。任务正常完成时，日记记录关键指标和与上次实验的比较，提醒则用一句话概括结果。
 
@@ -210,24 +229,22 @@ Agent 结合用户的关注范围和提醒条件，整理价格变化、相关�
 
 连续几周的记录还能帮助发现单次对话里不容易看出的情况，例如同一个难点持续存在，或投入方向已经偏离原定目标。保留下来的来源让每项判断都能回到具体记录中讨论。
 
-配置和接口见[服务与部署](./services.md#proactive-runtime)，内置任务见 [`proactive.yaml`](../../reme/config/proactive.yaml)，执行流程见 [Agent 实现与提示词](../../reme/steps/proactive/agent/)。关于长期运行 Agent 的通用设计，也可以阅读 Anthropic 的 [Building always-on agents](https://claude.com/resources/articles/building-always-on-agents)。
+配置和接口见[服务与部署](./services.md#proactive-runtime)，内置任务见 [`proactive.yaml`](../../reme/config/proactive.yaml)，执行流程见 [执行流程](../../reme/steps/proactive/agent.py)和 [Runtime 与提示词](../../reme/components/proactive/runtime/)。关于长期运行 Agent 的通用设计，也可以阅读 Anthropic 的 [Building always-on agents](https://claude.com/resources/articles/building-always-on-agents)。
 
 
 ## 任务存储
 
-创建时用 `cron` 指定时间触发的日程，省略或设为 `null` 则使用事件触发。Agent 视图的 `agent_type` 分别为 `time` 和 `event`。
+创建时必须显式传 `agent_type: time` 或 `agent_type: event`。时间任务还必须提供 `schedule` Cron 表达式，事件任务没有日程。持久化配置和 Agent 视图使用相同的显式类型。
 时间触发任务可调整日程，已入队的输入会按原计划时间执行。每条定时事件单独执行一轮，连续入队的观察事件可以合批。
-观察冷却从上一轮成功完成时计时。队首为观察时按冷却设置等待，队首为定时事件时可直接执行。排在观察后面的定时事件仍按队列顺序等待。
+观察冷却从上一轮成功回执计时。观察与定时输入属于不同的任务身份。
 
-Remy 收件箱在内存中保留当前处理批次，并应用配置的条数和字节限制。任务输入收件箱负责持久化领取、确认和重试。
+Remy 收件箱持久化通知引用和处理回执，当前批次应用条数和字节限制。源记录缺失或格式错误时，保留待处理引用并报告错误，不阻塞其他提醒。任务输入收件箱负责持久化领取、确认和重试。
 
 `list_agent_inbox` 为后台任务返回输入事件，为 Remy 返回提醒记录。Remy 的提醒记录与 `list_task_reminders` 字段相同，包括源记录路径 `id` 和当前状态 `state`。Remy 收件箱中正在处理的提醒显示为 `processing`。
 
 ## Studio 接口契约
 
-Studio 通过 `get_client_info` 获取工作区设置、实际开放的 Job 和语音能力，不读取组件配置。任务创建、状态查询与更新
-返回和侧边栏相同的 Agent 视图，列表用 `items` 和 `total` 包装。`status` 是展示执行状态的唯一依据，运行指示由
-`status=active` 推导。
+Studio 通过 `get_client_info` 获取服务能力。管理响应在 config 中返回运行设置，running 表示正在执行；侧边栏视图由 list_agents 和会话接口提供。
 
 `read_agent_session` 返回 Agent、按序消息和以 `agent_name` 为键的活动状态。订阅首次连接、重连、会话切换或历史替换
 使用原子的 `snapshot`；`update` 携带完整消息的新增或替换，以及当前 Agent 和活动状态；`heartbeat` 仅表示连接存活。

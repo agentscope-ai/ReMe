@@ -41,7 +41,10 @@ def split_record(text):
     """Read YAML metadata while keeping the exact Markdown suffix for state updates."""
     header, body = _split_frontmatter(text)
     if header is not None:
-        metadata = yaml.safe_load(header)
+        try:
+            metadata = yaml.safe_load(header)
+        except yaml.YAMLError as exc:
+            raise ValueError(f"Invalid record YAML: {exc}") from exc
         if isinstance(metadata, dict):
             return metadata, body
     return {}, text.removeprefix("\ufeff")
@@ -84,8 +87,7 @@ class RoundRecord:
         if path != self.path or self._version(path) != self.written:
             raise RuntimeError(f"Agent output changed outside this round: {path}")
 
-    def read_body_for_repair(self) -> str | None:
-        """Keep a copy of the body when the original frontmatter is delimited."""
-        self.check_version(self.path)
-        header, body = _split_frontmatter(self.files.read(self.path))
-        return body if header is not None else None
+    def discard(self):
+        """Remove only this round's captured, unchanged output."""
+        if self.path is not None and self.written is not None and self._version(self.path) == self.written:
+            self.files.remove(self.path)

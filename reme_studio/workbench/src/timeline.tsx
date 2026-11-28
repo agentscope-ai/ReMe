@@ -1,4 +1,5 @@
 import {
+  useContext,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -8,6 +9,8 @@ import {
 import { ArrowLeft, ChevronRight, X } from "lucide-react";
 import { translator, type Language } from "../../client/src/i18n.ts";
 import SplitPane from "./split-pane.tsx";
+import { WorkspaceLayout } from "./workspace-titlebar.tsx";
+import { useMobileContentMotion } from "./mobile/motion.ts";
 import "./timeline.css";
 
 const detailTransitionMs = 250;
@@ -56,6 +59,7 @@ export function TimelineHeading({
 
 export function TimelinePane({
   name,
+  variant,
   language,
   heading,
   list,
@@ -65,6 +69,7 @@ export function TimelinePane({
   children,
 }: {
   name: string;
+  variant?: "todo" | "idea" | "inbox" | "outbox" | "reminders";
   language: Language;
   heading: ReactNode;
   list: ReactNode;
@@ -75,6 +80,8 @@ export function TimelinePane({
 }) {
   const t = translator(language);
   const listRef = useRef<HTMLDivElement>(null);
+  const mobile = Boolean(useContext(WorkspaceLayout)?.mobile);
+  useMobileContentMotion(listRef, listKey ?? "", mobile && !detailKey);
   const detailRef = useRef<HTMLDivElement>(null);
   const back = useRef<HTMLButtonElement>(null);
   const scrollTop = useRef(0);
@@ -119,7 +126,6 @@ export function TimelinePane({
       if (
         event.defaultPrevented ||
         !detail?.getClientRects().length ||
-        detail.closest(".mobile-workbench[data-menu]") ||
         (onClose && !back.current?.getClientRects().length)
       )
         return;
@@ -132,6 +138,7 @@ export function TimelinePane({
   return (
     <section
       className="timeline-pane"
+      data-variant={variant}
       data-detail={open}
       style={
         {

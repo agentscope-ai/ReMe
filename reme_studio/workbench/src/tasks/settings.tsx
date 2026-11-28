@@ -1,10 +1,12 @@
 import { useId } from "react";
+import { Plus, Trash2 } from "lucide-react";
 import { type Language, translator } from "../../../client/src/i18n.ts";
 import { Switch } from "../ui.tsx";
 import {
   changeSchedulePreset,
-  cronAtTime,
+  scheduleAtTime,
   defaultTaskTrigger,
+  defaultNotifyWindows,
   parseScheduleTime,
   type ScheduleDraft,
   type SchedulePreset,
@@ -25,7 +27,7 @@ function ScheduleFields({
   t: Translate;
 }) {
   const id = useId();
-  const { preset, cron } = value;
+  const { preset, schedule } = value;
   return (
     <div className="task-field">
       <label htmlFor={id}>{t("taskSchedule")}</label>
@@ -49,20 +51,25 @@ function ScheduleFields({
             type="time"
             aria-label={t("taskTime")}
             required
-            value={parseScheduleTime(cron)?.time ?? ""}
+            value={parseScheduleTime(schedule)?.time ?? ""}
             onChange={(event) =>
-              onChange({ preset, cron: cronAtTime(preset, event.target.value) })
+              onChange({
+                preset,
+                schedule: scheduleAtTime(preset, event.target.value),
+              })
             }
           />
         )}
       </div>
       {preset === "custom" && (
         <input
-          aria-label={t("taskCron")}
-          value={cron}
+          aria-label={t("taskScheduleExpression")}
+          value={schedule}
           required
           placeholder="0 8 * * *"
-          onChange={(event) => onChange({ preset, cron: event.target.value })}
+          onChange={(event) =>
+            onChange({ preset, schedule: event.target.value })
+          }
         />
       )}
       <small>
@@ -114,7 +121,7 @@ export default function TaskSettingsFields({
 }) {
   const t = translator(language);
   const triggerId = useId();
-  const { trigger, enabled, notify_window: notifyWindow } = value;
+  const { trigger, enabled, notify_windows: notifyWindows } = value;
   const patch = (settings: Partial<TaskSettingsDraft>) =>
     onChange({ ...value, ...settings });
   return (
@@ -174,36 +181,68 @@ export default function TaskSettingsFields({
       <label className="task-switch">
         <span>{t("taskLimitNotifications")}</span>
         <Switch
-          checked={notifyWindow !== null}
+          checked={notifyWindows.length > 0}
           onCheckedChange={(limited) =>
             patch({
-              notify_window: limited ? { start: "09:00", end: "18:00" } : null,
+              notify_windows: limited ? defaultNotifyWindows() : [],
             })
           }
         />
       </label>
-      {notifyWindow && (
-        <div className="task-field-row">
-          {(["start", "end"] as const).map((key) => (
-            <label className="task-field" key={key}>
-              <span>
-                {t(key === "start" ? "taskWindowStart" : "taskWindowEnd")}
-              </span>
-              <input
-                type="time"
-                required
-                value={notifyWindow[key]}
-                onChange={(event) =>
+      {notifyWindows.length > 0 && (
+        <div className="task-notify-windows">
+          {notifyWindows.map((window, index) => (
+            <div className="task-notify-window" key={index}>
+              {(["start", "end"] as const).map((key) => (
+                <label className="task-field" key={key}>
+                  <span>
+                    {t(key === "start" ? "taskWindowStart" : "taskWindowEnd")}
+                  </span>
+                  <input
+                    type="time"
+                    required
+                    value={window[key]}
+                    onChange={(event) =>
+                      patch({
+                        notify_windows: notifyWindows.map((item, position) =>
+                          position === index
+                            ? { ...item, [key]: event.target.value }
+                            : item,
+                        ),
+                      })
+                    }
+                  />
+                </label>
+              ))}
+              <button
+                type="button"
+                className="icon-button"
+                aria-label={t("taskRemoveWindow", { index: index + 1 })}
+                title={t("taskRemoveWindow", { index: index + 1 })}
+                onClick={() =>
                   patch({
-                    notify_window: {
-                      ...notifyWindow,
-                      [key]: event.target.value,
-                    },
+                    notify_windows: notifyWindows.filter(
+                      (_, position) => position !== index,
+                    ),
                   })
                 }
-              />
-            </label>
+              >
+                <Trash2 size={16} aria-hidden />
+              </button>
+            </div>
           ))}
+          <button
+            type="button"
+            className="task-add-window"
+            onClick={() =>
+              patch({
+                notify_windows: [...notifyWindows, { start: "", end: "" }],
+              })
+            }
+          >
+            <Plus size={16} aria-hidden />
+            {t("taskAddWindow")}
+          </button>
         </div>
       )}
     </>

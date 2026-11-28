@@ -7,9 +7,25 @@ from unittest.mock import Mock
 
 import pytest
 
-from scripts import reme_container
+from scripts import reme_container, test_docker_image
 from reme.config import parse_kwargs, resolve_app_config
 from reme.schema import ApplicationConfig
+
+
+@pytest.mark.parametrize("name", ["default", "proactive"])
+def test_offline_smoke_disables_schedules_and_model_loops(name):
+    """Keep local file watchers running while excluding collectors and model execution."""
+    config = resolve_app_config(config=name, log_config=False)
+    offline = {
+        job_name
+        for job_name, job in config["jobs"].items()
+        if job["backend"] == "cron"
+        or any(
+            step["backend"] in {"agent_manager_loop_step", "chat_notifications_loop_step"}
+            for step in job.get("steps", [])
+        )
+    }
+    assert set(test_docker_image._OFFLINE_JOBS[name]) == offline  # pylint: disable=protected-access
 
 
 def test_container_defaults_and_cli_override_precedence(tmp_path):

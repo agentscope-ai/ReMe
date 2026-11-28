@@ -62,10 +62,10 @@ workspace/
 ## 定时屏幕采集
 
 `config=proactive` 默认启用 `screen_capture_cron`，按应用时区每 5 分钟采集截图，启动时不立即采集。
-截图独立投递给 `proactive_memory` 任务，与 Codex 对话采集互不依赖。可用 `jobs.screen_capture_cron.enabled=false` 关闭，
-或在 `screen_capture_step` 中设置 `task_names`，指定接收截图的事件触发任务。
+截图独立投递给 `proactive_memory` Runtime，与 Codex 对话采集互不依赖。可用 `jobs.screen_capture_cron.enabled=false` 关闭，
+或在 `screen_capture_step` 中设置 `runtime_names`，指定接收截图的事件触发 Runtime。
 
-截图步骤为每个显示器保存一张原尺寸 PNG，并在发布 `metadata.json` 前保存接收任务。
+截图步骤为每个显示器保存一张原尺寸 PNG，并在发布 `metadata.json` 前保存接收方名单。
 观察事件列出全部 PNG 的工作区相对路径，投递中断后沿用已保存的目标和事件 ID。
 
 ```text
@@ -96,11 +96,28 @@ manifest 使用 `ResourceMetadata`：带时区的创建/更新时间、source、
 推理、工具调用和结果、子 Agent 会话以及 ReMe 自己的会话均不采集。
 
 每批对话保存在 `resource/codex_dialogue/YYYY-MM-DD/HHMMSS_<suffix>/`。事件提供 `dialogue.md` 和图片附件路径。
-Markdown 按项目、会话和轮次列出用户消息、进度文字和最终回答，并保留各条消息的 ID。同一轮插入的用户消息各占一节，
-图片链接跟在对应的消息后面。随记和其他 Proactive Runtime 一样，按事件中的路径展开阅读对话和图片，再用 `todo` 和 `idea` 核对项目和条目 ID。
+Markdown 按“工作目录 → 会话 → 轮次 → 消息”组织，路径放在“工作目录”标题下面，会话和轮次 ID 放在对应标题下面。
+消息标题标明用户、Codex 进度或 Codex 最终回答，下面分别标注时间和消息 ID，再列出原文和图片链接。同一轮插入的用户消息各占一节。
+随记和其他 Proactive Runtime 一样，按事件中的路径展开阅读对话和图片，再用 `todo` 和 `idea` 核对项目和条目 ID。
 `resource/codex_dialogue/progress.jsonl` 保存已提交的读取位置和消息 ID；`pending.json` 固定未完成的批次，
 先重试投递，再读取后续变化。这些采集状态文件不放入事件路径。重启后沿用已保存的进度，不重复投递已完成对话。
 空闲扫描不追加进度记录；只有工具记录变化时仍推进偏移，但不产生对话事件。
+
+## 定时 Claude Code 对话采集
+
+`claude_code_dialogue_cron` 每五分钟扫描 `${CLAUDE_CONFIG_DIR:-~/.claude}/projects/*/*.jsonl`。
+和 Codex 一样，启动时通过 `init_steps` 建立基线，不导入旧历史。两路对话默认都投递给
+`runtime_names: [proactive_memory, proactive_note]`，支持同一套 `manage_connector` 控制。
+
+Claude Code 按消息 ID 合并 API 内容块，保留用户输入、可见进度和最终回答，过滤工具结果、思考、合成输入、
+压缩摘要、团队和子 Agent 记录。用户 UUID 作为轮次锚点；只有明确的 `end_turn` 才标记为最终回答。
+未完成内容块跨扫描和重启保留。内嵌图片复制进资源包；无法读取的图片只记录数量，不打开外部路径。
+ReMe 默认位于 `mem_session_dir` 下的私有 Claude 配置不在此采集范围内。
+
+资源保存到 `resource/claude_code_dialogue/YYYY-MM-DD/HHMMSS_<suffix>/`，与 Codex 使用相同的清单、
+Markdown 层次、JSONL 消息字段和图片文件。Event 仅来源及资源路径不同。两路采集均返回
+`event_ids`、`dialogue_messages`、`scanned_bytes`、`errors`，存在拒收目标时附带 `rejected`。
+各来源分别保存 `progress.jsonl`、`pending.json`；未完成批次沿用原接收人和事件 ID。
 
 ## 定时财经采集
 
@@ -120,7 +137,7 @@ Markdown 按项目、会话和轮次列出用户消息、进度文字和最终�
 新增电报或行情有变化时，在 `resource/<source>/YYYY-MM-DD/hhmmss_<suffix>/` 发布资源包。行情保留报价时间和采集时间。
 电报回看最多 24 小时，按新闻 ID 去重。已发布但投递未完成的事件会重试。
 
-在一个终端运行 `reme start config=proactive`，在另一个终端运行 `reme manage_proactive_agent action=status agent_name=finance`
+在一个终端运行 `reme start config=proactive`，在另一个终端运行 `reme manage_proactive_runtime action=status agent_name=proactive_fin`
 查看任务的 `TASK.md`。启动时用 `jobs.<任务名>.enabled=false` 关闭对应采集任务。
 
 ## 图像资源

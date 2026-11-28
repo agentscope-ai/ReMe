@@ -3,6 +3,7 @@ import { UiError } from "./i18n.ts";
 import type { ReMeClient } from "./reme-client.ts";
 import { notebookPayload } from "./notebook.ts";
 import { taskPayload } from "./tasks.ts";
+import { connectorPayload } from "./connectors.ts";
 
 function relativePath(value: unknown): string {
   if (
@@ -44,6 +45,15 @@ export async function requestWorkspace(
   let job: string;
   let body: object;
   switch (request.type) {
+    case "connector": {
+      try {
+        body = connectorPayload(request);
+      } catch {
+        throw new UiError("invalidWorkspaceRequest");
+      }
+      job = "manage_connector";
+      break;
+    }
     case "task": {
       try {
         ({ job, body } = taskPayload(request));
@@ -54,7 +64,7 @@ export async function requestWorkspace(
     }
     case "todo":
     case "idea":
-      job = request.type;
+      job = "manage_notebook";
       try {
         body = notebookPayload(request);
       } catch {

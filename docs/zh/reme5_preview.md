@@ -41,7 +41,7 @@ ReMe 现有的记忆流程是这个能力的基础。Auto Memory 把对话提炼
 
 ## 运行时如何工作
 
-Proactive Manager 管理具名 Runtime。事件触发任务接收新增对话或日志等观察，时间触发任务按 Cron 触发，例如每天整理简报或在夜间整理记忆。
+AgentManager 管理具名后台 Runtime。事件触发任务接收新增对话或日志等观察，时间触发任务按 Cron 触发，例如每天整理简报或在夜间整理记忆。
 每个任务用自己的收件箱，有待处理输入时才调用模型。
 
 ![Proactive Runtime 如何把新观察交给 Work Agent，并将进展、来源和提醒决定写入同一记录](../figure/proactive-runtime.svg)
@@ -99,9 +99,9 @@ ReMe5 计划提供一组预设，用于跟进持续进行的工作、定时整�
 
 ## 在对话中创建和管理 Agent
 
-Chat Agent 通过 `manage-proactive-agent` skill 创建自定义 Agent，并管理预定义和自定义任务。你可以在对话中查看任务状态、追问进展，
+Chat Agent 通过 `manage-proactive-runtime` skill 创建自定义 Agent，并管理预定义和自定义任务。你可以在对话中查看任务状态、追问进展，
 修改任务要求和运行设置，也可以暂停或恢复任务。
-[任务管理 skill](https://github.com/agentscope-ai/ReMe/blob/main/reme/skills/manage-proactive-agent/SKILL.md)
+[任务管理 skill](https://github.com/agentscope-ai/ReMe/blob/main/reme/components/proactive/runtime/skills/manage_proactive_runtime.yaml)
 
 要创建时间触发任务，你可以说「每周五总结这周的实验结果，附上报告链接」。要创建事件触发任务，你可以让 Chat Agent 跟进实验日志，
 完成或失败时告诉你。事件触发任务需要接入能提供相应信息的来源。

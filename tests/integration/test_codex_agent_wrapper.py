@@ -126,7 +126,7 @@ async def test_live_shared_codex_sessions_tools_streaming_and_close(tmp_path):
         await first.compact_session(structured["session_id"])
         skill = await first.reply(
             "Read the reme_memory skill instructions and reply SKILL_OK. Do not execute its scripts.",
-            skills=["reme_memory"],
+            skills=[{"name": "reme_memory"}],
         )
         assert "SKILL_OK" in skill["result"]
         assert (workspace / ".agents/skills/reme_memory").is_symlink()

@@ -39,9 +39,9 @@ export type AgentUpdate = {
 
 export type AgentView = {
   enabled: boolean;
-  cron: string | null;
+  schedule: string | null;
   min_trigger_interval_seconds: number;
-  notify_window: NotificationWindow | null;
+  notify_windows: Array<NotificationWindow>;
   agent_name: string;
   agent_type: "chat" | "event" | "time";
   status: "active" | "idle" | "not_loaded" | "error";
@@ -54,6 +54,9 @@ export type AgentView = {
   last_started_at: string | null;
   last_completed_at: string | null;
   next_trigger_at: string | null;
+  retry_at: string | null;
+  waiting_reason: string | null;
+  waiting_until: string | null;
   error: string | null;
 };
 
@@ -88,16 +91,230 @@ export type ClientInfo = {
   speech_revision: string;
 };
 
+export type ConnectorView = {
+  source_id: string;
+  name: string;
+  trigger_type: "event" | "time";
+  runtime_names: Array<string>;
+  enabled: boolean | null;
+  available: boolean | null;
+  last_event_id: string | null;
+  connected: boolean | null;
+  binding: SSEConnectorBinding | null;
+  schedule: string | null;
+  next_trigger_at: string | null;
+  last_collected_at: string | null;
+  last_admitted_at: string | null;
+  pending_delivery_count: number | null;
+  last_error: string | null;
+};
+
+export type Event = {
+  id?: string;
+  event_ts: string;
+  source: string;
+  description: string;
+  paths?: Array<string>;
+  metadata?: Record<string, JsonValue>;
+};
+
+export type InputTrace = {
+  run_id: string;
+  event_ids?: Array<string>;
+  source_refs?: Array<SourceRef>;
+};
+
+export type JsonValue = unknown;
+
+export type NotificationDelivery = {
+  schema_version?: 1;
+  id: string;
+  notification: NotificationRef;
+  target_agent: string;
+  status?: "prepared" | "delivered";
+  created_at: string;
+  delivered_at?: string | null;
+  last_error?: string | null;
+};
+
+export type NotificationRef = {
+  schema_version?: number;
+  id: string;
+  source_agent: string;
+  record_path: string;
+  created_at: string;
+  trace?: InputTrace | null;
+};
+
 export type NotificationWindow = {
   start: string;
   end: string;
 };
 
+export type OverviewAgent = {
+  enabled: boolean;
+  schedule: string | null;
+  min_trigger_interval_seconds: number;
+  notify_windows: Array<NotificationWindow>;
+  agent_name: string;
+  agent_type: "chat" | "event" | "time";
+  status: "active" | "idle" | "not_loaded" | "error";
+  session_id: string | null;
+  memory_path: string | null;
+  task_path: string | null;
+  directory: string;
+  pending_events: number;
+  in_flight_events: number;
+  last_started_at: string | null;
+  last_completed_at: string | null;
+  next_trigger_at: string | null;
+  retry_at: string | null;
+  waiting_reason: string | null;
+  waiting_until: string | null;
+  error: string | null;
+  active_run: OverviewRun | null;
+  last_run: OverviewRun | null;
+  deliveries: Array<NotificationDelivery>;
+  pending_delivery_count: number;
+  delivered_count: number;
+};
+
+export type OverviewChange = {
+  collection: "sources" | "agents" | "event_inbox" | "remy_inbox" | "reminders" | "workspace" | "errors";
+  id: string;
+  value: ConnectorView | OverviewAgent | OverviewInbox | OverviewReminder | OverviewFile | string | null;
+};
+
+export type OverviewFile = {
+  id: string;
+  agent_name: string | null;
+  role: "resource" | "task" | "record" | "memory";
+  path: string;
+  mtime: string | null;
+  run_id: string | null;
+};
+
+export type OverviewHeartbeat = {
+  type: "heartbeat";
+};
+
+export type OverviewInbox = {
+  waiting_count: number;
+  processing_count: number;
+  processed_count: number;
+  queues: Record<string, OverviewQueueCounts>;
+  items: Array<OverviewInboxItem>;
+};
+
+export type OverviewInboxItem = {
+  id: string;
+  agent_name: string;
+  state: "pending" | "processing" | "processed";
+  received_at: string | null;
+  consume_ts: string | null;
+  event: Event | null;
+  notification: NotificationRef | null;
+  source_refs: Array<SourceRef>;
+  event_ids: Array<string>;
+  run_ids: Array<string>;
+  record_paths: Array<string>;
+  delivery: NotificationDelivery | null;
+  chat_message_ids: Array<string>;
+};
+
+export type OverviewQueueCounts = {
+  waiting_count: number;
+  processing_count: number;
+  processed_count: number;
+};
+
+export type OverviewReminder = {
+  id: string;
+  session_id: string;
+  summary: string;
+  delivered_at: string;
+  status: "sent" | "acknowledged";
+  notification_ids: Array<string>;
+  source_refs: Array<SourceRef>;
+  event_ids: Array<string>;
+  run_ids: Array<string>;
+  record_paths: Array<string>;
+};
+
+export type OverviewRun = {
+  run_id: string;
+  event_ids: Array<string>;
+  source_refs: Array<SourceRef>;
+  phase: string;
+  tool: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  session_id: string | null;
+  turn_id: string | null;
+  record_paths: Array<string>;
+  notification_requested: boolean | null;
+  error: string | null;
+};
+
+export type OverviewSnapshot = {
+  type: "snapshot";
+  epoch: string;
+  revision: number;
+  as_of: string;
+  overview: ProactiveOverview;
+};
+
+export type OverviewTransition = {
+  id: string;
+  type: "event_admitted" | "input_claimed" | "input_released" | "input_processed" | "record_committed" | "notification_prepared" | "notification_delivered" | "reminder_sent" | "run_completed" | "run_failed" | "workspace_read";
+  occurred_at: string;
+  source_id: string | null;
+  agent_name: string | null;
+  target_agent: string | null;
+  event_ids: Array<string>;
+  run_id: string | null;
+  run_ids: Array<string>;
+  delivery_id: string | null;
+  message_id: string | null;
+  paths: Array<string>;
+};
+
+export type OverviewUpdate = {
+  type: "update";
+  epoch: string;
+  previous_revision: number;
+  revision: number;
+  as_of: string;
+  changes: Array<OverviewChange>;
+  transitions: Array<OverviewTransition>;
+};
+
+export type ProactiveOverview = {
+  sources: Array<ConnectorView>;
+  agents: Array<OverviewAgent>;
+  event_inbox: OverviewInbox;
+  remy_inbox: OverviewInbox;
+  reminders: Array<OverviewReminder>;
+  workspace: Array<OverviewFile>;
+  errors: Record<string, string>;
+};
+
 export type ProactiveRuntimeSettings = {
   enabled: boolean;
-  cron: string | null;
+  schedule: string | null;
   min_trigger_interval_seconds: number;
-  notify_window: NotificationWindow | null;
+  notify_windows: Array<NotificationWindow>;
+};
+
+export type SSEConnectorBinding = {
+  type?: "sse";
+  url: string;
+};
+
+export type SourceRef = {
+  source_id: string;
+  name: string;
+  trigger_type: "event" | "time";
 };
 
 export type SummaryItem = {
@@ -133,6 +350,7 @@ export type ToolItem = {
 };
 
 export type AgentEvent = AgentSnapshot | AgentUpdate | AgentHeartbeat;
+export type OverviewEvent = OverviewSnapshot | OverviewUpdate | OverviewHeartbeat;
 export type TranscriptItem = AgentMessage["items"][number];
 export type Activities = Record<string, ClientActivity>;
 export type SessionStatus = AgentView["status"];

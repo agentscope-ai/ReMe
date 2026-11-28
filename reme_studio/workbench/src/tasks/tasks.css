@@ -9,25 +9,6 @@
   max-width: 44rem;
   margin-inline: auto;
 }
-.task-editor-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding-bottom: 12px;
-  margin-bottom: 22px;
-  border-bottom: 1px solid var(--line);
-}
-.task-editor-tabs button {
-  padding: 7px 12px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--muted);
-}
-.task-editor-tabs button[aria-current] {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
 .task-editor fieldset {
   display: flex;
   flex-direction: column;
@@ -76,6 +57,33 @@
   justify-content: space-between;
   gap: 16px;
 }
+.task-notify-windows {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.task-notify-window {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}
+.task-notify-window > .task-field {
+  flex: 1;
+}
+.task-notify-window > .icon-button {
+  flex-shrink: 0;
+  min-height: 38px;
+}
+.task-add-window {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 6px;
+  padding: 6px 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
 .task-hint,
 .task-field small {
   color: var(--muted);
@@ -110,17 +118,6 @@
 .task-editor-error button {
   flex-shrink: 0;
 }
-.task-facts {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 18px 28px;
-  margin: 0 0 20px;
-}
-.task-facts dt {
-  color: var(--muted);
-}
-.task-facts dd {
-  margin: 0;
-  text-align: right;
-  overflow-wrap: anywhere;
+.task-editor > .task-hint {
+  margin-top: 18px;
 }

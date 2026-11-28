@@ -77,9 +77,7 @@ reme/
     as_decision_model/       # optional decision model adapters
     agent_wrapper/           # AgentScope / Claude Code / Codex wrappers
     codex_app_server/        # BaseCodexAppServer / SDK backend / shared session ownership
-    agent_inbox/             # BaseAgentInbox / local storage and Agent event inputs
-    proactive_manager/           # Workspace discovery, event routing and Remy
-    proactive_runtime/           # Per-runtime inbox, scheduling and execution
+    proactive/              # Inbox, Outbox, Runtime and Manager components
   steps/
     base_step.py             # BaseStep, Ref, dispatch_steps
     common/                  # version, help, health_check, status, chat
@@ -612,14 +610,14 @@ thread with the current configuration. Rejected or cancelled preparation retains
 `output_schema` applies only to the current invocation; omission uses the calling wrapper's default, and explicit
 `None` disables that default for this invocation.
 
-A disposable read-only fork receives the selected Chat inbox entries in its prompt. It reads relevant source records and submits its decision through `submit_chat_reminder`.
+A disposable read-only fork receives the selected Chat inbox entries in its prompt. It reads relevant source records and submits its decision through `submit_chat_reply`.
 Only explicitly submitted text is appended to the foreground conversation; fork reasoning and ordinary replies stay
 outside it. Codex stores injected content in its native rollout without a second application-authored message copy.
 `reme_agents/` contains task configuration, event inboxes, personal memory and session references.
-Remy's inbox derives its state from reminders and acknowledgement fields in the daily records. Native
-conversation histories retain the conversation content.
+Daily records own reminder content. Remy's Inbox stores notification references and processing receipts;
+Outboxes retain delivery facts. Native conversation histories retain the conversation content.
 
-Each Proactive Runtime owns its execution state. The Proactive Manager projects activity and live output for Remy and the named runtimes. Desktop clients observe `watch_agent_session`; native Codex status notifications remain internal to operation completion and disconnect handling.
+Each Runtime owns its execution state, activity and live output. The conversation facade projects these into views for Remy and the named Runtimes. Desktop clients observe `watch_agent_session`; native Codex status notifications remain internal to operation completion and disconnect handling.
 All three wrappers support `append_session(..., role="user" | "assistant")` without generating a reply; the default role
 is `assistant`. Retries with the same `message_id` must retain both content and role. Injected messages keep
 `source="proactive"` independently of their role, including after reload or fork.

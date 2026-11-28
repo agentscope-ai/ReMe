@@ -9,6 +9,7 @@ import { emptySpeech, SpeechController } from "./speech-controller.ts";
 import type { SystemNotice } from "./notifications.ts";
 import { delay, ReMeClient } from "./reme-client.ts";
 import { SessionModel } from "./session-model.ts";
+import { watchProactiveOverview } from "./proactive-overview.ts";
 import { normalizeEndpoint, type ClientStorage } from "./settings.ts";
 import { requestWorkspace } from "./workspace.ts";
 import { emptyReply, reduceReply } from "./transcript.ts";
@@ -115,6 +116,9 @@ export class ClientController {
   private chatPending: PendingTurn | null = null;
   private selectedTask?: string;
   private childWatch: AbortController | null = null;
+  private overviewWatch: AbortController | null = null;
+  private overviewWatching: Promise<void> = Promise.resolve();
+  private overviewSequence = 0;
   private childWatching: Promise<void> = Promise.resolve();
   private children = new Map<
     string,
@@ -217,6 +221,9 @@ export class ClientController {
   }
 
   private restart(): void {
+    this.overviewWatch?.abort();
+    this.overviewWatch = null;
+    this.state.proactive = undefined;
     this.speech.reset();
     this.childWatch?.abort();
     for (const child of this.children.values()) child.stream?.abort();
@@ -652,11 +659,61 @@ export class ClientController {
   }
 
   private emit(): void {
+    this.syncOverview();
     this.state.revision++;
     this.synchronize();
     this.resolvePresentation();
     this.resolveBehavior();
     this.publish(this.state);
+  }
+
+  private syncOverview(): void {
+    const active =
+      this.state.activePage === "tasks" && this.ready && !this.closed;
+    if (!active) {
+      this.overviewWatch?.abort();
+      this.overviewWatch = null;
+      if (this.state.proactive?.live)
+        this.state.proactive = {
+          ...this.state.proactive,
+          live: false,
+          actions: [],
+        };
+      return;
+    }
+    if (
+      this.overviewWatch ||
+      !this.state.clientInfo?.jobs.includes("watch_proactive_overview")
+    )
+      return;
+    const controller = new AbortController();
+    this.overviewWatch = controller;
+    const signal = AbortSignal.any([controller.signal, this.lifecycle!.signal]);
+    let issue: string | null = null;
+    this.overviewWatching = watchProactiveOverview(this.client(), {
+      signal,
+      onError: (error) => {
+        issue = errorText(error, this.state.settings.language);
+      },
+      onChange: (model, actions) => {
+        if (signal.aborted || this.overviewWatch !== controller) return;
+        if (model.live) issue = null;
+        if (model.overview) this.state.agents = model.overview.agents;
+        const retained = this.state.proactive?.live
+          ? this.state.proactive.actions
+          : [];
+        this.state.proactive = {
+          overview: model.overview,
+          live: model.live,
+          asOf: model.asOf,
+          // Preserve short actions across batched React renders and desktop IPC patches.
+          actions: model.live ? [...retained, ...actions].slice(-48) : [],
+          error: issue,
+          sequence: ++this.overviewSequence,
+        };
+        this.emit();
+      },
+    });
   }
 
   private synchronize(): void {
@@ -1195,7 +1252,7 @@ export class ClientController {
       source: "proactive",
       content: mail.message,
       completed: true,
-      created_at: mail.delivered_at,
+      created_at: mail.delivered_at ?? mail.created_at,
       session_id: this.model.sessionId ?? "",
       turn_id: null,
       origin_session_id: null,
@@ -1630,12 +1687,14 @@ export class ClientController {
     for (const child of this.children.values()) child.stream?.abort();
     clearInterval(this.clock);
     this.lifecycle?.abort();
+    this.overviewWatch?.abort();
     this.stream?.abort();
     this.generation++;
     await this.speech.close();
     await this.settingsWrites;
     await this.running;
     await this.childWatching;
+    await this.overviewWatching;
     await Promise.allSettled(
       [...this.children.values()].map((child) => child.sending),
     );

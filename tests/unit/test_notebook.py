@@ -20,8 +20,8 @@ from reme.components.job import BaseJob
 from reme.components.service import HttpService
 from reme.config import resolve_app_config
 from reme.schema import Idea, IdeaRequest, Todo, TodoRequest
-from reme.steps.notebook import TodoStep
-from reme.steps.notebook import _store
+from reme.steps.proactive.tools import ManageNotebookStep
+from reme.steps.proactive.tools import _notebook_store as _store
 
 
 @pytest_asyncio.fixture
@@ -29,7 +29,7 @@ async def jobs(tmp_path, request):
     """Run real registered steps with no models, network or repository workspace."""
     config = resolve_app_config(config="proactive", log_config=False)
     context = ApplicationContext(workspace_dir=str(tmp_path), **getattr(request, "param", {}))
-    result = {name: BaseJob(name=name, app_context=context, **config["jobs"][name]) for name in ("todo", "idea")}
+    result = {name: BaseJob(name=name, app_context=context, **config["jobs"][name]) for name in ("manage_notebook",)}
     context.jobs = result
     for job in result.values():
         await job.start()
@@ -46,7 +46,10 @@ def notebook_path(tmp_path):
 
 async def call(jobs, name, **kwargs):
     """Require successful business responses and return their JSON-ready payloads."""
-    response = await jobs[name](**kwargs)
+    response = await jobs["manage_notebook"](
+        **({"kind": name} if kwargs.get("action") != "list_projects" else {}),
+        **kwargs,
+    )
     assert response.success, response.answer
     return response.answer
 
@@ -117,7 +120,7 @@ async def test_existing_links_idea_closure_and_restore(jobs, notebook_path):
     assert read(notebook_path / "archive/ideas.json") == []
     unlinked = await call(jobs, "todo", action="update", id=task["id"], source_idea=None)
     assert "source_idea" not in unlinked
-    response = await jobs["todo"](action="update", id=task["id"], source_idea="missing")
+    response = await jobs["manage_notebook"](kind="todo", action="update", id=task["id"], source_idea="missing")
     assert not response.success
     assert await call(jobs, "todo", action="get", id=task["id"]) == unlinked
 
@@ -319,7 +322,8 @@ async def test_interrupted_archive_recovers_once(jobs, notebook_path, monkeypatc
 
     with monkeypatch.context() as patch:
         patch.setattr(_store, "write_file_safe", fail)
-        response = await jobs["todo"](
+        response = await jobs["manage_notebook"](
+            kind="todo",
             action="update",
             id=task["id"],
             status="closed",
@@ -329,7 +333,13 @@ async def test_interrupted_archive_recovers_once(jobs, notebook_path, monkeypatc
         assert not response.success
     assert (notebook_path / ".todos.pending.json").exists()
     # Fresh Step and Store instances must recover without any in-memory transaction state.
-    recovered = (await TodoStep(app_context=jobs["todo"].app_context)(action="get", id=task["id"])).answer
+    recovered = (
+        await ManageNotebookStep(app_context=jobs["manage_notebook"].app_context)(
+            kind="todo",
+            action="get",
+            id=task["id"],
+        )
+    ).answer
     assert recovered["status"] == "closed" and recovered["close_note"] == "验收通过" and len(recovered["progress"]) == 1
     assert read(notebook_path / "todos.json") == []
     assert read(notebook_path / "archive/todos.json") == [recovered]
@@ -350,12 +360,12 @@ async def test_pending_recovery_preserves_external_edits(jobs, notebook_path, mo
 
     with monkeypatch.context() as patch:
         patch.setattr(_store, "write_file_safe", fail)
-        assert not (await jobs["todo"](action="update", id=task["id"], status="closed")).success
+        assert not (await jobs["manage_notebook"](kind="todo", action="update", id=task["id"], status="closed")).success
     task["text"] = "用户在服务恢复前手动修订"
     active = notebook_path / "todos.json"
     active.write_text(_store.encode([task]), encoding="utf-8")
     before = {path: path.read_bytes() for path in notebook_path.rglob("*.json")}
-    response = await jobs["todo"](action="get", id=task["id"])
+    response = await jobs["manage_notebook"](kind="todo", action="get", id=task["id"])
     assert not response.success and "changed outside ReMe" in response.answer
     assert all(path.read_bytes() == data for path, data in before.items())
 
@@ -372,7 +382,7 @@ async def test_external_edits_between_read_and_commit_fail_without_overwrite(job
         await original(store, record)
 
     monkeypatch.setattr(_store.RecordStore, "put", edit_before_put)
-    response = await jobs["todo"](action="update", id=task["id"], text="Agent 修改")
+    response = await jobs["manage_notebook"](kind="todo", action="update", id=task["id"], text="Agent 修改")
     assert not response.success and "changed outside ReMe" in response.answer
     assert read(notebook_path / "todos.json")[0]["text"] == "用户手动修改"
     assert not (notebook_path / ".todos.pending.json").exists()
@@ -395,7 +405,7 @@ async def test_corrupt_source_is_never_repaired_or_overwritten(jobs, notebook_pa
     path.parent.mkdir()
     original = payload if isinstance(payload, bytes) else payload.encode("utf-8")
     path.write_bytes(original)
-    assert not (await jobs["todo"](action="create", text="新条目")).success
+    assert not (await jobs["manage_notebook"](kind="todo", action="create", text="新条目")).success
     assert path.read_bytes() == original
 
 
@@ -407,7 +417,7 @@ async def test_oversized_source_is_not_truncated_or_overwritten(jobs, notebook_p
     path.parent.mkdir()
     path.write_text(payload, encoding="utf-8")
     monkeypatch.setattr(_store, "MAX_FILE_READ_BYTES", 32)
-    response = await jobs["todo"](action="create", text="不应覆盖")
+    response = await jobs["manage_notebook"](kind="todo", action="create", text="不应覆盖")
     assert not response.success and "read limit" in response.answer
     assert path.read_text(encoding="utf-8") == payload
 
@@ -416,7 +426,7 @@ async def test_oversized_source_is_not_truncated_or_overwritten(jobs, notebook_p
 async def test_oversized_update_never_creates_an_unreadable_recovery_intent(jobs, tmp_path, monkeypatch):
     """An oversized new record fails before publishing any source or journal file."""
     monkeypatch.setattr(_store, "MAX_FILE_READ_BYTES", 512)
-    response = await jobs["todo"](action="create", text="x" * 1024)
+    response = await jobs["manage_notebook"](kind="todo", action="create", text="x" * 1024)
     assert not response.success and "read limit" in response.answer
     assert not list(tmp_path.rglob("*.json"))
 
@@ -425,7 +435,7 @@ async def test_oversized_update_never_creates_an_unreadable_recovery_intent(jobs
 @pytest.mark.asyncio
 async def test_invalid_and_restricted_scopes_fail_closed(jobs, tmp_path, allowed):
     """Invalid authorization cannot create collection or recovery files."""
-    response = await jobs["todo"](action="create", text="不应保存", _allowed_paths=allowed)
+    response = await jobs["manage_notebook"](kind="todo", action="create", text="不应保存", _allowed_paths=allowed)
     assert not response.success and not list(tmp_path.rglob("*.json"))
 
 
@@ -442,7 +452,7 @@ async def test_symlink_escapes_do_not_touch_external_files(jobs, tmp_path, tmp_p
     path = tmp_path / relative
     path.parent.mkdir(parents=True, exist_ok=True)
     path.symlink_to(outside if path.name in {"notebook", "archive"} else external)
-    response = await jobs["todo"](action="create", text="不应写入")
+    response = await jobs["manage_notebook"](kind="todo", action="create", text="不应写入")
     assert not response.success and external.read_text(encoding="utf-8") == "[]"
     assert list(outside.iterdir()) == [external]
 
@@ -499,62 +509,78 @@ async def test_custom_notebook_directory_contains_linked_records_and_archives(jo
 def test_action_specific_requests_reject_ignored_or_invalid_fields(model, payload):
     """Each action rejects fields that would otherwise be ignored or misinterpreted."""
     with pytest.raises(ValidationError):
-        model.model_validate(payload)
+        model.model_validate({"kind": "todo" if model is TodoRequest else "idea", **payload})
 
 
 @pytest.mark.asyncio
 async def test_http_and_mcp_expose_both_jobs_and_preserve_unset_fields(jobs):
     """Actual transport calls preserve omitted fields and support explicit clearing."""
-    context = jobs["todo"].app_context
+    context = jobs["manage_notebook"].app_context
     service = HttpService(app_context=context, web_enabled=False)
     app = SimpleNamespace(config=context.app_config, context=context)
     service.build_service(app)
     service.add_jobs(app)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=service.service), base_url="http://test") as client:
-        response = await client.post("/idea", json={"action": "create", "text": "HTTP 想法"})
+        response = await client.post("/manage_notebook", json={"kind": "idea", "action": "create", "text": "HTTP 想法"})
         assert response.status_code == 200 and response.json()["success"]
         idea = response.json()["answer"]
         assert idea["project"] == "随笔"
         response = await client.post(
-            "/todo",
-            json={"action": "create", "source_idea": idea["id"], "due_date": "2026-11-20"},
+            "/manage_notebook",
+            json={"kind": "todo", "action": "create", "source_idea": idea["id"], "due_date": "2026-11-20"},
         )
         assert response.json()["success"]
         task = response.json()["answer"]
         response = await client.post(
-            "/todo",
-            json={"action": "update", "id": task["id"], "progress_text": "HTTP 追加进展"},
+            "/manage_notebook",
+            json={"kind": "todo", "action": "update", "id": task["id"], "progress_text": "HTTP 追加进展"},
         )
         assert response.json()["success"]
         saved = response.json()["answer"]
         assert saved["due_date"] == "2026-11-20" and saved["source_idea"] == idea["id"]
         response = await client.post(
-            "/todo",
-            json={"action": "update", "id": task["id"], "due_date": None, "source_idea": None},
+            "/manage_notebook",
+            json={"kind": "todo", "action": "update", "id": task["id"], "due_date": None, "source_idea": None},
         )
         assert response.json()["success"]
         assert "due_date" not in response.json()["answer"] and "source_idea" not in response.json()["answer"]
         await call(jobs, "idea", action="archive", id=idea["id"])
         projects = {"items": [{"project": "随笔", "todo_count": 1, "idea_count": 1}], "total": 1}
-        response = await client.post("/todo", json={"action": "list_projects"})
+        response = await client.post("/manage_notebook", json={"action": "list_projects"})
         assert response.json()["success"] and response.json()["answer"] == projects
     async with Client(service.mcp_server) as client:
-        assert {tool.name for tool in await client.list_tools()} == {"todo", "idea"}
-        result = await client.call_tool("todo", {"action": "list_projects"})
+        assert {tool.name for tool in await client.list_tools()} == {"manage_notebook"}
+        result = await client.call_tool("manage_notebook", {"action": "list_projects"})
         assert result.structured_content == projects
-        await client.call_tool("todo", {"action": "create", "text": "MCP 任务", "due_date": "2026-11-20"})
+        await client.call_tool(
+            "manage_notebook",
+            {"kind": "todo", "action": "create", "text": "MCP 任务", "due_date": "2026-11-20"},
+        )
         task = (await call(jobs, "todo", action="list"))["items"][0]
         assert task["project"] == "随笔"
-        await client.call_tool("todo", {"action": "update", "id": task["id"], "progress_text": "MCP 追加进展"})
+        await client.call_tool(
+            "manage_notebook",
+            {"kind": "todo", "action": "update", "id": task["id"], "progress_text": "MCP 追加进展"},
+        )
         saved = await call(jobs, "todo", action="get", id=task["id"])
         assert saved["due_date"] == "2026-11-20" and len(saved["progress"]) == 1
         await client.call_tool(
-            "todo",
-            {"action": "update", "id": task["id"], "status": "closed", "close_note": "验收通过", "due_date": None},
+            "manage_notebook",
+            {
+                "kind": "todo",
+                "action": "update",
+                "id": task["id"],
+                "status": "closed",
+                "close_note": "验收通过",
+                "due_date": None,
+            },
         )
         closed = await call(jobs, "todo", action="get", id=task["id"])
         assert closed["status"] == "closed" and closed["close_note"] == "验收通过" and "due_date" not in closed
-        await client.call_tool("todo", {"action": "update", "id": task["id"], "status": "closed", "close_note": None})
+        await client.call_tool(
+            "manage_notebook",
+            {"kind": "todo", "action": "update", "id": task["id"], "status": "closed", "close_note": None},
+        )
         cleared = await call(jobs, "todo", action="get", id=task["id"])
         assert cleared["closed_at"] == closed["closed_at"] and "close_note" not in cleared
 
@@ -563,7 +589,7 @@ async def test_http_and_mcp_expose_both_jobs_and_preserve_unset_fields(jobs):
 @pytest.mark.asyncio
 async def test_native_clients_send_action_as_job_payload(jobs, backend):
     """CLI client dispatch works with the same action-bearing jobs as direct tools."""
-    context = jobs["todo"].app_context
+    context = jobs["manage_notebook"].app_context
     service = HttpService(app_context=context, web_enabled=False)
     app = SimpleNamespace(config=context.app_config, context=context)
     service.build_service(app)
@@ -574,7 +600,13 @@ async def test_native_clients_send_action_as_job_payload(jobs, backend):
     else:
         client = MCPClient(transport=service.mcp_server)
     async with client:
-        chunks = [chunk async for chunk in client.call_job("todo", {"action": "create", "text": "CLI 事项"})]
+        chunks = [
+            chunk
+            async for chunk in client.call_job(
+                "manage_notebook",
+                {"kind": "todo", "action": "create", "text": "CLI 事项"},
+            )
+        ]
     assert chunks
     task = (await call(jobs, "todo", action="list"))["items"][0]
     assert task["text"] == "CLI 事项" and task["project"] == "随笔"

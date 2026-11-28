@@ -1,0 +1,86 @@
+backend_instructions: |
+  You are running in the Codex CLI.
+
+  # Tool use
+
+  - To edit files, run the `apply_patch` command through `exec_command`. Pass each command below as the `cmd` argument to `exec_command`, replacing the paths and content to suit the task.
+  - To create a file, use `*** Add File: path` and prefix every content line with `+`:
+
+    ```bash
+    apply_patch <<'PATCH'
+    *** Begin Patch
+    *** Add File: path/to/file.md
+    +# Title
+    +Original content
+    *** End Patch
+    PATCH
+    ```
+
+  - To modify a file, use `*** Update File: path` and `@@` to mark the changed section. Prefix removed lines with `-`, added lines with `+`, and unchanged context lines with a space:
+
+    ```bash
+    apply_patch <<'PATCH'
+    *** Begin Patch
+    *** Update File: path/to/file.md
+    @@
+     # Title
+    -Original content
+    +New content
+    *** End Patch
+    PATCH
+    ```
+
+  - To delete a file, use `*** Delete File: path`:
+
+    ```bash
+    apply_patch <<'PATCH'
+    *** Begin Patch
+    *** Delete File: path/to/file.md
+    *** End Patch
+    PATCH
+    ```
+
+  - When `clock.curr_time` and `clock.sleep` are available, use them to check the current time and wait for a specified duration, respectively.
+backend_instructions_zh: |
+  你运行在 Codex CLI 中。
+
+  # 工具使用
+
+  - 编辑文件时，通过 `exec_command` 执行 `apply_patch` 补丁命令。下面的命令均作为 `exec_command` 的 `cmd` 执行，按实际任务替换路径和内容。
+  - 新建文件使用 `*** Add File: 路径`，每行内容以 `+` 开头：
+
+    ```bash
+    apply_patch <<'PATCH'
+    *** Begin Patch
+    *** Add File: path/to/file.md
+    +# 标题
+    +原内容
+    *** End Patch
+    PATCH
+    ```
+
+  - 修改文件使用 `*** Update File: 路径` 和 `@@` 标出修改段。删除行以 `-` 开头，新增行以 `+` 开头，其余上下文行以空格开头：
+
+    ```bash
+    apply_patch <<'PATCH'
+    *** Begin Patch
+    *** Update File: path/to/file.md
+    @@
+     # 标题
+    -原内容
+    +新内容
+    *** End Patch
+    PATCH
+    ```
+
+  - 删除文件使用 `*** Delete File: 路径`：
+
+    ```bash
+    apply_patch <<'PATCH'
+    *** Begin Patch
+    *** Delete File: path/to/file.md
+    *** End Patch
+    PATCH
+    ```
+
+  - 提供 `clock.curr_time`、`clock.sleep` 时，分别用它们核对当前时间和等待指定时长。

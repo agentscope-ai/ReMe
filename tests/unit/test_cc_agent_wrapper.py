@@ -10,9 +10,12 @@ import pytest
 from reme.components.agent_wrapper.as_agent_wrapper import AsAgentWrapper
 from reme.components.agent_wrapper.cc_agent_wrapper import CcAgentWrapper
 from reme.components.agent_wrapper.cc_session_store import CcFileSessionStore
+from reme.components.proactive import ChatAgentRuntime
+from reme.config import resolve_app_config
 from reme.core.context import ApplicationContext
 from reme.components.outbound_proxy import FixedHttpOutboundProxy
 from reme.enumeration import ChunkEnum, ComponentEnum
+from .skill_helpers import install_builtin
 
 # pylint: disable=protected-access
 
@@ -21,14 +24,60 @@ def _wrapper(tmp_path: Path) -> CcAgentWrapper:
     return CcAgentWrapper(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
 
 
-def _skill_roots(tmp_path: Path) -> tuple[Path, Path]:
-    return (
-        tmp_path / ".claude" / "skills",
-        tmp_path / "mem_session" / "claude_config" / "skills",
-    )
+@pytest.mark.parametrize("language", ["en", "zh"])
+def test_proactive_cc_appends_chat_role_to_native_prompt(tmp_path, monkeypatch, language):
+    """The shipped preset keeps native CC instructions and adds the localized Chat role."""
+    config = resolve_app_config(config="proactive_cc", log_config=False)
+    context = ApplicationContext(workspace_dir=str(tmp_path), language=language)
+    wrapper_config = dict(config["components"]["agent_wrapper"]["default"])
+    wrapper_config.pop("backend")
+    wrapper_config["anthropic_relay"] = None
+    wrapper = CcAgentWrapper(app_context=context, **wrapper_config)
+
+    def reject_reme_baseline():
+        raise AssertionError("CC must use its native preset instead of ReMe's base instructions")
+
+    monkeypatch.setattr(wrapper, "get_base_instructions", reject_reme_baseline)
+    chat_config = dict(config["components"]["agent_runtime"]["Remy"])
+    chat_config.pop("backend")
+    chat_config["agent_wrapper"] = wrapper
+    chat = ChatAgentRuntime(name="Remy", app_context=context, **chat_config)
+    role = chat.session_options()["system_prompt"]
+    options = wrapper._build_options("hello", **wrapper._merged_kwargs({"system_prompt": role}))
+
+    assert wrapper.kwargs["system_prompt"] == {"type": "preset", "preset": "claude_code", "snapshot": False}
+    assert options.system_prompt == {**wrapper.kwargs["system_prompt"], "append": role["append"]}
+    assert "Remy" in role["append"] and str(chat.memory_path) in role["append"]
+    assert ("主人" if language == "zh" else "Master") in role["append"]
+    assert "Codex CLI" not in role["append"] and "exec_command" not in role["append"]
 
 
-def test_ensure_claude_skill_dir_adds_selected_skills_without_replacing_existing(
+def test_cc_runtime_prompts_preserve_configured_append_without_accumulating(tmp_path):
+    """Each invocation gets a fresh preset while retaining operator instructions."""
+    preset = {"type": "preset", "preset": "claude_code", "append": "Operator guidance.", "snapshot": False}
+    wrapper = CcAgentWrapper(app_context=ApplicationContext(workspace_dir=str(tmp_path)), system_prompt=preset)
+
+    first = wrapper.get_session_system_prompt("First role.")
+    second = wrapper.get_session_system_prompt("Second role.")
+
+    assert first == {**preset, "append": "Operator guidance.\n\nFirst role."}
+    assert second == {**preset, "append": "Operator guidance.\n\nSecond role."}
+    assert preset["append"] == "Operator guidance."
+
+
+async def _publish_claude(wrapper, skills, **kwargs):
+    async with wrapper.skill_scope(skills=skills, **kwargs) as prepared:
+        options = wrapper._build_options("hello", **prepared)
+        wrapper._publish_skills(prepared["_skills"], options, wrapper._sessions.location(options))
+        return options
+
+
+def _skill_roots(tmp_path: Path) -> tuple[Path, ...]:
+    return (tmp_path / "mem_session" / "claude_config" / "skills",)
+
+
+@pytest.mark.asyncio
+async def test_ensure_claude_skill_dir_adds_selected_skills_without_replacing_existing(
     tmp_path,
 ):
     """Selected workspace skills are added while unrelated Claude skills remain."""
@@ -37,14 +86,13 @@ def test_ensure_claude_skill_dir_adds_selected_skills_without_replacing_existing
     (project_skills / "two").mkdir()
     for name in ("one", "two"):
         (project_skills / name / "SKILL.md").write_text(f"# {name}", encoding="utf-8")
-    config_dir = tmp_path / "mem_session" / "claude_config"
 
     for root in _skill_roots(tmp_path):
         existing = root / "existing"
         existing.mkdir(parents=True)
         (existing / "SKILL.md").write_text("existing", encoding="utf-8")
 
-    _wrapper(tmp_path)._ensure_claude_skill_dir(config_dir, ["one"])
+    await _publish_claude(_wrapper(tmp_path), [{"name": "one"}])
 
     for root in _skill_roots(tmp_path):
         assert (root / "one").is_symlink()
@@ -53,16 +101,16 @@ def test_ensure_claude_skill_dir_adds_selected_skills_without_replacing_existing
         assert (root / "existing" / "SKILL.md").read_text(encoding="utf-8") == "existing"
 
 
-def test_ensure_claude_skill_dir_all_adds_each_project_skill(tmp_path):
-    """The all selector creates child links instead of replacing the skills root."""
+@pytest.mark.asyncio
+async def test_claude_publishes_selected_project_skills(tmp_path):
+    """Explicit selections create child links and preserve the discovery root."""
     project_skills = tmp_path / "skills"
     (project_skills / "one").mkdir(parents=True)
     (project_skills / "two").mkdir()
     for name in ("one", "two"):
         (project_skills / name / "SKILL.md").write_text(f"# {name}", encoding="utf-8")
-    config_dir = tmp_path / "mem_session" / "claude_config"
 
-    _wrapper(tmp_path)._ensure_claude_skill_dir(config_dir, "all")
+    await _publish_claude(_wrapper(tmp_path), [{"name": "one"}, {"name": "two"}])
 
     for root in _skill_roots(tmp_path):
         assert root.is_dir()
@@ -70,17 +118,17 @@ def test_ensure_claude_skill_dir_all_adds_each_project_skill(tmp_path):
         assert {path.name for path in root.iterdir()} == {"one", "two"}
 
 
-def test_ensure_claude_skill_dir_preserves_existing_directory_link(tmp_path):
+@pytest.mark.asyncio
+async def test_ensure_claude_skill_dir_preserves_existing_directory_link(tmp_path):
     """An existing skills link is user-owned and remains untouched."""
     project_skills = tmp_path / "skills"
     (project_skills / "one").mkdir(parents=True)
     (project_skills / "one" / "SKILL.md").write_text("# one", encoding="utf-8")
-    config_dir = tmp_path / "mem_session" / "claude_config"
     legacy_root = tmp_path / ".claude" / "skills"
     legacy_root.parent.mkdir(parents=True)
     legacy_root.symlink_to(project_skills, target_is_directory=True)
 
-    _wrapper(tmp_path)._ensure_claude_skill_dir(config_dir, ["one"])
+    await _publish_claude(_wrapper(tmp_path), [{"name": "one"}], setting_sources=["project"])
 
     assert legacy_root.is_dir()
     assert legacy_root.is_symlink()
@@ -108,15 +156,17 @@ async def test_file_session_store_keeps_dotted_subkeys_distinct(tmp_path):
     assert await store.load({**base, "subpath": "agent.two"}) == [{"uuid": "agent.two"}]
 
 
-def test_ensure_claude_skill_dir_rejects_paths_as_skill_names(tmp_path):
+@pytest.mark.asyncio
+async def test_ensure_claude_skill_dir_rejects_paths_as_skill_names(tmp_path):
     """Skill selectors cannot escape the project skills directory."""
     (tmp_path / "skills").mkdir()
 
-    with pytest.raises(ValueError, match="Invalid skill name"):
-        _wrapper(tmp_path)._ensure_claude_skill_dir(tmp_path / "config", ["../outside"])
+    with pytest.raises(ValueError, match="name"):
+        await _publish_claude(_wrapper(tmp_path), [{"name": "../outside"}])
 
 
-def test_configured_skills_use_latest_sdk_allowlist(tmp_path):
+@pytest.mark.asyncio
+async def test_configured_skills_use_latest_sdk_allowlist(tmp_path):
     """Selected ReMe skills are passed through using the SDK's list semantics."""
     project_skills = tmp_path / "skills"
     (project_skills / "one").mkdir(parents=True)
@@ -124,7 +174,7 @@ def test_configured_skills_use_latest_sdk_allowlist(tmp_path):
     for name in ("one", "two"):
         (project_skills / name / "SKILL.md").write_text(f"# {name}", encoding="utf-8")
 
-    opts = _wrapper(tmp_path)._build_options("hello", skills=["one"])
+    opts = await _publish_claude(_wrapper(tmp_path), [{"name": "one"}])
 
     assert opts.skills == ["one"]
     for root in _skill_roots(tmp_path):
@@ -133,16 +183,18 @@ def test_configured_skills_use_latest_sdk_allowlist(tmp_path):
 
 
 @pytest.mark.parametrize("scope", ["user", "project"])
-def test_builtin_skill_uses_active_claude_discovery_directory(tmp_path, scope):
+@pytest.mark.asyncio
+async def test_builtin_skill_uses_active_claude_discovery_directory(tmp_path, monkeypatch, scope):
     """The active Claude settings source decides where ReMe publishes built-ins."""
     workspace = tmp_path / "workspace"
     config_dir = tmp_path / "configured"
     wrapper = _wrapper(workspace)
-    name = "manage-proactive-agent"
+    name = "unit-builtin"
+    install_builtin(monkeypatch, tmp_path, name)
 
-    opts = wrapper._build_options(
-        "hello",
-        skills=[name],
+    opts = await _publish_claude(
+        wrapper,
+        skills=[{"name": name}],
         env={"CLAUDE_CONFIG_DIR": str(config_dir)},
         setting_sources=[scope],
     )
@@ -155,7 +207,8 @@ def test_builtin_skill_uses_active_claude_discovery_directory(tmp_path, scope):
     assert not (workspace / "mem_session" / "claude_config" / "skills").exists()
 
 
-def test_configured_project_path_sources_skills_outside_workspace(tmp_path):
+@pytest.mark.asyncio
+async def test_configured_project_path_sources_skills_outside_workspace(tmp_path):
     """Claude Code links project skills while keeping sessions in the workspace."""
     project = tmp_path / "project"
     workspace = project / ".reme"
@@ -167,10 +220,10 @@ def test_configured_project_path_sources_skills_outside_workspace(tmp_path):
         project_path="..",
     )
 
-    opts = wrapper._build_options("hello", skills=["serper-search"])
+    opts = await _publish_claude(wrapper, [{"name": "serper-search"}])
 
     assert opts.cwd == project
-    assert (project / ".claude" / "skills" / "serper-search").resolve() == skill
+    assert not (project / ".claude" / "skills" / "serper-search").exists()
     assert (workspace / "mem_session" / "claude_config" / "skills" / "serper-search").resolve() == skill
 
 
@@ -438,7 +491,10 @@ async def test_agentscope_compact_session_forces_and_persists_compression(tmp_pa
     monkeypatch.setattr(wrapper._sessions, "save", dump_state)  # pylint: disable=protected-access
     await wrapper.compact_session(session_id)
 
-    assert observed["build"] == (None, {"resume": session_id, "state": FakeAgent.state})
+    inputs, options = observed["build"]
+    assert inputs is None
+    assert options["resume"] == session_id and options["state"] is FakeAgent.state
+    assert options["skills"] == [] and not options["_skills"].active
     assert observed["config"].trigger_ratio == 1e-9
     assert observed["state"].state is FakeAgent.state
 

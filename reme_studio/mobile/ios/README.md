@@ -1,6 +1,6 @@
 # ReMe Studio for iOS
 
-ReMe Studio for iOS 默认连接 `http://127.0.0.1:2333`。在「设置 → 通用」可填写手机能访问的 ReMe 地址，例如
+ReMe Studio for iOS 默认连接 `http://127.0.0.1:2333`。在「设置 → 连接」可填写手机能访问的 ReMe 地址，例如
 `http://203.0.113.10:2333`（将 IP 替换为你的服务地址）。点击「连接」后应用会保存地址，重启时自动连接。部署目标为 iOS 18.0 及以上。
 [Apple 兼容机型](https://support.apple.com/en-us/104985)
 
@@ -9,9 +9,11 @@ ReMe Studio for iOS 默认连接 `http://127.0.0.1:2333`。在「设置 → 通�
 | 位置 | 复用范围 |
 | --- | --- |
 | `client/` | Web 和移动端共用 `BrowserHost`、服务连接、HTTP/SSE、会话恢复、已读状态、文件操作和语音请求。 [共享客户端](../../client/src/reme-client.ts) · [BrowserHost](../../client/src/browser-host.ts) |
-| `workbench/` | 共用页面、右推抽屉、二级菜单、Remy 首页、`/clear` 确认和录音交互。 [Workbench](../../workbench/src/workspace.tsx) · [移动样式](../../workbench/src/mobile.css) |
+| `workbench/` | 共用页面、五个底部入口、次级导航面板、Remy 首页、`/clear` 确认和长按录音交互。 [Workbench](../../workbench/src/workspace.tsx) · [移动样式](../../workbench/src/mobile.css) |
 | `mobile/` | 两端共用 HTML/React 入口、Vite 配置和原生桥接口。 [移动入口](../src/main.tsx) · [原生桥](../src/native-bridge.ts) · [Vite 配置](../vite.config.mts) |
 | `android/` 与 `ios/` | 各自打包 WebView 资源，处理系统权限、安全区、键盘和生命周期。 [Android 开发文档](../android/README.md) |
+
+底部入口依次为「主动智能、随记、Remy、记忆、设置」，Remy 居中。版本与更新放在设置中。轻点输入框输入文字，长按空白输入框录音，输入框显示「松手发送、上滑取消」。松手后识别并发送，上滑后松手取消；已有草稿保留原生文本选择。点按话筒录音仍遵循自动发送设置。键盘出现时隐藏底部导航。
 
 ## iOS 宿主
 
@@ -35,8 +37,8 @@ xcrun simctl list devices available
 reme start config=proactive
 ```
 
-在 Xcode 打开 `reme_studio/mobile/ios/ReMeStudio.xcodeproj`，选择 `ReMeStudio` scheme 和 iPhone Simulator 后运行。在「设置 → 通用」确认服务显示「已连接」。也可从仓库根目录运行 UI 测试，验证地址保存和重启后自动连接。
-测试默认使用本机服务，可通过 `TEST_RUNNER_REME_TEST_ENDPOINT` 指定其他可访问的地址。
+在 Xcode 打开 `reme_studio/mobile/ios/ReMeStudio.xcodeproj`，选择 `ReMeStudio` scheme 和 iPhone Simulator 后运行。在「设置 → 连接」确认服务显示「已连接」。也可从仓库根目录运行 UI 测试，验证地址保存和重启后自动连接。
+测试默认使用本机服务，验证页面、键盘和应用重启后的连接。仅在设置 `TEST_RUNNER_REME_TEST_ENDPOINT` 时运行后端重启测试；该地址应指向专用测试实例。
 
 ```bash
 xcodebuild -project reme_studio/mobile/ios/ReMeStudio.xcodeproj \
@@ -48,6 +50,6 @@ xcodebuild -project reme_studio/mobile/ios/ReMeStudio.xcodeproj \
 
 | 环境 | 验收内容 |
 | --- | --- |
-| iPhone Simulator | 无服务时仍能打开内置页面。连接后验证分段显示流式回复、停止生成、`/clear` 确认、任务侧栏、随记写入和知识库文件。 |
-| iPhone Simulator | 验证抽屉和二级菜单、深浅色、安全区和软键盘。重启或暂时断开网络后确认自动重连和会话同步。 |
+| iPhone Simulator | 无服务时仍能打开内置页面。连接后验证分段显示流式回复、停止生成、`/clear` 确认、任务总览与全部任务、随记写入和记忆文件。 |
+| iPhone Simulator | 验证五个底部入口、次级导航面板、长按录音与取消、深浅色、安全区和软键盘。重启或暂时断开网络后确认自动重连和会话同步。 |
 | Android 回归 | 修改共享移动入口或样式后，检查 APK 打包和关键交互。 [Android 构建与验收](../android/README.md#构建与验收) |

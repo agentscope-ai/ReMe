@@ -1,12 +1,9 @@
 .notebook-browser {
   --notebook-tone: light-dark(#33614e, #9bd1b6);
-  --notebook-tint: light-dark(#eaf3ed, #243a30);
-  --notebook-wash: light-dark(#f5f8f4, #1b2420);
+  --notebook-tint: color-mix(in srgb, var(--notebook-tone) 10%, var(--surface));
 }
 .notebook-browser.notebook-idea {
   --notebook-tone: light-dark(#795722, #e8bf7b);
-  --notebook-tint: light-dark(#f6eddb, #3c3022);
-  --notebook-wash: light-dark(#faf7ef, #29231b);
 }
 .notebook-browser .sr-only {
   position: absolute;
@@ -59,13 +56,6 @@
   border-radius: var(--radius-sm);
   background: var(--notebook-tint);
   color: var(--notebook-tone);
-}
-.notebook-main {
-  background: linear-gradient(
-    to bottom,
-    var(--notebook-wash),
-    transparent 340px
-  );
 }
 .notebook-new {
   display: inline-flex;

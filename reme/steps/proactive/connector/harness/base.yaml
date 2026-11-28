@@ -1,0 +1,52 @@
+title: "# {harness} dialogue"
+title_zh: "# {harness} 对话"
+
+directory: |
+  ## Working directory
+
+  `{cwd}`
+directory_zh: |
+  ## 工作目录
+
+  `{cwd}`
+
+session: |
+  ### Session
+
+  - Session ID: `{session_id}`
+session_zh: |
+  ### 会话
+
+  - 会话 ID： `{session_id}`
+
+turn: |
+  #### Turn
+
+  - Turn ID: `{turn_id}`
+turn_zh: |
+  #### 轮次
+
+  - 轮次 ID： `{turn_id}`
+
+user: User
+user_zh: 用户
+commentary: "{harness} progress"
+commentary_zh: "{harness} 进度"
+final_answer: "{harness} final answer"
+final_answer_zh: "{harness} 最终回答"
+
+message: |
+  ##### {role}
+
+  - Time: {timestamp:%Y-%m-%d %H:%M:%S %z}
+  - Message ID: `{message_id}`
+message_zh: |
+  ##### {role}
+
+  - 时间： {timestamp:%Y-%m-%d %H:%M:%S %z}
+  - 消息 ID： `{message_id}`
+
+image: "![Image #{number}]({filename})"
+image_zh: "![图片 #{number}]({filename})"
+missing_images: "Unavailable images: {count}."
+missing_images_zh: "{count} 张图片无法读取。"

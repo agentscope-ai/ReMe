@@ -12,6 +12,7 @@ final class StudioViewController: UIViewController, WKNavigationDelegate, WKUIDe
     private var webView: WKWebView!
     private var failure: UIStackView?
     private var darkStatusBar = false
+    private var keyboardVisible = false
     private let requests = StudioRequests()
 
     override var preferredStatusBarStyle: UIStatusBarStyle {
@@ -49,6 +50,9 @@ final class StudioViewController: UIViewController, WKNavigationDelegate, WKUIDe
         NotificationCenter.default.addObserver(
             self, selector: #selector(suspendRecording), name: UIApplication.didEnterBackgroundNotification, object: nil
         )
+        for name in [UIResponder.keyboardWillShowNotification, UIResponder.keyboardWillHideNotification] {
+            NotificationCenter.default.addObserver(self, selector: #selector(keyboardChanged), name: name, object: nil)
+        }
         loadStudio()
     }
 
@@ -64,6 +68,15 @@ final class StudioViewController: UIViewController, WKNavigationDelegate, WKUIDe
 
     @objc private func suspendRecording() {
         webView.setMicrophoneCaptureState(.none, completionHandler: nil)
+    }
+
+    @objc private func keyboardChanged(_ notification: Notification) {
+        keyboardVisible = notification.name == UIResponder.keyboardWillShowNotification
+        publishKeyboardState()
+    }
+
+    private func publishKeyboardState() {
+        webView.evaluateJavaScript("document.documentElement.dataset.keyboard = '\(keyboardVisible)'")
     }
 
     @objc private func loadStudio() {
@@ -131,6 +144,7 @@ final class StudioViewController: UIViewController, WKNavigationDelegate, WKUIDe
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         webView.isHidden = false
+        publishKeyboardState()
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {

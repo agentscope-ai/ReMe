@@ -10,6 +10,7 @@ from reme.schema.agent_message import AgentMessage
 from reme.schema.proactive_agent import ProactiveRuntimeSettings
 from reme.schema.agent_view import AgentSnapshot, AgentUpdate, AgentHeartbeat, AgentView, ClientInfo
 from reme.schema.stream_chunk import StreamChunk
+from reme.schema.proactive_overview import OverviewSnapshot, OverviewUpdate, OverviewHeartbeat
 from reme.utils.agent_transcript import TranscriptProjector
 
 
@@ -49,11 +50,20 @@ def typescript(schema):
 def render():
     """One adapter exports every transitively referenced schema exactly once."""
     schema = TypeAdapter(
-        AgentMessage | AgentSnapshot | AgentUpdate | AgentHeartbeat | ClientInfo | ProactiveRuntimeSettings,
+        AgentMessage
+        | AgentSnapshot
+        | AgentUpdate
+        | AgentHeartbeat
+        | ClientInfo
+        | ProactiveRuntimeSettings
+        | OverviewSnapshot
+        | OverviewUpdate
+        | OverviewHeartbeat,
     ).json_schema(mode="serialization")
     declarations = [f"export type {name} = {typescript(value)};" for name, value in sorted(schema["$defs"].items())]
     exports = [
         "export type AgentEvent = AgentSnapshot | AgentUpdate | AgentHeartbeat;",
+        "export type OverviewEvent = OverviewSnapshot | OverviewUpdate | OverviewHeartbeat;",
         'export type TranscriptItem = AgentMessage["items"][number];',
         "export type Activities = Record<string, ClientActivity>;",
         'export type SessionStatus = AgentView["status"];',

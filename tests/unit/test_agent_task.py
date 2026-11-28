@@ -8,14 +8,14 @@ import pytest
 
 from reme.core.context import RuntimeContext
 from reme.schema.agent_view import TaskDocumentRequest
-from reme.steps.proactive.agent.api import TaskDocumentStep
-from .test_proactive_runtime import running_manager
+from reme.steps.proactive.agent_api import TaskDocumentStep
+from .proactive_helpers import running_system as running_manager
 
 
 @pytest.mark.asyncio
 async def test_task_editor_preserves_text_and_rejects_stale_writes(tmp_path):
     async with running_manager(tmp_path) as (runtime, context, wrapper):
-        await runtime.create({"agent_name": "monitor", "task_description": "Original\n"})
+        await runtime.create({"agent_type": "event", "agent_name": "monitor", "task_description": "Original\n"})
         step = TaskDocumentStep(app_context=context)
         opened = (await step(action="read", agent_name="monitor")).answer
         assert opened["content"] == "Original\n"
@@ -47,7 +47,7 @@ async def test_task_editor_preserves_text_and_rejects_stale_writes(tmp_path):
 async def test_task_editor_rejects_remy_deleted_agents_and_outside_paths(tmp_path):
     async with running_manager(tmp_path) as (runtime, context, _):
         step = TaskDocumentStep(app_context=context)
-        await runtime.create({"agent_name": "monitor", "task_description": "Original"})
+        await runtime.create({"agent_type": "event", "agent_name": "monitor", "task_description": "Original"})
         for agent_name in ("Remy", "missing"):
             with pytest.raises(ValueError):
                 await step(action="read", agent_name=agent_name)
@@ -55,7 +55,7 @@ async def test_task_editor_rejects_remy_deleted_agents_and_outside_paths(tmp_pat
             await step(RuntimeContext(_allowed_paths=["daily"]), action="read", agent_name="monitor")
         with pytest.raises(ValueError):
             await step(action="read", agent_name="monitor", path="daily/other.md")
-        target = runtime.registry.task_path(await runtime.definition("monitor"))
+        target = (await runtime.resolve("monitor")).task_path
         outside = tmp_path.parent / f"{tmp_path.name}-outside.md"
         outside.write_text("Outside")
         target.unlink()

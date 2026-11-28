@@ -72,9 +72,7 @@ reme/
     as_decision_model/       # 可选的决策模型适配器
     agent_wrapper/           # AgentScope / Claude Code / Codex wrapper
     codex_app_server/        # BaseCodexAppServer / SDK 后端 / 共享会话生命周期
-    agent_inbox/             # BaseAgentInbox / 本地存储与 Agent 事件输入
-    proactive_manager/           # 工作区发现、事件路由与 Remy
-    proactive_runtime/           # 单个运行时的收件箱、调度与执行
+    proactive/              # Inbox、Outbox、Runtime 与 Manager 组件
   steps/
     base_step.py             # BaseStep、Ref、dispatch_steps
     common/                  # version、help、health_check、status、chat
@@ -553,7 +551,7 @@ flowchart LR
 取消继续传播。两种模式均按调用记录一次已报告的 token 用量；无法获取用量时为 null。
 
 [`StreamChunk`](../../reme/schema/stream_chunk.py) 使用 `start`、追加内容的 `delta` 和 `end` 操作。
-start/end 的非 null 内容替换对应块的累计内容；null 表示不变，空字符串表示清空。会话、调用、消息、内容块和
+start/end 的非 null 内容替换对应块的累计内容；null 表示不变，action=skip表示清空。会话、调用、消息、内容块和
 工具调用 ID 用于关联更新。`metadata.native` 保留完整原生事件，包括未知字段和诊断通知。
 `reply_end.chunk` 携带上述结果字段，不含 `events`；`reply_start`/`reply_end` 包含一次 agent 调用内的模型与工具
 循环，DONE 仅关闭传输。`collect_reply(stream)` 与 `replay_reply(reply)` 在异步流和 JSON 结果间无损转换，保留
@@ -586,12 +584,12 @@ Codex wrapper 通过 `app_server: default` 或 `app_server: oauth` 引用共享�
 `create_session()` 在首次查询前保留 `effort` 等进程内 turn 设置。
 `output_schema` 只作用于本次调用；省略时使用调用方 wrapper 的默认值，显式传 `None` 在本次调用关闭该默认值。
 
-临时只读分身从提示词接收选中的收件箱条目，按需阅读源记录并通过 `submit_chat_reminder` 提交决定。只有明确提交的文本追加到前台会话，
+临时只读分身从提示词接收选中的收件箱条目，按需阅读源记录并通过 `submit_chat_reply` 提交决定。只有明确提交的文本追加到前台会话，
 分身推理过程与普通回复留在分身中。Codex 把追加内容保存在原生 rollout，不保存另一份应用消息副本。
-`reme_agents/` 保存任务配置、事件收件箱、个人记忆和会话引用。Remy 收件箱从每日记录中的提醒和确认字段生成，
-对话内容保存在原生会话历史中。
+`reme_agents/` 保存任务配置、收件箱、发件箱、个人记忆和会话引用。每日记录保存提醒正文，Remy 的 Inbox 保存通知引用和处理收据，
+Outbox 保存交付事实。对话内容保存在原生会话历史中。
 
-每个 Proactive Runtime 管理自己的执行状态，Proactive Manager 为 Remy 和各具名 Runtime 提供活动状态与实时输出。桌面通过 `watch_agent_session` 订阅。Codex 原生状态通知只负责操作完成与断连处理。
+各 Runtime 管理自己的执行状态、活动状态与实时输出，对话接口据此生成 Remy 和各具名 Runtime 的视图。桌面通过 `watch_agent_session` 订阅。Codex 原生状态通知只负责操作完成与断连处理。
 三个 wrapper 都支持 `append_session(..., role="user" | "assistant")`，只追加上下文，不触发模型生成，默认角色为 `assistant`。
 同一 `message_id` 重试时必须保持内容和角色一致。注入消息的 `source="proactive"` 与角色独立，重载或 fork 后仍保留。
 `SessionSnapshot.revision` 是与活动状态无关、重载后稳定的内容指纹。通过 `expected_revision` 追加时，

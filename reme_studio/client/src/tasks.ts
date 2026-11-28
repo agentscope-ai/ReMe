@@ -10,9 +10,9 @@ export interface TaskDocument {
 export function taskSettings(status: AgentView): ProactiveRuntimeSettings {
   return {
     enabled: status.enabled,
-    cron: status.cron,
+    schedule: status.schedule,
     min_trigger_interval_seconds: status.min_trigger_interval_seconds,
-    notify_window: status.notify_window,
+    notify_windows: status.notify_windows,
   };
 }
 
@@ -33,6 +33,7 @@ export type TaskRequest = { type: "task" } & (
   | {
       action: "create";
       agent_name: string;
+      agent_type: "event" | "time";
       task_description: string;
       settings: ProactiveRuntimeSettings;
     }
@@ -61,7 +62,7 @@ export function taskPayload(request: TaskRequest): {
     "action",
     "agent_name",
     ...(action === "create"
-      ? ["task_description", "settings"]
+      ? ["agent_type", "task_description", "settings"]
       : action === "update"
         ? ["settings"]
         : action === "save"
@@ -83,9 +84,9 @@ export function taskPayload(request: TaskRequest): {
       throw new Error("Invalid task settings");
     const keys = [
       "enabled",
-      "cron",
+      "schedule",
       "min_trigger_interval_seconds",
-      "notify_window",
+      "notify_windows",
     ] as const;
     if (
       Object.keys(settings).some(
@@ -99,6 +100,14 @@ export function taskPayload(request: TaskRequest): {
     if (action === "update" && Object.keys(settings).length === 0)
       throw new Error("Empty task update");
     if (action === "create") {
+      if (request.agent_type !== "event" && request.agent_type !== "time")
+        throw new Error("Invalid task trigger type");
+      if (
+        (request.agent_type === "time") !==
+        (typeof settings.schedule === "string")
+      )
+        throw new Error("Task schedule does not match its trigger type");
+      body.agent_type = request.agent_type;
       if (
         typeof request.task_description !== "string" ||
         !request.task_description.trim() ||
@@ -124,7 +133,7 @@ export function taskPayload(request: TaskRequest): {
     job:
       action === "read" || action === "save"
         ? "task_document"
-        : "manage_proactive_agent",
+        : "manage_proactive_runtime",
     body,
   };
 }

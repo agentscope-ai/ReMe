@@ -53,9 +53,10 @@ test("localized project names round trip through IPC with one stable default", a
     assert.equal(projectValue("ReMe", language), "ReMe");
   }
   assert.equal(calls.length, 4);
-  for (const [, body] of calls)
+  for (const [index, [, body]] of calls.entries())
     assert.deepEqual(body, {
       action: "create",
+      kind: index % 2 === 0 ? "todo" : "idea",
       text: "一句话",
       project: "随笔",
     });
@@ -64,15 +65,18 @@ test("localized project names round trip through IPC with one stable default", a
     { type: "todo", action: "list", project: "  " },
     signal,
   );
-  assert.deepEqual(calls.at(-1), ["todo", { action: "list", project: "随笔" }]);
+  assert.deepEqual(calls.at(-1), [
+    "manage_notebook",
+    { kind: "todo", action: "list", project: "随笔" },
+  ]);
   await requestWorkspace(
     client,
     { type: "todo", action: "list", order: "created" },
     signal,
   );
   assert.deepEqual(calls.at(-1), [
-    "todo",
-    { action: "list", order: "created" },
+    "manage_notebook",
+    { kind: "todo", action: "list", order: "created" },
   ]);
   await requestWorkspace(
     client,
@@ -80,7 +84,7 @@ test("localized project names round trip through IPC with one stable default", a
     signal,
   );
   assert.deepEqual(calls.at(-1), [
-    "todo",
+    "manage_notebook",
     { action: "list_projects", scope: "all" },
   ]);
 });
@@ -150,30 +154,42 @@ test("notebook IPC preserves task patches, explicit clearing and source links", 
     signal,
   );
   assert.deepEqual(calls, [
-    ["todo", { action: "create", source_idea: "i1" }],
+    ["manage_notebook", { kind: "todo", action: "create", source_idea: "i1" }],
     [
-      "todo",
+      "manage_notebook",
       {
+        kind: "todo",
         action: "update",
         id: "t1",
         status: "in_progress",
         progress_text: "接口完成，测试待补",
       },
     ],
-    ["todo", { action: "update", id: "t1", due_date: null, source_idea: null }],
     [
-      "todo",
+      "manage_notebook",
       {
+        kind: "todo",
+        action: "update",
+        id: "t1",
+        due_date: null,
+        source_idea: null,
+      },
+    ],
+    [
+      "manage_notebook",
+      {
+        kind: "todo",
         action: "update",
         id: "t1",
         status: "closed",
         close_note: "需求撤销，取消执行",
       },
     ],
-    ["idea", { action: "archive", id: "i1" }],
+    ["manage_notebook", { kind: "idea", action: "archive", id: "i1" }],
     [
-      "todo",
+      "manage_notebook",
       {
+        kind: "todo",
         action: "list",
         source_idea: "i1",
         scope: "all",
@@ -280,13 +296,19 @@ test("Workspace modules share their default sidebar width and headings", async (
     connection: "connected",
     clientInfo: {
       ...clientInfo,
-      jobs: [...clientInfo.jobs, "todo", "idea", "list_workspace", "load_file"],
+      jobs: [
+        ...clientInfo.jobs,
+        "manage_notebook",
+        "list_workspace",
+        "load_file",
+      ],
     },
   };
   const notebook = render(createElement(Notebook, { state }));
   const knowledge = render(createElement(Knowledge, { state }));
-  const remy = render(createElement(AgentWorkspace, { state, page: "remy" }));
-  const tasks = render(createElement(AgentWorkspace, { state, page: "tasks" }));
+  const remy = render(
+    createElement(AgentWorkspace, { state, onNavigate() {} }),
+  );
   const settings = render(
     createElement(Settings, {
       state,
@@ -299,20 +321,31 @@ test("Workspace modules share their default sidebar width and headings", async (
   for (const [html, eyebrow] of [
     [notebook, "NOTES &amp; TO-DOS"],
     [knowledge, "KNOWLEDGE &amp; HISTORY"],
-    [remy, "AT YOUR SIDE"],
-    [tasks, "IN THE BACKGROUND"],
+    [remy, null],
     [settings, "YOUR SPACE"],
   ]) {
     assert.match(html, /--sidebar-width:256px/);
     assert.match(html, /class="module-sidebar-heading"/);
-    assert.ok(
-      html.includes(
-        `<span class="eyebrow" aria-hidden="true">${eyebrow}</span>`,
-      ),
-    );
+    if (eyebrow)
+      assert.ok(
+        html.includes(
+          `<span class="eyebrow" aria-hidden="true">${eyebrow}</span>`,
+        ),
+      );
   }
   assert.doesNotMatch(knowledge, /YOUR SECOND MEMORY/);
   assert.match(notebook, /随记/);
+  assert.match(notebook, /class="timeline-pane" data-variant="todo"/);
+  assert.doesNotMatch(notebook, /服务未启用/);
+  const unavailable = render(
+    createElement(Notebook, {
+      state: {
+        ...state,
+        clientInfo: { ...clientInfo, jobs: ["todo", "idea"] },
+      },
+    }),
+  );
+  assert.match(unavailable, /服务未启用 manage_notebook/);
   assert.match(notebook, /关闭备注（选填）/);
   assert.match(notebook, /aria-label="调整侧栏宽度"/);
   const collapsed = render(createElement(Notebook, { state, collapsed: true }));

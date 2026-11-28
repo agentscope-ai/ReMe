@@ -1,6 +1,6 @@
 """Shared agent identities, native sessions, notifications and inbox contracts."""
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 import re
 
 from pydantic import (
@@ -10,9 +10,11 @@ from pydantic import (
     ConfigDict,
     Field,
     field_validator,
+    model_validator,
 )
 
 from ..constants import WINDOWS_RESERVED_DEVICE_NAMES
+from .agent_skill import SkillName
 from .event import Event
 
 
@@ -33,6 +35,33 @@ AgentName = Annotated[str, Field(min_length=1, max_length=80, pattern=r"^[\w-]+$
 AgentType = Literal["chat", "event", "time"]
 ChatMessageId = Annotated[str, Field(pattern=r"^[a-zA-Z0-9_-]{1,128}$")]
 InboxPriority = Literal["P0", "P1", "P2"]
+
+
+def validate_binding_names(values):
+    """Keep skill and Job references distinct and free of filesystem paths."""
+    if not isinstance(values, (list, tuple)) or any(
+        not isinstance(name, str) or re.fullmatch(r"[a-zA-Z0-9_][a-zA-Z0-9_-]{0,79}", name) is None for name in values
+    ):
+        raise ValueError("skills and job_tools must contain valid names")
+    if len(set(values)) != len(values):
+        raise ValueError("skills and job_tools must be distinct")
+    return values
+
+
+class AgentRuntimeBinding(BaseModel):
+    """Trusted component configuration for one Runtime's model sessions."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    skills: list[SkillName] = Field(default_factory=list)
+    job_tools: list[str] = Field(default_factory=list)
+    injected_job_kwargs: dict[str, Any] = Field(default_factory=dict)
+    effort: str | None = None
+    sandbox: Literal["read-only", "workspace-write", "danger-full-access"] | None = "workspace-write"
+    approval_mode: str = "deny_all"
+    prompt_dict: dict[str, str] = Field(default_factory=dict)
+
+    _valid_names = field_validator("skills", "job_tools", mode="before")(validate_binding_names)
 
 
 class NotificationConfig(BaseModel):
@@ -100,7 +129,7 @@ class AgentReminder(BaseModel):
         return value
 
 
-class ProcessChatRemindersRequest(BaseModel):
+class ProcessChatNotificationsRequest(BaseModel):
     """A framework-selected batch eligible for automatic processing."""
 
     model_config = ConfigDict(extra="forbid")
@@ -111,13 +140,27 @@ class ProcessChatRemindersRequest(BaseModel):
     @field_validator("msg_ids")
     @classmethod
     def relative_paths(cls, value: list[str]) -> list[str]:
-        """Chat batches reference workspace-relative daily records."""
-        return Event.validate_paths(value)
+        """Batch identifiers are internal references, not user-selected source paths."""
+        if len(set(value)) != len(value) or any(not item or len(item) > 128 for item in value):
+            raise ValueError("msg_ids must contain distinct valid notification ids")
+        return value
 
 
-class SubmitChatReminderRequest(BaseModel):
-    """Submit user-facing text, or an empty decision to stay quiet."""
+class SubmitChatReplyRequest(BaseModel):
+    """Explicitly send text or commit a silent decision for the active fork."""
 
     model_config = ConfigDict(extra="forbid")
 
-    content: str = Field(max_length=100000)
+    action: Literal["send", "skip"]
+    content: str | None = Field(default=None, max_length=100000)
+
+    @model_validator(mode="after")
+    def validate_action(self):
+        """Reject fields that do not belong to the selected operation."""
+        if self.action == "send":
+            if self.content is None or not self.content.strip():
+                raise ValueError("send requires nonblank content")
+            self.content = self.content.strip()
+        elif "content" in self.model_fields_set:
+            raise ValueError("skip does not accept content")
+        return self

@@ -4,11 +4,13 @@
 # pylint: disable=too-many-lines
 
 import asyncio
+from datetime import datetime
 import json
 from pathlib import Path
 import socket
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
@@ -34,10 +36,12 @@ from reme.core.context import ApplicationContext
 from reme.components.agent_wrapper.codex_agent_wrapper import CodexAgentWrapper
 from reme.components.codex_app_server import SdkCodexAppServer
 from reme.components.job import BackgroundJob, StreamJob
+from reme.components.proactive import ChatAgentRuntime
 from reme.components.service.scoped_mcp import ScopedMCP
 from reme.enumeration import ChunkEnum, ComponentEnum
 from reme.schema import Response, TokenUsage
 from reme.utils.counter import global_counter_get_all
+from .skill_helpers import install_builtin
 
 
 class _Job:
@@ -169,6 +173,7 @@ class _Codex:
         self.threads = {}
         self.loaded = set()
         self.unsubscribed = []
+        self.skills_refreshes = []
         self.closed = 0
         self.logins = []
         self.opened = []
@@ -231,6 +236,9 @@ class _Codex:
         return forked
 
     async def request(self, method, params, **_kwargs):
+        if method == "skills/list":
+            self.skills_refreshes.append(params)
+            return SimpleNamespace(data=[])
         if method == "thread/loaded/list":
             return SimpleNamespace(data=list(self.loaded), next_cursor=None)
         assert method == "thread/unsubscribe"
@@ -367,6 +375,48 @@ async def test_releasing_a_superseded_empty_session_keeps_other_threads(system):
     assert server._threads[current].pending is not None
     assert client.unsubscribed == [previous]
     assert not client.threads[previous].inputs and not client.threads[current].inputs
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("language", ["en", "zh"])
+async def test_wrapper_defaults_and_chat_role_reach_separate_native_channels(system, monkeypatch, language):
+    first, _, _, _ = system
+    context = first.app_context
+    context.app_config.language = language
+    context.app_config.timezone = "Asia/Shanghai"
+    now = datetime(2026, 11, 27, 12, tzinfo=ZoneInfo("Asia/Shanghai"))
+    monkeypatch.setattr(
+        "reme.components.agent_wrapper.base_agent_wrapper.datetime",
+        SimpleNamespace(now=now.astimezone),
+    )
+    async with CodexAgentWrapper(app_context=context) as wrapper:
+        chat = ChatAgentRuntime(name="Remy", app_context=context, agent_wrapper=wrapper)
+        role = chat.session_options()["system_prompt"]
+        await wrapper.create_session(system_prompt=role)
+        options = _Codex.instances[0].opened[0][2]
+        baseline = options["base_instructions"]
+        assert options["developer_instructions"] == role
+        assert "Remy" in role and str(chat.memory_path) in role
+        assert "Remy" not in baseline
+        assert baseline.count("Codex CLI") == 1
+        assert str(context.app_config.workspace_dir) in baseline
+        assert context.app_config.timezone in baseline and now.isoformat() in baseline
+        assert "{workspace_dir}" not in baseline and "{memory_path}" not in role
+        assert "exec_command" in baseline and "*** Update File:" in baseline
+        assert "exec_command" not in role
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("instructions", ["Custom baseline.", "", None])
+async def test_explicit_base_instructions_override_wrapper_defaults(system, instructions):
+    first, _, _, _ = system
+    first.kwargs["base_instructions"] = "Component baseline."
+    await first.create_session(system_prompt="Role instructions.")
+    await first.create_session(base_instructions=instructions, system_prompt="Role instructions.")
+    opened = _Codex.instances[0].opened
+    assert opened[0][2]["base_instructions"] == "Component baseline."
+    assert opened[1][2]["base_instructions"] == instructions
+    assert all(options["developer_instructions"] == "Role instructions." for _, _, options in opened)
 
 
 @pytest.mark.asyncio
@@ -1229,6 +1279,49 @@ async def test_failed_cleanup_preserves_the_original_request_error(system, monke
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["new", "fork", "resume"])
+async def test_cancelled_creation_releases_only_its_new_native_session(system, monkeypatch, operation):
+    first, _, server, _ = system
+    source = await first.create_session()
+    client = _Codex.instances[0]
+    entered, release = asyncio.Event(), asyncio.Event()
+    cleanup_entered, cleanup_release = asyncio.Event(), asyncio.Event()
+    identifiers = []
+
+    async def wait_idle(thread):
+        identifiers.append(thread.id)
+        if len(identifiers) == 1:
+            entered.set()
+            await release.wait()
+        else:
+            cleanup_entered.set()
+            await cleanup_release.wait()
+
+    monkeypatch.setattr(server, "wait_idle", wait_idle)
+    options = {} if operation == "new" else {"resume": source, "fork_session": operation == "fork"}
+    task = asyncio.create_task(first.create_session(**options))
+    try:
+        await asyncio.wait_for(entered.wait(), 2)
+        task.cancel("original cancellation")
+        release.set()
+        if operation != "resume":
+            await asyncio.wait_for(cleanup_entered.wait(), 2)
+            task.cancel("repeated cancellation")
+    finally:
+        release.set()
+        cleanup_release.set()
+        with pytest.raises(asyncio.CancelledError, match="original cancellation"):
+            await task
+    identifier = identifiers[0]
+    assert server._threads[source].pending is not None
+    assert source not in client.unsubscribed
+    if operation != "resume":
+        assert server._threads[identifier].pending is None
+        assert identifier in client.unsubscribed
+    assert all(not thread.inputs for thread in client.threads.values())
+
+
+@pytest.mark.asyncio
 async def test_repeated_cancellation_finishes_native_thread_cleanup(system, monkeypatch):
     """The lease stays held until native idle and unsubscribe have both settled."""
     first, _, server, _ = system
@@ -1479,7 +1572,33 @@ def test_event_to_chunks_preserves_new_turn_scoped_notifications():
     assert chunk.metadata == {"codex_method": "turn/diff/updated"}
 
 
-def test_codex_skills_add_all_without_deleting_existing_content(tmp_path):
+async def _publish_codex(wrapper, skills):
+    async with wrapper.skill_scope(skills=skills) as options:
+        options["_skills"].publish(wrapper.cwd.resolve() / ".agents" / "skills")
+
+
+@pytest.mark.asyncio
+async def test_generated_skills_refresh_once_and_survive_all_turns_in_a_run(system):
+    first, _, _, _ = system
+    definition = {"name": "run-task", "description": "Run the task", "content": "Read the source record."}
+    manifest = first.cwd / ".agents/skills/run-task/SKILL.md"
+    async with first.skill_scope(skills=[definition]) as options:
+        session_id = await first.create_session(**options)
+        sdk = _Codex.instances[0]
+
+        async def observe(_thread, _inputs):
+            assert definition["content"] in manifest.read_text()
+
+        sdk.run_hook = observe
+        for query in ("execute", "repair"):
+            assert (await first.reply(query, resume=session_id, **options))["status"] == "completed"
+        assert sdk.skills_refreshes == [{"cwds": [str(first.cwd.resolve())], "forceReload": True}]
+    assert not manifest.exists() and not manifest.parent.is_symlink()
+    assert not list((first.workspace_path / "metadata/agent_skills").glob("run-task-*"))
+
+
+@pytest.mark.asyncio
+async def test_codex_skills_add_selected_without_deleting_existing_content(tmp_path):
     wrapper, _job = _wrapper(tmp_path)
     for name in ("reme_memory", "qwenpaw_memory"):
         source = tmp_path / "skills" / name
@@ -1490,7 +1609,10 @@ def test_codex_skills_add_all_without_deleting_existing_content(tmp_path):
     marker = existing / "marker"
     marker.write_text("keep", encoding="utf-8")
 
-    wrapper._ensure_skills("all")  # pylint: disable=protected-access
+    await _publish_codex(
+        wrapper,
+        [{"name": "reme_memory"}, {"name": "qwenpaw_memory"}],
+    )  # pylint: disable=protected-access
 
     assert marker.read_text(encoding="utf-8") == "keep"
     for name in ("reme_memory", "qwenpaw_memory"):
@@ -1499,12 +1621,14 @@ def test_codex_skills_add_all_without_deleting_existing_content(tmp_path):
         assert target.resolve() == (tmp_path / "skills" / name).resolve()
 
 
-def test_codex_builtin_skill_works_without_a_source_checkout(tmp_path):
+@pytest.mark.asyncio
+async def test_codex_builtin_skill_works_without_a_source_checkout(tmp_path, monkeypatch):
     workspace = tmp_path / "workspace"
     wrapper, _job = _wrapper(workspace, project_path="..", cwd=".")
-    name = "manage-todos-ideas"
+    name = "unit-builtin"
+    install_builtin(monkeypatch, tmp_path, name)
 
-    wrapper._ensure_skills([name])  # pylint: disable=protected-access
+    await _publish_codex(wrapper, [{"name": name}])  # pylint: disable=protected-access
 
     manifest = workspace / ".agents" / "skills" / name / "SKILL.md"
     assert f"name: {name}" in manifest.read_text(encoding="utf-8")
@@ -1512,20 +1636,22 @@ def test_codex_builtin_skill_works_without_a_source_checkout(tmp_path):
     assert not (tmp_path / ".agents").exists()
 
 
-def test_codex_skills_support_single_name_and_are_idempotent(tmp_path):
+@pytest.mark.asyncio
+async def test_codex_skill_references_are_idempotent(tmp_path):
     wrapper, _job = _wrapper(tmp_path)
     source = tmp_path / "skills" / "one"
     source.mkdir(parents=True)
     (source / "SKILL.md").write_text("# one", encoding="utf-8")
 
-    wrapper._ensure_skills("one")  # pylint: disable=protected-access
-    wrapper._ensure_skills(["one"])  # pylint: disable=protected-access
+    await _publish_codex(wrapper, [{"name": "one"}])  # pylint: disable=protected-access
+    await _publish_codex(wrapper, [{"name": "one"}])  # pylint: disable=protected-access
 
     assert (tmp_path / ".agents" / "skills" / "one").resolve() == source.resolve()
 
 
 @pytest.mark.parametrize("kind", ["directory", "external_link"])
-def test_codex_skills_preserve_conflicts(tmp_path, kind):
+@pytest.mark.asyncio
+async def test_codex_skills_preserve_conflicts(tmp_path, kind):
     wrapper, _job = _wrapper(tmp_path)
     source = tmp_path / "skills" / "one"
     source.mkdir(parents=True)
@@ -1540,13 +1666,14 @@ def test_codex_skills_preserve_conflicts(tmp_path, kind):
         external.mkdir()
         target.symlink_to(external, target_is_directory=True)
 
-    with pytest.raises(FileExistsError, match="Codex skill conflict"):
-        wrapper._ensure_skills("one")  # pylint: disable=protected-access
+    with pytest.raises(FileExistsError, match="Skill name already exists"):
+        await _publish_codex(wrapper, [{"name": "one"}])  # pylint: disable=protected-access
     assert target.exists()
 
 
 @pytest.mark.parametrize("create_dir", [False, True])
-def test_codex_skills_reject_missing_or_invalid_skill(tmp_path, create_dir):
+@pytest.mark.asyncio
+async def test_codex_skills_reject_missing_or_invalid_skill(tmp_path, create_dir):
     wrapper, _job = _wrapper(tmp_path)
     if create_dir:
         (tmp_path / "skills" / "missing_manifest").mkdir(parents=True)
@@ -1554,10 +1681,11 @@ def test_codex_skills_reject_missing_or_invalid_skill(tmp_path, create_dir):
     else:
         name = "missing"
     with pytest.raises(FileNotFoundError):
-        wrapper._ensure_skills(name)  # pylint: disable=protected-access
+        await _publish_codex(wrapper, [{"name": name}])  # pylint: disable=protected-access
 
 
-def test_codex_skills_do_not_modify_codex_home(tmp_path):
+@pytest.mark.asyncio
+async def test_codex_skills_do_not_modify_codex_home(tmp_path):
     codex_home = tmp_path / "codex-home"
     marker = codex_home / "skills" / "marker"
     marker.parent.mkdir(parents=True)
@@ -1567,7 +1695,7 @@ def test_codex_skills_do_not_modify_codex_home(tmp_path):
     source.mkdir(parents=True)
     (source / "SKILL.md").write_text("# one", encoding="utf-8")
 
-    wrapper._ensure_skills("one")  # pylint: disable=protected-access
+    await _publish_codex(wrapper, [{"name": "one"}])  # pylint: disable=protected-access
 
     assert marker.read_text(encoding="utf-8") == "keep"
 

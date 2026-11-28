@@ -22,6 +22,7 @@ import ResourcePane, {
   resourceDetail,
 } from "./resource-pane.tsx";
 import { DetailHeading, TimelineBadge } from "./timeline.tsx";
+import { useNavigationState } from "./navigation.tsx";
 
 type ListedResource =
   InputEvent | (TaskReminder & { state: InputEvent["state"] });
@@ -30,19 +31,39 @@ export default function AgentResources({
   state,
   inbox,
   revision,
+  agentName = state.selectedAgentName ?? "Remy",
+  active = state.activePage === (agentName === "Remy" ? "remy" : "tasks"),
+  embedded = false,
+  showRefresh = true,
 }: {
   state: StudioState;
   inbox: boolean;
   revision?: number;
+  agentName?: string;
+  active?: boolean;
+  embedded?: boolean;
+  showRefresh?: boolean;
 }) {
   const requestResource = useResource();
   const { action } = useHost();
   const t = translator(state.settings.language);
-  const agentName = state.selectedAgentName ?? "Remy";
-  const active = state.activePage === (agentName === "Remy" ? "remy" : "tasks");
-  const [offset, setOffset] = useState(0);
-  const [filter, setFilter] = useState<EventState>("all");
-  const [selected, setSelected] = useState("");
+  const navigationPage = embedded || agentName !== "Remy" ? "tasks" : "remy";
+  const navigationKey = `${agentName}:${inbox ? "inbox" : "outbox"}`;
+  const [offset, setOffset] = useNavigationState(
+    navigationPage,
+    `${navigationKey}:offset`,
+    0,
+  );
+  const [filter, setFilter] = useNavigationState<EventState>(
+    navigationPage,
+    `${navigationKey}:filter`,
+    "all",
+  );
+  const [selected, setSelected] = useNavigationState(
+    navigationPage,
+    `${navigationKey}:selected`,
+    "",
+  );
   const [focusedMail, setFocusedMail] = useState<TaskReminder>();
   const [readError, setReadError] = useState<unknown>(null);
   const [readAttempt, setReadAttempt] = useState(0);
@@ -163,6 +184,7 @@ export default function AgentResources({
       )}
       <ResourcePane
         state={state}
+        embedded={embedded}
         view={inbox ? "inbox" : "outbox"}
         listKey={`${filter}:${offset}`}
         loading={
@@ -202,13 +224,15 @@ export default function AgentResources({
                 ))}
               </select>
             </label>
-            <button
-              className="icon-button"
-              onClick={refresh}
-              aria-label={t(inbox ? "refreshInbox" : "refreshFiles")}
-            >
-              <RefreshCw size={14} className={loading ? "spinning" : ""} />
-            </button>
+            {showRefresh && (
+              <button
+                className="icon-button"
+                onClick={refresh}
+                aria-label={t(inbox ? "refreshInbox" : "refreshOutbox")}
+              >
+                <RefreshCw size={14} className={loading ? "spinning" : ""} />
+              </button>
+            )}
           </>
         }
         pagination={
@@ -258,10 +282,14 @@ export default function AgentResources({
           return {
             id: value.id,
             title: resourceSummary(value.message, value.from_agent_name),
-            date: value.delivered_at,
+            date: value.delivered_at ?? value.created_at,
             metadata: (
               <>
-                <span>{value.from_agent_name}</span>
+                {(!embedded || value.from_agent_name !== agentName) && (
+                  <span className="resource-sender">
+                    {value.from_agent_name}
+                  </span>
+                )}
                 {badge}
               </>
             ),
@@ -345,13 +373,17 @@ export default function AgentResources({
             <ResourceMessage
               key={item.id}
               state={state}
-              sender={item.from_agent_name}
+              sender={
+                embedded && item.from_agent_name === agentName
+                  ? ""
+                  : item.from_agent_name
+              }
               message={{
                 id: item.id,
                 role: "assistant",
                 source: "proactive",
                 content: item.message,
-                createdAt: item.delivered_at,
+                createdAt: item.delivered_at ?? item.created_at,
                 completed: true,
                 streaming: false,
                 status: null,

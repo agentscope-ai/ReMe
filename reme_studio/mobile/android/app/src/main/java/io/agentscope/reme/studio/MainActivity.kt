@@ -47,7 +47,6 @@ class MainActivity : ComponentActivity() {
     private var pendingAudio: ((Boolean) -> Unit)? = null
     private var pendingNetwork: ((Boolean) -> Unit)? = null
     private var safeArea = Insets.NONE
-    private var backGestureInset = 0
     private var keyboardVisible = false
 
     private val microphone = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -118,7 +117,6 @@ class MainActivity : ComponentActivity() {
             keyboardBottom = insets.getInsets(imeType).bottom
             val system = insets.getInsets(safeTypes)
             safeArea = Insets.of(system.left, system.top, system.right, maxOf(0, system.bottom - keyboardBottom))
-            backGestureInset = insets.getInsets(WindowInsetsCompat.Type.systemGestures()).left
             keyboardVisible = insets.isVisible(imeType)
             if (keyboardAnimation == null) view.setPadding(0, 0, 0, keyboardBottom)
             publishWindowInsets()
@@ -182,7 +180,7 @@ class MainActivity : ComponentActivity() {
     private fun publishWindowInsets() {
         if (!studioLoaded || rendererExited) return
         val density = resources.displayMetrics.density
-        val pixels = listOf(safeArea.top, safeArea.right, safeArea.bottom, safeArea.left, backGestureInset)
+        val pixels = listOf(safeArea.top, safeArea.right, safeArea.bottom, safeArea.left)
             .joinToString(",") { (it / density).toString() }
         webView.evaluateJavascript("window.remeSetWindowInsets?.($pixels,$keyboardVisible)", null)
     }

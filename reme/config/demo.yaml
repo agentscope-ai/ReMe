@@ -130,6 +130,8 @@ jobs:
         limit: {type: integer, minimum: 1, default: 10}
     steps:
       - backend: list_chat_sessions_step
+        agent_runtime: Remy
+        agent_manager: default
 
   session_read:
     backend: base

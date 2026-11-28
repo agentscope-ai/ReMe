@@ -1,27 +1,27 @@
 """Base agent wrapper component."""
 
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
-from hashlib import sha256
+from contextlib import aclosing, asynccontextmanager
+from datetime import datetime
 from importlib import metadata
 from pathlib import Path
 from typing import Any, ClassVar, Literal, TYPE_CHECKING
 
 from pydantic import BaseModel
 
+from .skills import SkillScope, skill_specs
 from ..base import BaseComponent
 from ..outbound_proxy import BaseOutboundProxy
 from ...enumeration import ChunkEnum, ComponentEnum
-from ...schema import AgentReply, SessionMessage, SessionSnapshot, SessionStatus, StreamChunk, TokenUsage
+from ...schema import AgentReply, SessionMessage, SessionSnapshot, SessionStatus, SkillSpec, StreamChunk, TokenUsage
 from ...schema.agent_reply import AgentReplyStatus, collect_reply
 from ...utils.counter import global_counter_add_many
 from ...utils.files.workspace_files import WorkspaceFiles
+from ...utils.prompt import PromptHandler
+from ...utils.timezone_utils import resolve_timezone
 
 if TYPE_CHECKING:
     from ..job.base_job import BaseJob
-
-
-BUILTIN_SKILLS_ROOT = Path(__file__).resolve().parents[2] / "skills"
 
 
 class BaseAgentWrapper(BaseComponent):
@@ -60,6 +60,10 @@ class BaseAgentWrapper(BaseComponent):
         super().__init__(**kwargs)
         self._cwd = cwd
         self._project_path = project_path
+        language = self.app_context.app_config.language if self.app_context else ""
+        self.prompt = PromptHandler(language=language)
+        for cls in reversed(type(self).__mro__):
+            self.prompt.load_prompt_by_class(cls)
         self.outbound_proxy = self.bind(
             "default",
             BaseOutboundProxy,
@@ -89,14 +93,33 @@ class BaseAgentWrapper(BaseComponent):
         self.kwargs["system_prompt"] = prompt
         return self
 
+    def get_session_system_prompt(self, prompt: str) -> str | dict[str, Any]:
+        """Adapt a Runtime's role instructions to the backend's native prompt format."""
+        return prompt
+
+    def get_base_instructions(self) -> str:
+        """Render shared defaults and backend guidance separately from role instructions."""
+        timezone = self.app_context.app_config.timezone if self.app_context else None
+        now = datetime.now(resolve_timezone(timezone))
+        return "\n\n".join(
+            self.prompt.prompt_format(
+                key,
+                workspace_dir=self.workspace_path,
+                app_timezone=timezone or str(now.tzinfo),
+                now=now.isoformat(),
+            )
+            for key in ("base_instructions", "backend_instructions")
+            if self.prompt.has_prompt(key)
+        )
+
     def add_job_tools(self, job_tools: list[str]) -> "BaseAgentWrapper":
         """Append job names as tools to the agent. Returns self for chaining."""
         self.kwargs.setdefault("job_tools", []).extend(job_tools)
         return self
 
-    def add_skills(self, skills: list[str] | str) -> "BaseAgentWrapper":
-        """Set agent skill names. Returns self for chaining."""
-        self.kwargs["skills"] = skills
+    def set_skills(self, skills: list[SkillSpec | dict]) -> "BaseAgentWrapper":
+        """Set file references or generated skill definitions."""
+        self.kwargs["skills"] = [spec.model_dump(exclude_none=True) for spec in skill_specs(skills)]
         return self
 
     @property
@@ -119,66 +142,30 @@ class BaseAgentWrapper(BaseComponent):
         """Project-level skills directory shared by agent backends."""
         return self.project_path / "skills"
 
-    def _resolve_skill_sources(self, skills: list[str] | str | None) -> dict[str, Path]:
-        """Resolve named skills, falling back to the package when the project has no override."""
-        if skills is None:
-            return {}
-        if skills == "all":
-            if not self.project_skills_root.is_dir():
-                raise FileNotFoundError(f"Project skills directory not found: {self.project_skills_root}")
-            names = sorted(
-                path.name
-                for path in self.project_skills_root.iterdir()
-                if path.is_dir() and (path / "SKILL.md").is_file()
-            )
-        else:
-            names = [skills] if isinstance(skills, str) else list(skills)
-            names = list(dict.fromkeys(names))
-
-        sources: dict[str, Path] = {}
-        for name in names:
-            if not name or Path(name).name != name or name in {".", ".."}:
-                raise ValueError(f"Invalid skill name: {name!r}")
-            source = self.project_skills_root / name
-            builtin = BUILTIN_SKILLS_ROOT / name
-            if not (source / "SKILL.md").is_file() and (builtin / "SKILL.md").is_file():
-                source = builtin
-            if not source.is_dir():
-                raise FileNotFoundError(f"Skill directory not found: {source}")
-            if not (source / "SKILL.md").is_file():
-                raise FileNotFoundError(f"Skill '{name}' is missing SKILL.md: {source}")
-            sources[name] = source
-        return sources
-
-    def _publish_builtin_skill(self, owner: Path, directory: str, source: Path) -> None:
-        """Publish a regular skill file, updating only copies still owned by ReMe."""
-        files = WorkspaceFiles(owner)
-        root = files.workspace / directory
-        target = root / source.name
-        if root.resolve() != root or target.is_symlink() or (target.exists() and not target.is_dir()):
+    @asynccontextmanager
+    async def skill_scope(self, **kwargs):
+        """Prepare skills once for session creation, execution and follow-up calls."""
+        options = self._merged_kwargs(kwargs)
+        specs = skill_specs(options.get("skills", []))
+        prepared = {**kwargs, "skills": [spec.model_dump(exclude_none=True) for spec in specs]}
+        if (scope := options.get("_skills")) is not None:
+            if not isinstance(scope, SkillScope) or not scope.active or scope.specs != specs:
+                raise ValueError("Prepared skills must belong to the current run and match its definitions")
+            prepared["_skills"] = scope
+            yield prepared
             return
-        manifest = target / "SKILL.md"
-        receipt = target / ".reme-skill"
-        if manifest.is_symlink() or receipt.is_symlink():
-            return
-
-        content = (source / "SKILL.md").read_text(encoding="utf-8")
-        digest = sha256(content.encode("utf-8")).hexdigest()
-        if manifest.exists():
-            if not manifest.is_file() or not receipt.is_file():
-                return
-            current = files.read(manifest)
-            if current == content:
-                return
-            previous = sha256(current.encode("utf-8")).hexdigest()
-            if previous not in files.read(receipt).splitlines():
-                return
-            # A retry can recognize either version if publication stops after writing the receipt.
-            files.write(receipt, f"{previous}\n{digest}\n")
-            files.write(manifest, content)
-        else:
-            files.write(receipt, f"{digest}\n")
-            files.write(manifest, content, create_only=True)
+        metadata_dir = self.app_context.app_config.metadata_dir if self.app_context is not None else "metadata"
+        scope = SkillScope(
+            specs,
+            self.project_skills_root,
+            WorkspaceFiles(self.workspace_path).path(metadata_dir) / "agent_skills",
+        )
+        prepared["_skills"] = scope
+        try:
+            scope.prepare()
+            yield prepared
+        finally:
+            scope.close()
 
     @property
     def subprocess_environment(self) -> dict[str, str]:
@@ -336,6 +323,11 @@ class BaseAgentWrapper(BaseComponent):
         raise NotImplementedError(f"{type(self).__name__} does not support session compaction")
 
     async def create_session(self, **kwargs) -> str:
+        """Create a session while keeping its configured skills available."""
+        async with self.skill_scope(**kwargs) as options:
+            return await self._create_session(**options)
+
+    async def _create_session(self, **kwargs) -> str:
         """Create a resumable session without generating a reply.
 
         With resume and fork_session=True, capture source context in an independent
@@ -403,6 +395,13 @@ class BaseAgentWrapper(BaseComponent):
         raise NotImplementedError(f"{type(self).__name__} does not support session appending")
 
     async def reply_stream(self, inputs: Any, **kwargs) -> AsyncGenerator[StreamChunk, None]:
-        """Stream agent events as unified StreamChunk objects."""
+        """Keep generated skills alive until the backend stream has closed."""
+        async with self.skill_scope(**kwargs) as options:
+            async with aclosing(self._reply_stream(inputs, **options)) as stream:
+                async for chunk in stream:
+                    yield chunk
+
+    async def _reply_stream(self, inputs: Any, **kwargs) -> AsyncGenerator[StreamChunk, None]:
+        """Implement one backend execution using the prepared skill scope."""
         raise NotImplementedError
         yield  # pylint: disable=unreachable

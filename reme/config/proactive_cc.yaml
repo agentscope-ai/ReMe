@@ -1,4 +1,4 @@
-# Start with CC_LLM_API_KEY and CC_LLM_BASE_URL. REME_MODEL_NAME is shared with proactive.
+# Start with LLM_API_KEY, LLM_BASE_URL and optionally REME_MODEL_NAME, as with proactive.
 # reme start config=proactive_cc
 extends: proactive
 
@@ -6,12 +6,17 @@ components:
   anthropic_relay:
     default:
       backend: bailian
-      base_url: ${CC_LLM_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
+      base_url: ${LLM_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
 
   agent_wrapper:
     default:
       backend: claude_code
-      api_key: ${CC_LLM_API_KEY:-}
+      # Keep Claude Code's native instructions and append each Runtime's role prompt.
+      system_prompt:
+        type: preset
+        preset: claude_code
+        snapshot: false
+      api_key: ${LLM_API_KEY:-}
       anthropic_relay: default
       permission_mode: bypassPermissions
       settings: '{"permissions":{"blockWritesOutsideWorkingDirectories":true}}'

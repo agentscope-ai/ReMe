@@ -28,6 +28,9 @@ class AgentView(ProactiveRuntimeSettings):
     last_started_at: str | None = None
     last_completed_at: str | None = None
     next_trigger_at: str | None = None
+    retry_at: str | None = None
+    waiting_reason: str | None = None
+    waiting_until: str | None = None
     error: str | None = None
 
 

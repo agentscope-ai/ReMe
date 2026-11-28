@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
+import { useNavigationBlocker, useNavigationState } from "../navigation.tsx";
 import {
   Archive,
   ArrowRight,
@@ -55,16 +56,28 @@ export default function Notebook({
   const t = translator(language);
   const active = state.activePage === "notebook";
   const connected = state.connection === "connected";
-  const [kind, setKind] = useState<NotebookKind>("todo");
-  const [scope, setScope] = useState<"active" | "archive">("active");
-  const [order, setOrder] = useState<"due" | "created">("due");
-  const [query, setQuery] = useState("");
-  const [project, setProject] = useState("");
+  const [kind, setKind] = useNavigationState<NotebookKind>(
+    "notebook",
+    "kind",
+    "todo",
+  );
+  const [scope, setScope] = useNavigationState<"active" | "archive">(
+    "notebook",
+    "scope",
+    "active",
+  );
+  const [order, setOrder] = useNavigationState<"due" | "created">(
+    "notebook",
+    "order",
+    "due",
+  );
+  const [query, setQuery] = useNavigationState("notebook", "query", "");
+  const [project, setProject] = useNavigationState("notebook", "project", "");
   const [queryDraft, setQueryDraft] = useState("");
-  const [offset, setOffset] = useState(0);
-  const [selection, setSelection] = useState<
+  const [offset, setOffset] = useNavigationState("notebook", "offset", 0);
+  const [selection, setSelection] = useNavigationState<
     Partial<Record<NotebookKind, string>>
-  >({});
+  >("notebook", "selection", {});
   const [details, setDetails] = useState<
     Partial<Record<NotebookKind, NotebookItem>>
   >({});
@@ -78,13 +91,10 @@ export default function Notebook({
   const [closeNote, setCloseNote] = useState("");
   const closeDialog = useRef<HTMLDialogElement>(null);
   const closeTitleId = useId();
-  const missing = ["todo", "idea"].find(
-    (name) => !state.clientInfo?.jobs.includes(name),
-  );
-  const available = Boolean(state.clientInfo && !missing);
+  const available = Boolean(state.clientInfo?.jobs.includes("manage_notebook"));
   const capabilityError =
-    state.clientInfo && missing
-      ? new UiError("missingJob", { job: missing })
+    state.clientInfo && !available
+      ? new UiError("missingJob", { job: "manage_notebook" })
       : null;
   const [detailError, setDetailError] = useState<unknown>(null);
   const [actionError, setActionError] = useState<unknown>(null);
@@ -98,6 +108,8 @@ export default function Notebook({
   const selected = selection[kind] ?? "";
   const editor = editors[kind];
   const editing = Boolean(editor);
+  useNavigationBlocker("notebook", active && (editing || saving));
+  useEffect(() => setQueryDraft(query), [query]);
   const item = details[kind]?.id === selected ? details[kind] : undefined;
   const latest = useRef({ kind, selected, selection });
   latest.current = { kind, selected, selection };
@@ -503,6 +515,7 @@ export default function Notebook({
         )}
         <TimelinePane
           name="notebook-timeline"
+          variant={kind}
           language={language}
           listKey={JSON.stringify(listRequest)}
           detailKey={editor ? `edit:${kind}:${selected}` : selected}

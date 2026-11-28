@@ -4,9 +4,18 @@ import type { AgentSnapshot } from "../src/wire.ts";
 export const contract = {
   "agent": {
     "enabled": true,
-    "cron": null,
+    "schedule": null,
     "min_trigger_interval_seconds": 0.0,
-    "notify_window": null,
+    "notify_windows": [
+      {
+        "start": "09:00",
+        "end": "12:00"
+      },
+      {
+        "start": "14:00",
+        "end": "23:00"
+      }
+    ],
     "agent_name": "Remy",
     "agent_type": "chat",
     "status": "idle",
@@ -19,6 +28,9 @@ export const contract = {
     "last_started_at": null,
     "last_completed_at": null,
     "next_trigger_at": null,
+    "retry_at": null,
+    "waiting_reason": null,
+    "waiting_until": null,
     "error": null
   },
   "messages": [

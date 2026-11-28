@@ -11,11 +11,11 @@ import pytest
 
 from reme.components.file_catalog import LocalFileCatalog
 from reme.components.job import cron_job
-from reme.components.proactive_manager import LocalProactiveManager
+from reme.components.proactive import ChatAgentRuntime
 from reme.core.context import ApplicationContext, RuntimeContext
 from reme.steps.evolve import _evolve
 from reme.steps.evolve.auto_memory import AutoMemoryStep
-from reme.steps.proactive.data_connectors import CodexDialogueStep, ScreenCaptureStep
+from reme.steps.proactive.connector import CodexDialogueStep, ScreenCaptureStep
 from reme.utils import timezone_utils
 
 
@@ -38,10 +38,10 @@ def test_midnight_schedule_and_calendar_dates_share_rules(tmp_path, monkeypatch,
 
     monkeypatch.setattr(cron_job, "datetime", SimpleNamespace(datetime=FixedDatetime))
     for module in (
-        "reme.components.proactive_manager.local_proactive_manager",
+        "reme.components.proactive.runtime.base",
         "reme.components.file_catalog.base_file_catalog",
-        "reme.steps.proactive.data_connectors.base_connector",
-        "reme.steps.proactive.data_connectors.codex_dialogue",
+        "reme.steps.proactive.connector.base",
+        "reme.steps.proactive.connector.harness.base",
     ):
         monkeypatch.setattr(f"{module}.datetime", FixedDatetime)
     monkeypatch.setattr(_evolve, "datetime", SimpleNamespace(datetime=FixedDatetime))
@@ -54,15 +54,15 @@ def test_midnight_schedule_and_calendar_dates_share_rules(tmp_path, monkeypatch,
     assert instant[0].astimezone(native_rules).date() < midnight.date()
 
     if consumer == "dialogue":
-        day = CodexDialogueStep(app_context=context)._now().date()
+        day = CodexDialogueStep(connector_job="codex_dialogue_cron", app_context=context)._now().date()
     elif consumer == "resource":
-        step = ScreenCaptureStep(app_context=context)
+        step = ScreenCaptureStep(connector_job="screen_capture_cron", app_context=context)
         step.context = RuntimeContext()
         target, captured_at = step.resource_target()
         day = captured_at.date()
         assert target.parent.name == midnight.date().isoformat()
     elif consumer == "runtime":
-        day = LocalProactiveManager(app_context=context).now().date()
+        day = ChatAgentRuntime(name="Remy", app_context=context).now().date()
     elif consumer == "daily":
         day = _evolve.now(configured_timezone).date()
     elif consumer == "retention":

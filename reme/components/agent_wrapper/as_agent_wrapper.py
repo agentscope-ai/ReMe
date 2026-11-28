@@ -283,10 +283,6 @@ class AsAgentWrapper(BaseAgentWrapper):
             )
         self._session_cleanup_done = True
 
-    def _resolve_skills(self, skills: list[str] | str | None) -> list[str]:
-        """Resolve configured skill names to AgentScope local skill directories."""
-        return [str(path) for path in self._resolve_skill_sources(skills).values()]
-
     def _create_agent(self, *, options: dict[str, Any], **kwargs: Any) -> Agent:
         """Construct the SDK agent while subclasses reuse ReMe's tool and session wiring."""
         del options
@@ -303,7 +299,7 @@ class AsAgentWrapper(BaseAgentWrapper):
         system_prompt = kwargs.get("system_prompt") or ""
         job_tools: list[str] = kwargs.get("job_tools", [])
         resolved_jobs = self._resolve_job_tools(job_tools)
-        skills = self._resolve_skills(kwargs.get("skills"))
+        skills = kwargs["_skills"].directories if "_skills" in kwargs else []
         tool_context_id = kwargs.get("tool_context_id")
         sequential_tool_calls = bool(kwargs.get("sequential_tool_calls", True))
         builtin_tools = kwargs.get("builtin_tools", [])
@@ -404,7 +400,7 @@ class AsAgentWrapper(BaseAgentWrapper):
             raw=raw,
         )
 
-    async def create_session(self, **kwargs) -> str:
+    async def _create_session(self, **kwargs) -> str:
         """Persist a fresh state or independent live snapshot without calling a model."""
         kwargs = self._sessions.options(self._merged_kwargs(kwargs))
         options = {key: kwargs[key] for key in ("session_id", "resume", "fork_session") if key in kwargs}
@@ -464,11 +460,14 @@ class AsAgentWrapper(BaseAgentWrapper):
     async def compact_session(self, session_id: str) -> None:
         """Force compression of an AgentScope session."""
         kwargs = self._sessions.options(self._merged_kwargs({"resume": session_id}))
-        async with self._sessions.open(
-            kwargs,
-            PermissionMode(kwargs.get("permission_mode", "bypass")),
-            active=True,
-        ) as session:
+        async with (
+            self.skill_scope(**kwargs) as kwargs,
+            self._sessions.open(
+                kwargs,
+                PermissionMode(kwargs.get("permission_mode", "bypass")),
+                active=True,
+            ) as session,
+        ):
             agent, _ = await self._build_agent(None, state=session.state, **kwargs)
             config = {**(kwargs.get("context_config") or {}), "trigger_ratio": 1e-9}
             try:
@@ -555,7 +554,7 @@ class AsAgentWrapper(BaseAgentWrapper):
             status="waiting" if approval else None,
         )
 
-    async def reply_stream(self, inputs: Any, **kwargs) -> AsyncGenerator[StreamChunk, None]:
+    async def _reply_stream(self, inputs: Any, **kwargs) -> AsyncGenerator[StreamChunk, None]:
         """Execute once, streaming native events followed by the complete outcome."""
         kwargs = self._sessions.options(self._merged_kwargs(kwargs))
         async with self._sessions.open(

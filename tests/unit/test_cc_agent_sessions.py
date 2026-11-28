@@ -15,6 +15,7 @@ from claude_agent_sdk import project_key_for_directory
 from reme.components.agent_wrapper.cc_agent_wrapper import CcAgentWrapper
 from reme.components.agent_wrapper.cc_session_store import CcFileSessionStore
 from reme.components.agent_wrapper.cc_sessions import native_id
+from reme.components.proactive import ChatAgentRuntime
 from reme.core.context import ApplicationContext
 
 # pylint: disable=protected-access,redefined-outer-name
@@ -73,11 +74,61 @@ async def test_create_empty_native_session_is_hidden_resumable_and_idle(wrapper)
     assert snapshot.messages == [] and snapshot.last_turn_id is None
     assert snapshot.state.status == "idle"
     options, frames = wrapper._inject.call_args.args
+    assert options.system_prompt == {"type": "preset", "preset": "claude_code", "snapshot": False}
     assert options.resume is None and options.session_id == session_id
     assert frames[0]["uuid"] == native_id(session_id, "seed")
     assert frames[0]["shouldQuery"] is False
     await wrapper.release_session(session_id)
     assert await wrapper.session_exists(session_id)
+
+
+@pytest.mark.parametrize("language", ["en", "zh"])
+@pytest.mark.asyncio
+async def test_chat_role_reaches_creation_resume_and_read_only_fork(wrapper, monkeypatch, language):
+    """Native sessions receive the same preset and the current appended role on every path."""
+    wrapper.app_context.app_config.language = language
+    chat = ChatAgentRuntime(name="Remy", app_context=wrapper.app_context, agent_wrapper=wrapper)
+    observed = []
+
+    async def query(prompt, options):
+        observed.append(options)
+        write_entries(wrapper, options, [frame async for frame in prompt])
+        yield ResultMessage(
+            subtype="success",
+            duration_ms=1,
+            duration_api_ms=1,
+            is_error=False,
+            num_turns=1,
+            session_id=options.session_id or options.resume,
+            result="Done",
+        )
+
+    monkeypatch.setattr(CcAgentWrapper, "_stream_messages", staticmethod(query))
+    async with chat:
+        binding = chat.session_options()
+        session_id = await chat.ensure_session(binding)
+        assert wrapper._inject.call_args.args[0].system_prompt == binding["system_prompt"]
+        await wrapper.reply("Continue", resume=session_id, **binding)
+        await wrapper.reply(
+            "Assess notifications",
+            resume=session_id,
+            fork_session=True,
+            sandbox="read-only",
+            system_prompt=chat.session_options()["system_prompt"],
+        )
+        assert len(observed) == 2
+        assert all(options.system_prompt == binding["system_prompt"] for options in observed)
+        assert observed[0].resume == observed[1].resume == session_id
+        assert not observed[0].fork_session and observed[1].fork_session
+
+        chat.prompt.load_prompt_dict({"system_prompt": "Updated role.", "system_prompt_zh": "更新后的角色。"})
+        updated = chat.session_options()
+        assert await chat.ensure_session(updated) != session_id
+        options = wrapper._inject.call_args.args[0]
+        assert options.resume == session_id and options.fork_session
+        assert options.system_prompt == updated["system_prompt"]
+        assert options.system_prompt["append"] != binding["system_prompt"]["append"]
+        assert options.system_prompt["snapshot"] is False
 
 
 @pytest.mark.asyncio

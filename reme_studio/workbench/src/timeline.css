@@ -1,6 +1,7 @@
 .timeline-pane {
   --timeline-tone: var(--notebook-tone, var(--unread));
-  --timeline-tint: var(--notebook-tint, var(--unread-soft));
+  --timeline-tint: color-mix(in srgb, var(--timeline-tone) 10%, var(--surface));
+  --timeline-glow: var(--timeline-tone);
   --timeline-inset: clamp(16px, 4cqi, 44px);
   display: flex;
   flex: 1;
@@ -8,6 +9,52 @@
   min-width: 0;
   min-height: 0;
   container: timeline / inline-size;
+}
+.timeline-pane[data-variant="todo"] {
+  --timeline-glow: light-dark(#8da575, #a4b48e);
+}
+.timeline-pane[data-variant="idea"] {
+  --timeline-glow: light-dark(#ba985e, #c6a16e);
+}
+.timeline-pane[data-variant="inbox"] {
+  --timeline-tone: light-dark(#456b93, #a3c3e4);
+  --timeline-glow: light-dark(#8d9fc7, #a6b3d4);
+}
+.timeline-pane[data-variant="outbox"] {
+  --timeline-tone: light-dark(#36776d, #9bd2c6);
+  --timeline-glow: light-dark(#78b2a6, #a0c9be);
+}
+.timeline-pane[data-variant="reminders"] {
+  --timeline-tone: light-dark(#78618a, #c8b5df);
+  --timeline-glow: light-dark(#ba9ab2, #c7a9c0);
+}
+/* Category colors fade into the reading surface across both columns. */
+.timeline-pane[data-variant] .timeline-list-pane {
+  background:
+    radial-gradient(
+      ellipse 120% 420px at top left,
+      color-mix(in srgb, var(--timeline-glow) 12%, transparent),
+      transparent 75%
+    ),
+    linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--timeline-tone) 6%, var(--page)),
+      var(--page) 480px
+    );
+}
+.timeline-pane[data-variant] .timeline-detail-pane {
+  background:
+    radial-gradient(
+      ellipse 110% 360px at top right,
+      color-mix(in srgb, var(--timeline-glow) 12%, transparent),
+      transparent 72%
+    ),
+    linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--timeline-tone) 8%, var(--page)),
+      color-mix(in srgb, var(--timeline-tone) 3%, var(--page)) 240px,
+      var(--page) 560px
+    );
 }
 .timeline-heading {
   width: min(100%, 1050px);
@@ -241,11 +288,15 @@
 }
 .timeline-card:hover {
   border-color: color-mix(in srgb, var(--timeline-tone) 28%, var(--line));
-  background: color-mix(in srgb, var(--timeline-tint) 16%, var(--surface));
+  background: color-mix(in srgb, var(--timeline-tone) 3%, var(--surface));
 }
 .timeline-card[data-selected="true"] {
-  border-color: color-mix(in srgb, var(--timeline-tone) 55%, var(--line));
-  background: color-mix(in srgb, var(--timeline-tint) 35%, var(--surface));
+  border-color: color-mix(in srgb, var(--timeline-tone) 45%, var(--line));
+  background: linear-gradient(
+    120deg,
+    color-mix(in srgb, var(--timeline-tone) 9%, var(--surface)),
+    color-mix(in srgb, var(--timeline-tone) 3%, var(--surface))
+  );
 }
 .timeline-card[data-unread="true"] .timeline-card-title {
   color: var(--unread);
@@ -303,6 +354,24 @@
 .timeline-chevron {
   color: var(--muted);
   font-size: var(--text-caption);
+}
+.resource-sender {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font-size: var(--text-body);
+  font-weight: var(--weight-strong);
+  line-height: 1.5;
+}
+.timeline-card:has(.resource-sender) .timeline-card-text {
+  gap: 5px;
+}
+.timeline-card:has(.resource-sender) .timeline-card-title {
+  color: color-mix(in srgb, var(--ink) 80%, var(--muted));
+  font-size: var(--text-ui);
+  line-height: 1.65;
 }
 .timeline-card-leading {
   display: grid;

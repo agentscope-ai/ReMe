@@ -1,3 +1,11 @@
+.backend-settings {
+  display: grid;
+  gap: 22px;
+  min-width: 0;
+}
+.backend-settings .backend-section[hidden] {
+  display: none;
+}
 .backend-settings form {
   display: grid;
   gap: 22px;
@@ -35,7 +43,8 @@
   font-weight: normal;
   color: var(--muted);
 }
-.backend-settings input,
+.backend-settings .backend-field input,
+.backend-settings .setting-endpoint input,
 .backend-settings .backend-field select,
 .backend-connection input {
   width: 100%;
@@ -65,53 +74,6 @@
 .backend-settings p {
   margin: 0;
 }
-.backend-advanced {
-  border-top: 1px solid var(--line);
-  padding-top: 14px;
-}
-.backend-section .backend-advanced summary {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  list-style: none;
-  cursor: pointer;
-  color: var(--muted);
-  font-size: var(--text-caption);
-}
-.backend-advanced summary::-webkit-details-marker {
-  display: none;
-}
-.backend-advanced summary svg {
-  transition: transform 120ms ease;
-}
-.backend-advanced[open] summary svg {
-  transform: rotate(180deg);
-}
-.backend-section details[open] summary {
-  margin-bottom: 16px;
-}
-.backend-toggles {
-  display: grid;
-  padding: 0 14px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-}
-.backend-toggle-row {
-  display: flex;
-  min-height: 54px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  padding: 10px 0;
-}
-.backend-toggle-row + .backend-toggle-row {
-  border-top: 1px solid var(--line);
-}
-.backend-settings .backend-reset {
-  justify-self: start;
-  padding: 0;
-  font-size: var(--text-caption);
-}
 .backend-confirm {
   max-width: min(520px, calc(100vw - 32px));
   padding: 26px;
@@ -126,32 +88,6 @@
 .backend-confirm p {
   margin: 12px 0 24px;
   color: var(--muted);
-}
-.backend-setup {
-  position: fixed;
-  inset: 0;
-  z-index: 1200;
-  overflow: auto;
-  background: var(--surface);
-  color: var(--ink);
-}
-.backend-setup-inner {
-  width: min(100%, 660px);
-  margin: 0 auto;
-  padding: max(48px, env(safe-area-inset-top)) 24px
-    max(40px, env(safe-area-inset-bottom));
-}
-.backend-brand {
-  display: block;
-  margin-bottom: 32px;
-  font-weight: var(--weight-medium);
-}
-.backend-setup h1 {
-  margin: 0 0 12px;
-  font-size: 27px;
-}
-.backend-setup .page-description {
-  margin-bottom: 28px;
 }
 .backend-connection {
   margin-top: 24px;
@@ -172,9 +108,5 @@
 @media (max-width: 640px) {
   .backend-settings .backend-section {
     padding: 16px;
-  }
-  .backend-setup-inner {
-    padding-left: 18px;
-    padding-right: 18px;
   }
 }

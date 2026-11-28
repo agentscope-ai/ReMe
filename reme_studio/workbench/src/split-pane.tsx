@@ -1,6 +1,7 @@
 import { useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import { createPortal } from "react-dom";
+import { X } from "lucide-react";
 import { translator, type Language } from "../../client/src/i18n.ts";
+import { useMobileContentMotion } from "./mobile/motion.ts";
 import WorkspaceTitlebar, {
   WorkspaceLayout,
   type Breadcrumb,
@@ -11,15 +12,17 @@ export function SidebarHeading({
   title,
   children,
 }: {
-  eyebrow: string;
+  eyebrow?: string;
   title: string;
   children?: ReactNode;
 }) {
   return (
     <header className="module-sidebar-heading">
-      <span className="eyebrow" aria-hidden>
-        {eyebrow}
-      </span>
+      {eyebrow && (
+        <span className="eyebrow" aria-hidden>
+          {eyebrow}
+        </span>
+      )}
       <div className="module-sidebar-title">
         <h2>{title}</h2>
         {children}
@@ -42,6 +45,10 @@ export default function SplitPane({
   className = "",
   resizeLabel,
   path,
+  actions,
+  mobileView = "content",
+  mobileNavigation,
+  contentKey,
 }: {
   name: string;
   sidebar: ReactNode;
@@ -56,11 +63,25 @@ export default function SplitPane({
   className?: string;
   resizeLabel?: string;
   path?: readonly Breadcrumb[];
+  actions?: ReactNode;
+  mobileView?: "navigation" | "content";
+  mobileNavigation?: ReactNode;
+  contentKey?: string;
 }) {
   const layout = useContext(WorkspaceLayout);
   const hasTitlebar = Boolean(layout && path);
+  const mobile = Boolean(hasTitlebar && layout?.mobile);
+  const inlineNavigation = mobile && mobileView === "navigation";
+  const menu = useRef<HTMLDialogElement>(null);
   const sidebarId = `sidebar-${name}`;
   const root = useRef<HTMLDivElement>(null);
+  const main = useRef<HTMLDivElement>(null);
+  const sidebarRoot = useRef<HTMLElement>(null);
+  useMobileContentMotion(
+    inlineNavigation ? sidebarRoot : main,
+    contentKey ?? JSON.stringify(path?.map((item) => item.label) ?? []),
+    mobile,
+  );
   const [available, setAvailable] = useState<number>();
   const storageKey =
     defaultRatio === undefined ? `split:${name}` : `split:${name}:ratio`;
@@ -78,12 +99,19 @@ export default function SplitPane({
     }
   });
   useEffect(() => {
+    if (mobile) return;
     const observer = new ResizeObserver(([entry]) =>
       setAvailable(entry.contentRect.width),
     );
     observer.observe(root.current!);
     return () => observer.disconnect();
-  }, []);
+  }, [mobile]);
+  useEffect(() => {
+    const dialog = menu.current;
+    if (!dialog) return;
+    if (!collapsed && !dialog.open) dialog.showModal();
+    else if (collapsed && dialog.open) dialog.close();
+  }, [collapsed, mobile, inlineNavigation]);
   const availableWidth =
     available || (defaultRatio ? defaultWidth / defaultRatio : Infinity);
   const maximum = Math.max(
@@ -108,10 +136,11 @@ export default function SplitPane({
   };
   const panel = (
     <aside
+      ref={sidebarRoot}
       id={sidebarId}
       className="workspace-sidebar"
-      hidden={collapsed}
-      inert={collapsed}
+      hidden={!mobile && collapsed}
+      inert={!mobile && collapsed}
       tabIndex={hasTitlebar ? -1 : undefined}
     >
       {sidebar}
@@ -121,6 +150,7 @@ export default function SplitPane({
     <div
       ref={root}
       data-resizing={resizing || undefined}
+      data-mobile-view={mobile ? mobileView : undefined}
       className={`split-pane ${hasTitlebar ? "workspace-split" : ""} ${className}`}
       style={{ "--sidebar-width": `${width}px` } as React.CSSProperties}
     >
@@ -128,18 +158,44 @@ export default function SplitPane({
         <WorkspaceTitlebar
           {...layout}
           path={path}
-          sidebar={sidebarId}
+          sidebar={inlineNavigation || sidebar == null ? undefined : sidebarId}
           collapsed={collapsed}
-        />
+        >
+          {actions}
+        </WorkspaceTitlebar>
       )}
-      {hasTitlebar && layout?.mobileSidebar
-        ? createPortal(panel, layout.mobileSidebar)
-        : panel}
+      {mobile && mobileNavigation}
+      {mobile && !inlineNavigation ? (
+        <dialog
+          ref={menu}
+          className="mobile-page-menu"
+          aria-label={path?.[0]?.label}
+          onClose={() => layout?.setSidebarCollapsed(true)}
+          onClick={(event) => {
+            if (event.target === event.currentTarget) menu.current?.close();
+          }}
+        >
+          <div className="mobile-page-menu-content">
+            <header className="mobile-page-menu-heading">
+              <h2>{path?.[0]?.label}</h2>
+              <button
+                type="button"
+                className="icon-button"
+                aria-label={translator(language)("hideSidebar")}
+                onClick={() => menu.current?.close()}
+              >
+                <X size={20} aria-hidden />
+              </button>
+            </header>
+            {panel}
+          </div>
+        </dialog>
+      ) : (
+        panel
+      )}
       <div
         className="split-handle"
-        hidden={
-          collapsed || (hasTitlebar && layout?.openNavigation !== undefined)
-        }
+        hidden={collapsed || mobile}
         role="separator"
         aria-orientation="vertical"
         aria-label={resizeLabel ?? translator(language)("resizeSidebar")}
@@ -179,7 +235,14 @@ export default function SplitPane({
           }
         }}
       />
-      <div className="workspace-main">{children}</div>
+      <div
+        className="workspace-main"
+        ref={main}
+        hidden={inlineNavigation}
+        inert={inlineNavigation}
+      >
+        {children}
+      </div>
     </div>
   );
 }

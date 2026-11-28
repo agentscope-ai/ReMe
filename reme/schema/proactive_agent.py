@@ -16,43 +16,27 @@ from pydantic import (
 
 from ..constants import CHAT_AGENT_NAME
 from .agent_message import ClientModel
-from .event import Event
-from .proactive_runtime import AgentName, AgentReminder, InboxPriority, validate_agent_name
+from .agent_skill import SkillName
+from .proactive_runtime import (
+    AgentName,
+    AgentReminder,
+    AgentRuntimeBinding,
+    InboxPriority,
+    validate_agent_name,
+    validate_binding_names,
+)
 
-CRON_EVENT_SOURCE = "cron"
+TIME_EVENT_SOURCE = "time"
 
 
-def validate_task_names(names):
+def validate_runtime_names(names, *, allow_empty=False):
     """Validate recipient identities and preserve their configured order."""
-    if not isinstance(names, list) or not names:
-        raise ValueError("task_names must be a nonempty list")
+    if not isinstance(names, list) or not names and not allow_empty:
+        raise ValueError("runtime_names must be a list" if allow_empty else "runtime_names must be a nonempty list")
     targets = [validate_agent_name(name) for name in names]
     if len({name.casefold() for name in targets}) != len(targets):
-        raise ValueError("task_names must be unique")
+        raise ValueError("runtime_names must be unique")
     return targets
-
-
-class AppendTaskEventsRequest(BaseModel):
-    """Append a nonempty batch of observations to existing background tasks."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    task_names: list[AgentName] = Field(min_length=1)
-    events: list[Event] = Field(min_length=1)
-
-    @field_validator("task_names")
-    @classmethod
-    def validate_targets(cls, names):
-        """Require one or more distinct recipients."""
-        return validate_task_names(names)
-
-    @field_validator("events")
-    @classmethod
-    def validate_sources(cls, events):
-        """Keep scheduled triggers private to the runtime."""
-        if any(event.source == CRON_EVENT_SOURCE for event in events):
-            raise ValueError("cron is a reserved framework source")
-        return events
 
 
 class NotificationWindow(BaseModel):
@@ -73,15 +57,24 @@ class NotificationWindow(BaseModel):
         return current >= self.start or current < self.end
 
 
+def default_notification_windows() -> list[NotificationWindow]:
+    """Give each task its own morning and afternoon reminder periods."""
+    return [NotificationWindow(start="09:00", end="12:00"), NotificationWindow(start="14:00", end="23:00")]
+
+
 class ProactiveRuntimeSettings(ClientModel):
     """One set of editable settings shared by task definitions and client views."""
 
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     enabled: StrictBool = True
-    cron: str | None = None
+    schedule: str | None = None
     min_trigger_interval_seconds: float = Field(default=0, ge=0)
-    notify_window: NotificationWindow | None = None
+    notify_windows: list[NotificationWindow] = Field(default_factory=default_notification_windows)
+
+    def allows_notifications(self, now: datetime) -> bool:
+        """An empty list is unrestricted; otherwise any matching period permits delivery."""
+        return not self.notify_windows or any(window.allows(now) for window in self.notify_windows)
 
     @field_validator("min_trigger_interval_seconds", mode="before")
     @classmethod
@@ -91,24 +84,38 @@ class ProactiveRuntimeSettings(ClientModel):
             raise ValueError("min_trigger_interval_seconds must be a number")
         return value
 
-    @field_validator("cron")
+    @field_validator("schedule")
     @classmethod
-    def validate_cron(cls, expression):
+    def validate_schedule(cls, expression):
         """Validate the optional schedule independently of observation processing."""
         if expression is not None:
             from croniter import croniter
 
             if not expression or not croniter.is_valid(expression):
-                raise ValueError("cron must be a valid expression")
+                raise ValueError("schedule must be a valid expression")
         return expression
 
 
-class ProactiveRuntimeConfig(ProactiveRuntimeSettings):
+class ProactiveRuntimeDefaults(AgentRuntimeBinding):
+    """Defaults shared by preset and dynamically created background Runtimes."""
+
+    skills: list[SkillName] = Field(default_factory=lambda: ["proactive-record"])
+    max_batch_events: int = Field(default=20, ge=1, strict=True)
+    max_local_search_calls: int = Field(default=10, ge=1, strict=True)
+    recent_history_hours: int = Field(default=24, ge=1, strict=True)
+
+
+class ProactiveRuntimeConfig(ProactiveRuntimeDefaults, ProactiveRuntimeSettings):
     """A named task with internal batching limits; requirements live in TASK.md."""
 
     agent_name: AgentName
-    max_batch_events: int = Field(default=20, ge=1, strict=True)
-    step_backend: Literal["proactive_agent_step", "proactive_notebook_step"] = "proactive_agent_step"
+    agent_type: Literal["event", "time"]
+
+    def wiring(self):
+        """Separate immutable identity and session bindings from editable settings."""
+        return self.model_dump(
+            include=ProactiveRuntimeConfig.model_fields.keys() - ProactiveRuntimeSettings.model_fields.keys(),
+        )
 
     @field_validator("agent_name")
     @classmethod
@@ -119,23 +126,25 @@ class ProactiveRuntimeConfig(ProactiveRuntimeSettings):
         return value
 
     @model_validator(mode="after")
-    def validate_notebook_trigger(self):
-        """Run the Notebook step only on observed events."""
-        if self.step_backend == "proactive_notebook_step" and self.cron is not None:
-            raise ValueError("Notebook runs only on events and cannot have a cron schedule")
+    def validate_trigger(self):
+        """The explicit type owns scheduling and event admission policy."""
+        if self.agent_type == "time" and self.schedule is None:
+            raise ValueError("Time-triggered tasks require a schedule")
+        if self.agent_type == "event" and self.schedule is not None:
+            raise ValueError("Event-triggered tasks cannot have a schedule")
         return self
 
 
 class CreateProactiveRuntimeConfig(ProactiveRuntimeConfig):
     """Accept initial task text only when creating an Agent."""
 
-    task_description: str = Field(min_length=1, max_length=100000)
+    task_description: str | None = Field(default=None, min_length=1, max_length=100000)
 
     @field_validator("task_description")
     @classmethod
     def nonblank_task_description(cls, value: str) -> str:
         """Reject blank task descriptions and preserve the original Markdown."""
-        if not value.strip():
+        if value is not None and not value.strip():
             raise ValueError("task_description must not be blank")
         return value
 
@@ -179,15 +188,20 @@ class ProactiveRecordDecision(BaseModel):
         return AgentReminder(priority=self.reminder_priority, message=self.reminder_message, id=path)
 
 
-class ManageProactiveAgentRequest(ProactiveRuntimeSettings):
+class ManageProactiveRuntimeRequest(ProactiveRuntimeSettings):
     """Named task operations expose only the fields relevant to each action."""
 
     model_config = ConfigDict(extra="forbid")
 
     action: Literal["list", "create", "status", "update", "delete", "query"]
     agent_name: AgentName | None = None
+    agent_type: Literal["event", "time"] | None = None
+    skills: list[SkillName] | None = None
+    job_tools: list[str] | None = None
     task_description: str | None = Field(default=None, min_length=1, max_length=100000)
     question: str | None = Field(default=None, min_length=1, max_length=100000)
+
+    _valid_names = field_validator("skills", "job_tools", mode="before")(validate_binding_names)
 
     @field_validator("task_description", "question")
     @classmethod
@@ -200,12 +214,12 @@ class ManageProactiveAgentRequest(ProactiveRuntimeSettings):
     @model_validator(mode="after")
     def action_arguments(self):
         """Reject unused fields instead of silently ignoring misspecified calls."""
-        settings = {"enabled", "cron", "min_trigger_interval_seconds", "notify_window"}
+        settings = {"enabled", "schedule", "min_trigger_interval_seconds", "notify_windows"}
         required, allowed = {
             "list": (set(), set()),
             "create": (
-                {"agent_name", "task_description"},
-                settings | {"agent_name", "task_description"},
+                {"agent_name", "agent_type"},
+                settings | {"agent_name", "agent_type", "task_description", "skills", "job_tools"},
             ),
             "status": ({"agent_name"}, {"agent_name"}),
             "update": ({"agent_name"}, settings | {"agent_name"}),

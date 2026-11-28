@@ -68,10 +68,22 @@ jobs:
           cd "${RUNNER_TEMP}"
           "${RUNNER_TEMP}/reme-package-smoke/bin/python" -I - <<'PY'
           from importlib.resources import files
+          import yaml
 
-          for name in ("manage-proactive-agent", "manage-todos-ideas"):
-              skill = files("reme").joinpath("skills", name, "SKILL.md")
-              assert f"name: {name}" in skill.read_text(encoding="utf-8")
+          root = files("reme.components.proactive.runtime")
+          for name in ("manage_proactive_runtime", "manage_connector", "manage_notebook", "proactive_record"):
+              skill = yaml.safe_load(root.joinpath("skills", name + ".yaml").read_text(encoding="utf-8"))
+              assert skill["name"] == name.replace("_", "-")
+              assert skill["description"] and skill["content"] and skill["content_zh"]
+          for package, names in (
+              ("reme.components.agent_wrapper", ("base_agent_wrapper", "codex_agent_wrapper")),
+              ("reme.components.proactive.runtime", ("chat", "proactive")),
+              ("reme.steps.proactive", ("agent",)),
+              ("reme.steps.proactive.chat", ("notifications",)),
+              ("reme.steps.proactive.connector.harness", ("base", "codex_dialogue", "claude_code_dialogue")),
+          ):
+              for name in names:
+                  assert yaml.safe_load(files(package).joinpath(name + ".yaml").read_text(encoding="utf-8"))
           PY
 
       - name: Build and verify Home plugin distribution

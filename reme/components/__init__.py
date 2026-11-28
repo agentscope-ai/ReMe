@@ -10,8 +10,9 @@ from . import codex_app_server
 from .codex_app_server import BaseCodexAppServer, SdkCodexAppServer
 from . import as_embedding
 from . import embedding_store
-from . import agent_inbox
-from .agent_inbox import BaseAgentInbox, LocalAgentInbox, AgentEventInbox
+from . import proactive
+from .proactive import BaseInbox, EventInbox, NotificationInbox, BaseOutbox, ChatOutbox, NotificationOutbox
+from .proactive import BaseAgentRuntime, ChatAgentRuntime, ProactiveAgentRuntime, BaseAgentManager, LocalAgentManager
 from . import file_catalog
 from . import file_graph
 from . import file_chunker
@@ -19,27 +20,30 @@ from . import file_store
 from . import job
 from . import keyword_index
 from . import outbound_proxy
-from . import proactive_manager
-from .proactive_manager import BaseProactiveManager, LocalProactiveManager
 from . import service
 from . import tag_index
 from . import tokenizer
 from . import tts
 
 __all__ = [
+    "proactive",
+    "BaseInbox",
+    "EventInbox",
+    "NotificationInbox",
+    "BaseOutbox",
+    "ChatOutbox",
+    "NotificationOutbox",
+    "BaseAgentRuntime",
+    "ChatAgentRuntime",
+    "ProactiveAgentRuntime",
+    "BaseAgentManager",
+    "LocalAgentManager",
     "BaseCodexAppServer",
     "SdkCodexAppServer",
-    "BaseAgentInbox",
-    "LocalAgentInbox",
-    "AgentEventInbox",
-    "BaseProactiveManager",
-    "LocalProactiveManager",
     # base components
     "agent_wrapper",
-    "proactive_manager",
     "anthropic_relay",
     "codex_app_server",
-    "agent_inbox",
     "as_llm",
     "as_decision_model",
     "asr",

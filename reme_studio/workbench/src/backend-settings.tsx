@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
-  reasoningEfforts,
+  harnessEfforts,
   type BackendOperation,
   type BackendPatch,
   type BackendSettings,
@@ -9,6 +8,7 @@ import {
   type BackendValues,
   type NavigationGuard,
   type ReasoningEffort,
+  type Harness,
 } from "../../client/src/backend.ts";
 import { errorText, translator, type Language } from "../../client/src/i18n.ts";
 import {
@@ -16,8 +16,11 @@ import {
   needsBackendToken,
   useBackendRequest,
 } from "./backend-access.tsx";
-import { Switch } from "./ui.tsx";
+import TextField from "./backend-field.tsx";
+import SpeechServiceSettings from "./speech/service-settings.tsx";
 import "./backend-settings.css";
+
+export type BackendSettingsSection = "workspace" | "model" | "speech";
 
 const fields = [
   "workspace_dir",
@@ -34,50 +37,26 @@ const fields = [
   "tts_model",
   "tts_voice",
 ] as const;
-const speechFields = [
-  ["asr_model", "backendAsrModel"],
-  ["tts_model", "backendTtsModel"],
-  ["tts_voice", "backendTtsVoice"],
-] as const;
-
-function TextField({
-  label,
-  value,
-  onChange,
-  required = false,
-  hint,
-  type = "text",
-  configured = false,
-  language,
+function BackendSection({
+  section,
+  visible,
+  busy,
+  children,
 }: {
-  label: string;
-  value: string | null;
-  onChange: (value: string) => void;
-  required?: boolean;
-  hint?: string;
-  type?: string;
-  configured?: boolean;
-  language: Language;
+  section: BackendSettingsSection;
+  visible: boolean;
+  busy: boolean;
+  children: ReactNode;
 }) {
-  const t = translator(language);
   return (
-    <label className="backend-field">
-      <span>
-        {label}
-        <span className="backend-field-rule">
-          {t(required ? "backendRequired" : "backendOptional")}
-        </span>
-      </span>
-      <input
-        type={type}
-        value={value ?? ""}
-        required={required && !configured}
-        autoComplete={type === "password" ? "off" : undefined}
-        placeholder={configured ? t("backendKeySet") : undefined}
-        onChange={(event) => onChange(event.target.value)}
-      />
-      {hint && <span className="settings-note">{hint}</span>}
-    </label>
+    <fieldset
+      disabled={busy}
+      hidden={!visible}
+      className="backend-section"
+      data-settings-section={section}
+    >
+      {children}
+    </fieldset>
   );
 }
 
@@ -86,11 +65,17 @@ export default function BackendSettingsPanel({
   active,
   setup = false,
   registerGuard,
+  section = "workspace",
+  onSectionChange,
+  speechPreferences,
 }: {
   language: Language;
   active: boolean;
   setup?: boolean;
   registerGuard?: (guard: NavigationGuard | null) => void;
+  section?: BackendSettingsSection;
+  onSectionChange?: (section: BackendSettingsSection) => void;
+  speechPreferences?: (disabled: boolean) => ReactNode;
 }) {
   const t = translator(language);
   const { request, token } = useBackendRequest();
@@ -255,15 +240,24 @@ export default function BackendSettingsPanel({
     );
     setTested(false);
   };
+  const selectHarness = (harness: Harness) => {
+    setDraft((previous) =>
+      previous
+        ? {
+            ...previous,
+            harness,
+            effort:
+              previous.effort &&
+              harnessEfforts(harness).includes(previous.effort)
+                ? previous.effort
+                : null,
+          }
+        : previous,
+    );
+    setTested(false);
+  };
   const input = (
-    field:
-      | "workspace_dir"
-      | "base_url"
-      | "model"
-      | "speech_base_url"
-      | "asr_model"
-      | "tts_model"
-      | "tts_voice",
+    field: "workspace_dir" | "base_url" | "model",
     label: string,
     required: boolean,
     hint?: string,
@@ -280,86 +274,111 @@ export default function BackendSettingsPanel({
     />
   );
   const issue = error ?? loadError ?? config?.settings_error;
-  return (
-    <div className="backend-settings">
-      {issue != null && (
-        <p className="action-error" role="alert">
-          {errorText(issue, language)}
-        </p>
+  const readOnly =
+    !setup &&
+    config &&
+    ((section === "model" && !config.model_editable) ||
+      (section === "speech" && !config.dashscope_editable));
+  const serviceContent = (
+    <>
+      {readOnly && (
+        <p className="settings-note">{t("backendConfigReadOnly")}</p>
       )}
-      {needsBackendToken(loadError) ? (
-        <BackendUnlock language={language} />
-      ) : !config || !draft ? (
-        <p role="status">
-          {t(loadError ? "backendOffline" : "backendLoading")}
-        </p>
-      ) : (
-        <form
-          ref={form}
-          onSubmit={(event) => {
-            event.preventDefault();
-            void submit("apply");
-          }}
-        >
-          <p className="backend-status settings-note" role="status">
-            {t(
-              busy
-                ? "backendRestarting"
-                : status?.ready
-                  ? "backendReady"
-                  : status?.needs_setup
-                    ? "backendSetupNeeded"
-                    : "backendOffline",
-            )}
+      <div hidden={Boolean(readOnly)}>
+        {issue != null && (
+          <p className="action-error" role="alert">
+            {errorText(issue, language)}
           </p>
-          {status?.error && status.operation?.phase !== "failed" && (
-            <p className="action-error" role="alert">
-              {status.error}
-            </p>
-          )}
-          {status?.operation?.phase === "failed" && (
-            <p className="action-error" role="alert">
-              {status.operation.error}
-            </p>
-          )}
-          {stale && dirty && (
-            <p className="settings-note">
-              {t("backendSettingsChanged")}{" "}
-              <button
-                type="button"
-                className="subtle"
-                disabled={busy}
-                onClick={async () => {
-                  try {
-                    adopt(
-                      await request<BackendSettings>({
-                        type: "backend",
-                        action: "config",
-                      }),
-                    );
-                  } catch (reason) {
-                    setError(reason);
-                  }
-                }}
-              >
-                {t("backendReload")}
-              </button>
-            </p>
-          )}
-          <fieldset disabled={busy} className="backend-section">
-            <legend>{t("backendWorkspaceGroup")}</legend>
-            {input(
-              "workspace_dir",
-              t("backendWorkspace"),
-              true,
-              t("backendWorkspaceHint"),
+        )}
+        {needsBackendToken(loadError) ? (
+          <BackendUnlock language={language} />
+        ) : !config || !draft ? (
+          <p role="status">
+            {t(loadError ? "backendOffline" : "backendLoading")}
+          </p>
+        ) : (
+          <form
+            ref={form}
+            noValidate
+            onSubmit={(event) => {
+              event.preventDefault();
+              const invalid = form.current?.querySelector<
+                HTMLInputElement | HTMLSelectElement
+              >("input:invalid, select:invalid");
+              if (invalid) {
+                const targetSection = invalid.closest<HTMLElement>(
+                  "[data-settings-section]",
+                )?.dataset.settingsSection as
+                  BackendSettingsSection | undefined;
+                if (!setup && targetSection) onSectionChange?.(targetSection);
+                requestAnimationFrame(() => invalid.reportValidity());
+                return;
+              }
+              void submit("apply");
+            }}
+          >
+            {(busy || (!setup && (section !== "speech" || !status?.ready))) && (
+              <p className="backend-status settings-note" role="status">
+                {t(
+                  busy
+                    ? setup
+                      ? "backendPreparing"
+                      : "backendRestarting"
+                    : status?.ready
+                      ? "backendReady"
+                      : status?.needs_setup
+                        ? "backendSetupNeeded"
+                        : "backendOffline",
+                )}
+              </p>
             )}
-            {!setup && (
-              <details className="backend-advanced">
-                <summary>
-                  <span>{t("backendAdvanced")}</span>
-                  <ChevronDown size={16} aria-hidden />
-                </summary>
+            {status?.error && status.operation?.phase !== "failed" && (
+              <p className="action-error" role="alert">
+                {status.error}
+              </p>
+            )}
+            {status?.operation?.phase === "failed" && (
+              <p className="action-error" role="alert">
+                {status.operation.error}
+              </p>
+            )}
+            {stale && dirty && (
+              <p className="settings-note">
+                {t("backendSettingsChanged")}{" "}
+                <button
+                  type="button"
+                  className="subtle"
+                  disabled={busy}
+                  onClick={async () => {
+                    try {
+                      adopt(
+                        await request<BackendSettings>({
+                          type: "backend",
+                          action: "config",
+                        }),
+                      );
+                    } catch (reason) {
+                      setError(reason);
+                    }
+                  }}
+                >
+                  {t("backendReload")}
+                </button>
+              </p>
+            )}
+            <BackendSection
+              section="workspace"
+              visible={setup || section === "workspace"}
+              busy={busy}
+            >
+              <legend>{t("backendWorkspaceGroup")}</legend>
+              {input(
+                "workspace_dir",
+                t("backendWorkspace"),
+                true,
+                t("backendWorkspaceHint"),
+              )}
+              {!setup && (
                 <div className="backend-model-fields">
                   <TextField
                     label={t("backendTimezone")}
@@ -387,216 +406,188 @@ export default function BackendSettingsPanel({
                     </select>
                   </label>
                 </div>
-              </details>
-            )}
-          </fieldset>
-          {config.model_editable && (
-            <fieldset disabled={busy} className="backend-section">
-              <legend>{t("backendHarnessGroup")}</legend>
-              <label className="backend-field">
-                <span>
-                  {t("backendHarness")}
-                  <span className="backend-field-rule">
-                    {t("backendRequired")}
-                  </span>
-                </span>
-                <select
-                  value={draft.harness ?? "codex"}
-                  onChange={() => update("harness", "codex")}
-                >
-                  <option value="codex">Codex</option>
-                </select>
-                <span className="settings-note">{t("backendHarnessHint")}</span>
-              </label>
-              {input(
-                "base_url",
-                t("backendUrl"),
-                true,
-                t("backendUrlHint"),
-                "url",
               )}
-              <TextField
-                label={t("backendKey")}
-                value={key}
-                type="password"
-                required
-                configured={config.api_key_set}
-                language={language}
-                hint={
-                  config.api_key_set ? t("backendKeySet") : t("backendKeyHint")
-                }
-                onChange={(value) => {
-                  setKey(value);
-                  setTested(false);
-                }}
-              />
-              <div className="backend-model-fields">
-                {input("model", t("backendModel"), true)}
+            </BackendSection>
+            {config.model_editable && (
+              <BackendSection
+                section="model"
+                visible={setup || section === "model"}
+                busy={busy}
+              >
+                <legend>{t("backendHarnessGroup")}</legend>
                 <label className="backend-field">
                   <span>
-                    {t("backendEffort")}
+                    {t("backendHarness")}
                     <span className="backend-field-rule">
-                      {t("backendOptional")}
+                      {t("backendRequired")}
                     </span>
                   </span>
                   <select
-                    value={draft.effort ?? ""}
+                    value={draft.harness ?? "codex"}
                     onChange={(event) =>
-                      update(
-                        "effort",
-                        (event.target.value || null) as ReasoningEffort | null,
-                      )
+                      selectHarness(event.target.value as Harness)
                     }
                   >
-                    <option value="">{t("backendDefault")}</option>
-                    {reasoningEfforts.map((effort) => (
-                      <option key={effort}>{effort}</option>
+                    {config.available_harnesses.map((harness) => (
+                      <option key={harness} value={harness}>
+                        {harness === "claude_code" ? "Claude Code" : "Codex"}
+                      </option>
                     ))}
                   </select>
+                  <span className="settings-note">
+                    {t(
+                      draft.harness === "claude_code"
+                        ? "backendClaudeHint"
+                        : "backendHarnessHint",
+                    )}
+                  </span>
                 </label>
-              </div>
-            </fieldset>
-          )}
-          {(!setup || speechEnabled) && config.dashscope_editable && (
-            <fieldset disabled={busy} className="backend-section">
-              <legend>
-                {t("backendSpeechGroup")}
-                <span className="backend-field-rule">
-                  {t("backendOptional")}
-                </span>
-              </legend>
-              <p className="settings-note">{t("backendSpeechHint")}</p>
-              <div className="backend-toggles">
-                {(["asr", "tts"] as const).map(
-                  (kind) =>
-                    config[`${kind}_available`] && (
-                      <div className="backend-toggle-row" key={kind}>
-                        <span>
-                          {t(
-                            kind === "asr"
-                              ? "backendEnableAsr"
-                              : "backendEnableTts",
-                          )}
-                        </span>
-                        <Switch
-                          aria-label={t(
-                            kind === "asr"
-                              ? "backendEnableAsr"
-                              : "backendEnableTts",
-                          )}
-                          checked={draft[`${kind}_enabled`]}
-                          onCheckedChange={(value) =>
-                            update(`${kind}_enabled`, value)
-                          }
-                        />
-                      </div>
-                    ),
+                {input(
+                  "base_url",
+                  t("backendUrl"),
+                  true,
+                  t(
+                    draft.harness === "claude_code"
+                      ? "backendClaudeUrlHint"
+                      : "backendUrlHint",
+                  ),
+                  "url",
                 )}
-              </div>
-              {(speechEnabled ||
-                (!config.asr_available && !config.tts_available)) && (
-                <>
-                  <TextField
-                    label={t("backendDashscopeKey")}
-                    value={speechKey}
-                    type="password"
-                    required={speechEnabled}
-                    configured={config.dashscope_api_key_set}
-                    language={language}
-                    hint={
-                      config.dashscope_api_key_set
-                        ? t("backendKeySet")
-                        : t("backendSpeechKeyHint")
-                    }
-                    onChange={setSpeechKey}
-                  />
-                  {speechEnabled && (
-                    <>
-                      <button
-                        type="button"
-                        className="subtle backend-reset"
-                        onClick={() =>
-                          setDraft((previous) =>
-                            previous
-                              ? { ...previous, ...config.defaults }
-                              : previous,
-                          )
-                        }
-                      >
-                        {t("backendResetSpeech")}
-                      </button>
-                      {input(
-                        "speech_base_url",
-                        t("backendSpeechUrl"),
-                        true,
-                        t("backendSpeechUrlHint"),
-                        "url",
-                      )}
-                      <div className="backend-model-fields">
-                        {speechFields.map(
-                          ([field, label]) =>
-                            (field === "asr_model"
-                              ? draft.asr_enabled
-                              : draft.tts_enabled) && (
-                              <span key={field}>
-                                {input(field, t(label), true)}
-                              </span>
-                            ),
-                        )}
-                      </div>
-                    </>
-                  )}
-                </>
+                <TextField
+                  label={t("backendKey")}
+                  value={key}
+                  type="password"
+                  required
+                  configured={config.api_key_set}
+                  language={language}
+                  hint={config.api_key_set ? undefined : t("backendKeyHint")}
+                  onChange={(value) => {
+                    setKey(value);
+                    setTested(false);
+                  }}
+                />
+                <div className="backend-model-fields">
+                  {input("model", t("backendModel"), true)}
+                  <label className="backend-field">
+                    <span>
+                      {t("backendEffort")}
+                      <span className="backend-field-rule">
+                        {t("backendOptional")}
+                      </span>
+                    </span>
+                    <select
+                      value={draft.effort ?? ""}
+                      onChange={(event) =>
+                        update(
+                          "effort",
+                          (event.target.value ||
+                            null) as ReasoningEffort | null,
+                        )
+                      }
+                    >
+                      <option value="">{t("backendDefault")}</option>
+                      {harnessEfforts(draft.harness).map((effort) => (
+                        <option key={effort}>{effort}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              </BackendSection>
+            )}
+            {(!setup || speechEnabled) && config.dashscope_editable && (
+              <BackendSection
+                section="speech"
+                visible={setup || section === "speech"}
+                busy={busy}
+              >
+                <SpeechServiceSettings
+                  language={language}
+                  config={config}
+                  draft={draft}
+                  apiKey={speechKey}
+                  onKeyChange={setSpeechKey}
+                  onChange={update}
+                  onReset={() =>
+                    setDraft((previous) =>
+                      previous ? { ...previous, ...config.defaults } : previous,
+                    )
+                  }
+                />
+              </BackendSection>
+            )}
+            {tested && (
+              <p role="status" className="settings-note">
+                {t("backendTestPassed")}
+              </p>
+            )}
+            {patch.workspace_dir !== undefined && !setup && (
+              <p className="settings-note">{t("backendWorkspaceChange")}</p>
+            )}
+            {patch.harness !== undefined && !setup && (
+              <p className="settings-note">{t("backendHarnessChange")}</p>
+            )}
+            <p className="settings-note">
+              {t(
+                !setup && section === "speech"
+                  ? "speechApplyHint"
+                  : "backendStorageHint",
               )}
-            </fieldset>
-          )}
-          {tested && (
-            <p role="status" className="settings-note">
-              {t("backendTestPassed")}
             </p>
-          )}
-          {patch.workspace_dir !== undefined && !setup && (
-            <p className="settings-note">{t("backendWorkspaceChange")}</p>
-          )}
-          <p className="settings-note">{t("backendStorageHint")}</p>
-          <footer>
-            {config.model_editable && (
+            <footer>
+              {config.model_editable && (setup || section === "model") && (
+                <button
+                  type="button"
+                  className="subtle"
+                  disabled={
+                    busy ||
+                    !draft.base_url?.trim() ||
+                    !draft.model?.trim() ||
+                    !(key.trim() || config.api_key_set)
+                  }
+                  onClick={() => void submit("test_model")}
+                >
+                  {t("backendTest")}
+                </button>
+              )}
+              {!setup && section !== "speech" && (
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={busy || !complete}
+                  onClick={() => void submit("restart")}
+                >
+                  {t("backendRestart")}
+                </button>
+              )}
               <button
-                type="button"
-                className="subtle"
+                type="submit"
+                className="primary"
                 disabled={
-                  busy ||
-                  !draft.base_url?.trim() ||
-                  !draft.model?.trim() ||
-                  !(key.trim() || config.api_key_set)
+                  busy || stale || !complete || (!dirty && config.initialized)
                 }
-                onClick={() => void submit("test_model")}
               >
-                {t("backendTest")}
+                {t(
+                  setup
+                    ? "backendFinishSetup"
+                    : section === "speech"
+                      ? "speechApply"
+                      : "backendApply",
+                )}
               </button>
-            )}
-            {!setup && (
-              <button
-                type="button"
-                className="secondary"
-                disabled={busy || !complete}
-                onClick={() => void submit("restart")}
-              >
-                {t("backendRestart")}
-              </button>
-            )}
-            <button
-              type="submit"
-              className="primary"
-              disabled={
-                busy || stale || !complete || (!dirty && config.initialized)
-              }
-            >
-              {t(setup ? "backendFinishSetup" : "backendApply")}
-            </button>
-          </footer>
-        </form>
-      )}
+            </footer>
+          </form>
+        )}
+      </div>
+    </>
+  );
+  return (
+    <div
+      className="backend-settings"
+      data-setup={setup}
+      data-speech-page={!setup && section === "speech"}
+    >
+      {!setup && section === "speech" && speechPreferences?.(busy)}
+      {serviceContent}
       <dialog
         ref={dialog}
         className="backend-confirm"

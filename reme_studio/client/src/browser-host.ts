@@ -49,21 +49,15 @@ export class BrowserStorage implements ClientStorage {
   private readonly presentations = structuredClone(this.savedPresentations);
   private dirty = false;
 
-  constructor(private readonly fixedEndpoint?: string) {
+  constructor(defaultEndpoint?: string) {
     const saved = read<Partial<Settings>>(settingsKey, {});
     this.settings = {
       ...defaultSettings,
       ...saved,
-      endpoint: fixedEndpoint ?? saved.endpoint ?? defaultSettings.endpoint,
+      endpoint: saved.endpoint ?? defaultEndpoint ?? defaultSettings.endpoint,
       transparentBackground: false,
     };
-    this.savedPreferences = this.preferences();
-  }
-
-  private preferences(): Partial<Settings> {
-    const preferences: Partial<Settings> = { ...this.settings };
-    if (this.fixedEndpoint !== undefined) delete preferences.endpoint;
-    return preferences;
+    this.savedPreferences = { ...this.settings };
   }
 
   scope(endpoint: string, workspace: string): string {
@@ -90,7 +84,7 @@ export class BrowserStorage implements ClientStorage {
 
   private persist(): void {
     if (!this.dirty) return;
-    const preferences = this.preferences();
+    const preferences = { ...this.settings };
     const storedPreferences = read<Partial<Settings>>(settingsKey, {});
     if (applyChanges(storedPreferences, this.savedPreferences, preferences)) {
       localStorage.setItem(settingsKey, JSON.stringify(storedPreferences));
@@ -132,13 +126,13 @@ export class BrowserHost implements StudioApi {
 
   constructor(
     private readonly options: {
-      fixedEndpoint?: string;
+      defaultEndpoint?: string;
       fetchRequest?: typeof fetch;
       openExternal?: (url: string) => Promise<void>;
     } = {},
   ) {
     this.controller = new ClientController(
-      new BrowserStorage(options.fixedEndpoint),
+      new BrowserStorage(options.defaultEndpoint),
       (state) => {
         this.state = { ...state };
         for (const listener of this.listeners) listener();
@@ -280,7 +274,6 @@ export class BrowserHost implements StudioApi {
         return controller.speakMessage(action.messageId);
       case "settings.update": {
         const { type: _, ...update } = action;
-        if (this.options.fixedEndpoint !== undefined) delete update.endpoint;
         if (update.notifications && "Notification" in globalThis)
           update.notifications =
             (await Notification.requestPermission()) === "granted";

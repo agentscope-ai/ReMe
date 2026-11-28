@@ -4,16 +4,15 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncGenerator, AsyncIterator
-from contextlib import asynccontextmanager, nullcontext
+from contextlib import asynccontextmanager, nullcontext, suppress
 from dataclasses import dataclass
 from functools import partial
 import json
-import os
 from pathlib import Path
 from typing import Any, Literal, TYPE_CHECKING
 
 from ...constants import PROACTIVE_MESSAGE_ID_PREFIX
-from .base_agent_wrapper import BUILTIN_SKILLS_ROOT, BaseAgentWrapper
+from .base_agent_wrapper import BaseAgentWrapper
 from . import codex_session_history
 from .session_append import check_guard, check_identity, validate_append
 from ..codex_app_server._session_history import item_chunks
@@ -89,29 +88,6 @@ class CodexAgentWrapper(BaseAgentWrapper):
             raise TypeError(f"Configure Codex wrapper options on the component: {', '.join(invalid)}")
         return self._merged_kwargs(kwargs)
 
-    def _ensure_skills(self, skills: list[str] | str | None) -> None:
-        """Expose built-in skills at the working directory and link project skills as configured."""
-        sources = self._resolve_skill_sources(skills)
-        if not sources:
-            return
-
-        target_root = self.project_path / ".agents" / "skills"
-        cwd = self.cwd.resolve()
-        for name, source in sources.items():
-            if source.parent == BUILTIN_SKILLS_ROOT:
-                self._publish_builtin_skill(cwd, ".agents/skills", source)
-                continue
-            target_root.mkdir(parents=True, exist_ok=True)
-            target = target_root / name
-            if target.is_symlink():
-                if target.resolve() == source.resolve():
-                    continue
-                raise FileExistsError(f"Codex skill conflict: {target} points to {target.resolve(strict=False)}")
-            if target.exists():
-                raise FileExistsError(f"Codex skill conflict: {target} already exists and was preserved")
-            relative_source = os.path.relpath(source, target.parent)
-            target.symlink_to(relative_source, target_is_directory=True)
-
     @staticmethod
     def _enum(enum_cls: Any, value: Any, default: Any = None) -> Any:
         if value is None:
@@ -123,13 +99,16 @@ class CodexAgentWrapper(BaseAgentWrapper):
         from openai_codex.types import Personality, ThreadSource, ThreadStartSource
 
         config = dict(kwargs.get("config") or {})
+        base_instructions = (
+            kwargs["base_instructions"] if "base_instructions" in kwargs else self.get_base_instructions()
+        )
         if proxy_environment := self.command_proxy_environment:
             policy = dict(config.get("shell_environment_policy") or {})
             policy["set"] = {**policy.get("set", {}), **proxy_environment}
             config["shell_environment_policy"] = policy
         options = {
             "approval_mode": self._enum(ApprovalMode, kwargs.get("approval_mode"), ApprovalMode.deny_all),
-            "base_instructions": kwargs.get("base_instructions"),
+            "base_instructions": base_instructions,
             "config": config,
             "cwd": str(self.cwd),
             "developer_instructions": kwargs.get("system_prompt"),
@@ -176,8 +155,12 @@ class CodexAgentWrapper(BaseAgentWrapper):
             raise ValueError("fork_session=True requires resume or session_id")
         jobs = None if compact else self._resolve_job_tools(list(dict.fromkeys(kwargs.get("job_tools") or [])))
         BaseCodexAppServer.validate_job_tools(jobs)
-        self._ensure_skills(kwargs.get("skills"))
+        refresh_skills = False
+        if not compact and (skills := kwargs.get("_skills")) is not None:
+            refresh_skills = skills.publish(self.cwd.resolve() / ".agents" / "skills")
         await self.start()
+        if refresh_skills:
+            await self.app_server.refresh_skills(self.cwd.resolve())
         self._active += 1
         self._idle.clear()
         try:
@@ -274,10 +257,19 @@ class CodexAgentWrapper(BaseAgentWrapper):
             raw=self._serialize(result),
         )
 
-    async def create_session(self, **kwargs) -> str:
+    async def _create_session(self, **kwargs) -> str:
         """Start an empty thread with the same instructions and tools as its future turns."""
-        async with self._session(self._reply_kwargs(kwargs), keep_empty=True) as thread:
-            return thread.id
+        options = self._reply_kwargs(kwargs)
+        created = options.get("fork_session") or not (options.get("resume") or options.get("session_id"))
+        thread = None
+        try:
+            async with self._session(options, keep_empty=True) as thread:
+                return thread.id
+        except BaseException:
+            if created and thread is not None:
+                with suppress(Exception, asyncio.CancelledError):
+                    await finish_cleanup(self.release_session(thread.id))
+            raise
 
     async def release_session(self, session_id: str) -> None:
         """Release a superseded empty thread; regular turns already release their leases."""
@@ -643,7 +635,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
             ),
         ]
 
-    async def reply_stream(self, inputs: RunInput, **kwargs) -> AsyncGenerator[StreamChunk, None]:
+    async def _reply_stream(self, inputs: RunInput, **kwargs) -> AsyncGenerator[StreamChunk, None]:
         """Execute once, retaining every notification and a complete terminal outcome."""
         kwargs = self._reply_kwargs(kwargs)
         output_schema = kwargs.get("output_schema")

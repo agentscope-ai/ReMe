@@ -41,6 +41,14 @@ test("the companion receives final text without tool details or full history", (
   };
   const state = {
     clientInfo,
+    proactive: {
+      overview: null,
+      actions: [],
+      sequence: 1,
+      live: true,
+      asOf: null,
+      error: null,
+    },
     agents: [],
     sessionId: "session",
     messages: [message],
@@ -54,6 +62,8 @@ test("the companion receives final text without tool details or full history", (
   const companion = viewState(state, true);
   assert.deepEqual(companion.messages, []);
   assert.equal(companion.clientInfo, null);
+  assert.equal(companion.proactive, undefined);
+  assert.equal(viewState(state, false).proactive, state.proactive);
   assert.equal(companion.surface?.kind, "message");
   if (companion.surface?.kind === "message") {
     assert.equal(companion.surface.message.content, "Done");
